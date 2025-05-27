@@ -1,3 +1,5 @@
+use billiards::*;
+
 fn main() {
     let table_spec = TableSpec::new_9ft_brunswick_gc4();
 

@@ -4,6 +4,7 @@ use crate::{BallType, Position};
 use bigdecimal::{BigDecimal, ToPrimitive};
 
 /// All of our ball sprites.
+#[allow(unused)]
 pub const BALL_IMGS: [&[u8]; 10] = [
     include_bytes!("assets/ball_cue.png"),
     include_bytes!("assets/ball_1.png"),
@@ -18,9 +19,11 @@ pub const BALL_IMGS: [&[u8]; 10] = [
 ];
 
 /// This image is 1089 × 1938 pixels.
+#[allow(unused)]
 pub const TABLE_DIAGRAM: &[u8] = include_bytes!("assets/table_diagram.png");
 
 /// Retrieve the sprite for a given ball.
+#[allow(unused)]
 pub fn ball_img(ball: BallType) -> Vec<u8> {
     match ball {
         BallType::Cue => BALL_IMGS[0].to_vec(),
@@ -38,6 +41,7 @@ pub fn ball_img(ball: BallType) -> Vec<u8> {
 
 /// Maps a diamond-grid position (x∈0‥4, y∈0‥8) to fractional coordinates inside
 /// the playing surface of the pool table. This is useful to do pixel math.
+#[allow(unused)]
 pub fn diamond_to_frac(pos: &Position) -> (f32, f32) {
     (
         (pos.x.magnitude.clone() / BigDecimal::from_str("4").unwrap())

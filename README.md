@@ -10,7 +10,7 @@ For example, this diagram was created with the following code.
 
 ``` rust
     let mut game_state = GameState {
-        table_spec: TableSpec::new_9ft_brunswick_gc4(),
+        table_spec: TableSpec::brunswick_gc4_9ft(),
         ball_positions: vec![
             Ball {
                 ty: BallType::Cue,

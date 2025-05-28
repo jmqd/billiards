@@ -11,6 +11,7 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use bigdecimal::FromPrimitive;
+use bigdecimal::ToPrimitive;
 
 lazy_static! {
     pub static ref DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
@@ -100,6 +101,20 @@ pub struct Displacement {
 
     /// The delta y component of the displacement.
     pub dy: Diamond,
+}
+
+impl Displacement {
+    pub fn absolute_distance(&self) -> Diamond {
+        let dx = self.dx.magnitude.to_f64().unwrap();
+        let dy = self.dy.magnitude.to_f64().unwrap();
+
+        // dx² + dy² = dist²
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        Diamond {
+            magnitude: bigdecimal::BigDecimal::from_f64(dist).unwrap(),
+        }
+    }
 }
 
 impl Sub for Diamond {
@@ -294,6 +309,11 @@ impl Ball {
     /// Calculates the displacement between two balls. (Distance w/ direction.)
     pub fn displacement(&self, to: &Self) -> Displacement {
         self.position.displacement(&to.position)
+    }
+
+    /// Calculates the absolute distance between two balls.
+    pub fn distance(&self, to: &Self) -> Diamond {
+        self.displacement(to).absolute_distance()
     }
 }
 

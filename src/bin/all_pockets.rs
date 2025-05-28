@@ -44,6 +44,22 @@ fn main() {
                 },
                 spec: BallSpec::default(),
             },
+            Ball {
+                ty: BallType::Eight,
+                position: Position {
+                    x: Diamond::from(0),
+                    y: Diamond::from(2),
+                },
+                spec: BallSpec::default(),
+            },
+            Ball {
+                ty: BallType::Eight,
+                position: Position {
+                    x: Diamond::from(3),
+                    y: Diamond::from(0),
+                },
+                spec: BallSpec::default(),
+            },
         ],
         ty: GameType::NineBall,
         cueball_modifier: CueballModifier::AsItLays,

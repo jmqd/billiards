@@ -1,6 +1,7 @@
 mod assets;
 
-use crate::assets::diamond_to_frac;
+use crate::assets::diamond_to_pixel;
+use assets::ideal_ball_size_px;
 use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
 use std::fs::File;
@@ -15,7 +16,7 @@ use bigdecimal::ToPrimitive;
 
 lazy_static! {
     pub static ref DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
-        magnitude: BigDecimal::from_str("3.3").unwrap()
+        magnitude: BigDecimal::from_str("3.21").unwrap()
     };
     pub static ref OFFICIAL_DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
         magnitude: BigDecimal::from_str("3.6875").unwrap()
@@ -510,6 +511,8 @@ impl GameState {
         use image::imageops::overlay;
         use image::{ImageEncoder, ImageFormat, RgbaImage};
 
+        let ball_radius_px = ideal_ball_size_px();
+
         let mut table: RgbaImage =
             image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
                 .expect("broken table asset")
@@ -523,22 +526,18 @@ impl GameState {
                 image::load_from_memory_with_format(&ball_png, ImageFormat::Png)
                     .expect("bad ball image")
                     .into_rgba8();
-            const BALL_SIZE: u32 = 44;
-            ball_img = resize(&ball_img, BALL_SIZE, BALL_SIZE, FilterType::CatmullRom);
+            ball_img = resize(&ball_img, ball_radius_px, ball_radius_px, FilterType::CatmullRom);
             let (bw, bh) = ball_img.dimensions();
 
             // Compute where the ball's *centre* should go
-            let (fx, fy) = diamond_to_frac(&ball.position);
-            let x_epsilon = (fx * 11.0) as i32;
-            let px = (fx * (tw - 48 * 2) as f32) as i32 + 48 - x_epsilon;
-            let py = (fy * (th - 48 * 2) as f32) as i32 + 48;
+            let (px, py) = diamond_to_pixel(&ball.position);
 
             // Compute where to begin drawing the ball.
             // We have to account for the width and height of the ball.
             // Overlaying a png starts drawing at the top-left corner of the
             // ball, so we need to start drawing at px - bw/2, py - bh/2
-            let mut px_shifted = px - (BALL_SIZE as i32 / 2);
-            let mut py_shifted = py - (BALL_SIZE as i32 / 2);
+            let mut px_shifted = px - (bw as i32 / 2) - 8;
+            let mut py_shifted = py - (bh as i32 / 2) + 7;
 
             // Prevent any out of bounds weirdness (shouldn't happen).
             px_shifted = px_shifted.clamp(0, (tw - bw / 2) as i32);

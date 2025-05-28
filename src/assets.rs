@@ -3,6 +3,19 @@ use std::str::FromStr;
 use crate::{BallType, Position};
 use bigdecimal::{BigDecimal, ToPrimitive};
 
+const TOPMOST: f32 = 42.;
+const RIGHTMOST: f32 = 1040.;
+const BOTTOMMOST: f32 = 1884.;
+const LEFTMOST: f32 = 56.;
+const BALL_TO_DIAMOND: f32 = 2.25 / 12.5;
+
+pub fn ideal_ball_size_px() -> u32 {
+    let px_diam_x = (RIGHTMOST - LEFTMOST) / 4.0;
+    let px_diam_y = (BOTTOMMOST - TOPMOST) / 8.0;
+    let px_ball   = px_diam_x.min(px_diam_y) * BALL_TO_DIAMOND;
+    px_ball.round() as u32
+}
+
 /// All of our ball sprites.
 #[allow(unused)]
 pub const BALL_IMGS: [&[u8]; 10] = [
@@ -42,14 +55,12 @@ pub fn ball_img(ball: BallType) -> Vec<u8> {
 /// Maps a diamond-grid position (x∈0‥4, y∈0‥8) to fractional coordinates inside
 /// the playing surface of the pool table. This is useful to do pixel math.
 #[allow(unused)]
-pub fn diamond_to_frac(pos: &Position) -> (f32, f32) {
-    (
-        (pos.x.magnitude.clone() / BigDecimal::from_str("4").unwrap())
-            .to_f32()
-            .unwrap(),
-        (BigDecimal::from_str("1").unwrap()
-            - pos.y.magnitude.clone() / BigDecimal::from_str("8").unwrap())
-        .to_f32()
-        .unwrap(),
-    )
+pub fn diamond_to_pixel(pos: &Position) -> (i32, i32) {
+    let x_px = LEFTMOST
+        + (pos.x.magnitude.to_f32().unwrap() / 4.0) * (RIGHTMOST - LEFTMOST);
+
+    let y_px = BOTTOMMOST
+        - (pos.y.magnitude.to_f32().unwrap() / 8.0) * (BOTTOMMOST - TOPMOST);
+
+    (x_px.round() as i32, y_px.round() as i32)
 }

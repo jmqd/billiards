@@ -147,19 +147,12 @@ pub struct Inches {
 ///   - The rack spot is the point (2, 2).
 ///   - The center of the table is the point (2, 4).
 ///   - The kitchen is the rectangle from (0, 8) <-> (4, 6).
+#[derive(Default)]
 pub struct Position {
     pub x: Diamond,
     pub y: Diamond,
 }
 
-impl Default for Position {
-    fn default() -> Self {
-        Self {
-            x: Default::default(),
-            y: Default::default(),
-        }
-    }
-}
 
 impl Position {
     /// Calculates the displacement from this position to another.
@@ -481,7 +474,6 @@ impl GameState {
         self.ball_positions
             .iter()
             .find(|b| b.ty == ball_type)
-            .take()
     }
 
     pub fn freeze_to_rail(&mut self, rail: Rail, diamond: Diamond, mut ball: Ball) {

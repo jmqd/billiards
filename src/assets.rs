@@ -1,4 +1,3 @@
-
 use crate::{BallType, Position};
 use bigdecimal::ToPrimitive;
 

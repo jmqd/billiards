@@ -487,7 +487,6 @@ pub struct GameState {
     pub cueball_modifier: CueballModifier,
 }
 
-
 impl GameState {
     // TODO: We're assuming for now all BallTypes are unique. This may change.
     pub fn select_ball(&self, ball_type: BallType) -> Option<&Ball> {

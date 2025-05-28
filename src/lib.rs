@@ -282,7 +282,7 @@ impl TableSpec {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 /// A type of ball, for example, Cue ball, the eight ball, etc.
 pub enum BallType {
     One,
@@ -346,6 +346,11 @@ pub struct GameState {
 }
 
 impl GameState {
+    // TODO: We're assuming for now all BallTypes are unique. This may change.
+    pub fn select_ball(&self, ball_type: BallType) -> Option<&Ball> {
+        self.ball_positions.iter().find(|b| b.ty == ball_type).take()
+    }
+
     /// Draws a 2D diagram of the current GameState, placing the balls in the
     /// appropriate positions on the diagram.
     pub fn draw_2d_diagram(&self) -> Vec<u8> {

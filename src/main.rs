@@ -1,11 +1,11 @@
-use billiards::*;
 use bigdecimal::ToPrimitive;
+use billiards::*;
 
 mod assets;
 
 fn main() {
     let table_spec = TableSpec::new_9ft_brunswick_gc4();
-    let game_state = GameState {
+    let mut game_state = GameState {
         table_spec: table_spec.clone(),
         ball_positions: vec![
             Ball {
@@ -15,6 +15,7 @@ fn main() {
             },
             Ball {
                 ty: BallType::Nine,
+                // TODO: Encode these positions as "hangers" in Position impl.
                 position: Position {
                     x: Diamond::from("3.65"),
                     y: Diamond::from("7.625"),
@@ -25,6 +26,16 @@ fn main() {
         ty: GameType::NineBall,
         cueball_modifier: CueballModifier::AsItLays,
     };
+
+    game_state.freeze_to_rail(
+        Rail::Left,
+        Diamond::six(),
+        Ball {
+            ty: BallType::Eight,
+            position: Position::default(),
+            spec: BallSpec::default(),
+        },
+    );
 
     let cueball = game_state.select_ball(BallType::Cue).unwrap();
     let nine_ball = game_state.select_ball(BallType::Nine).unwrap();

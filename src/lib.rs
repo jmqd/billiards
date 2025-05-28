@@ -15,6 +15,9 @@ use bigdecimal::ToPrimitive;
 
 lazy_static! {
     pub static ref DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
+        magnitude: BigDecimal::from_str("3.3").unwrap()
+    };
+    pub static ref OFFICIAL_DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
         magnitude: BigDecimal::from_str("3.6875").unwrap()
     };
     pub static ref GC4_POCKET_DEPTH: Inches = Inches {
@@ -67,6 +70,68 @@ pub struct Diamond {
     pub magnitude: BigDecimal,
 }
 
+impl Diamond {
+    pub fn zero() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(0).unwrap(),
+        }
+    }
+
+    pub fn one() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(1).unwrap(),
+        }
+    }
+
+    pub fn two() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(2).unwrap(),
+        }
+    }
+
+    pub fn three() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(3).unwrap(),
+        }
+    }
+
+    pub fn four() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(4).unwrap(),
+        }
+    }
+
+    pub fn five() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(5).unwrap(),
+        }
+    }
+
+    pub fn six() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(6).unwrap(),
+        }
+    }
+
+    pub fn seven() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(7).unwrap(),
+        }
+    }
+
+    pub fn eight() -> Self {
+        Diamond {
+            magnitude: BigDecimal::from_usize(8).unwrap(),
+        }
+    }
+}
+
+impl Default for Diamond {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 /// Our representation for converting to inches.
 pub struct Inches {
@@ -75,16 +140,25 @@ pub struct Inches {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 /// A point on the table, interepreted as follows:
-///     - Top-down view of the table, headstring at the top and rack spot at the bottom.
-///     - The diamond that would exist at the bottom-left pocket is x=0, y=0.
-///     - The diamond that would exist at the top-right pocket is x=4, y=8.
-///     - The headstring is the imaginary line from (0, 6) <-> (4, 6).
-///     - The rack spot is the point (2, 2).
-///     - The center of the table is the point (2, 4).
-///     - The kitchen is the rectangle from (0, 8) <-> (4, 6).
+///   - Top-down view of the table, headstring at the top and rack spot at the bottom.
+///   - The diamond that would exist at the bottom-left pocket is x=0, y=0.
+///   - The diamond that would exist at the top-right pocket is x=4, y=8.
+///   - The headstring is the imaginary line from (0, 6) <-> (4, 6).
+///   - The rack spot is the point (2, 2).
+///   - The center of the table is the point (2, 4).
+///   - The kitchen is the rectangle from (0, 8) <-> (4, 6).
 pub struct Position {
     pub x: Diamond,
     pub y: Diamond,
+}
+
+impl Default for Position {
+    fn default() -> Self {
+        Self {
+            x: Default::default(),
+            y: Default::default(),
+        }
+    }
 }
 
 impl Position {
@@ -92,7 +166,19 @@ impl Position {
     pub fn displacement(&self, to: &Self) -> Displacement {
         Displacement {
             dx: to.x.clone() - self.x.clone(),
-            dy: to.y.clone() - self.y.clone()
+            dy: to.y.clone() - self.y.clone(),
+        }
+    }
+
+    pub fn merge_unset_component(mut self, diamond: Diamond) -> Self {
+        if self.x == Diamond::zero() {
+            self.x = diamond;
+            self
+        } else if self.y == Diamond::zero() {
+            self.y = diamond;
+            self
+        } else {
+            unreachable!();
         }
     }
 }
@@ -341,11 +427,43 @@ pub enum CueballModifier {
 }
 
 /// The rails on a pool table.
+#[derive(Debug, Clone)]
 pub enum Rail {
     Top,
     Bottom,
     Left,
-    Right
+    Right,
+}
+
+impl Rail {
+    pub fn rail_origin(&self, table_spec: &TableSpec) -> Position {
+        match *self {
+            Rail::Top => Position {
+                x: Diamond::zero(),
+                y: Diamond::eight() - table_spec.cushion_diamond_buffer.clone(),
+            },
+            Rail::Right => Position {
+                x: Diamond::four() - table_spec.cushion_diamond_buffer.clone(),
+                y: Diamond::zero(),
+            },
+            Rail::Bottom => Position {
+                x: Diamond::zero(),
+                y: Diamond::zero() + table_spec.cushion_diamond_buffer.clone(),
+            },
+            Rail::Left => Position {
+                x: Diamond::zero() + table_spec.cushion_diamond_buffer.clone(),
+                y: Diamond::zero(),
+            },
+        }
+    }
+
+    pub fn is_vertical(&self) -> bool {
+        matches!(*self, Rail::Left | Rail::Right)
+    }
+
+    pub fn is_horizontal(&self) -> bool {
+        matches!(*self, Rail::Top | Rail::Bottom)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -360,10 +478,37 @@ pub struct GameState {
 impl GameState {
     // TODO: We're assuming for now all BallTypes are unique. This may change.
     pub fn select_ball(&self, ball_type: BallType) -> Option<&Ball> {
-        self.ball_positions.iter().find(|b| b.ty == ball_type).take()
+        self.ball_positions
+            .iter()
+            .find(|b| b.ty == ball_type)
+            .take()
     }
 
-    pub fn freeze_to_rail(rail: Rail, distance: Diamond, ball: Ball) {
+    pub fn freeze_to_rail(&mut self, rail: Rail, diamond: Diamond, mut ball: Ball) {
+        ball.position = rail
+            .rail_origin(&self.table_spec)
+            .merge_unset_component(diamond);
+
+        match rail {
+            Rail::Top => {
+                ball.position.y =
+                    ball.position.y - self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+            }
+            Rail::Right => {
+                ball.position.x =
+                    ball.position.x - self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+            }
+            Rail::Bottom => {
+                ball.position.y =
+                    ball.position.y + self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+            }
+            Rail::Left => {
+                ball.position.x =
+                    ball.position.x + self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+            }
+        };
+
+        self.ball_positions.push(ball);
     }
 
     /// Draws a 2D diagram of the current GameState, placing the balls in the

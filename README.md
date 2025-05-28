@@ -9,9 +9,8 @@ For example, this diagram was created with the following code.
 <img src="./img/nine-ball-example-hanger.png" alt="Diagram of a game of Nine Ball." style="width:50%"/>
 
 ``` rust
-    let table_spec = TableSpec::new_9ft_brunswick_gc4();
     let mut game_state = GameState {
-        table_spec: table_spec.clone(),
+        table_spec: TableSpec::new_9ft_brunswick_gc4(),
         ball_positions: vec![
             Ball {
                 ty: BallType::Cue,
@@ -20,6 +19,7 @@ For example, this diagram was created with the following code.
             },
             Ball {
                 ty: BallType::Nine,
+                // TODO: Encode these positions as "hangers" in Position impl.
                 position: Position {
                     x: Diamond::from("3.65"),
                     y: Diamond::from("7.625"),
@@ -27,8 +27,7 @@ For example, this diagram was created with the following code.
                 spec: BallSpec::default(),
             },
         ],
-        ty: GameType::NineBall,
-        cueball_modifier: CueballModifier::AsItLays,
+        ..Default::default()
     };
 
     game_state.freeze_to_rail(

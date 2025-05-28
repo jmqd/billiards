@@ -4,9 +4,8 @@ use billiards::*;
 mod assets;
 
 fn main() {
-    let table_spec = TableSpec::new_9ft_brunswick_gc4();
     let mut game_state = GameState {
-        table_spec: table_spec.clone(),
+        table_spec: TableSpec::new_9ft_brunswick_gc4(),
         ball_positions: vec![
             Ball {
                 ty: BallType::Cue,
@@ -23,8 +22,7 @@ fn main() {
                 spec: BallSpec::default(),
             },
         ],
-        ty: GameType::NineBall,
-        cueball_modifier: CueballModifier::AsItLays,
+        ..Default::default()
     };
 
     game_state.freeze_to_rail(

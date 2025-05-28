@@ -154,7 +154,6 @@ pub struct Position {
     pub y: Diamond,
 }
 
-
 impl Position {
     /// Calculates the displacement from this position to another.
     pub fn displacement(&self, to: &Self) -> Displacement {
@@ -281,6 +280,12 @@ pub struct TableSpec {
     pub pockets: [PocketSpec; 6],
     pub cushion_diamond_buffer: Diamond,
     pub diamond_length: Inches,
+}
+
+impl Default for TableSpec {
+    fn default() -> Self {
+        Self::new_9ft_brunswick_gc4()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -411,6 +416,12 @@ pub enum GameType {
     Banks,
 }
 
+impl Default for GameType {
+    fn default() -> Self {
+        Self::NineBall
+    }
+}
+
 #[derive(Clone, Debug)]
 /// A modifier being applied to the Cueball, for example ball in hand.
 pub enum CueballModifier {
@@ -418,6 +429,12 @@ pub enum CueballModifier {
     BreakPlacement,
     BallInHand,
     KitchenPlacement,
+}
+
+impl Default for CueballModifier {
+    fn default() -> Self {
+        Self::AsItLays
+    }
 }
 
 /// The rails on a pool table.
@@ -462,6 +479,7 @@ impl Rail {
 
 #[derive(Clone, Debug)]
 /// The full and compelete data structure to describe the state of a game.
+#[derive(Default)]
 pub struct GameState {
     pub table_spec: TableSpec,
     pub ball_positions: Vec<Ball>,
@@ -469,12 +487,11 @@ pub struct GameState {
     pub cueball_modifier: CueballModifier,
 }
 
+
 impl GameState {
     // TODO: We're assuming for now all BallTypes are unique. This may change.
     pub fn select_ball(&self, ball_type: BallType) -> Option<&Ball> {
-        self.ball_positions
-            .iter()
-            .find(|b| b.ty == ball_type)
+        self.ball_positions.iter().find(|b| b.ty == ball_type)
     }
 
     pub fn freeze_to_rail(&mut self, rail: Rail, diamond: Diamond, mut ball: Ball) {
@@ -526,7 +543,12 @@ impl GameState {
                 image::load_from_memory_with_format(&ball_png, ImageFormat::Png)
                     .expect("bad ball image")
                     .into_rgba8();
-            ball_img = resize(&ball_img, ball_radius_px, ball_radius_px, FilterType::CatmullRom);
+            ball_img = resize(
+                &ball_img,
+                ball_radius_px,
+                ball_radius_px,
+                FilterType::CatmullRom,
+            );
             let (bw, bh) = ball_img.dimensions();
 
             // Compute where the ball's *centre* should go

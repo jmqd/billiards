@@ -1,7 +1,6 @@
-use std::str::FromStr;
 
 use crate::{BallType, Position};
-use bigdecimal::{BigDecimal, ToPrimitive};
+use bigdecimal::ToPrimitive;
 
 const TOPMOST: f32 = 42.;
 const RIGHTMOST: f32 = 1040.;
@@ -12,7 +11,7 @@ const BALL_TO_DIAMOND: f32 = 2.25 / 12.5;
 pub fn ideal_ball_size_px() -> u32 {
     let px_diam_x = (RIGHTMOST - LEFTMOST) / 4.0;
     let px_diam_y = (BOTTOMMOST - TOPMOST) / 8.0;
-    let px_ball   = px_diam_x.min(px_diam_y) * BALL_TO_DIAMOND;
+    let px_ball = px_diam_x.min(px_diam_y) * BALL_TO_DIAMOND;
     px_ball.round() as u32
 }
 
@@ -56,11 +55,9 @@ pub fn ball_img(ball: BallType) -> Vec<u8> {
 /// the playing surface of the pool table. This is useful to do pixel math.
 #[allow(unused)]
 pub fn diamond_to_pixel(pos: &Position) -> (i32, i32) {
-    let x_px = LEFTMOST
-        + (pos.x.magnitude.to_f32().unwrap() / 4.0) * (RIGHTMOST - LEFTMOST);
+    let x_px = LEFTMOST + (pos.x.magnitude.to_f32().unwrap() / 4.0) * (RIGHTMOST - LEFTMOST);
 
-    let y_px = BOTTOMMOST
-        - (pos.y.magnitude.to_f32().unwrap() / 8.0) * (BOTTOMMOST - TOPMOST);
+    let y_px = BOTTOMMOST - (pos.y.magnitude.to_f32().unwrap() / 8.0) * (BOTTOMMOST - TOPMOST);
 
     (x_px.round() as i32, y_px.round() as i32)
 }

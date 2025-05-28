@@ -5,7 +5,7 @@ use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Write;
-use std::ops::{Add, Div, Mul};
+use std::ops::{Add, Div, Mul, Sub};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -83,11 +83,40 @@ pub struct Position {
     pub y: Diamond,
 }
 
-impl Add for Inches {
-    type Output = Inches;
+impl Position {
+    /// Calculates the displacement from this position to another.
+    pub fn displacement(&self, to: &Self) -> Displacement {
+        Displacement {
+            dx: to.x.clone() - self.x.clone(),
+            dy: to.y.clone() - self.y.clone()
+        }
+    }
+}
 
-    fn add(self, rhs: Inches) -> Self::Output {
-        Inches {
+/// A displacement indicating a direction and distance.
+pub struct Displacement {
+    /// The delta x component of the displacement.
+    pub dx: Diamond,
+
+    /// The delta y component of the displacement.
+    pub dy: Diamond,
+}
+
+impl Sub for Diamond {
+    type Output = Diamond;
+
+    fn sub(self, rhs: Diamond) -> Self::Output {
+        Self {
+            magnitude: self.magnitude - rhs.magnitude,
+        }
+    }
+}
+
+impl Add for Diamond {
+    type Output = Diamond;
+
+    fn add(self, rhs: Diamond) -> Self::Output {
+        Self {
             magnitude: self.magnitude + rhs.magnitude,
         }
     }
@@ -259,6 +288,13 @@ pub struct Ball {
     pub ty: BallType,
     pub position: Position,
     pub spec: BallSpec,
+}
+
+impl Ball {
+    /// Calculates the displacement between two balls. (Distance w/ direction.)
+    pub fn displacement(&self, to: &Self) -> Displacement {
+        self.position.displacement(&to.position)
+    }
 }
 
 #[derive(Clone, Debug)]

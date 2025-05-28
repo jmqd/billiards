@@ -95,6 +95,7 @@ impl Position {
 }
 
 /// A displacement indicating a direction and distance.
+#[derive(Clone, Debug)]
 pub struct Displacement {
     /// The delta x component of the displacement.
     pub dx: Diamond,

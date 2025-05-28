@@ -8,32 +8,32 @@ fn main() {
         ball_positions: vec![
             Ball {
                 ty: BallType::Cue,
-                position: CENTER_OF_TOP_RIGHT_POCKET.clone(),
+                position: TOP_RIGHT_DIAMOND.clone(),
                 spec: BallSpec::default(),
             },
             Ball {
                 ty: BallType::Cue,
-                position: CENTER_OF_RIGHT_POCKET.clone(),
+                position: SIDE_RIGHT_DIAMOND.clone(),
                 spec: BallSpec::default(),
             },
             Ball {
                 ty: BallType::Cue,
-                position: CENTER_OF_BOTTOM_RIGHT_POCKET.clone(),
+                position: BOTTOM_RIGHT_DIAMOND.clone(),
                 spec: BallSpec::default(),
             },
             Ball {
                 ty: BallType::Cue,
-                position: CENTER_OF_BOTTOM_LEFT_POCKET.clone(),
+                position: BOTTOM_LEFT_DIAMOND.clone(),
                 spec: BallSpec::default(),
             },
             Ball {
                 ty: BallType::Cue,
-                position: CENTER_OF_LEFT_POCKET.clone(),
+                position: SIDE_LEFT_DIAMOND.clone(),
                 spec: BallSpec::default(),
             },
             Ball {
                 ty: BallType::Cue,
-                position: CENTER_OF_TOP_LEFT_POCKET.clone(),
+                position: TOP_LEFT_DIAMOND.clone(),
                 spec: BallSpec::default(),
             },
             Ball {

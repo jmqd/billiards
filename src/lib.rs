@@ -29,27 +29,27 @@ lazy_static! {
         x: Diamond::from("2"),
         y: Diamond::from("4")
     };
-    pub static ref CENTER_OF_TOP_RIGHT_POCKET: Position = Position {
+    pub static ref TOP_RIGHT_DIAMOND: Position = Position {
         x: Diamond::from("4"),
         y: Diamond::from("8")
     };
-    pub static ref CENTER_OF_RIGHT_POCKET: Position = Position {
+    pub static ref SIDE_RIGHT_DIAMOND: Position = Position {
         x: Diamond::from("4"),
         y: Diamond::from("4")
     };
-    pub static ref CENTER_OF_BOTTOM_RIGHT_POCKET: Position = Position {
+    pub static ref BOTTOM_RIGHT_DIAMOND: Position = Position {
         x: Diamond::from("4"),
         y: Diamond::from("0")
     };
-    pub static ref CENTER_OF_BOTTOM_LEFT_POCKET: Position = Position {
+    pub static ref BOTTOM_LEFT_DIAMOND: Position = Position {
         x: Diamond::from("0"),
         y: Diamond::from("0")
     };
-    pub static ref CENTER_OF_LEFT_POCKET: Position = Position {
+    pub static ref SIDE_LEFT_DIAMOND: Position = Position {
         x: Diamond::from("0"),
         y: Diamond::from("4")
     };
-    pub static ref CENTER_OF_TOP_LEFT_POCKET: Position = Position {
+    pub static ref TOP_LEFT_DIAMOND: Position = Position {
         x: Diamond::from("0"),
         y: Diamond::from("8")
     };

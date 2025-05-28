@@ -10,7 +10,7 @@ For example, this diagram was created with the following code.
 
 ``` rust
     let table_spec = TableSpec::new_9ft_brunswick_gc4();
-    let game_state = GameState {
+    let mut game_state = GameState {
         table_spec: table_spec.clone(),
         ball_positions: vec![
             Ball {
@@ -30,6 +30,16 @@ For example, this diagram was created with the following code.
         ty: GameType::NineBall,
         cueball_modifier: CueballModifier::AsItLays,
     };
+
+    game_state.freeze_to_rail(
+        Rail::Left,
+        Diamond::six(),
+        Ball {
+            ty: BallType::Eight,
+            position: Position::default(),
+            spec: BallSpec::default(),
+        },
+    );
 
     let img = game_state.draw_2d_diagram();
     write_png_to_file(&img, None);

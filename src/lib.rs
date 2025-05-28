@@ -284,7 +284,7 @@ pub struct TableSpec {
 
 impl Default for TableSpec {
     fn default() -> Self {
-        Self::new_9ft_brunswick_gc4()
+        Self::brunswick_gc4_9ft()
     }
 }
 
@@ -306,7 +306,7 @@ impl Default for BallSpec {
 
 impl TableSpec {
     /// A typical 9ft Brunswick Gold Crown IV specification.
-    pub fn new_9ft_brunswick_gc4() -> Self {
+    pub fn brunswick_gc4_9ft() -> Self {
         let diamond_length = Inches {
             magnitude: BigDecimal::from_str("12.5").unwrap(),
         };

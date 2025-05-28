@@ -1,7 +1,7 @@
 use billiards::*;
 
 fn main() {
-    let table_spec = TableSpec::new_9ft_brunswick_gc4();
+    let table_spec = TableSpec::brunswick_gc4_9ft();
 
     let game_state = GameState {
         table_spec: table_spec.clone(),

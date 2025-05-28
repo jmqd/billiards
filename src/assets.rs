@@ -8,6 +8,7 @@ const BOTTOMMOST: f32 = 1884.;
 const LEFTMOST: f32 = 56.;
 const BALL_TO_DIAMOND: f32 = 2.25 / 12.5;
 
+#[allow(unused)]
 pub fn ideal_ball_size_px() -> u32 {
     let px_diam_x = (RIGHTMOST - LEFTMOST) / 4.0;
     let px_diam_y = (BOTTOMMOST - TOPMOST) / 8.0;

@@ -6,6 +6,8 @@ const TOPMOST: f32 = 42.;
 const RIGHTMOST: f32 = 1040.;
 const BOTTOMMOST: f32 = 1884.;
 const LEFTMOST: f32 = 56.;
+
+#[allow(unused)]
 const BALL_TO_DIAMOND: f32 = 2.25 / 12.5;
 
 #[allow(unused)]

@@ -6,7 +6,7 @@ simulations for pool.
 
 For example, this diagram was created with the following code.
 
-![diagram of a game of nine ball](./img/nine-ball-example-hanger.png)
+<img src="./img/nine-ball-example-hanger.png" alt="Diagram of a game of Nine Ball." style="width:50%"/>
 
 ``` rust
     let table_spec = TableSpec::new_9ft_brunswick_gc4();
@@ -37,5 +37,5 @@ For example, this diagram was created with the following code.
 
 ## Thanks
 
-Thanks to Dr. Dave Billiards for providing the empty diagram of the pool table
-on his website, which I used as a base image to generate diagrams from.
+Thanks to Dr. Dave Alciatore of Colorado State University for providing the
+blank pool table diagram, which I used as a base image.

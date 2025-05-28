@@ -20,7 +20,7 @@ pub const BALL_IMGS: [&[u8]; 10] = [
 
 /// This image is 1089 × 1938 pixels.
 #[allow(unused)]
-pub const TABLE_DIAGRAM: &[u8] = include_bytes!("assets/table_diagram.png");
+pub const TABLE_DIAGRAM: &[u8] = include_bytes!("assets/table_diagram_head_top.png");
 
 /// Retrieve the sprite for a given ball.
 #[allow(unused)]

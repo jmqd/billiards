@@ -26,6 +26,9 @@ lazy_static! {
     pub static ref GC4_SIDE_POCKET_WIDTH: Inches = Inches {
         magnitude: BigDecimal::from_str("5").unwrap()
     };
+    pub static ref TYPICAL_BALL_RADIUS: Inches = Inches {
+        magnitude: BigDecimal::from_str("1.125").unwrap()
+    };
     pub static ref CENTER_SPOT: Position = Position {
         x: Diamond::from("2"),
         y: Diamond::from("4")
@@ -72,13 +75,13 @@ pub struct Inches {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 /// A point on the table, interepreted as follows:
-///     - Top-down view of the table, rack spot at the top and the headstring at the bottom.
+///     - Top-down view of the table, headstring at the top and rack spot at the bottom.
 ///     - The diamond that would exist at the bottom-left pocket is x=0, y=0.
 ///     - The diamond that would exist at the top-right pocket is x=4, y=8.
-///     - The headstring is the imaginary line from (0, 2) <-> (4, 2).
-///     - The rack spot is the point (2, 6).
+///     - The headstring is the imaginary line from (0, 6) <-> (4, 6).
+///     - The rack spot is the point (2, 2).
 ///     - The center of the table is the point (2, 4).
-///     - The kitchen is the rectangle from (0, 0) <-> (4, 2).
+///     - The kitchen is the rectangle from (0, 8) <-> (4, 6).
 pub struct Position {
     pub x: Diamond,
     pub y: Diamond,
@@ -337,6 +340,14 @@ pub enum CueballModifier {
     KitchenPlacement,
 }
 
+/// The rails on a pool table.
+pub enum Rail {
+    Top,
+    Bottom,
+    Left,
+    Right
+}
+
 #[derive(Clone, Debug)]
 /// The full and compelete data structure to describe the state of a game.
 pub struct GameState {
@@ -350,6 +361,9 @@ impl GameState {
     // TODO: We're assuming for now all BallTypes are unique. This may change.
     pub fn select_ball(&self, ball_type: BallType) -> Option<&Ball> {
         self.ball_positions.iter().find(|b| b.ty == ball_type).take()
+    }
+
+    pub fn freeze_to_rail(rail: Rail, distance: Diamond, ball: Ball) {
     }
 
     /// Draws a 2D diagram of the current GameState, placing the balls in the

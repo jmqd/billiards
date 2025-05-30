@@ -3,7 +3,7 @@ use billiards::*;
 fn main() {
     let table_spec = TableSpec::brunswick_gc4_9ft();
 
-    let game_state = GameState {
+    let mut game_state = GameState {
         table_spec: table_spec.clone(),
         ball_positions: vec![
             Ball {
@@ -65,8 +65,27 @@ fn main() {
         cueball_modifier: CueballModifier::AsItLays,
     };
 
-    let img = game_state.draw_2d_diagram();
+    game_state.freeze_to_rail(
+        Rail::Bottom,
+        Diamond::one(),
+        Ball {
+            ty: BallType::One,
+            position: Position::zeroed(),
+            spec: BallSpec::default(),
+        },
+    );
 
+    game_state.freeze_to_rail(
+        Rail::Right,
+        Diamond::six(),
+        Ball {
+            ty: BallType::Six,
+            position: Position::zeroed(),
+            spec: BallSpec::default(),
+        },
+    );
+
+    let img = game_state.draw_2d_diagram();
     write_png_to_file(&img, None);
 
     println!("{:#?}", table_spec);

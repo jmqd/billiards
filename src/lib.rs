@@ -2,7 +2,7 @@ mod assets;
 
 use crate::assets::diamond_to_pixel;
 use assets::ideal_ball_size_px;
-use image::imageops::{FilterType, resize};
+use image::imageops::{resize, FilterType};
 use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Write;
@@ -16,7 +16,7 @@ use bigdecimal::ToPrimitive;
 
 lazy_static! {
     pub static ref DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
-        magnitude: BigDecimal::from_str("3.21").unwrap()
+        magnitude: BigDecimal::from_str("3.6875").unwrap()
     };
     pub static ref OFFICIAL_DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
         magnitude: BigDecimal::from_str("3.6875").unwrap()
@@ -172,6 +172,13 @@ impl Position {
             self
         } else {
             unreachable!();
+        }
+    }
+
+    pub fn zeroed() -> Self {
+        Self {
+            x: Diamond::zero(),
+            y: Diamond::zero(),
         }
     }
 }
@@ -447,22 +454,22 @@ pub enum Rail {
 }
 
 impl Rail {
-    pub fn rail_origin(&self, table_spec: &TableSpec) -> Position {
+    pub fn rail_origin(&self) -> Position {
         match *self {
             Rail::Top => Position {
                 x: Diamond::zero(),
-                y: Diamond::eight() - table_spec.cushion_diamond_buffer.clone(),
+                y: Diamond::eight(),
             },
             Rail::Right => Position {
-                x: Diamond::four() - table_spec.cushion_diamond_buffer.clone(),
+                x: Diamond::four(),
                 y: Diamond::zero(),
             },
             Rail::Bottom => Position {
                 x: Diamond::zero(),
-                y: Diamond::zero() + table_spec.cushion_diamond_buffer.clone(),
+                y: Diamond::zero(),
             },
             Rail::Left => Position {
-                x: Diamond::zero() + table_spec.cushion_diamond_buffer.clone(),
+                x: Diamond::zero(),
                 y: Diamond::zero(),
             },
         }
@@ -494,26 +501,26 @@ impl GameState {
     }
 
     pub fn freeze_to_rail(&mut self, rail: Rail, diamond: Diamond, mut ball: Ball) {
-        ball.position = rail
-            .rail_origin(&self.table_spec)
-            .merge_unset_component(diamond);
-
         match rail {
             Rail::Top => {
                 ball.position.y =
-                    ball.position.y - self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+                    Diamond::eight() - self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+                ball.position.x = diamond;
             }
             Rail::Right => {
                 ball.position.x =
-                    ball.position.x - self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+                    Diamond::four() - self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+                ball.position.y = diamond;
             }
             Rail::Bottom => {
                 ball.position.y =
-                    ball.position.y + self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+                    Diamond::zero() + self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+                ball.position.x = diamond;
             }
             Rail::Left => {
                 ball.position.x =
-                    ball.position.x + self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+                    Diamond::zero() + self.table_spec.inches_to_diamond(ball.spec.radius.clone());
+                ball.position.y = diamond;
             }
         };
 
@@ -557,8 +564,8 @@ impl GameState {
             // We have to account for the width and height of the ball.
             // Overlaying a png starts drawing at the top-left corner of the
             // ball, so we need to start drawing at px - bw/2, py - bh/2
-            let mut px_shifted = px - (bw as i32 / 2) - 8;
-            let mut py_shifted = py - (bh as i32 / 2) + 7;
+            let mut px_shifted = px - (bw as i32 / 2);
+            let mut py_shifted = py - (bh as i32 / 2);
 
             // Prevent any out of bounds weirdness (shouldn't happen).
             px_shifted = px_shifted.clamp(0, (tw - bw / 2) as i32);

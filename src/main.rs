@@ -16,8 +16,8 @@ fn main() {
                 ty: BallType::Nine,
                 // TODO: Encode these positions as "hangers" in Position impl.
                 position: Position {
-                    x: Diamond::from("3.65"),
-                    y: Diamond::from("7.625"),
+                    x: Diamond::from("3.93"),
+                    y: Diamond::from("7.93"),
                 },
                 spec: BallSpec::default(),
             },

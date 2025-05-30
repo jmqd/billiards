@@ -1,10 +1,10 @@
 use crate::{BallType, Position};
 use bigdecimal::ToPrimitive;
 
-const TOPMOST: f32 = 42.;
-const RIGHTMOST: f32 = 1040.;
-const BOTTOMMOST: f32 = 1884.;
-const LEFTMOST: f32 = 56.;
+const TOPMOST: f32 = 110.;
+const RIGHTMOST: f32 = 968.;
+const BOTTOMMOST: f32 = 1828.;
+const LEFTMOST: f32 = 110.;
 
 #[allow(unused)]
 const BALL_TO_DIAMOND: f32 = 2.25 / 12.5;
@@ -58,7 +58,6 @@ pub fn ball_img(ball: BallType) -> Vec<u8> {
 #[allow(unused)]
 pub fn diamond_to_pixel(pos: &Position) -> (i32, i32) {
     let x_px = LEFTMOST + (pos.x.magnitude.to_f32().unwrap() / 4.0) * (RIGHTMOST - LEFTMOST);
-
     let y_px = BOTTOMMOST - (pos.y.magnitude.to_f32().unwrap() / 8.0) * (BOTTOMMOST - TOPMOST);
 
     (x_px.round() as i32, y_px.round() as i32)

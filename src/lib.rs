@@ -6,7 +6,7 @@ use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Write;
-use std::ops::{Add, Div, Mul, Sub, Neg};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -20,6 +20,9 @@ lazy_static! {
     };
     pub static ref OFFICIAL_DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
         magnitude: BigDecimal::from_str("3.6875").unwrap()
+    };
+    pub static ref OPTIMAL_PACKING_RADIUS_SHIFT: Inches = Inches {
+        magnitude: BigDecimal::from_usize(3).unwrap().sqrt().unwrap()
     };
     pub static ref GC4_POCKET_DEPTH: Inches = Inches {
         magnitude: BigDecimal::from_str("1.4").unwrap()
@@ -189,7 +192,6 @@ impl Inches {
             magnitude: self.magnitude.half(),
         }
     }
-
 }
 
 impl Neg for Inches {
@@ -197,7 +199,7 @@ impl Neg for Inches {
 
     fn neg(self) -> Self {
         Self {
-            magnitude: self.magnitude.neg()
+            magnitude: self.magnitude.neg(),
         }
     }
 }
@@ -310,7 +312,7 @@ impl Neg for Diamond {
 
     fn neg(self) -> Self {
         Self {
-            magnitude: self.magnitude.neg()
+            magnitude: self.magnitude.neg(),
         }
     }
 }
@@ -331,6 +333,16 @@ impl Add for Inches {
     fn add(self, rhs: Inches) -> Self::Output {
         Self {
             magnitude: self.magnitude + rhs.magnitude,
+        }
+    }
+}
+
+impl Mul for Inches {
+    type Output = Inches;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self {
+            magnitude: self.magnitude * rhs.magnitude,
         }
     }
 }
@@ -627,12 +639,14 @@ impl GameState {
     pub fn resolve_positions(&mut self) {
         for ball in self.ball_positions.iter_mut() {
             if let Some(shift) = &ball.position.unresolved_x_shift {
-                ball.position.shift_horizontally(self.table_spec.inches_to_diamond(shift.clone()));
+                ball.position
+                    .shift_horizontally(self.table_spec.inches_to_diamond(shift.clone()));
                 ball.position.unresolved_x_shift = None;
             }
 
             if let Some(shift) = &ball.position.unresolved_y_shift {
-                ball.position.shift_vertically(self.table_spec.inches_to_diamond(shift.clone()));
+                ball.position
+                    .shift_vertically(self.table_spec.inches_to_diamond(shift.clone()));
                 ball.position.unresolved_y_shift = None;
             }
         }
@@ -757,11 +771,51 @@ pub fn racked_ball_positions() -> Vec<Position> {
     let mut second_row_left = head_ball_position.clone();
 
     second_row_left
-        .shift_vertically_inches(TYPICAL_BALL_RADIUS.clone().double().neg())
+        .shift_vertically_inches(
+            TYPICAL_BALL_RADIUS.clone().neg() * OPTIMAL_PACKING_RADIUS_SHIFT.clone(),
+        )
         .shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().neg());
 
     let mut second_row_right = second_row_left.clone();
     second_row_right.shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().double());
 
-    vec![head_ball_position, second_row_left, second_row_right]
+    let mut third_row_left = second_row_left.clone();
+    third_row_left
+        .shift_vertically_inches(
+            TYPICAL_BALL_RADIUS.clone().neg() * OPTIMAL_PACKING_RADIUS_SHIFT.clone(),
+        )
+        .shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().neg());
+
+    let mut third_row_center = third_row_left.clone();
+    third_row_center.shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().double());
+
+    let mut third_row_right = third_row_center.clone();
+    third_row_right.shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().double());
+
+    let mut fourth_row_left = third_row_center.clone();
+    fourth_row_left
+        .shift_vertically_inches(
+            TYPICAL_BALL_RADIUS.clone().neg() * OPTIMAL_PACKING_RADIUS_SHIFT.clone(),
+        )
+        .shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().neg());
+
+    let mut fourth_row_right = fourth_row_left.clone();
+    fourth_row_right.shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().double());
+
+    let mut final_ball = third_row_center.clone();
+    final_ball.shift_vertically_inches(
+        TYPICAL_BALL_RADIUS.clone().double().neg() * OPTIMAL_PACKING_RADIUS_SHIFT.clone(),
+    );
+
+    vec![
+        head_ball_position,
+        second_row_left,
+        second_row_right,
+        third_row_left,
+        third_row_center,
+        third_row_right,
+        fourth_row_left,
+        fourth_row_right,
+        final_ball,
+    ]
 }

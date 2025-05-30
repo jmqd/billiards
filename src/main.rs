@@ -1,4 +1,3 @@
-use bigdecimal::ToPrimitive;
 use billiards::*;
 
 mod assets;
@@ -6,23 +5,7 @@ mod assets;
 fn main() {
     let mut game_state = GameState {
         table_spec: TableSpec::brunswick_gc4_9ft(),
-        ball_positions: vec![
-            Ball {
-                ty: BallType::Cue,
-                position: CENTER_SPOT.clone(),
-                spec: BallSpec::default(),
-            },
-            Ball {
-                ty: BallType::Nine,
-                // TODO: Encode these positions as "hangers" in Position impl.
-                position: Position {
-                    x: Diamond::from("3.93"),
-                    y: Diamond::from("7.93"),
-                    ..Default::default()
-                },
-                spec: BallSpec::default(),
-            },
-        ],
+        ball_positions: rack_9_ball(),
         ..Default::default()
     };
 
@@ -36,14 +19,7 @@ fn main() {
         },
     );
 
-    let cueball = game_state.select_ball(BallType::Cue).unwrap();
-    let nine_ball = game_state.select_ball(BallType::Nine).unwrap();
-
-    let displacement = cueball.displacement(nine_ball);
-    let distance = displacement.absolute_distance();
-
-    println!("displacement = {:#?}", displacement);
-    println!("distance = {:#?}", distance.magnitude.to_f64());
+    game_state.resolve_positions();
 
     let img = game_state.draw_2d_diagram();
     write_png_to_file(&img, None);

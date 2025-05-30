@@ -6,7 +6,7 @@ use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Write;
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub, Neg};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -190,9 +190,14 @@ impl Inches {
         }
     }
 
-    pub fn inverse(self) -> Self {
+}
+
+impl Neg for Inches {
+    type Output = Inches;
+
+    fn neg(self) -> Self {
         Self {
-            magnitude: self.magnitude.inverse(),
+            magnitude: self.magnitude.neg()
         }
     }
 }
@@ -249,7 +254,7 @@ impl Position {
     }
 
     pub fn shift_vertically(&mut self, distance: Diamond) -> &mut Self {
-        self.x = self.y.clone() + distance.clone();
+        self.y = self.y.clone() + distance.clone();
         self
     }
 
@@ -296,6 +301,16 @@ impl Sub for Diamond {
     fn sub(self, rhs: Diamond) -> Self::Output {
         Self {
             magnitude: self.magnitude - rhs.magnitude,
+        }
+    }
+}
+
+impl Neg for Diamond {
+    type Output = Diamond;
+
+    fn neg(self) -> Self {
+        Self {
+            magnitude: self.magnitude.neg()
         }
     }
 }
@@ -607,6 +622,22 @@ impl GameState {
         self.ball_positions.iter().find(|b| b.ty == ball_type)
     }
 
+    /// This is mildly hacky, but works for now to resolve all the unresolved
+    /// inches adjustments.
+    pub fn resolve_positions(&mut self) {
+        for ball in self.ball_positions.iter_mut() {
+            if let Some(shift) = &ball.position.unresolved_x_shift {
+                ball.position.shift_horizontally(self.table_spec.inches_to_diamond(shift.clone()));
+                ball.position.unresolved_x_shift = None;
+            }
+
+            if let Some(shift) = &ball.position.unresolved_y_shift {
+                ball.position.shift_vertically(self.table_spec.inches_to_diamond(shift.clone()));
+                ball.position.unresolved_y_shift = None;
+            }
+        }
+    }
+
     pub fn freeze_to_rail(&mut self, rail: Rail, diamond: Diamond, mut ball: Ball) {
         match rail {
             Rail::Top => {
@@ -724,12 +755,13 @@ pub fn rack_9_ball() -> Vec<Ball> {
 pub fn racked_ball_positions() -> Vec<Position> {
     let head_ball_position = RACK_SPOT.clone();
     let mut second_row_left = head_ball_position.clone();
-    let mut second_row_right = second_row_left.clone();
 
     second_row_left
-        .shift_vertically_inches(TYPICAL_BALL_RADIUS.clone().double().inverse())
-        .shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().half().inverse());
-    second_row_right.shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone());
+        .shift_vertically_inches(TYPICAL_BALL_RADIUS.clone().double().neg())
+        .shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().neg());
+
+    let mut second_row_right = second_row_left.clone();
+    second_row_right.shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().double());
 
     vec![head_ball_position, second_row_left, second_row_right]
 }

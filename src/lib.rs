@@ -2,7 +2,7 @@ mod assets;
 
 use crate::assets::diamond_to_pixel;
 use assets::ideal_ball_size_px;
-use image::imageops::{resize, FilterType};
+use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Write;
@@ -35,31 +35,43 @@ lazy_static! {
     };
     pub static ref CENTER_SPOT: Position = Position {
         x: Diamond::from("2"),
-        y: Diamond::from("4")
+        y: Diamond::from("4"),
+        ..Default::default()
     };
     pub static ref TOP_RIGHT_DIAMOND: Position = Position {
         x: Diamond::from("4"),
-        y: Diamond::from("8")
+        y: Diamond::from("8"),
+        ..Default::default()
     };
     pub static ref SIDE_RIGHT_DIAMOND: Position = Position {
         x: Diamond::from("4"),
-        y: Diamond::from("4")
+        y: Diamond::from("4"),
+        ..Default::default()
+    };
+    pub static ref RACK_SPOT: Position = Position {
+        x: Diamond::from("2"),
+        y: Diamond::from("2"),
+        ..Default::default()
     };
     pub static ref BOTTOM_RIGHT_DIAMOND: Position = Position {
         x: Diamond::from("4"),
-        y: Diamond::from("0")
+        y: Diamond::from("0"),
+        ..Default::default()
     };
     pub static ref BOTTOM_LEFT_DIAMOND: Position = Position {
         x: Diamond::from("0"),
-        y: Diamond::from("0")
+        y: Diamond::from("0"),
+        ..Default::default()
     };
     pub static ref SIDE_LEFT_DIAMOND: Position = Position {
         x: Diamond::from("0"),
-        y: Diamond::from("4")
+        y: Diamond::from("4"),
+        ..Default::default()
     };
     pub static ref TOP_LEFT_DIAMOND: Position = Position {
         x: Diamond::from("0"),
-        y: Diamond::from("8")
+        y: Diamond::from("8"),
+        ..Default::default()
     };
 }
 
@@ -125,6 +137,24 @@ impl Diamond {
             magnitude: BigDecimal::from_usize(8).unwrap(),
         }
     }
+
+    pub fn double(self) -> Self {
+        Self {
+            magnitude: self.magnitude.double(),
+        }
+    }
+
+    pub fn half(self) -> Self {
+        Self {
+            magnitude: self.magnitude.half(),
+        }
+    }
+
+    pub fn inverse(self) -> Self {
+        Self {
+            magnitude: self.magnitude.inverse(),
+        }
+    }
 }
 
 impl Default for Diamond {
@@ -137,6 +167,34 @@ impl Default for Diamond {
 /// Our representation for converting to inches.
 pub struct Inches {
     pub magnitude: BigDecimal,
+}
+
+impl Default for Inches {
+    fn default() -> Self {
+        Self {
+            magnitude: Default::default(),
+        }
+    }
+}
+
+impl Inches {
+    pub fn double(self) -> Self {
+        Self {
+            magnitude: self.magnitude.double(),
+        }
+    }
+
+    pub fn half(self) -> Self {
+        Self {
+            magnitude: self.magnitude.half(),
+        }
+    }
+
+    pub fn inverse(self) -> Self {
+        Self {
+            magnitude: self.magnitude.inverse(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -152,6 +210,8 @@ pub struct Inches {
 pub struct Position {
     pub x: Diamond,
     pub y: Diamond,
+    pub unresolved_x_shift: Option<Inches>,
+    pub unresolved_y_shift: Option<Inches>,
 }
 
 impl Position {
@@ -179,7 +239,30 @@ impl Position {
         Self {
             x: Diamond::zero(),
             y: Diamond::zero(),
+            ..Default::default()
         }
+    }
+
+    pub fn shift_horizontally(&mut self, distance: Diamond) -> &mut Self {
+        self.x = self.x.clone() + distance.clone();
+        self
+    }
+
+    pub fn shift_vertically(&mut self, distance: Diamond) -> &mut Self {
+        self.x = self.y.clone() + distance.clone();
+        self
+    }
+
+    pub fn shift_horizontally_inches(&mut self, distance: Inches) -> &mut Self {
+        self.unresolved_x_shift =
+            Some(self.unresolved_x_shift.clone().unwrap_or_default() + distance);
+        self
+    }
+
+    pub fn shift_vertically_inches(&mut self, distance: Inches) -> &mut Self {
+        self.unresolved_y_shift =
+            Some(self.unresolved_y_shift.clone().unwrap_or_default() + distance);
+        self
     }
 }
 
@@ -223,6 +306,26 @@ impl Add for Diamond {
     fn add(self, rhs: Diamond) -> Self::Output {
         Self {
             magnitude: self.magnitude + rhs.magnitude,
+        }
+    }
+}
+
+impl Add for Inches {
+    type Output = Inches;
+
+    fn add(self, rhs: Inches) -> Self::Output {
+        Self {
+            magnitude: self.magnitude + rhs.magnitude,
+        }
+    }
+}
+
+impl Sub for Inches {
+    type Output = Inches;
+
+    fn sub(self, rhs: Inches) -> Self::Output {
+        Self {
+            magnitude: self.magnitude - rhs.magnitude,
         }
     }
 }
@@ -459,18 +562,22 @@ impl Rail {
             Rail::Top => Position {
                 x: Diamond::zero(),
                 y: Diamond::eight(),
+                ..Default::default()
             },
             Rail::Right => Position {
                 x: Diamond::four(),
                 y: Diamond::zero(),
+                ..Default::default()
             },
             Rail::Bottom => Position {
                 x: Diamond::zero(),
                 y: Diamond::zero(),
+                ..Default::default()
             },
             Rail::Left => Position {
                 x: Diamond::zero(),
                 y: Diamond::zero(),
+                ..Default::default()
             },
         }
     }
@@ -588,4 +695,41 @@ pub fn write_png_to_file(png_bytes: &[u8], path: Option<&Path>) {
     let mut file = File::create(out_path).unwrap();
     file.write_all(png_bytes).unwrap();
     file.flush().unwrap();
+}
+
+pub fn rack_9_ball() -> Vec<Ball> {
+    let ball_types = vec![
+        BallType::One,
+        BallType::Two,
+        BallType::Three,
+        BallType::Four,
+        BallType::Nine,
+        BallType::Five,
+        BallType::Six,
+        BallType::Seven,
+        BallType::Eight,
+    ];
+
+    racked_ball_positions()
+        .into_iter()
+        .enumerate()
+        .map(|(idx, pos)| Ball {
+            ty: ball_types[idx].clone(),
+            position: pos,
+            spec: Default::default(),
+        })
+        .collect()
+}
+
+pub fn racked_ball_positions() -> Vec<Position> {
+    let head_ball_position = RACK_SPOT.clone();
+    let mut second_row_left = head_ball_position.clone();
+    let mut second_row_right = second_row_left.clone();
+
+    second_row_left
+        .shift_vertically_inches(TYPICAL_BALL_RADIUS.clone().double().inverse())
+        .shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone().half().inverse());
+    second_row_right.shift_horizontally_inches(TYPICAL_BALL_RADIUS.clone());
+
+    vec![head_ball_position, second_row_left, second_row_right]
 }

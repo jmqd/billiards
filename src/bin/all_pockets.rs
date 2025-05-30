@@ -41,6 +41,7 @@ fn main() {
                 position: Position {
                     x: Diamond::from(2),
                     y: Diamond::from(4),
+                    ..Default::default()
                 },
                 spec: BallSpec::default(),
             },
@@ -49,6 +50,7 @@ fn main() {
                 position: Position {
                     x: Diamond::from(0),
                     y: Diamond::from(2),
+                    ..Default::default()
                 },
                 spec: BallSpec::default(),
             },
@@ -57,6 +59,7 @@ fn main() {
                 position: Position {
                     x: Diamond::from(3),
                     y: Diamond::from(0),
+                    ..Default::default()
                 },
                 spec: BallSpec::default(),
             },

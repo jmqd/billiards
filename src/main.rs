@@ -18,6 +18,7 @@ fn main() {
                 position: Position {
                     x: Diamond::from("3.93"),
                     y: Diamond::from("7.93"),
+                    ..Default::default()
                 },
                 spec: BallSpec::default(),
             },

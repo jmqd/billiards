@@ -21,6 +21,12 @@ lazy_static! {
     pub static ref OFFICIAL_DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
         magnitude: BigDecimal::from_str("3.6875").unwrap()
     };
+    /// When optimally packing pool balls into a "frozen" configuration, each
+    /// set of three balls forms an equilateral triangle from center <-> center
+    /// <-> center with each side being 2R. From this, we know that for any 2
+    /// adjacent pairs in the triple, drawing a line between their centers, the
+    /// distance we must shift that line to go through the center of the third
+    /// ball is R * sqrt(3).
     pub static ref OPTIMAL_PACKING_RADIUS_SHIFT: Inches = Inches {
         magnitude: BigDecimal::from_usize(3).unwrap().sqrt().unwrap()
     };

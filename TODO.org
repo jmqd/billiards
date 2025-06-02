@@ -1,0 +1,16 @@
+#+title: Todo
+
+* TODO Add a winnow-based DSL for constructing states, e.g.
+
+#+BEGIN_CODE
+default_table
+default_balls
+portrait_layout.head_string_top
+
+ball(9).frozen(left_rail, diamond(3))
+ball(cue).center_spot
+
+shoot(9).angle(-60).draw(max).speed(max)
+#+END_CODE
+
+* TODO Add facilities to change the conditions -- humidity, dirt on table, dirt on balls, etc.

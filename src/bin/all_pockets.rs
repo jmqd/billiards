@@ -55,7 +55,7 @@ fn main() {
                 spec: BallSpec::default(),
             },
             Ball {
-                ty: BallType::Eight,
+                ty: BallType::Five,
                 position: Position {
                     x: Diamond::from(3),
                     y: Diamond::from(0),

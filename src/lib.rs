@@ -52,7 +52,7 @@ lazy_static! {
         y: Diamond::from("8"),
         ..Default::default()
     };
-    pub static ref SIDE_RIGHT_DIAMOND: Position = Position {
+    pub static ref CENTER_RIGHT_DIAMOND: Position = Position {
         x: Diamond::from("4"),
         y: Diamond::from("4"),
         ..Default::default()
@@ -72,7 +72,7 @@ lazy_static! {
         y: Diamond::from("0"),
         ..Default::default()
     };
-    pub static ref SIDE_LEFT_DIAMOND: Position = Position {
+    pub static ref CENTER_LEFT_DIAMOND: Position = Position {
         x: Diamond::from("0"),
         y: Diamond::from("4"),
         ..Default::default()
@@ -395,6 +395,32 @@ impl From<&str> for Diamond {
     fn from(value: &str) -> Self {
         Self {
             magnitude: BigDecimal::from_str(value).unwrap(),
+        }
+    }
+}
+
+pub enum Pocket {
+    TopRight,
+    CenterRight,
+    BottomRight,
+    BottomLeft,
+    CenterLeft,
+    TopLeft
+}
+
+impl Pocket {
+    /// Gives the natural "aiming center" of the pocket. This is currently
+    /// relatively unsophisticated; for example, the aiming center may in fact
+    /// have to be a function of the position of the cue ball in the future.
+    /// TODO: Add new constant positions that are the true aiming centers; these are slightly flawed.
+    pub fn aiming_center(&self) -> Position {
+        match *self {
+            Pocket::TopRight => TOP_RIGHT_DIAMOND.clone(),
+            Pocket::CenterRight => CENTER_RIGHT_DIAMOND.clone(),
+            Pocket::BottomRight => BOTTOM_RIGHT_DIAMOND.clone(),
+            Pocket::BottomLeft => BOTTOM_LEFT_DIAMOND.clone(),
+            Pocket::CenterLeft => CENTER_LEFT_DIAMOND.clone(),
+            Pocket::TopLeft => TOP_LEFT_DIAMOND.clone()
         }
     }
 }

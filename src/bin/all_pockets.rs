@@ -13,7 +13,7 @@ fn main() {
             },
             Ball {
                 ty: BallType::Cue,
-                position: SIDE_RIGHT_DIAMOND.clone(),
+                position: CENTER_RIGHT_DIAMOND.clone(),
                 spec: BallSpec::default(),
             },
             Ball {
@@ -28,7 +28,7 @@ fn main() {
             },
             Ball {
                 ty: BallType::Cue,
-                position: SIDE_LEFT_DIAMOND.clone(),
+                position: CENTER_LEFT_DIAMOND.clone(),
                 spec: BallSpec::default(),
             },
             Ball {

@@ -2,6 +2,7 @@ mod assets;
 
 use crate::assets::diamond_to_pixel;
 use assets::ideal_ball_size_px;
+use core::fmt;
 use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
 use std::f64::consts::PI;
@@ -97,6 +98,12 @@ impl Angle {
     pub fn from_north(dx: f64, dy: f64) -> Angle {
         let deg = dx.atan2(dy).to_degrees();
         Angle(if deg < 0.0 { deg + 360.0 } else { deg })
+    }
+}
+
+impl fmt::Display for Angle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -333,7 +340,10 @@ impl Displacement {
     }
 
     pub fn angle_from_north(&self) -> Angle {
-        Angle::from_north(self.dx.magnitude.to_f64().unwrap(), self.dy.magnitude.to_f64().unwrap())
+        Angle::from_north(
+            self.dx.magnitude.to_f64().unwrap(),
+            self.dy.magnitude.to_f64().unwrap(),
+        )
     }
 }
 

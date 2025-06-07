@@ -4,6 +4,7 @@ use crate::assets::diamond_to_pixel;
 use assets::ideal_ball_size_px;
 use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
+use std::f64::consts::PI;
 use std::fs::File;
 use std::io::Write;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -82,6 +83,21 @@ lazy_static! {
         y: Diamond::from("8"),
         ..Default::default()
     };
+}
+
+/// This is all normalized to a headstring-at-the-top top-down view.
+/// 0°   = "up"
+/// 90°  = "right"
+/// 180° = "down"
+/// 270° = "left"
+pub struct Angle(f64);
+
+impl Angle {
+    /// Return the angle measured clockwise from the positive-Y axis.
+    pub fn from_north(dx: f64, dy: f64) -> Angle {
+        let deg = dx.atan2(dy).to_degrees();
+        Angle(if deg < 0.0 { deg + 360.0 } else { deg })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -248,6 +264,20 @@ impl Position {
         }
     }
 
+    /// Gives the angle to the aiming center of the given Pocket.
+    pub fn angle_to_pocket(&self, pocket: Pocket) -> Angle {
+        let target = pocket.aiming_center();
+
+        let dx = (target.x.magnitude.clone() - self.x.magnitude.clone())
+            .to_f64()
+            .unwrap();
+        let dy = (target.y.magnitude.clone() - self.y.magnitude.clone())
+            .to_f64()
+            .unwrap();
+
+        Angle::from_north(dx, dy)
+    }
+
     pub fn zeroed() -> Self {
         Self {
             x: Diamond::zero(),
@@ -300,6 +330,10 @@ impl Displacement {
         Diamond {
             magnitude: bigdecimal::BigDecimal::from_f64(dist).unwrap(),
         }
+    }
+
+    pub fn angle_from_north(&self) -> Angle {
+        Angle::from_north(self.dx.magnitude.to_f64().unwrap(), self.dy.magnitude.to_f64().unwrap())
     }
 }
 
@@ -405,7 +439,7 @@ pub enum Pocket {
     BottomRight,
     BottomLeft,
     CenterLeft,
-    TopLeft
+    TopLeft,
 }
 
 impl Pocket {
@@ -420,7 +454,7 @@ impl Pocket {
             Pocket::BottomRight => BOTTOM_RIGHT_DIAMOND.clone(),
             Pocket::BottomLeft => BOTTOM_LEFT_DIAMOND.clone(),
             Pocket::CenterLeft => CENTER_LEFT_DIAMOND.clone(),
-            Pocket::TopLeft => TOP_LEFT_DIAMOND.clone()
+            Pocket::TopLeft => TOP_LEFT_DIAMOND.clone(),
         }
     }
 }

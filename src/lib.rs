@@ -83,6 +83,32 @@ lazy_static! {
         y: Diamond::from("8"),
         ..Default::default()
     };
+    pub static ref CORNER_AIMING_CENTER_DX: Diamond = Diamond::from(".07");
+    pub static ref CORNER_AIMING_CENTER_DY: Diamond = Diamond::from(".07");
+    pub static ref AIM_TOP_RIGHT_POCKET: Position =
+        translate_inwards(&TOP_RIGHT_DIAMOND, CORNER_AIMING_CENTER_DX.clone(), CORNER_AIMING_CENTER_DY.clone());
+    pub static ref AIM_BOTTOM_RIGHT_POCKET: Position =
+        translate_inwards(&BOTTOM_RIGHT_DIAMOND, CORNER_AIMING_CENTER_DX.clone(), CORNER_AIMING_CENTER_DY.clone());
+    pub static ref AIM_BOTTOM_LEFT_POCKET: Position =
+        translate_inwards(&BOTTOM_LEFT_DIAMOND, CORNER_AIMING_CENTER_DX.clone(), CORNER_AIMING_CENTER_DY.clone());
+    pub static ref AIM_TOP_LEFT_POCKET: Position =
+        translate_inwards(&TOP_LEFT_DIAMOND, CORNER_AIMING_CENTER_DX.clone(), CORNER_AIMING_CENTER_DY.clone());
+}
+
+pub fn translate_inwards(origin: &Position, dx: Diamond, dy: Diamond) -> Position {
+    let (x_direction, y_direction) = origin.direction_from_center();
+
+    Position {
+        x: match x_direction {
+            PolarDirection::Positive => origin.x.clone() - dx,
+            PolarDirection::Negative => origin.x.clone() + dx
+        },
+        y: match y_direction {
+            PolarDirection::Positive => origin.y.clone() - dy,
+            PolarDirection::Negative => origin.y.clone() + dy
+        },
+        ..Default::default()
+    }
 }
 
 /// This is all normalized to a headstring-at-the-top top-down view.
@@ -226,6 +252,15 @@ impl Neg for Inches {
     }
 }
 
+/// Gives the polar direction (e.g. positive or negative).
+/// For example, if a ball is in the top-right quadrant of the pool table, it's
+/// PolarDirection from the center is (Positive, Positive). Conversely, a ball
+/// in the bottom-left is (Negative, Negative).
+pub enum PolarDirection {
+    Positive,
+    Negative
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 /// A point on the table, interepreted as follows:
 ///   - Top-down view of the table, headstring at the top and rack spot at the bottom.
@@ -250,6 +285,37 @@ impl Position {
             dx: to.x.clone() - self.x.clone(),
             dy: to.y.clone() - self.y.clone(),
         }
+    }
+
+    /// Gives the relative direction from center for this position.
+    /// The tuple is always (X direction, Y direction).
+    pub fn direction_from_center(&self) -> (PolarDirection, PolarDirection) {
+        match (self.x > CENTER_SPOT.x, self.y > CENTER_SPOT.y) {
+            (true, true) => (PolarDirection::Positive, PolarDirection::Positive),
+            (true, false) => (PolarDirection::Positive, PolarDirection::Negative),
+            (false, false) => (PolarDirection::Negative, PolarDirection::Negative),
+            (false, true) => (PolarDirection::Negative, PolarDirection::Positive)
+        }
+    }
+
+    /// If this position is left of the center line, return true.
+    pub fn is_left_of_center(&self) -> bool {
+        matches!(self.direction_from_center().0, PolarDirection::Negative)
+    }
+
+    /// If this position is right of the center line, return true.
+    pub fn is_right_of_center(&self) -> bool {
+        matches!(self.direction_from_center().0, PolarDirection::Positive)
+    }
+
+    /// If this position is above the center line, return true.
+    pub fn is_above_center(&self) -> bool {
+        matches!(self.direction_from_center().1, PolarDirection::Positive)
+    }
+
+    /// If this position is below the center line, return true.
+    pub fn is_below_center(&self) -> bool {
+        matches!(self.direction_from_center().1, PolarDirection::Negative)
     }
 
     pub fn merge_unset_component(mut self, diamond: Diamond) -> Self {
@@ -320,6 +386,10 @@ pub struct Displacement {
 }
 
 impl Displacement {
+    pub fn new(dx: &str, dy: &str) -> Self {
+        Displacement { dx: Diamond::from(dx), dy: Diamond::from(dy) }
+    }
+
     pub fn absolute_distance(&self) -> Diamond {
         let dx = self.dx.magnitude.to_f64().unwrap();
         let dy = self.dy.magnitude.to_f64().unwrap();
@@ -449,15 +519,14 @@ impl Pocket {
     /// Gives the natural "aiming center" of the pocket. This is currently
     /// relatively unsophisticated; for example, the aiming center may in fact
     /// have to be a function of the position of the cue ball in the future.
-    /// TODO: Add new constant positions that are the true aiming centers; these are slightly flawed.
     pub fn aiming_center(&self) -> Position {
         match *self {
-            Pocket::TopRight => TOP_RIGHT_DIAMOND.clone(),
+            Pocket::TopRight => AIM_TOP_RIGHT_POCKET.clone(),
             Pocket::CenterRight => CENTER_RIGHT_DIAMOND.clone(),
-            Pocket::BottomRight => BOTTOM_RIGHT_DIAMOND.clone(),
-            Pocket::BottomLeft => BOTTOM_LEFT_DIAMOND.clone(),
+            Pocket::BottomRight => AIM_BOTTOM_RIGHT_POCKET.clone(),
+            Pocket::BottomLeft => AIM_BOTTOM_LEFT_POCKET.clone(),
             Pocket::CenterLeft => CENTER_LEFT_DIAMOND.clone(),
-            Pocket::TopLeft => TOP_LEFT_DIAMOND.clone(),
+            Pocket::TopLeft => AIM_TOP_LEFT_POCKET.clone()
         }
     }
 }

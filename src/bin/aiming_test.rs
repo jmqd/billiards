@@ -39,6 +39,16 @@ fn main() {
         },
     );
 
+    game_state.freeze_to_rail(
+        Rail::Right,
+        Diamond::six(),
+        Ball {
+            ty: BallType::Six,
+            position: Position::zeroed(),
+            spec: BallSpec::default(),
+        },
+    );
+
     let img = game_state.draw_2d_diagram();
     write_png_to_file(&img, None);
 

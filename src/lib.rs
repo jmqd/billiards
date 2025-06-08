@@ -5,7 +5,6 @@ use assets::ideal_ball_size_px;
 use core::fmt;
 use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
-use std::f64::consts::PI;
 use std::fs::File;
 use std::io::Write;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -197,17 +196,11 @@ impl Default for Diamond {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 /// Our representation for converting to inches.
+#[derive(Default)]
 pub struct Inches {
     pub magnitude: BigDecimal,
 }
 
-impl Default for Inches {
-    fn default() -> Self {
-        Self {
-            magnitude: Default::default(),
-        }
-    }
-}
 
 impl Inches {
     pub fn double(self) -> Self {
@@ -586,6 +579,7 @@ impl TableSpec {
 
 #[derive(Clone, Debug, PartialEq)]
 /// A type of ball, for example, Cue ball, the eight ball, etc.
+#[derive(Default)]
 pub enum BallType {
     One,
     Two,
@@ -596,11 +590,14 @@ pub enum BallType {
     Seven,
     Eight,
     Nine,
+    #[default]
     Cue,
 }
 
+
 #[derive(Clone, Debug)]
 /// Represents a ball on the table, incl. its position, physical spec, type.
+#[derive(Default)]
 pub struct Ball {
     pub ty: BallType,
     pub position: Position,
@@ -618,6 +615,7 @@ impl Ball {
         self.displacement(to).absolute_distance()
     }
 }
+
 
 #[derive(Clone, Debug)]
 /// The type of game, e.g. Nineball, EightBall, OnePocket, etc.
@@ -819,8 +817,7 @@ pub fn write_png_to_file(png_bytes: &[u8], path: Option<&Path>) {
 }
 
 pub fn rack_9_ball() -> Vec<Ball> {
-    let ball_types = vec![
-        BallType::One,
+    let ball_types = [BallType::One,
         BallType::Two,
         BallType::Three,
         BallType::Four,
@@ -828,8 +825,7 @@ pub fn rack_9_ball() -> Vec<Ball> {
         BallType::Five,
         BallType::Six,
         BallType::Seven,
-        BallType::Eight,
-    ];
+        BallType::Eight];
 
     racked_ball_positions()
         .into_iter()

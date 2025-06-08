@@ -35,8 +35,7 @@ For example, this diagram was created with the following code.
         Diamond::six(),
         Ball {
             ty: BallType::Eight,
-            position: Position::default(),
-            spec: BallSpec::default(),
+            ..Default::default()
         },
     );
 

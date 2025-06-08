@@ -14,8 +14,7 @@ fn main() {
         Diamond::six(),
         Ball {
             ty: BallType::Eight,
-            position: Position::default(),
-            spec: BallSpec::default(),
+            ..Default::default()
         },
     );
 

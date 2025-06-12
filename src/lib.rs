@@ -101,11 +101,11 @@ pub fn translate_inwards(origin: &Position, dx: Diamond, dy: Diamond) -> Positio
     Position {
         x: match x_direction {
             PolarDirection::Positive => origin.x.clone() - dx,
-            PolarDirection::Negative => origin.x.clone() + dx
+            PolarDirection::Negative => origin.x.clone() + dx,
         },
         y: match y_direction {
             PolarDirection::Positive => origin.y.clone() - dy,
-            PolarDirection::Negative => origin.y.clone() + dy
+            PolarDirection::Negative => origin.y.clone() + dy,
         },
         ..Default::default()
     }
@@ -227,7 +227,6 @@ pub struct Inches {
     pub magnitude: BigDecimal,
 }
 
-
 impl Inches {
     pub fn double(self) -> Self {
         Self {
@@ -258,7 +257,7 @@ impl Neg for Inches {
 /// in the bottom-left is (Negative, Negative).
 pub enum PolarDirection {
     Positive,
-    Negative
+    Negative,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -294,7 +293,7 @@ impl Position {
             (true, true) => (PolarDirection::Positive, PolarDirection::Positive),
             (true, false) => (PolarDirection::Positive, PolarDirection::Negative),
             (false, false) => (PolarDirection::Negative, PolarDirection::Negative),
-            (false, true) => (PolarDirection::Negative, PolarDirection::Positive)
+            (false, true) => (PolarDirection::Negative, PolarDirection::Positive),
         }
     }
 
@@ -373,6 +372,63 @@ impl Position {
             Some(self.unresolved_y_shift.clone().unwrap_or_default() + distance);
         self
     }
+
+    /// Move `dd` diamonds away from `self` along `angle`, returning the new `Position`.
+    ///
+    /// Internally we:
+    /// 1. turn the `angle` into radians;
+    /// 2. compute the unit-vector components in X (sin) and Y (cos)
+    /// 3. scale those components by `dd`
+    /// 4. build new `Diamond`s and add them to the current coordinates.
+    pub fn translate(&self, dd: Diamond, angle: Angle) -> Self {
+        let rad = angle.0.to_radians();
+
+        let ux = rad.sin();
+        let uy = rad.cos();
+
+        let dx = Diamond {
+            magnitude: dd.magnitude.clone() * BigDecimal::from_f64(ux).unwrap(),
+        };
+        let dy = Diamond {
+            magnitude: dd.magnitude.clone() * BigDecimal::from_f64(uy).unwrap(),
+        };
+
+        Position {
+            x: self.x.clone() + dx,
+            y: self.y.clone() + dy,
+            unresolved_x_shift: self.unresolved_x_shift.clone(),
+            unresolved_y_shift: self.unresolved_y_shift.clone(),
+        }
+    }
+
+    /// Translate along `angle` a magnitude of `Inches`.
+    /// The shift is stored in `unresolved_{x,y}_shift` so that the caller
+    /// doesn't need to pass a `TableSpec` (to convert inches and︎ diamonds.)
+    pub fn translate_inches(&self, inches: Inches, angle: Angle) -> Self {
+        let rad = angle.0.to_radians();
+        let ux = rad.sin();
+        let uy = rad.cos();
+
+        let dx = Inches {
+            magnitude: inches.magnitude.clone() * BigDecimal::from_f64(ux).unwrap(),
+        };
+        let dy = Inches {
+            magnitude: inches.magnitude.clone() * BigDecimal::from_f64(uy).unwrap(),
+        };
+
+        Self {
+            unresolved_x_shift: Some(self.unresolved_x_shift.clone().unwrap_or_default() + dx),
+            unresolved_y_shift: Some(self.unresolved_y_shift.clone().unwrap_or_default() + dy),
+            ..self.clone()
+        }
+    }
+
+    /// Return the "ghost–ball" position one ball-diameter (2*R) away from `self`
+    /// in the direction `angle`.
+    pub fn translate_ghost_ball(&self, angle: Angle) -> Self {
+        let shift_inches = TYPICAL_BALL_RADIUS.clone().double();
+        self.translate_inches(shift_inches, angle)
+    }
 }
 
 /// A displacement indicating a direction and distance.
@@ -387,7 +443,10 @@ pub struct Displacement {
 
 impl Displacement {
     pub fn new(dx: &str, dy: &str) -> Self {
-        Displacement { dx: Diamond::from(dx), dy: Diamond::from(dy) }
+        Displacement {
+            dx: Diamond::from(dx),
+            dy: Diamond::from(dy),
+        }
     }
 
     pub fn absolute_distance(&self) -> Diamond {
@@ -526,7 +585,7 @@ impl Pocket {
             Pocket::BottomRight => AIM_BOTTOM_RIGHT_POCKET.clone(),
             Pocket::BottomLeft => AIM_BOTTOM_LEFT_POCKET.clone(),
             Pocket::CenterLeft => CENTER_LEFT_DIAMOND.clone(),
-            Pocket::TopLeft => AIM_TOP_LEFT_POCKET.clone()
+            Pocket::TopLeft => AIM_TOP_LEFT_POCKET.clone(),
         }
     }
 }
@@ -663,7 +722,6 @@ pub enum BallType {
     Cue,
 }
 
-
 #[derive(Clone, Debug)]
 /// Represents a ball on the table, incl. its position, physical spec, type.
 #[derive(Default)]
@@ -684,7 +742,6 @@ impl Ball {
         self.displacement(to).absolute_distance()
     }
 }
-
 
 #[derive(Clone, Debug)]
 /// The type of game, e.g. Nineball, EightBall, OnePocket, etc.
@@ -886,7 +943,8 @@ pub fn write_png_to_file(png_bytes: &[u8], path: Option<&Path>) {
 }
 
 pub fn rack_9_ball() -> Vec<Ball> {
-    let ball_types = [BallType::One,
+    let ball_types = [
+        BallType::One,
         BallType::Two,
         BallType::Three,
         BallType::Four,
@@ -894,7 +952,8 @@ pub fn rack_9_ball() -> Vec<Ball> {
         BallType::Five,
         BallType::Six,
         BallType::Seven,
-        BallType::Eight];
+        BallType::Eight,
+    ];
 
     racked_ball_positions()
         .into_iter()

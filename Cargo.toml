@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 bigdecimal = "0.4.8"
 image = "0.25.6"
+imageproc = "0.25"
 lazy_static = "1.5.0"

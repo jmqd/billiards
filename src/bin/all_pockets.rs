@@ -66,6 +66,7 @@ fn main() {
         ],
         ty: GameType::NineBall,
         cueball_modifier: CueballModifier::AsItLays,
+        ..Default::default()
     };
 
     game_state.freeze_to_rail(

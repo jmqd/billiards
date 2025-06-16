@@ -1,0 +1,11 @@
+#+title: Open Physics Questions
+
+* Is there cut-induced throw on a collision even at arbitrarily high speeds? Is
+  it negligible at (let's say) a 20KM/H cue ball speed?
+
+* Is the "gearing english" calculation correct?
+For example, a 5MPH shot:
+
+Half-ball (30 degree) cut: 6.2 rev/s
+Quarter-ball (45 degree) cut: 8.8 rev/s
+Very thin (90 degree) cut: 12.5 rev/s

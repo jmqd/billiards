@@ -1,8 +1,10 @@
 mod assets;
+mod drawing;
 
 use crate::assets::diamond_to_pixel;
 use assets::ideal_ball_size_px;
 use core::fmt;
+use image::Rgba;
 use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
 use std::fs::File;
@@ -123,6 +125,11 @@ impl Angle {
     pub fn from_north(dx: f64, dy: f64) -> Angle {
         let deg = dx.atan2(dy).to_degrees();
         Angle(if deg < 0.0 { deg + 360.0 } else { deg })
+    }
+
+    /// Return the direction that points 180° opposite this one.
+    pub fn flipped(&self) -> Self {
+        Angle((self.0 + 180.0).rem_euclid(360.0))
     }
 }
 
@@ -251,6 +258,19 @@ impl Neg for Inches {
     }
 }
 
+/// A measure of speed in terms of inches per second.
+pub struct InchesPerSecond {
+    inches: Inches,
+}
+
+/// A measure of acceleration in terms of inches per second squared.
+pub struct InchesPerSecondSq {
+    inches: Inches,
+}
+
+/// A measure of angular velocity in terms of radians per second.
+pub struct RadiansPerSecond(f64);
+
 /// Gives the polar direction (e.g. positive or negative).
 /// For example, if a ball is in the top-right quadrant of the pool table, it's
 /// PolarDirection from the center is (Positive, Positive). Conversely, a ball
@@ -343,6 +363,12 @@ impl Position {
         Angle::from_north(dx, dy)
     }
 
+    /// Calculates the Angle of the line going from the aiming center of the
+    /// given Pocket towards this position.
+    pub fn angle_from_pocket(&self, pocket: Pocket) -> Angle {
+        self.angle_to_pocket(pocket).flipped()
+    }
+
     pub fn zeroed() -> Self {
         Self {
             x: Diamond::zero(),
@@ -371,6 +397,18 @@ impl Position {
         self.unresolved_y_shift =
             Some(self.unresolved_y_shift.clone().unwrap_or_default() + distance);
         self
+    }
+
+    pub fn resolve_shifts(&mut self, table_spec: &TableSpec) {
+        if let Some(shift) = &self.unresolved_x_shift {
+            self.shift_horizontally(table_spec.inches_to_diamond(shift.clone()));
+            self.unresolved_x_shift = None;
+        }
+
+        if let Some(shift) = &self.unresolved_y_shift {
+            self.shift_vertically(table_spec.inches_to_diamond(shift.clone()));
+            self.unresolved_y_shift = None;
+        }
     }
 
     /// Move `dd` diamonds away from `self` along `angle`, returning the new `Position`.
@@ -429,6 +467,14 @@ impl Position {
         let shift_inches = TYPICAL_BALL_RADIUS.clone().double();
         self.translate_inches(shift_inches, angle)
     }
+}
+
+/// Compute the gearing english side-spin for a given shot.
+/// Returns the required outside angular velocity on the cue ball as `RadiansPerSecond`.
+pub fn gearing_english(cut_angle: Angle, shot_speed: InchesPerSecond) -> RadiansPerSecond {
+    let omega = shot_speed.inches.magnitude.to_f64().unwrap() * cut_angle.0.sin()
+        / TYPICAL_BALL_RADIUS.magnitude.to_f64().unwrap();
+    RadiansPerSecond(omega)
 }
 
 /// A displacement indicating a direction and distance.
@@ -743,6 +789,18 @@ impl Ball {
     }
 }
 
+/// The kinematics of a ball; all of the characteristics of its motion.
+pub struct Kinematics {
+    /// Velocity of a ball: vx, vy, vz.
+    pub velocity: [InchesPerSecond; 3],
+
+    /// Acceleration of a ball: ax, ay, az.
+    pub acceleration: [InchesPerSecondSq; 3],
+
+    /// The angular velocity (spin) on the ball.
+    pub angular_velocity: [RadiansPerSecond; 3],
+}
+
 #[derive(Clone, Debug)]
 /// The type of game, e.g. Nineball, EightBall, OnePocket, etc.
 pub enum GameType {
@@ -826,6 +884,10 @@ pub struct GameState {
     pub ball_positions: Vec<Ball>,
     pub ty: GameType,
     pub cueball_modifier: CueballModifier,
+
+    // TODO: Have a more general "overlay" concept here instead.
+    // TODO: This should not be pub, we can fix that.
+    pub lines_to_draw: Vec<(Position, Position, Rgba<u8>)>,
 }
 
 impl GameState {
@@ -838,17 +900,7 @@ impl GameState {
     /// inches adjustments.
     pub fn resolve_positions(&mut self) {
         for ball in self.ball_positions.iter_mut() {
-            if let Some(shift) = &ball.position.unresolved_x_shift {
-                ball.position
-                    .shift_horizontally(self.table_spec.inches_to_diamond(shift.clone()));
-                ball.position.unresolved_x_shift = None;
-            }
-
-            if let Some(shift) = &ball.position.unresolved_y_shift {
-                ball.position
-                    .shift_vertically(self.table_spec.inches_to_diamond(shift.clone()));
-                ball.position.unresolved_y_shift = None;
-            }
+            ball.position.resolve_shifts(&self.table_spec);
         }
     }
 
@@ -879,6 +931,10 @@ impl GameState {
         self.ball_positions.push(ball);
     }
 
+    pub fn add_dotted_line(&mut self, from: &Position, to: &Position, color: Rgba<u8>) {
+        self.lines_to_draw.push((from.clone(), to.clone(), color))
+    }
+
     /// Draws a 2D diagram of the current GameState, placing the balls in the
     /// appropriate positions on the diagram.
     pub fn draw_2d_diagram(&self) -> Vec<u8> {
@@ -894,6 +950,10 @@ impl GameState {
                 .into_rgba8();
 
         let (tw, th) = table.dimensions();
+
+        for (start, end, color) in self.lines_to_draw.iter() {
+            drawing::draw_dashed_line_thick_mut(&mut table, start, end, 3., 12., 2., *color);
+        }
 
         for ball in &self.ball_positions {
             let ball_png = assets::ball_img(ball.ty.clone());

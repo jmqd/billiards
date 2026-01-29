@@ -1,11 +1,12 @@
 mod assets;
 mod drawing;
+pub mod dsl;
 
 use crate::assets::diamond_to_pixel;
 use assets::ideal_ball_size_px;
 use core::fmt;
+use image::imageops::{resize, FilterType};
 use image::Rgba;
-use image::imageops::{FilterType, resize};
 use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Write;

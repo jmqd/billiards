@@ -1,0 +1,4 @@
+pos spot = (2, 2)
+ball eight at spot
+ball nine at center
+ball cue frozen left (2)

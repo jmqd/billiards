@@ -4,43 +4,28 @@ A tool and library for producing billiards diagrams and describing the
 specifications of a game of pool/billiards. I might eventually add physics
 simulations for pool.
 
-For example, this diagram was created with the following code.
+For example, the following diagram was created using the simple Domain Specific
+Language (DSL) included in this project. The DSL allows you to describe table
+setups and ball positions in a clean, human-readable text format.
 
 <img src="./img/nine-ball-example-hanger.png" alt="Diagram of a game of Nine Ball." style="width:50%"/>
 
-``` rust
-    let mut game_state = GameState {
-        table_spec: TableSpec::brunswick_gc4_9ft(),
-        ball_positions: vec![
-            Ball {
-                ty: BallType::Cue,
-                position: CENTER_SPOT.clone(),
-                spec: BallSpec::default(),
-            },
-            Ball {
-                ty: BallType::Nine,
-                position: Position {
-                    x: Diamond::from("3.93"),
-                    y: Diamond::from("7.93"),
-                    ..Default::default()
-                },
-                spec: BallSpec::default(),
-            },
-        ],
-        ..Default::default()
-    };
+```text
+# This can be in a file like table.billiards
 
-    game_state.freeze_to_rail(
-        Rail::Left,
-        Diamond::six(),
-        Ball {
-            ty: BallType::Eight,
-            ..Default::default()
-        },
-    );
+# The coordinate system uses "diamonds", Starting at the origin of top-left.
 
-    let img = game_state.draw_2d_diagram();
-    write_png_to_file(&img, None);
+# Create a standard 9ft table (default)
+table brunswick_gc4_9ft
+
+# Place the cue ball at the center spot
+ball cue at center
+
+# Place the 9-ball at a specific coordinate
+ball nine at (3.93, 7.93)
+
+# Freeze the 8-ball to the left rail at diamond 6
+ball eight frozen left (6.0)
 ```
 
 ## Thanks

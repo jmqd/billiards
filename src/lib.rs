@@ -943,7 +943,7 @@ impl GameState {
         use image::imageops::overlay;
         use image::{ImageEncoder, ImageFormat, RgbaImage};
 
-        let ball_radius_px = ideal_ball_size_px();
+        let ball_diameter_px = ideal_ball_size_px();
 
         let mut table: RgbaImage =
             image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
@@ -964,8 +964,8 @@ impl GameState {
                     .into_rgba8();
             ball_img = resize(
                 &ball_img,
-                ball_radius_px,
-                ball_radius_px,
+                ball_diameter_px,
+                ball_diameter_px,
                 FilterType::CatmullRom,
             );
             let (bw, bh) = ball_img.dimensions();

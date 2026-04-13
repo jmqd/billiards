@@ -42,21 +42,30 @@ fn main() {
         },
     );
 
-    let six = game_state.select_ball(BallType::Six).unwrap();
-    let potting_angle = six.position.angle_from_pocket(Pocket::TopRight);
-    let mut ghost_ball_pos = six.position.translate_ghost_ball(potting_angle);
-    ghost_ball_pos.resolve_shifts(&game_state.table_spec);
+    let six = game_state.select_ball(BallType::Six).unwrap().clone();
     let cue_ball_pos = game_state
         .select_ball(BallType::Cue)
         .unwrap()
         .position
         .clone();
+    let potting_angle = six.center_to_center_potting_angle_to_pocket(
+        Pocket::TopRight,
+        &cue_ball_pos,
+        &game_state.table_spec,
+    );
+    let ghost_ball_pos =
+        six.center_to_center_ghost_ball_to_pocket(Pocket::TopRight, &game_state.table_spec);
 
+    println!("potting angle: {}", potting_angle);
     println!("ghost ball: {:?}", ghost_ball_pos);
     println!("six ball: {:?}", six.position);
 
-    game_state.resolve_positions();
-    game_state.add_dotted_line(&cue_ball_pos, &ghost_ball_pos, Rgba([0, 0, 0, 255]));
+    game_state.add_dotted_potting_line_to_pocket(
+        &six,
+        Pocket::TopRight,
+        &cue_ball_pos,
+        Rgba([0, 0, 0, 255]),
+    );
 
     let img = game_state.draw_2d_diagram();
     write_png_to_file(&img, None);

@@ -1,5 +1,5 @@
 use billiards::{
-    Angle, Ball, BallSpec, BallType, GameState, Position, TYPICAL_BALL_RADIUS, TableSpec,
+    Angle, Ball, BallSpec, BallType, GameState, Pocket, Position, TableSpec, TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, RgbaImage};
 
@@ -105,4 +105,34 @@ fn drawing_resolves_pending_inches_shifts_before_rendering() {
     resolved.resolve_positions();
 
     assert_eq!(render(&unresolved), render(&resolved));
+}
+
+#[test]
+fn adding_a_dotted_potting_line_to_a_pocket_matches_a_manually_computed_ghost_ball_line() {
+    let table_spec = TableSpec::default();
+    let object_ball = Ball {
+        ty: BallType::Eight,
+        position: Position::new(2u8, 6u8),
+        spec: BallSpec::default(),
+    };
+    let shooting_position = Position::new(2u8, 4u8)
+        .translate_inches(TYPICAL_BALL_RADIUS.clone(), Angle::from_north(1.0, 0.0));
+    let color = image::Rgba([0, 0, 0, 255]);
+
+    let mut manual = GameState::new(table_spec.clone());
+    let mut resolved_shooting_position = shooting_position.clone();
+    resolved_shooting_position.resolve_shifts(&table_spec);
+    let ghost_ball =
+        object_ball.center_to_center_ghost_ball_to_pocket(Pocket::TopRight, &table_spec);
+    manual.add_dotted_line(&resolved_shooting_position, &ghost_ball, color);
+
+    let mut helper = GameState::new(table_spec);
+    helper.add_dotted_potting_line_to_pocket(
+        &object_ball,
+        Pocket::TopRight,
+        &shooting_position,
+        color,
+    );
+
+    assert_eq!(render(&helper), render(&manual));
 }

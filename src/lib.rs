@@ -423,10 +423,8 @@ impl Position {
         }
     }
 
-    /// Gives the angle to the aiming center of the given Pocket.
-    pub fn angle_to_pocket(&self, pocket: Pocket) -> Angle {
-        let target = pocket.aiming_center();
-
+    /// Gives the angle from this position to `target`.
+    pub fn angle_to(&self, target: &Self) -> Angle {
         let dx = (target.x.magnitude.clone() - self.x.magnitude.clone())
             .to_f64()
             .unwrap();
@@ -435,6 +433,11 @@ impl Position {
             .unwrap();
 
         Angle::from_north(dx, dy)
+    }
+
+    /// Gives the angle to the aiming center of the given Pocket.
+    pub fn angle_to_pocket(&self, pocket: Pocket) -> Angle {
+        self.angle_to(&pocket.aiming_center())
     }
 
     /// Calculates the Angle of the line going from the aiming center of the
@@ -884,6 +887,61 @@ impl Ball {
     pub fn distance(&self, to: &Self) -> Diamond {
         self.displacement(to).absolute_distance()
     }
+
+    /// Compute the idealized ghost-ball center for potting this object ball to `destination`.
+    ///
+    /// Local references in `whitepapers/` describe the same center-of-centers construction:
+    ///
+    /// - `whitepapers/Alciatore_pool_physics_article.pdf`, Section II "Terminology", states that
+    ///   the object ball heads along the impact line / line of centers, and that the ghost ball is
+    ///   where the cue ball must be to send the object ball in the desired direction.
+    /// - `whitepapers/Physics Of Billiards.html` states that after impact, the struck ball moves in
+    ///   the direction of the line joining the centers of the two balls.
+    ///
+    /// Under that ideal equal-ball-size, no-throw model, the cue-ball center must therefore sit one
+    /// ball diameter behind the object ball on the reverse of the target line.
+    pub fn center_to_center_ghost_ball(
+        &self,
+        destination: &Position,
+        table_spec: &TableSpec,
+    ) -> Position {
+        let reverse_target_line = self.position.angle_to(destination).flipped();
+        let ball_diameter = table_spec.inches_to_diamond(self.spec.radius.clone().double());
+
+        self.position.translate(ball_diameter, reverse_target_line)
+    }
+
+    /// Compute the idealized ghost-ball center for potting this object ball to a pocket.
+    pub fn center_to_center_ghost_ball_to_pocket(
+        &self,
+        pocket: Pocket,
+        table_spec: &TableSpec,
+    ) -> Position {
+        self.center_to_center_ghost_ball(&pocket.aiming_center(), table_spec)
+    }
+
+    /// Compute the center-of-centers aiming angle from `shooting_position` to the ghost-ball
+    /// target that would pot this object ball to `destination`.
+    pub fn center_to_center_potting_angle(
+        &self,
+        destination: &Position,
+        shooting_position: &Position,
+        table_spec: &TableSpec,
+    ) -> Angle {
+        let ghost_ball = self.center_to_center_ghost_ball(destination, table_spec);
+        shooting_position.angle_to(&ghost_ball)
+    }
+
+    /// Compute the center-of-centers aiming angle from `shooting_position` for potting this
+    /// object ball to the aiming center of `pocket`.
+    pub fn center_to_center_potting_angle_to_pocket(
+        &self,
+        pocket: Pocket,
+        shooting_position: &Position,
+        table_spec: &TableSpec,
+    ) -> Angle {
+        self.center_to_center_potting_angle(&pocket.aiming_center(), shooting_position, table_spec)
+    }
 }
 
 /// The kinematics of a ball; all of the characteristics of its motion.
@@ -1060,7 +1118,44 @@ impl GameState {
     }
 
     pub fn add_dotted_line(&mut self, from: &Position, to: &Position, color: Rgba<u8>) {
-        self.lines_to_draw.push((from.clone(), to.clone(), color))
+        let mut from = from.clone();
+        from.resolve_shifts(&self.table_spec);
+
+        let mut to = to.clone();
+        to.resolve_shifts(&self.table_spec);
+
+        self.lines_to_draw.push((from, to, color))
+    }
+
+    /// Add a dotted center-of-centers aiming line from `shooting_position` to the ghost-ball
+    /// target that would pot `object_ball` to `destination`.
+    pub fn add_dotted_potting_line(
+        &mut self,
+        object_ball: &Ball,
+        destination: &Position,
+        shooting_position: &Position,
+        color: Rgba<u8>,
+    ) -> Position {
+        let ghost_ball = object_ball.center_to_center_ghost_ball(destination, &self.table_spec);
+        self.add_dotted_line(shooting_position, &ghost_ball, color);
+        ghost_ball
+    }
+
+    /// Add a dotted center-of-centers aiming line from `shooting_position` to the ghost-ball
+    /// target that would pot `object_ball` to the aiming center of `pocket`.
+    pub fn add_dotted_potting_line_to_pocket(
+        &mut self,
+        object_ball: &Ball,
+        pocket: Pocket,
+        shooting_position: &Position,
+        color: Rgba<u8>,
+    ) -> Position {
+        self.add_dotted_potting_line(
+            object_ball,
+            &pocket.aiming_center(),
+            shooting_position,
+            color,
+        )
     }
 
     /// Draws a 2D diagram of the current `GameState` and returns encoded PNG bytes.

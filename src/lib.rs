@@ -264,6 +264,12 @@ pub struct InchesPerSecond {
     inches: Inches,
 }
 
+impl InchesPerSecond {
+    pub fn new(inches: Inches) -> Self {
+        Self { inches }
+    }
+}
+
 /// A measure of acceleration in terms of inches per second squared.
 pub struct InchesPerSecondSq {
     inches: Inches,
@@ -271,6 +277,12 @@ pub struct InchesPerSecondSq {
 
 /// A measure of angular velocity in terms of radians per second.
 pub struct RadiansPerSecond(f64);
+
+impl RadiansPerSecond {
+    pub fn as_f64(&self) -> f64 {
+        self.0
+    }
+}
 
 /// Gives the polar direction (e.g. positive or negative).
 /// For example, if a ball is in the top-right quadrant of the pool table, it's
@@ -473,7 +485,7 @@ impl Position {
 /// Compute the gearing english side-spin for a given shot.
 /// Returns the required outside angular velocity on the cue ball as `RadiansPerSecond`.
 pub fn gearing_english(cut_angle: Angle, shot_speed: InchesPerSecond) -> RadiansPerSecond {
-    let omega = shot_speed.inches.magnitude.to_f64().unwrap() * cut_angle.0.sin()
+    let omega = shot_speed.inches.magnitude.to_f64().unwrap() * cut_angle.0.to_radians().sin()
         / TYPICAL_BALL_RADIUS.magnitude.to_f64().unwrap();
     RadiansPerSecond(omega)
 }

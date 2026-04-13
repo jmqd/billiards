@@ -48,19 +48,18 @@ fn main() {
         .unwrap()
         .position
         .clone();
-    let potting_angle = six.center_to_center_potting_angle_to_pocket(
+    let aim_angle = six.aim_angle_to_pocket(
         Pocket::TopRight,
         &cue_ball_pos,
         &game_state.table_spec,
     );
-    let ghost_ball_pos =
-        six.center_to_center_ghost_ball_to_pocket(Pocket::TopRight, &game_state.table_spec);
+    let ghost_ball_pos = six.ghost_ball_to_pocket(Pocket::TopRight, &game_state.table_spec);
 
-    println!("potting angle: {}", potting_angle);
+    println!("aim angle: {}", aim_angle);
     println!("ghost ball: {:?}", ghost_ball_pos);
     println!("six ball: {:?}", six.position);
 
-    game_state.add_dotted_potting_line_to_pocket(
+    game_state.add_dotted_aim_line_to_pocket(
         &six,
         Pocket::TopRight,
         &cue_ball_pos,

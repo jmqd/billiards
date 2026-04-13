@@ -900,11 +900,7 @@ impl Ball {
     ///
     /// Under that ideal equal-ball-size, no-throw model, the cue-ball center must therefore sit one
     /// ball diameter behind the object ball on the reverse of the target line.
-    pub fn center_to_center_ghost_ball(
-        &self,
-        destination: &Position,
-        table_spec: &TableSpec,
-    ) -> Position {
+    pub fn ghost_ball(&self, destination: &Position, table_spec: &TableSpec) -> Position {
         let reverse_target_line = self.position.angle_to(destination).flipped();
         let ball_diameter = table_spec.inches_to_diamond(self.spec.radius.clone().double());
 
@@ -912,35 +908,31 @@ impl Ball {
     }
 
     /// Compute the idealized ghost-ball center for potting this object ball to a pocket.
-    pub fn center_to_center_ghost_ball_to_pocket(
-        &self,
-        pocket: Pocket,
-        table_spec: &TableSpec,
-    ) -> Position {
-        self.center_to_center_ghost_ball(&pocket.aiming_center(), table_spec)
+    pub fn ghost_ball_to_pocket(&self, pocket: Pocket, table_spec: &TableSpec) -> Position {
+        self.ghost_ball(&pocket.aiming_center(), table_spec)
     }
 
-    /// Compute the center-of-centers aiming angle from `shooting_position` to the ghost-ball
-    /// target that would pot this object ball to `destination`.
-    pub fn center_to_center_potting_angle(
+    /// Compute the idealized aim angle from `shooting_position` to the ghost-ball target that
+    /// would pot this object ball to `destination`.
+    pub fn aim_angle(
         &self,
         destination: &Position,
         shooting_position: &Position,
         table_spec: &TableSpec,
     ) -> Angle {
-        let ghost_ball = self.center_to_center_ghost_ball(destination, table_spec);
+        let ghost_ball = self.ghost_ball(destination, table_spec);
         shooting_position.angle_to(&ghost_ball)
     }
 
-    /// Compute the center-of-centers aiming angle from `shooting_position` for potting this
-    /// object ball to the aiming center of `pocket`.
-    pub fn center_to_center_potting_angle_to_pocket(
+    /// Compute the idealized aim angle from `shooting_position` for potting this object ball to
+    /// the aiming center of `pocket`.
+    pub fn aim_angle_to_pocket(
         &self,
         pocket: Pocket,
         shooting_position: &Position,
         table_spec: &TableSpec,
     ) -> Angle {
-        self.center_to_center_potting_angle(&pocket.aiming_center(), shooting_position, table_spec)
+        self.aim_angle(&pocket.aiming_center(), shooting_position, table_spec)
     }
 }
 
@@ -1127,35 +1119,30 @@ impl GameState {
         self.lines_to_draw.push((from, to, color))
     }
 
-    /// Add a dotted center-of-centers aiming line from `shooting_position` to the ghost-ball
-    /// target that would pot `object_ball` to `destination`.
-    pub fn add_dotted_potting_line(
+    /// Add a dotted idealized aim line from `shooting_position` to the ghost-ball target that
+    /// would pot `object_ball` to `destination`.
+    pub fn add_dotted_aim_line(
         &mut self,
         object_ball: &Ball,
         destination: &Position,
         shooting_position: &Position,
         color: Rgba<u8>,
     ) -> Position {
-        let ghost_ball = object_ball.center_to_center_ghost_ball(destination, &self.table_spec);
+        let ghost_ball = object_ball.ghost_ball(destination, &self.table_spec);
         self.add_dotted_line(shooting_position, &ghost_ball, color);
         ghost_ball
     }
 
-    /// Add a dotted center-of-centers aiming line from `shooting_position` to the ghost-ball
-    /// target that would pot `object_ball` to the aiming center of `pocket`.
-    pub fn add_dotted_potting_line_to_pocket(
+    /// Add a dotted idealized aim line from `shooting_position` to the ghost-ball target that
+    /// would pot `object_ball` to the aiming center of `pocket`.
+    pub fn add_dotted_aim_line_to_pocket(
         &mut self,
         object_ball: &Ball,
         pocket: Pocket,
         shooting_position: &Position,
         color: Rgba<u8>,
     ) -> Position {
-        self.add_dotted_potting_line(
-            object_ball,
-            &pocket.aiming_center(),
-            shooting_position,
-            color,
-        )
+        self.add_dotted_aim_line(object_ball, &pocket.aiming_center(), shooting_position, color)
     }
 
     /// Draws a 2D diagram of the current `GameState` and returns encoded PNG bytes.

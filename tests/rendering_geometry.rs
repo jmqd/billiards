@@ -67,3 +67,16 @@ fn rendered_ball_is_centered_on_the_requested_table_position() {
     assert_eq!((min_x + max_x) / 2, 539);
     assert_eq!((min_y + max_y) / 2, 969);
 }
+
+#[test]
+fn out_of_range_ball_positions_still_render_a_full_sprite_inside_the_image() {
+    let empty = render(&GameState::default());
+    let with_ball = render(&cue_ball_at("5", "-1"));
+
+    let (min_x, min_y, max_x, max_y) = diff_bbox(&empty, &with_ball).expect("ball diff bbox");
+
+    assert_eq!(max_x - min_x + 1, 39);
+    assert_eq!(max_y - min_y + 1, 39);
+    assert_eq!(max_x, with_ball.width() - 1);
+    assert_eq!(max_y, with_ball.height() - 1);
+}

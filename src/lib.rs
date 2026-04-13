@@ -993,8 +993,8 @@ impl GameState {
             let mut py_shifted = py - (bh as i32 / 2);
 
             // Prevent any out of bounds weirdness (shouldn't happen).
-            px_shifted = px_shifted.clamp(0, (tw - bw / 2) as i32);
-            py_shifted = py_shifted.clamp(0, (th - bh / 2) as i32);
+            px_shifted = px_shifted.clamp(0, (tw - bw) as i32);
+            py_shifted = py_shifted.clamp(0, (th - bh) as i32);
 
             overlay(&mut table, &ball_img, px_shifted.into(), py_shifted.into());
         }

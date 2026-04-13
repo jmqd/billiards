@@ -119,6 +119,9 @@ pub fn translate_inwards(origin: &Position, dx: Diamond, dy: Diamond) -> Positio
 /// 90°  = "right"
 /// 180° = "down"
 /// 270° = "left"
+///
+/// This represents an absolute table-heading direction, not a cut-angle magnitude.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Angle(f64);
 
 impl Angle {
@@ -137,6 +140,39 @@ impl Angle {
 impl fmt::Display for Angle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+/// The unsigned cut-angle magnitude `φ` at ball-ball impact, in degrees.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct CutAngle(f64);
+
+impl CutAngle {
+    /// Construct a cut-angle magnitude in degrees.
+    pub fn new(degrees: f64) -> Self {
+        assert!(
+            (0.0..=90.0).contains(&degrees),
+            "cut-angle magnitude must be in [0°, 90°], got {degrees}"
+        );
+        Self(degrees)
+    }
+
+    /// Derive the cut-angle magnitude from the cue-ball heading and the object-ball heading.
+    ///
+    /// The object-ball heading is the line-of-centers direction at impact; equivalently, for an
+    /// ideal equal-mass collision, it is the object ball's immediate post-impact travel direction.
+    pub fn from_headings(cue_ball_heading: Angle, object_ball_heading: Angle) -> Self {
+        let difference = (cue_ball_heading.0 - object_ball_heading.0)
+            .abs()
+            .rem_euclid(360.0);
+        let unsigned_between_rays = difference.min(360.0 - difference);
+        let acute_line_angle = unsigned_between_rays.min(180.0 - unsigned_between_rays);
+
+        Self(acute_line_angle)
+    }
+
+    pub fn as_degrees(&self) -> f64 {
+        self.0
     }
 }
 
@@ -525,12 +561,15 @@ impl Position {
 /// Assumptions and caveats:
 /// - `shot_speed` is the cue-ball speed at *ball-ball impact*, not the launch speed off the cue.
 /// - `cut_angle` is the unsigned cut-angle magnitude `φ` at impact, typically in `[0°, 90°]`.
+///   If you have absolute table headings instead, derive this with
+///   `CutAngle::from_headings(cue_ball_heading, object_ball_heading)`.
 /// - The return value is a spin magnitude; callers must choose the left/right sign for the
 ///   appropriate outside-english convention.
 ///
 /// Returns the required outside angular velocity magnitude as `RadiansPerSecond`.
-pub fn gearing_english(cut_angle: Angle, shot_speed: InchesPerSecond) -> RadiansPerSecond {
-    let omega = shot_speed.inches.magnitude.to_f64().unwrap() * cut_angle.0.to_radians().sin()
+pub fn gearing_english(cut_angle: CutAngle, shot_speed: InchesPerSecond) -> RadiansPerSecond {
+    let omega = shot_speed.inches.magnitude.to_f64().unwrap()
+        * cut_angle.as_degrees().to_radians().sin()
         / TYPICAL_BALL_RADIUS.magnitude.to_f64().unwrap();
     RadiansPerSecond(omega)
 }

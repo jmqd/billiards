@@ -30,7 +30,7 @@ lazy_static! {
     /// <-> center with each side being 2R. From this, we know that for any 2
     /// adjacent pairs in the triple, drawing a line between their centers, the
     /// distance we must shift that line to go through the center of the third
-    /// ball is R * sqrt(3).
+    /// ball is a dimensionless factor of sqrt(3), applied to the ball radius.
     pub static ref OPTIMAL_PACKING_RADIUS_SHIFT: Scale = Scale {
         magnitude: BigDecimal::from_usize(3).unwrap().sqrt().unwrap()
     };
@@ -282,6 +282,16 @@ pub struct InchesPerSecondSq {
     inches: Inches,
 }
 
+impl InchesPerSecondSq {
+    pub fn new(inches: Inches) -> Self {
+        Self { inches }
+    }
+
+    pub fn as_inches(&self) -> &Inches {
+        &self.inches
+    }
+}
+
 /// A measure of angular velocity in terms of radians per second.
 pub struct RadiansPerSecond(f64);
 
@@ -301,7 +311,7 @@ pub enum PolarDirection {
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
-/// A point on the table, interepreted as follows:
+/// A point on the table, interpreted as follows:
 ///   - Top-down view of the table, headstring at the top and rack spot at the bottom.
 ///   - The diamond that would exist at the bottom-left pocket is x=0, y=0.
 ///   - The diamond that would exist at the top-right pocket is x=4, y=8.
@@ -463,9 +473,10 @@ impl Position {
         }
     }
 
-    /// Translate along `angle` a magnitude of `Inches`.
-    /// The shift is stored in `unresolved_{x,y}_shift` so that the caller
-    /// doesn't need to pass a `TableSpec` (to convert inches and︎ diamonds.)
+    /// Translate along `angle` by an `Inches` magnitude.
+    ///
+    /// The shift is stored in `unresolved_{x,y}_shift` so the caller does not
+    /// need to pass a `TableSpec` just to convert inches to diamonds.
     pub fn translate_inches(&self, inches: Inches, angle: Angle) -> Self {
         let rad = angle.0.to_radians();
         let ux = rad.sin();
@@ -901,7 +912,7 @@ impl Rail {
 }
 
 #[derive(Clone, Debug)]
-/// The full and compelete data structure to describe the state of a game.
+/// The full and complete data structure describing the state of a game.
 #[derive(Default)]
 pub struct GameState {
     pub table_spec: TableSpec,
@@ -909,7 +920,7 @@ pub struct GameState {
     pub ty: GameType,
     pub cueball_modifier: CueballModifier,
 
-    // TODO: Have a more general "overlay" concept here instead.
+    // TODO: Replace this with a more general overlay concept.
     lines_to_draw: Vec<(Position, Position, Rgba<u8>)>,
 }
 
@@ -990,8 +1001,7 @@ impl GameState {
         self.lines_to_draw.push((from.clone(), to.clone(), color))
     }
 
-    /// Draws a 2D diagram of the current GameState, placing the balls in the
-    /// appropriate positions on the diagram.
+    /// Draws a 2D diagram of the current `GameState` and returns encoded PNG bytes.
     pub fn draw_2d_diagram(&self) -> Vec<u8> {
         use image::codecs::png::PngEncoder;
         use image::imageops::overlay;

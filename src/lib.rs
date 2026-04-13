@@ -340,22 +340,22 @@ impl Position {
 
     /// If this position is left of the center line, return true.
     pub fn is_left_of_center(&self) -> bool {
-        matches!(self.direction_from_center().0, PolarDirection::Negative)
+        self.x < CENTER_SPOT.x
     }
 
     /// If this position is right of the center line, return true.
     pub fn is_right_of_center(&self) -> bool {
-        matches!(self.direction_from_center().0, PolarDirection::Positive)
+        self.x > CENTER_SPOT.x
     }
 
     /// If this position is above the center line, return true.
     pub fn is_above_center(&self) -> bool {
-        matches!(self.direction_from_center().1, PolarDirection::Positive)
+        self.y > CENTER_SPOT.y
     }
 
     /// If this position is below the center line, return true.
     pub fn is_below_center(&self) -> bool {
-        matches!(self.direction_from_center().1, PolarDirection::Negative)
+        self.y < CENTER_SPOT.y
     }
 
     pub fn merge_unset_component(mut self, diamond: Diamond) -> Self {

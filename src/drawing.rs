@@ -59,3 +59,51 @@ pub fn draw_dashed_line_thick_mut(
         s += dash_px + gap_px;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Position;
+
+    fn changed_pixel_count(image: &RgbaImage) -> usize {
+        image
+            .pixels()
+            .filter(|pixel| **pixel != Rgba([0, 0, 0, 0]))
+            .count()
+    }
+
+    #[test]
+    fn given_a_zero_length_overlay_line_when_drawing_then_no_pixels_are_changed() {
+        let mut image = RgbaImage::new(1089, 1938);
+        let start = Position::new(2u8, 4u8);
+
+        draw_dashed_line_thick_mut(
+            &mut image,
+            &start,
+            &start,
+            3.0,
+            12.0,
+            2.0,
+            Rgba([255, 0, 0, 255]),
+        );
+
+        assert_eq!(changed_pixel_count(&image), 0);
+    }
+
+    #[test]
+    fn given_a_horizontal_overlay_line_when_drawing_then_some_pixels_are_colored() {
+        let mut image = RgbaImage::new(1089, 1938);
+
+        draw_dashed_line_thick_mut(
+            &mut image,
+            &Position::new(1u8, 4u8),
+            &Position::new(3u8, 4u8),
+            8.0,
+            4.0,
+            2.0,
+            Rgba([0, 255, 0, 255]),
+        );
+
+        assert!(changed_pixel_count(&image) > 0);
+    }
+}

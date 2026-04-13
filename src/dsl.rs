@@ -95,6 +95,12 @@ pub enum RailSide {
     Bottom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoordinateAxis {
+    X,
+    Y,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DslParseError {
     pub message: String,
@@ -112,12 +118,42 @@ impl std::error::Error for DslParseError {}
 #[derive(Debug, Clone, PartialEq)]
 pub enum DslBuildError {
     UnknownAlias(String),
+    CoordinateOutOfRange {
+        axis: CoordinateAxis,
+        value: f64,
+        min: f64,
+        max: f64,
+    },
+    FrozenCoordinateOutOfRange {
+        rail: RailSide,
+        value: f64,
+        min: f64,
+        max: f64,
+    },
 }
 
 impl std::fmt::Display for DslBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownAlias(name) => write!(f, "unknown alias '{name}'"),
+            Self::CoordinateOutOfRange {
+                axis,
+                value,
+                min,
+                max,
+            } => write!(
+                f,
+                "{axis}-coordinate {value} is out of bounds; expected {min}..={max}"
+            ),
+            Self::FrozenCoordinateOutOfRange {
+                rail,
+                value,
+                min,
+                max,
+            } => write!(
+                f,
+                "frozen {rail} coordinate {value} is out of bounds; expected {min}..={max}"
+            ),
         }
     }
 }
@@ -185,6 +221,7 @@ pub fn build_game_state(doc: &DslDoc) -> Result<GameState, DslBuildError> {
                     });
                 }
                 BallPlacement::Frozen { ball, rail, coord } => {
+                    validate_frozen_coordinate(*rail, *coord)?;
                     let rail = rail.to_rail();
                     let diamond = Diamond::from(coord.to_string().as_str());
                     game_state.freeze_to_rail(
@@ -208,16 +245,56 @@ fn resolve_position_expr(
     position: &PositionExpr,
 ) -> Result<Position, DslBuildError> {
     match position {
-        PositionExpr::Diamond { x, y } => Ok(Position {
-            x: Diamond::from(x.to_string().as_str()),
-            y: Diamond::from(y.to_string().as_str()),
-            ..Default::default()
-        }),
+        PositionExpr::Diamond { x, y } => {
+            validate_coordinate(CoordinateAxis::X, *x, 0.0, 4.0)?;
+            validate_coordinate(CoordinateAxis::Y, *y, 0.0, 8.0)?;
+            Ok(Position {
+                x: Diamond::from(x.to_string().as_str()),
+                y: Diamond::from(y.to_string().as_str()),
+                ..Default::default()
+            })
+        }
         PositionExpr::Named(named) => Ok(named.to_position()),
         PositionExpr::Alias(name) => aliases
             .get(name)
             .cloned()
             .ok_or_else(|| DslBuildError::UnknownAlias(name.clone())),
+    }
+}
+
+fn validate_coordinate(
+    axis: CoordinateAxis,
+    value: f64,
+    min: f64,
+    max: f64,
+) -> Result<(), DslBuildError> {
+    if (min..=max).contains(&value) {
+        Ok(())
+    } else {
+        Err(DslBuildError::CoordinateOutOfRange {
+            axis,
+            value,
+            min,
+            max,
+        })
+    }
+}
+
+fn validate_frozen_coordinate(rail: RailSide, value: f64) -> Result<(), DslBuildError> {
+    let max = match rail {
+        RailSide::Left | RailSide::Right => 8.0,
+        RailSide::Top | RailSide::Bottom => 4.0,
+    };
+
+    if (0.0..=max).contains(&value) {
+        Ok(())
+    } else {
+        Err(DslBuildError::FrozenCoordinateOutOfRange {
+            rail,
+            value,
+            min: 0.0,
+            max,
+        })
     }
 }
 
@@ -417,6 +494,26 @@ fn identifier<'a>(input: &mut Stream<'a>) -> ParseResult<'a, &'a str> {
         c.is_ascii_alphanumeric() || c == '-' || c == '_'
     })
     .parse_next(input)
+}
+
+impl std::fmt::Display for CoordinateAxis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CoordinateAxis::X => write!(f, "x"),
+            CoordinateAxis::Y => write!(f, "y"),
+        }
+    }
+}
+
+impl std::fmt::Display for RailSide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RailSide::Left => write!(f, "left"),
+            RailSide::Right => write!(f, "right"),
+            RailSide::Top => write!(f, "top"),
+            RailSide::Bottom => write!(f, "bottom"),
+        }
+    }
 }
 
 impl NamedPosition {

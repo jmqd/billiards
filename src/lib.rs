@@ -1117,7 +1117,7 @@ pub fn racked_ball_positions() -> Vec<Position> {
         TYPICAL_BALL_RADIUS.clone().double().neg() * OPTIMAL_PACKING_RADIUS_SHIFT.clone(),
     );
 
-    vec![
+    let mut positions = vec![
         head_ball_position,
         second_row_left,
         second_row_right,
@@ -1127,5 +1127,10 @@ pub fn racked_ball_positions() -> Vec<Position> {
         fourth_row_left,
         fourth_row_right,
         final_ball,
-    ]
+    ];
+    let table_spec = TableSpec::default();
+    for position in &mut positions {
+        position.resolve_shifts(&table_spec);
+    }
+    positions
 }

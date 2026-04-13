@@ -1,0 +1,5 @@
+error[E0308]: mismatched types
+ --> tests/ui/inches_times_inches.rs:9:30
+  |
+9 |     let _ = inches.clone() * inches;
+  |                              ^^^^^^ expected `Scale`, found `Inches`

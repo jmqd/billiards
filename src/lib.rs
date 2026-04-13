@@ -31,7 +31,7 @@ lazy_static! {
     /// adjacent pairs in the triple, drawing a line between their centers, the
     /// distance we must shift that line to go through the center of the third
     /// ball is R * sqrt(3).
-    pub static ref OPTIMAL_PACKING_RADIUS_SHIFT: Inches = Inches {
+    pub static ref OPTIMAL_PACKING_RADIUS_SHIFT: Scale = Scale {
         magnitude: BigDecimal::from_usize(3).unwrap().sqrt().unwrap()
     };
     pub static ref GC4_POCKET_DEPTH: Inches = Inches {
@@ -226,6 +226,13 @@ impl Default for Diamond {
     fn default() -> Self {
         Self::zero()
     }
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+/// A dimensionless scale factor.
+#[derive(Default)]
+pub struct Scale {
+    pub magnitude: BigDecimal,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -572,10 +579,10 @@ impl Add for Inches {
     }
 }
 
-impl Mul for Inches {
+impl Mul<Scale> for Inches {
     type Output = Inches;
 
-    fn mul(self, rhs: Self) -> Self::Output {
+    fn mul(self, rhs: Scale) -> Self::Output {
         Self {
             magnitude: self.magnitude * rhs.magnitude,
         }

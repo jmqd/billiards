@@ -10,3 +10,6 @@ image = "0.25.6"
 imageproc = "0.25"
 lazy_static = "1.5.0"
 winnow = "0.7"
+
+[dev-dependencies]
+trybuild = "1.0"

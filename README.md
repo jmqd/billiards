@@ -13,7 +13,8 @@ setups and ball positions in a clean, human-readable text format.
 ```text
 # This can be in a file like table.billiards
 
-# The coordinate system uses "diamonds", Starting at the origin of top-left.
+# The coordinate system uses "diamonds", with the origin at bottom-left.
+# `x` increases to the right and `y` increases upward in table space.
 
 # Create a standard 9ft table (default)
 table brunswick_gc4_9ft

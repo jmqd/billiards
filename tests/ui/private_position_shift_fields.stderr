@@ -1,0 +1,5 @@
+error[E0616]: field `unresolved_x_shift` of struct `Position` is private
+ --> tests/ui/private_position_shift_fields.rs:6:14
+  |
+6 |     position.unresolved_x_shift = Some(Inches {
+  |              ^^^^^^^^^^^^^^^^^^ private field

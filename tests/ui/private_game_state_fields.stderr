@@ -1,0 +1,11 @@
+error[E0616]: field `ball_positions` of struct `GameState` is private
+ --> tests/ui/private_game_state_fields.rs:6:19
+  |
+6 |     let _ = state.ball_positions.len();
+  |                   ^^^^^^^^^^^^^^ private field
+
+error[E0616]: field `lines_to_draw` of struct `GameState` is private
+ --> tests/ui/private_game_state_fields.rs:7:19
+  |
+7 |     let _ = state.lines_to_draw.len();
+  |                   ^^^^^^^^^^^^^ private field

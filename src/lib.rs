@@ -504,8 +504,31 @@ impl Position {
     }
 }
 
-/// Compute the gearing english side-spin for a given shot.
-/// Returns the required outside angular velocity on the cue ball as `RadiansPerSecond`.
+/// Compute the idealized gearing-english spin magnitude for a cut shot.
+///
+/// The local references in `whitepapers/` all encode gearing as the no-slip / no-throw
+/// condition at the cue-ball/object-ball contact patch:
+///
+/// - `whitepapers/Alciatore_pool_physics_article.pdf`, Section VI "Throw", gives a throw term
+///   proportional to `(v sin(φ) - R ω_z)`, so zero throw occurs when that factor is zero.
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C6'), (C11), and (C13),
+///   defines the relative tangential contact velocity `WCa` and the adherence condition
+///   `WCi = 0`, which is the same zero-relative-motion condition at impact.
+/// - `whitepapers/billiards_ball_collisions.pdf`, Eq. (26), gives the no-slip condition at the
+///   impact point in terms of tangential center-of-mass velocity and spin.
+///
+/// Under the common pool-shot simplifications used here — object ball initially at rest,
+/// negligible pre-impact object-ball spin, and interest only in the side-spin component that
+/// cancels tangential slip — these relations reduce to `R * |ω| = v * sin(φ)`, so this helper
+/// returns `|ω| = v * sin(φ) / R`.
+///
+/// Assumptions and caveats:
+/// - `shot_speed` is the cue-ball speed at *ball-ball impact*, not the launch speed off the cue.
+/// - `cut_angle` is the unsigned cut-angle magnitude `φ` at impact, typically in `[0°, 90°]`.
+/// - The return value is a spin magnitude; callers must choose the left/right sign for the
+///   appropriate outside-english convention.
+///
+/// Returns the required outside angular velocity magnitude as `RadiansPerSecond`.
 pub fn gearing_english(cut_angle: Angle, shot_speed: InchesPerSecond) -> RadiansPerSecond {
     let omega = shot_speed.inches.magnitude.to_f64().unwrap() * cut_angle.0.to_radians().sin()
         / TYPICAL_BALL_RADIUS.magnitude.to_f64().unwrap();

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
-    Ball, BallSpec, BallType, Diamond, GameState, Position, Rail, TableSpec, BOTTOM_LEFT_DIAMOND,
-    BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT,
-    TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
+    Ball, BallSpec, BallType, Diamond, GameState, Position, Rail, TableSpec,
+    BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
+    CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use winnow::ascii::{float, line_ending, till_line_ending};
 use winnow::combinator::{alt, cut_err, delimited, eof, opt, peek, preceded, repeat, terminated};
@@ -202,11 +202,7 @@ pub fn build_game_state(doc: &DslDoc) -> Result<GameState, DslBuildError> {
         TableRef::BrunswickGc4_9ft => TableSpec::brunswick_gc4_9ft(),
     };
 
-    let mut game_state = GameState {
-        table_spec,
-        ball_positions: Vec::new(),
-        ..Default::default()
-    };
+    let mut game_state = GameState::new(table_spec);
 
     let mut aliases = HashMap::new();
     for entry in &doc.entries {
@@ -218,7 +214,7 @@ pub fn build_game_state(doc: &DslDoc) -> Result<GameState, DslBuildError> {
             DslEntry::Ball(placement) => match placement {
                 BallPlacement::At { ball, position } => {
                     let pos = resolve_position_expr(&aliases, position)?;
-                    game_state.ball_positions.push(Ball {
+                    game_state.add_ball(Ball {
                         ty: ball.to_ball_type(),
                         position: pos,
                         spec: BallSpec::default(),
@@ -252,11 +248,10 @@ fn resolve_position_expr(
         PositionExpr::Diamond { x, y } => {
             validate_coordinate(CoordinateAxis::X, *x, 0.0, 4.0)?;
             validate_coordinate(CoordinateAxis::Y, *y, 0.0, 8.0)?;
-            Ok(Position {
-                x: Diamond::from(x.to_string().as_str()),
-                y: Diamond::from(y.to_string().as_str()),
-                ..Default::default()
-            })
+            Ok(Position::new(
+                Diamond::from(x.to_string().as_str()),
+                Diamond::from(y.to_string().as_str()),
+            ))
         }
         PositionExpr::Named(named) => Ok(named.to_position()),
         PositionExpr::Alias(name) => aliases
@@ -585,7 +580,7 @@ mod tests {
         let dsl = "pos spot = (1, 2)\nball eight at spot";
         let doc = parse_dsl(dsl).expect("parse");
         let game_state = build_game_state(&doc).expect("build");
-        assert_eq!(game_state.ball_positions.len(), 1);
+        assert_eq!(game_state.balls().len(), 1);
     }
 
     #[test]
@@ -593,7 +588,7 @@ mod tests {
         let dsl = "ball nine at center";
         let doc = parse_dsl(dsl).expect("parse");
         let game_state = build_game_state(&doc).expect("build");
-        assert_eq!(game_state.ball_positions.len(), 1);
+        assert_eq!(game_state.balls().len(), 1);
     }
 
     #[test]
@@ -601,7 +596,7 @@ mod tests {
         let dsl = "ball cue frozen left (6)";
         let doc = parse_dsl(dsl).expect("parse");
         let game_state = build_game_state(&doc).expect("build");
-        assert_eq!(game_state.ball_positions.len(), 1);
+        assert_eq!(game_state.balls().len(), 1);
     }
 
     #[test]

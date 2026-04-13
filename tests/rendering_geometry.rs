@@ -1,4 +1,6 @@
-use billiards::{Ball, BallSpec, BallType, Diamond, GameState, Position};
+use billiards::{
+    Angle, Ball, BallSpec, BallType, GameState, Position, TYPICAL_BALL_RADIUS, TableSpec,
+};
 use image::{load_from_memory, RgbaImage};
 
 fn render(state: &GameState) -> RgbaImage {
@@ -32,18 +34,14 @@ fn diff_bbox(a: &RgbaImage, b: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
 }
 
 fn cue_ball_at(x: &str, y: &str) -> GameState {
-    GameState {
-        ball_positions: vec![Ball {
+    GameState::with_balls(
+        TableSpec::default(),
+        [Ball {
             ty: BallType::Cue,
-            position: Position {
-                x: Diamond::from(x),
-                y: Diamond::from(y),
-                ..Default::default()
-            },
+            position: Position::new(x, y),
             spec: BallSpec::default(),
         }],
-        ..Default::default()
-    }
+    )
 }
 
 #[test]
@@ -79,4 +77,32 @@ fn out_of_range_ball_positions_still_render_a_full_sprite_inside_the_image() {
     assert_eq!(max_y - min_y + 1, 39);
     assert_eq!(max_x, with_ball.width() - 1);
     assert_eq!(max_y, with_ball.height() - 1);
+}
+
+#[test]
+fn drawing_resolves_pending_inches_shifts_before_rendering() {
+    let table_spec = TableSpec::default();
+    let shifted = Position::new(2u8, 4u8)
+        .translate_inches(TYPICAL_BALL_RADIUS.clone(), Angle::from_north(0.0, 1.0));
+
+    let unresolved = GameState::with_balls(
+        table_spec.clone(),
+        [Ball {
+            ty: BallType::Cue,
+            position: shifted.clone(),
+            spec: BallSpec::default(),
+        }],
+    );
+
+    let mut resolved = GameState::with_balls(
+        table_spec,
+        [Ball {
+            ty: BallType::Cue,
+            position: shifted,
+            spec: BallSpec::default(),
+        }],
+    );
+    resolved.resolve_positions();
+
+    assert_eq!(render(&unresolved), render(&resolved));
 }

@@ -3,9 +3,9 @@ use billiards::*;
 fn main() {
     let table_spec = TableSpec::brunswick_gc4_9ft();
 
-    let mut game_state = GameState {
-        table_spec: table_spec.clone(),
-        ball_positions: vec![
+    let mut game_state = GameState::with_balls(
+        table_spec.clone(),
+        [
             Ball {
                 ty: BallType::Cue,
                 position: TOP_RIGHT_DIAMOND.clone(),
@@ -38,36 +38,23 @@ fn main() {
             },
             Ball {
                 ty: BallType::Nine,
-                position: Position {
-                    x: Diamond::from(2),
-                    y: Diamond::from(4),
-                    ..Default::default()
-                },
+                position: Position::new(2u8, 4u8),
                 spec: BallSpec::default(),
             },
             Ball {
                 ty: BallType::Eight,
-                position: Position {
-                    x: Diamond::from(0),
-                    y: Diamond::from(2),
-                    ..Default::default()
-                },
+                position: Position::new(0u8, 2u8),
                 spec: BallSpec::default(),
             },
             Ball {
                 ty: BallType::Five,
-                position: Position {
-                    x: Diamond::from(3),
-                    y: Diamond::from(0),
-                    ..Default::default()
-                },
+                position: Position::new(3u8, 0u8),
                 spec: BallSpec::default(),
             },
         ],
-        ty: GameType::NineBall,
-        cueball_modifier: CueballModifier::AsItLays,
-        ..Default::default()
-    };
+    );
+    game_state.ty = GameType::NineBall;
+    game_state.cueball_modifier = CueballModifier::AsItLays;
 
     game_state.freeze_to_rail(
         Rail::Bottom,

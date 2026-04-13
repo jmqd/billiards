@@ -306,11 +306,19 @@ pub enum PolarDirection {
 pub struct Position {
     pub x: Diamond,
     pub y: Diamond,
-    pub unresolved_x_shift: Option<Inches>,
-    pub unresolved_y_shift: Option<Inches>,
+    unresolved_x_shift: Option<Inches>,
+    unresolved_y_shift: Option<Inches>,
 }
 
 impl Position {
+    pub fn new<X: Into<Diamond>, Y: Into<Diamond>>(x: X, y: Y) -> Self {
+        Self {
+            x: x.into(),
+            y: y.into(),
+            ..Default::default()
+        }
+    }
+
     /// Calculates the displacement from this position to another.
     pub fn displacement(&self, to: &Self) -> Displacement {
         Displacement {
@@ -383,11 +391,7 @@ impl Position {
     }
 
     pub fn zeroed() -> Self {
-        Self {
-            x: Diamond::zero(),
-            y: Diamond::zero(),
-            ..Default::default()
-        }
+        Self::new(Diamond::zero(), Diamond::zero())
     }
 
     pub fn shift_horizontally(&mut self, distance: Diamond) -> &mut Self {
@@ -894,17 +898,48 @@ impl Rail {
 #[derive(Default)]
 pub struct GameState {
     pub table_spec: TableSpec,
-    pub ball_positions: Vec<Ball>,
+    ball_positions: Vec<Ball>,
     pub ty: GameType,
     pub cueball_modifier: CueballModifier,
 
     // TODO: Have a more general "overlay" concept here instead.
-    // TODO: This should not be pub, we can fix that.
-    pub lines_to_draw: Vec<(Position, Position, Rgba<u8>)>,
+    lines_to_draw: Vec<(Position, Position, Rgba<u8>)>,
 }
 
 impl GameState {
-    // TODO: We're assuming for now all BallTypes are unique. This may change.
+    pub fn new(table_spec: TableSpec) -> Self {
+        Self {
+            table_spec,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_balls<I>(table_spec: TableSpec, balls: I) -> Self
+    where
+        I: IntoIterator<Item = Ball>,
+    {
+        let mut state = Self::new(table_spec);
+        state.add_balls(balls);
+        state
+    }
+
+    pub fn balls(&self) -> &[Ball] {
+        &self.ball_positions
+    }
+
+    pub fn add_ball(&mut self, ball: Ball) {
+        self.ball_positions.push(ball);
+    }
+
+    pub fn add_balls<I>(&mut self, balls: I)
+    where
+        I: IntoIterator<Item = Ball>,
+    {
+        for ball in balls {
+            self.add_ball(ball);
+        }
+    }
+
     pub fn select_ball(&self, ball_type: BallType) -> Option<&Ball> {
         self.ball_positions.iter().find(|b| b.ty == ball_type)
     }
@@ -941,7 +976,7 @@ impl GameState {
             }
         };
 
-        self.ball_positions.push(ball);
+        self.add_ball(ball);
     }
 
     pub fn add_dotted_line(&mut self, from: &Position, to: &Position, color: Rgba<u8>) {
@@ -956,6 +991,8 @@ impl GameState {
         use image::{ImageEncoder, ImageFormat, RgbaImage};
 
         let ball_diameter_px = ideal_ball_size_px();
+        let mut resolved = self.clone();
+        resolved.resolve_positions();
 
         let mut table: RgbaImage =
             image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
@@ -964,11 +1001,11 @@ impl GameState {
 
         let (tw, th) = table.dimensions();
 
-        for (start, end, color) in self.lines_to_draw.iter() {
+        for (start, end, color) in resolved.lines_to_draw.iter() {
             drawing::draw_dashed_line_thick_mut(&mut table, start, end, 3., 12., 2., *color);
         }
 
-        for ball in &self.ball_positions {
+        for ball in &resolved.ball_positions {
             let ball_png = assets::ball_img(ball.ty.clone());
             let mut ball_img: RgbaImage =
                 image::load_from_memory_with_format(&ball_png, ImageFormat::Png)

@@ -5,7 +5,7 @@ use crate::{
     BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT,
     TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
-use winnow::ascii::{float, line_ending, space0 as ws0, till_line_ending};
+use winnow::ascii::{float, line_ending, till_line_ending};
 use winnow::combinator::{alt, delimited, eof, opt, repeat, terminated};
 use winnow::error::{ErrMode, InputError};
 use winnow::prelude::*;
@@ -254,7 +254,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
         )
         .parse_next(input)?;
 
-    let _ = terminated(ws0, eof).parse_next(input)?;
+    let _ = terminated(hws0, eof).parse_next(input)?;
 
     Ok(doc)
 }
@@ -268,10 +268,10 @@ enum DslStatement {
 }
 
 fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
-    let _ = ws0.parse_next(input)?;
+    let _ = hws0.parse_next(input)?;
     let stmt =
         alt((comment_line, table_stmt, alias_stmt, ball_stmt, blank_line)).parse_next(input)?;
-    let _ = ws0.parse_next(input)?;
+    let _ = hws0.parse_next(input)?;
     Ok(stmt)
 }
 
@@ -297,9 +297,9 @@ fn alias_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     let _ = "pos".parse_next(input)?;
     let _ = ws1.parse_next(input)?;
     let name = identifier.parse_next(input)?;
-    let _ = ws0.parse_next(input)?;
+    let _ = hws0.parse_next(input)?;
     let _ = '='.parse_next(input)?;
-    let _ = ws0.parse_next(input)?;
+    let _ = hws0.parse_next(input)?;
     let position = position_expr.parse_next(input)?;
     Ok(DslStatement::Alias(AliasDef {
         name: name.to_string(),
@@ -317,6 +317,12 @@ fn ball_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
         BallPlacementKind::At(position) => BallPlacement::At { ball, position },
         BallPlacementKind::Frozen { rail, coord } => BallPlacement::Frozen { ball, rail, coord },
     }))
+}
+
+fn hws0<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ()> {
+    take_while(0.., |c: char| c == ' ' || c == '\t')
+        .void()
+        .parse_next(input)
 }
 
 fn ws1<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ()> {
@@ -337,7 +343,7 @@ fn ball_frozen<'a>(input: &mut Stream<'a>) -> ParseResult<'a, BallPlacementKind>
     let _ = ws1.parse_next(input)?;
     let rail = rail_side.parse_next(input)?;
     let _ = ws1.parse_next(input)?;
-    let coord = delimited('(', delimited(ws0, float, ws0), ')').parse_next(input)?;
+    let coord = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
     Ok(BallPlacementKind::Frozen { rail, coord })
 }
 
@@ -352,21 +358,21 @@ fn rail_side<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailSide> {
 }
 
 fn position_expr<'a>(input: &mut Stream<'a>) -> ParseResult<'a, PositionExpr> {
-    let _ = ws0.parse_next(input)?;
+    let _ = hws0.parse_next(input)?;
     let expr = alt((
         coordinate.map(|(x, y)| PositionExpr::Diamond { x, y }),
         named_position.map(PositionExpr::Named),
         identifier.map(|name| PositionExpr::Alias(name.to_string())),
     ))
     .parse_next(input)?;
-    let _ = ws0.parse_next(input)?;
+    let _ = hws0.parse_next(input)?;
     Ok(expr)
 }
 
 fn coordinate<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, f64)> {
     delimited(
         '(',
-        delimited(ws0, (terminated(float, (ws0, ',', ws0)), float), ws0),
+        delimited(hws0, (terminated(float, (hws0, ',', hws0)), float), hws0),
         ')',
     )
     .parse_next(input)

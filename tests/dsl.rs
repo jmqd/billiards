@@ -1,8 +1,24 @@
-use billiards::dsl::{CoordinateAxis, DslBuildError, DslError, RailSide, parse_dsl_to_game_state};
+use billiards::dsl::{
+    CoordinateAxis, DslBuildError, DslError, DslParseError, RailSide, parse_dsl,
+    parse_dsl_to_game_state,
+};
 
 fn assert_parse_error(input: &str) {
     let err = parse_dsl_to_game_state(input).expect_err("expected parse failure");
     assert!(matches!(err, DslError::Parse(_)), "unexpected error: {err}");
+}
+
+#[test]
+fn parse_dsl_returns_a_crate_owned_error_with_a_byte_offset() {
+    let err = parse_dsl("ball cue nope").expect_err("expected parse failure");
+
+    assert_eq!(
+        err,
+        DslParseError {
+            message: "invalid DSL".to_string(),
+            offset: 9,
+        }
+    );
 }
 
 #[test]

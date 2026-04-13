@@ -6,7 +6,7 @@ use crate::{
     TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use winnow::ascii::{float, line_ending, till_line_ending};
-use winnow::combinator::{alt, delimited, eof, opt, repeat, terminated};
+use winnow::combinator::{alt, cut_err, delimited, eof, opt, peek, preceded, repeat, terminated};
 use winnow::error::{ErrMode, InputError};
 use winnow::prelude::*;
 use winnow::stream::{LocatingSlice, Location};
@@ -183,13 +183,17 @@ type ParseError<'i> = ErrMode<InputError<Stream<'i>>>;
 
 type ParseResult<'i, T> = Result<T, ParseError<'i>>;
 
-pub fn parse_dsl(input: &str) -> ParseResult<'_, DslDoc> {
+fn parse_dsl_inner(input: &str) -> ParseResult<'_, DslDoc> {
     let mut stream = LocatingSlice::new(input);
     dsl_doc.parse_next(&mut stream)
 }
 
+pub fn parse_dsl(input: &str) -> Result<DslDoc, DslParseError> {
+    parse_dsl_inner(input).map_err(parse_error)
+}
+
 pub fn parse_dsl_to_game_state(input: &str) -> Result<GameState, DslError> {
-    let doc = parse_dsl(input).map_err(|err| DslError::Parse(parse_error(err)))?;
+    let doc = parse_dsl(input).map_err(DslError::Parse)?;
     build_game_state(&doc).map_err(DslError::Build)
 }
 
@@ -302,7 +306,7 @@ fn parse_error(err: ParseError<'_>) -> DslParseError {
     let offset = match err {
         ErrMode::Backtrack(error) | ErrMode::Cut(error) => {
             let input = error.input;
-            input.current_token_start()
+            Location::current_token_start(&input)
         }
         ErrMode::Incomplete(_) => 0,
     };
@@ -346,8 +350,14 @@ enum DslStatement {
 
 fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     let _ = hws0.parse_next(input)?;
-    let stmt =
-        alt((comment_line, table_stmt, alias_stmt, ball_stmt, blank_line)).parse_next(input)?;
+    let stmt = alt((
+        comment_line,
+        blank_line,
+        preceded(peek("table"), cut_err(table_stmt)),
+        preceded(peek("pos"), cut_err(alias_stmt)),
+        preceded(peek("ball"), cut_err(ball_stmt)),
+    ))
+    .parse_next(input)?;
     let _ = hws0.parse_next(input)?;
     Ok(stmt)
 }

@@ -2,7 +2,7 @@ use billiards::dsl::parse_dsl_to_game_state;
 use billiards::write_png_to_file;
 use clap::Parser;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

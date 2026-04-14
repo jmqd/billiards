@@ -926,6 +926,21 @@ pub fn classify_motion_phase(
     }
 }
 
+fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
+    let linear_deceleration = match &config.rolling_resistance {
+        RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration,
+        } => linear_deceleration.as_f64(),
+    };
+
+    assert!(
+        linear_deceleration > 0.0,
+        "rolling linear deceleration must be positive"
+    );
+
+    linear_deceleration
+}
+
 /// Compute the next qualitative motion transition for a single ball.
 ///
 /// This first implementation only models the rolling-to-rest transition. That choice is grounded
@@ -946,27 +961,91 @@ pub fn compute_next_transition(
 ) -> Option<NextTransition> {
     match classify_motion_phase(state, ball, &config.phase) {
         MotionPhase::Rest => None,
-        MotionPhase::Rolling => {
-            let linear_deceleration = match &config.rolling_resistance {
-                RollingResistanceModel::ConstantDeceleration {
-                    linear_deceleration,
-                } => linear_deceleration.as_f64(),
-            };
-
-            assert!(
-                linear_deceleration > 0.0,
-                "rolling linear deceleration must be positive"
-            );
-
-            Some(NextTransition {
-                phase_before: MotionPhase::Rolling,
-                phase_after: MotionPhase::Rest,
-                time_until_transition: Seconds::new(ball_speed(state).as_f64() / linear_deceleration),
-            })
-        }
+        MotionPhase::Rolling => Some(NextTransition {
+            phase_before: MotionPhase::Rolling,
+            phase_after: MotionPhase::Rest,
+            time_until_transition: Seconds::new(
+                ball_speed(state).as_f64() / rolling_linear_deceleration(config),
+            ),
+        }),
         MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
         MotionPhase::Sliding => todo!("sliding transition prediction is not implemented yet"),
         MotionPhase::Spinning => todo!("spinning transition prediction is not implemented yet"),
+    }
+}
+
+/// Advance a single ball state forward in time under the current single-ball motion model.
+///
+/// This first implementation intentionally supports only the already-modeled `Rest` and
+/// `Rolling` phases:
+///
+/// - resting balls remain unchanged
+/// - rolling balls move along their current heading under constant-magnitude linear deceleration
+///   until they reach rest
+///
+/// As a first internally consistent approximation, the full angular-velocity vector is scaled by
+/// the same speed ratio during rolling advance. That preserves exact rolling-without-slip states,
+/// keeps the phase classification stable while the ball is moving, and lands the ball in `Rest`
+/// when advanced to the same stop time predicted by `compute_next_transition(...)`.
+///
+/// Sliding, spinning, and airborne state advance are intentionally left as `todo!()` for now.
+pub fn advance_ball_state(
+    state: &BallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> BallState {
+    assert!(dt.as_f64() >= 0.0, "advance duration must be non-negative");
+
+    if dt.as_f64() == 0.0 {
+        return state.clone();
+    }
+
+    match classify_motion_phase(state, ball, &config.phase) {
+        MotionPhase::Rest => state.clone(),
+        MotionPhase::Rolling => {
+            let initial_speed = ball_speed(state).as_f64();
+            let linear_deceleration = rolling_linear_deceleration(config);
+            let stop_time = initial_speed / linear_deceleration;
+            let advance_time = dt.as_f64().min(stop_time);
+            let final_speed = (initial_speed - linear_deceleration * advance_time).max(0.0);
+            let speed_ratio = if initial_speed <= f64::EPSILON {
+                0.0
+            } else {
+                final_speed / initial_speed
+            };
+            let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
+            let vx = state.velocity.x().as_f64();
+            let vy = state.velocity.y().as_f64();
+            let displacement_ratio = if initial_speed <= f64::EPSILON {
+                0.0
+            } else {
+                travel_distance / initial_speed
+            };
+            let dx = vx * displacement_ratio;
+            let dy = vy * displacement_ratio;
+
+            BallState {
+                position: Inches2::new(
+                    Inches::from_f64(state.position.x().as_f64() + dx),
+                    Inches::from_f64(state.position.y().as_f64() + dy),
+                ),
+                height: state.height.clone(),
+                velocity: Velocity2::from_components(
+                    InchesPerSecond::new(Inches::from_f64(vx * speed_ratio)),
+                    InchesPerSecond::new(Inches::from_f64(vy * speed_ratio)),
+                ),
+                vertical_velocity: state.vertical_velocity.clone(),
+                angular_velocity: AngularVelocity3::new(
+                    state.angular_velocity.x().as_f64() * speed_ratio,
+                    state.angular_velocity.y().as_f64() * speed_ratio,
+                    state.angular_velocity.z().as_f64() * speed_ratio,
+                ),
+            }
+        }
+        MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
+        MotionPhase::Sliding => todo!("sliding state advance is not implemented yet"),
+        MotionPhase::Spinning => todo!("spinning state advance is not implemented yet"),
     }
 }
 

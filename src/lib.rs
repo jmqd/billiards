@@ -695,6 +695,17 @@ pub struct TwoBallOnTableAdvance {
     pub event: Option<TwoBallOnTableEvent>,
 }
 
+/// The result of simulating two on-table balls forward over a requested duration.
+///
+/// `events` records the ordered sequence of primary events resolved while consuming `elapsed`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TwoBallOnTableSimulation {
+    pub a: OnTableBallState,
+    pub b: OnTableBallState,
+    pub elapsed: Seconds,
+    pub events: Vec<TwoBallOnTableEvent>,
+}
+
 /// Thresholds used when classifying the qualitative motion phase of a ball.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MotionPhaseThresholds {
@@ -1796,6 +1807,109 @@ pub fn advance_to_next_event_for_two_on_table_balls(
         b: b_after,
         elapsed,
         event: Some(event),
+    }
+}
+
+fn advance_two_on_table_balls_without_event(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> (OnTableBallState, OnTableBallState) {
+    let a_after = OnTableBallState::try_from(advance_motion_on_table(a, dt, ball, motion).state)
+        .expect("two-ball motion advance should preserve on-table invariants for ball A");
+    let b_after = OnTableBallState::try_from(advance_motion_on_table(b, dt, ball, motion).state)
+        .expect("two-ball motion advance should preserve on-table invariants for ball B");
+
+    (a_after, b_after)
+}
+
+/// Simulate two on-table balls forward over a requested duration.
+///
+/// This repeatedly chooses the currently earliest supported event, advances / resolves it, and
+/// continues until either the full requested duration has been consumed or no further event occurs
+/// within the remaining time budget. Any leftover time after the last in-window event is consumed
+/// by advancing both balls through ordinary on-table motion without recording an additional event.
+pub fn simulate_two_on_table_balls(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+) -> TwoBallOnTableSimulation {
+    assert!(
+        dt.as_f64() >= 0.0,
+        "simulation duration must be non-negative"
+    );
+
+    let mut a_state = a.clone();
+    let mut b_state = b.clone();
+    let mut elapsed = Seconds::zero();
+    let mut remaining = dt.as_f64();
+    let mut events = Vec::new();
+
+    while remaining > f64::EPSILON {
+        let Some(next_event) =
+            compute_next_event_for_two_on_table_balls(&a_state, &b_state, ball, motion)
+        else {
+            let (a_after, b_after) = advance_two_on_table_balls_without_event(
+                &a_state,
+                &b_state,
+                Seconds::new(remaining),
+                ball,
+                motion,
+            );
+            a_state = a_after;
+            b_state = b_after;
+            elapsed = Seconds::new(elapsed.as_f64() + remaining);
+            break;
+        };
+
+        let event_time = two_ball_event_time(&next_event).as_f64();
+        if event_time > remaining {
+            let (a_after, b_after) = advance_two_on_table_balls_without_event(
+                &a_state,
+                &b_state,
+                Seconds::new(remaining),
+                ball,
+                motion,
+            );
+            a_state = a_after;
+            b_state = b_after;
+            elapsed = Seconds::new(elapsed.as_f64() + remaining);
+            break;
+        }
+
+        let advanced = advance_to_next_event_for_two_on_table_balls(
+            &a_state,
+            &b_state,
+            ball,
+            motion,
+            collision_model,
+        );
+        let step_elapsed = advanced.elapsed.as_f64();
+        assert!(
+            step_elapsed > f64::EPSILON,
+            "next two-ball event must advance simulation time"
+        );
+
+        a_state = advanced.a;
+        b_state = advanced.b;
+        elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
+        remaining -= step_elapsed;
+
+        if let Some(event) = advanced.event {
+            events.push(event);
+        }
+    }
+
+    TwoBallOnTableSimulation {
+        a: a_state,
+        b: b_state,
+        elapsed,
+        events,
     }
 }
 

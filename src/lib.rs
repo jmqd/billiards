@@ -682,6 +682,17 @@ impl Default for MotionPhaseConfig {
     }
 }
 
+/// The sliding-friction model used when computing the next motion transition for a sliding ball.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SlidingFrictionModel {
+    /// Approximate on-cloth sliding with a constant-magnitude translational acceleration `f g`
+    /// opposite the cloth-contact slip vector, matching Eq. (M1') in
+    /// `whitepapers/art_of_billiards_play_files/bil_praa.html`.
+    ConstantAcceleration {
+        acceleration_magnitude: InchesPerSecondSq,
+    },
+}
+
 /// The rolling-resistance model used when computing the next motion transition for a rolling
 /// ball.
 #[derive(Clone, Debug, PartialEq)]
@@ -697,6 +708,7 @@ pub enum RollingResistanceModel {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MotionTransitionConfig {
     pub phase: MotionPhaseConfig,
+    pub sliding_friction: SlidingFrictionModel,
     pub rolling_resistance: RollingResistanceModel,
 }
 
@@ -926,6 +938,21 @@ pub fn classify_motion_phase(
     }
 }
 
+fn sliding_friction_acceleration(config: &MotionTransitionConfig) -> f64 {
+    let acceleration_magnitude = match &config.sliding_friction {
+        SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude,
+        } => acceleration_magnitude.as_f64(),
+    };
+
+    assert!(
+        acceleration_magnitude > 0.0,
+        "sliding acceleration magnitude must be positive"
+    );
+
+    acceleration_magnitude
+}
+
 fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
     let linear_deceleration = match &config.rolling_resistance {
         RollingResistanceModel::ConstantDeceleration {
@@ -943,17 +970,22 @@ fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
 
 /// Compute the next qualitative motion transition for a single ball.
 ///
-/// This first implementation only models the rolling-to-rest transition. That choice is grounded
-/// in the local references:
+/// The currently implemented cases are grounded in the local references:
 ///
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3, Eqs. (M4), (M8), and
+///   (M10'), gives the exact on-cloth sliding transition under Coulomb friction.
+///   In that notation, `WE` is the cloth-contact slip velocity. Our
+///   `cloth_contact_velocity_on_table(...)` helper implements the same quantity, so
+///   `tc = ||Wi - Wc|| / (f g)` and `Wc = Wi - (2/7) WEi` become
+///   `tc = (2/7) ||WEi|| / (f g)`.
 /// - `whitepapers/Alciatore_pool_physics_article.pdf` explains that once rolling develops, the
 ///   cue ball continues to roll naturally until it slows to a stop due to rolling resistance.
 /// - `whitepapers/55. RollingBall.pdf` reports experimental cases where both `v` and `ω`
 ///   decreased linearly with time while the ball rolled to a stop, which makes a constant linear
 ///   rolling deceleration a reasonable first configurable approximation.
 ///
-/// Sliding, spinning, and airborne transition prediction are intentionally left as `todo!()` for
-/// now so the transition API can stabilize before those richer branches are implemented.
+/// Spinning and airborne transition prediction are intentionally left as `todo!()` for now so the
+/// transition API can stabilize before those richer branches are implemented.
 pub fn compute_next_transition(
     state: &BallState,
     ball: &BallSetPhysicsSpec,
@@ -961,6 +993,15 @@ pub fn compute_next_transition(
 ) -> Option<NextTransition> {
     match classify_motion_phase(state, ball, &config.phase) {
         MotionPhase::Rest => None,
+        MotionPhase::Sliding => Some(NextTransition {
+            phase_before: MotionPhase::Sliding,
+            phase_after: MotionPhase::Rolling,
+            time_until_transition: Seconds::new(
+                (2.0 / 7.0)
+                    * cloth_contact_speed_on_table(state, ball.radius.clone()).as_f64()
+                    / sliding_friction_acceleration(config),
+            ),
+        }),
         MotionPhase::Rolling => Some(NextTransition {
             phase_before: MotionPhase::Rolling,
             phase_after: MotionPhase::Rest,
@@ -969,7 +1010,6 @@ pub fn compute_next_transition(
             ),
         }),
         MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
-        MotionPhase::Sliding => todo!("sliding transition prediction is not implemented yet"),
         MotionPhase::Spinning => todo!("spinning transition prediction is not implemented yet"),
     }
 }

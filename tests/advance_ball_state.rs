@@ -1,7 +1,7 @@
 use billiards::{
     advance_ball_state, compute_next_transition, AngularVelocity3, BallSetPhysicsSpec, BallState,
     Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
-    RollingResistanceModel, Seconds, Velocity2, TYPICAL_BALL_RADIUS,
+    RollingResistanceModel, Seconds, SlidingFrictionModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -15,6 +15,9 @@ fn assert_close(actual: f64, expected: f64) {
 fn rolling_config() -> MotionTransitionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("5"),
+        },
         rolling_resistance: RollingResistanceModel::ConstantDeceleration {
             linear_deceleration: InchesPerSecondSq::new("5"),
         },

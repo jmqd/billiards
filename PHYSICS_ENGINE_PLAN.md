@@ -71,15 +71,104 @@ Examples:
 
 ---
 
-## Candidate core types
+## API direction: make assumptions first-class and tunable
 
-These are suggestions, not commitments.
+The simulator should avoid one giant flat `SimConfig`.
+
+Instead, separate four different categories of settings:
+
+1. **physical coefficients**
+   - things that approximate the table, balls, and cloth
+   - friction coefficients, restitution, gravity, ball radius, etc.
+2. **model assumptions**
+   - which simplifying equations are in force
+   - ideal vs spin-aware, event-driven vs fixed-step, thresholded vs exact transitions
+3. **solver / numeric tolerances**
+   - rest thresholds, collision epsilons, max step sizes, iteration caps
+4. **runtime state**
+   - position, velocity, angular velocity, current phase
+
+This matters because a simulator can be physically "tunable" in two very different ways:
+
+- changing the **world** being modeled
+- changing the **assumptions / approximations** used to model it
+
+Those should not be mixed together.
+
+### Recommended config shape
+
+```rust
+pub struct PhysicsEngineConfig {
+    pub table: TablePhysicsSpec,
+    pub balls: BallSetPhysicsSpec,
+    pub cloth: ClothPhysicsSpec,
+    pub collisions: CollisionPhysicsSpec,
+    pub rails: RailPhysicsSpec,
+    pub pockets: PocketPhysicsSpec,
+    pub solver: SolverConfig,
+}
+
+pub struct TablePhysicsSpec {
+    pub table_spec: TableSpec,
+    pub gravity: InchesPerSecondSq,
+}
+
+pub struct BallSetPhysicsSpec {
+    pub radius: Inches,
+    // add mass with a typed unit once ball-mass-sensitive models are introduced
+}
+
+pub struct ClothPhysicsSpec {
+    pub sliding_friction_coefficient: Scale,
+    pub rolling_friction_coefficient: Scale,
+    pub spinning_friction_coefficient: Scale,
+    pub assumptions: ClothMotionAssumptions,
+}
+
+pub struct CollisionPhysicsSpec {
+    pub ball_ball_friction_coefficient: Scale,
+    pub restitution: Scale,
+    pub model: CollisionModel,
+}
+
+pub struct RailPhysicsSpec {
+    pub normal_restitution: Scale,
+    pub tangential_friction_coefficient: Scale,
+    pub model: RailModel,
+}
+
+pub struct PocketPhysicsSpec {
+    pub model: PocketCaptureModel,
+}
+
+pub struct SolverConfig {
+    pub integration: IntegrationMode,
+    pub rest: RestThresholds,
+    pub event_epsilon: SolverTolerances,
+    pub limits: SolverLimits,
+}
+```
+
+### Candidate runtime types
+
+These are still suggestions, not commitments.
 
 ```rust
 pub struct BallState {
     pub position: Position,
-    pub velocity_xy: [InchesPerSecond; 2],
-    pub angular_velocity_xyz: [RadiansPerSecond; 3],
+    pub velocity: Velocity2,
+    pub angular_velocity: AngularVelocity3,
+}
+
+pub struct Velocity2 {
+    pub x: InchesPerSecond,
+    pub y: InchesPerSecond,
+}
+
+pub struct AngularVelocity3 {
+    pub x: RadiansPerSecond,
+    pub y: RadiansPerSecond,
+    pub z: RadiansPerSecond,
 }
 
 pub enum MotionPhase {
@@ -92,15 +181,7 @@ pub enum MotionPhase {
 pub struct SimBall {
     pub ball: Ball,
     pub state: BallState,
-}
-
-pub struct SimConfig {
-    pub ball_ball_friction: f64,
-    pub ball_cloth_slide_friction: f64,
-    pub ball_cloth_roll_friction: f64,
-    pub ball_cloth_spin_friction: f64,
-    pub ball_ball_restitution: f64,
-    pub ball_rail_restitution: f64,
+    pub phase: MotionPhase,
 }
 
 pub enum SimEvent {
@@ -116,6 +197,72 @@ pub struct SimulationTrace {
     pub final_state: GameState,
 }
 ```
+
+### Candidate assumption types
+
+Prefer enums and named structs over anonymous booleans.
+
+```rust
+pub enum IntegrationMode {
+    EventDriven,
+    FixedStep { dt_seconds: f64 },
+    Hybrid { max_dt_seconds: f64 },
+}
+
+pub struct RestThresholds {
+    pub linear_speed: InchesPerSecond,
+    pub angular_speed: RadiansPerSecond,
+    pub contact_speed: InchesPerSecond,
+}
+
+pub struct SolverTolerances {
+    pub time_seconds: f64,
+    pub distance_inches: Inches,
+    pub velocity: InchesPerSecond,
+}
+
+pub struct SolverLimits {
+    pub max_steps: usize,
+    pub max_collisions_per_frame: usize,
+}
+
+pub struct ClothMotionAssumptions {
+    pub sliding_to_rolling: SlidingToRollingModel,
+    pub rolling_resistance: RollingResistanceModel,
+    pub spin_decay: SpinDecayModel,
+    pub vertical_motion: VerticalMotionModel,
+}
+
+pub enum SlidingToRollingModel {
+    ExactNoSlip,
+    Thresholded { contact_speed_epsilon: InchesPerSecond },
+}
+
+pub enum RollingResistanceModel {
+    ConstantDeceleration,
+    CoefficientBased,
+}
+
+pub enum SpinDecayModel {
+    ConstantAngularDeceleration,
+    CoefficientBased,
+}
+
+pub enum VerticalMotionModel {
+    IgnoreVerticalAxis,
+    Full3D,
+}
+```
+
+### Design note
+
+For the early phases, it is completely acceptable to keep some numeric fields as plain `f64` in the plan while the codebase grows the missing unit types. However, the public API should still separate:
+
+- tunable coefficients
+- modeling assumptions
+- numerical tolerances
+
+That separation is more important than getting every unit wrapper perfect on day one.
 
 ---
 
@@ -136,14 +283,77 @@ Simulate one ball from an initial state until rest, including:
 
 This is the base layer for nearly everything else. Ball-ball and ball-rail interactions produce new linear and angular velocities; this phase determines what happens between those impacts.
 
-### Likely APIs
+### Phase 1 API sketch
+
+The first slice should probably be built around a dedicated single-ball simulator instead of a pile of free functions.
 
 ```rust
-pub fn motion_phase(ball: &BallState, config: &SimConfig) -> MotionPhase;
-pub fn advance_ball_state(ball: &BallState, dt: f64, config: &SimConfig) -> BallState;
-pub fn simulate_ball_until_rest(ball: &BallState, config: &SimConfig) -> Vec<BallState>;
-pub fn time_to_roll(ball: &BallState, config: &SimConfig) -> Option<f64>;
+pub struct SingleBallSimulator {
+    pub config: PhysicsEngineConfig,
+}
+
+pub struct TransitionPrediction {
+    pub phase_before: MotionPhase,
+    pub phase_after: MotionPhase,
+    pub time_seconds: f64,
+}
+
+impl SingleBallSimulator {
+    pub fn classify_phase(&self, state: &BallState) -> MotionPhase;
+
+    pub fn contact_point_speed(&self, state: &BallState) -> InchesPerSecond;
+
+    pub fn evolve_for(&self, state: &BallState, dt_seconds: f64) -> BallState;
+
+    pub fn next_transition(&self, state: &BallState) -> Option<TransitionPrediction>;
+
+    pub fn simulate_until_rest(&self, state: &BallState) -> SimulationTrace;
+}
 ```
+
+If a smaller API is preferable for the very first implementation, this would also be reasonable:
+
+```rust
+pub fn classify_motion_phase(
+    state: &BallState,
+    cloth: &ClothPhysicsSpec,
+    solver: &SolverConfig,
+) -> MotionPhase;
+
+pub fn evolve_single_ball_for(
+    state: &BallState,
+    dt_seconds: f64,
+    table: &TablePhysicsSpec,
+    balls: &BallSetPhysicsSpec,
+    cloth: &ClothPhysicsSpec,
+    solver: &SolverConfig,
+) -> BallState;
+```
+
+### Phase 1 tunable knobs
+
+At minimum, single-ball motion should make these assumptions externally configurable:
+
+- gravity
+- ball radius
+- sliding friction coefficient
+- rolling friction coefficient
+- spinning friction coefficient
+- sliding-to-rolling transition criterion
+- resting linear-speed threshold
+- resting angular-speed threshold
+- event / solver epsilon values
+- integration mode
+
+### Phase 1 recommendation
+
+For the first implementation, prefer:
+
+- **event-driven** transition computation when the active phase is clear
+- a **hybrid fallback** for harder future cases
+- all thresholds and coefficients passed through config, even if defaulted
+
+That gives us tunability without committing too early to a fully general solver architecture.
 
 ### First TDD targets
 

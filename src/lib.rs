@@ -682,6 +682,19 @@ pub enum TwoBallOnTableEvent {
     },
 }
 
+/// The result of advancing two on-table balls to the next currently supported event.
+///
+/// `event` records the chosen primary event, if any. Because the current scheduler intentionally
+/// breaks ties deterministically instead of merging simultaneous events, the returned states can be
+/// exactly on additional event boundaries that are not separately represented here.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TwoBallOnTableAdvance {
+    pub a: OnTableBallState,
+    pub b: OnTableBallState,
+    pub elapsed: Seconds,
+    pub event: Option<TwoBallOnTableEvent>,
+}
+
 /// Thresholds used when classifying the qualitative motion phase of a ball.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MotionPhaseThresholds {
@@ -1726,6 +1739,64 @@ pub fn compute_next_event_for_two_on_table_balls(
     }
 
     next
+}
+
+/// Advance two on-table balls to the next currently supported event and resolve that event.
+///
+/// This is the first execution step built on top of `compute_next_event_for_two_on_table_balls(...)`:
+///
+/// - if the next event is a motion transition, both balls are advanced by that elapsed time through
+///   the on-table motion model;
+/// - if the next event is a ball-ball collision, the stored impact states from the current
+///   collision predictor are resolved through `collide_ball_ball_on_table(...)`.
+///
+/// The collision path intentionally uses the predictor's stored impact states directly because the
+/// current ball-ball timing model is a constant-velocity pre-impact approximation. A later,
+/// tighter-integrated scheduler can replace that approximation without changing this high-level
+/// responsibility boundary.
+pub fn advance_to_next_event_for_two_on_table_balls(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+) -> TwoBallOnTableAdvance {
+    let Some(event) = compute_next_event_for_two_on_table_balls(a, b, ball, motion) else {
+        return TwoBallOnTableAdvance {
+            a: a.clone(),
+            b: b.clone(),
+            elapsed: Seconds::zero(),
+            event: None,
+        };
+    };
+
+    let elapsed = two_ball_event_time(&event);
+    let (a_after, b_after) =
+        match &event {
+            TwoBallOnTableEvent::MotionTransition { .. } => {
+                let a_after = OnTableBallState::try_from(
+                    advance_motion_on_table(a, elapsed, ball, motion).state,
+                )
+                .expect("two-ball motion advance should preserve on-table invariants for ball A");
+                let b_after = OnTableBallState::try_from(
+                    advance_motion_on_table(b, elapsed, ball, motion).state,
+                )
+                .expect("two-ball motion advance should preserve on-table invariants for ball B");
+                (a_after, b_after)
+            }
+            TwoBallOnTableEvent::BallBallCollision(collision) => collide_ball_ball_on_table(
+                &collision.a_at_impact,
+                &collision.b_at_impact,
+                collision_model,
+            ),
+        };
+
+    TwoBallOnTableAdvance {
+        a: a_after,
+        b: b_after,
+        elapsed,
+        event: Some(event),
+    }
 }
 
 /// Resolve an instantaneous ball-ball collision for two validated on-table states.

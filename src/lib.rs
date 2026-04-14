@@ -659,6 +659,29 @@ pub struct PredictedBallBallCollision {
     pub b_at_impact: OnTableBallState,
 }
 
+/// Identifies one of the two balls in the current two-ball event scheduler helpers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TwoBallEventBall {
+    A,
+    B,
+}
+
+/// The next predicted event among two on-table balls under the currently implemented single-ball
+/// and ball-ball predictors.
+///
+/// This is the first small scheduler layer toward an event-driven simulator: it compares the next
+/// on-table motion transition of each ball against their next predicted ball-ball impact and returns
+/// the earliest one. Simultaneous events are currently broken deterministically in this order:
+/// ball-ball collision first, then ball A motion transition, then ball B motion transition.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TwoBallOnTableEvent {
+    BallBallCollision(PredictedBallBallCollision),
+    MotionTransition {
+        ball: TwoBallEventBall,
+        transition: NextTransition,
+    },
+}
+
 /// Thresholds used when classifying the qualitative motion phase of a ball.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MotionPhaseThresholds {
@@ -1618,6 +1641,91 @@ pub fn compute_next_ball_ball_collision_on_table(
         a_at_impact: advance_on_table_with_constant_velocity(a, time_until_impact),
         b_at_impact: advance_on_table_with_constant_velocity(b, time_until_impact),
     })
+}
+
+fn two_ball_event_time(event: &TwoBallOnTableEvent) -> Seconds {
+    match event {
+        TwoBallOnTableEvent::BallBallCollision(collision) => collision.time_until_impact,
+        TwoBallOnTableEvent::MotionTransition { transition, .. } => {
+            transition.time_until_transition
+        }
+    }
+}
+
+fn two_ball_event_priority(event: &TwoBallOnTableEvent) -> u8 {
+    match event {
+        TwoBallOnTableEvent::BallBallCollision(_) => 0,
+        TwoBallOnTableEvent::MotionTransition {
+            ball: TwoBallEventBall::A,
+            ..
+        } => 1,
+        TwoBallOnTableEvent::MotionTransition {
+            ball: TwoBallEventBall::B,
+            ..
+        } => 2,
+    }
+}
+
+fn earlier_two_ball_event(candidate: &TwoBallOnTableEvent, current: &TwoBallOnTableEvent) -> bool {
+    let candidate_time = two_ball_event_time(candidate).as_f64();
+    let current_time = two_ball_event_time(current).as_f64();
+
+    candidate_time < current_time
+        || ((candidate_time - current_time).abs() <= 1e-12
+            && two_ball_event_priority(candidate) < two_ball_event_priority(current))
+}
+
+/// Compute the earliest currently supported future event for two on-table balls.
+///
+/// This helper is the first scheduler layer for an event-driven simulation loop. It compares:
+///
+/// - ball A's next on-table motion transition,
+/// - ball B's next on-table motion transition, and
+/// - the pair's next predicted ball-ball collision,
+///
+/// then returns the earliest event among those candidates.
+///
+/// The motion-transition timing is provided by `compute_next_transition_on_table(...)`, which is
+/// grounded in the local motion references, while the collision timing is provided by
+/// `compute_next_ball_ball_collision_on_table(...)`, which currently uses a constant-velocity
+/// pre-impact approximation. This helper only chooses among those existing predictors; it does not
+/// yet merge simultaneous events or advance / resolve the whole system.
+pub fn compute_next_event_for_two_on_table_balls(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> Option<TwoBallOnTableEvent> {
+    let mut next = compute_next_ball_ball_collision_on_table(a, b, ball)
+        .map(TwoBallOnTableEvent::BallBallCollision);
+
+    if let Some(transition) = compute_next_transition_on_table(a, ball, config) {
+        let candidate = TwoBallOnTableEvent::MotionTransition {
+            ball: TwoBallEventBall::A,
+            transition,
+        };
+        if next
+            .as_ref()
+            .is_none_or(|current| earlier_two_ball_event(&candidate, current))
+        {
+            next = Some(candidate);
+        }
+    }
+
+    if let Some(transition) = compute_next_transition_on_table(b, ball, config) {
+        let candidate = TwoBallOnTableEvent::MotionTransition {
+            ball: TwoBallEventBall::B,
+            transition,
+        };
+        if next
+            .as_ref()
+            .is_none_or(|current| earlier_two_ball_event(&candidate, current))
+        {
+            next = Some(candidate);
+        }
+    }
+
+    next
 }
 
 /// Resolve an instantaneous ball-ball collision for two validated on-table states.

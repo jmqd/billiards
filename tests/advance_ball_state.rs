@@ -1,7 +1,8 @@
 use billiards::{
-    advance_ball_state, compute_next_transition, AngularVelocity3, BallSetPhysicsSpec, BallState,
-    Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
-    RollingResistanceModel, Seconds, SlidingFrictionModel, Velocity2, TYPICAL_BALL_RADIUS,
+    advance_angular_velocity_on_table, advance_ball_state, compute_next_transition,
+    AngularVelocity3, BallSetPhysicsSpec, BallState, Inches2, InchesPerSecondSq, MotionPhase,
+    MotionPhaseConfig, MotionTransitionConfig, RadiansPerSecondSq, RollingResistanceModel, Seconds,
+    SlidingFrictionModel, SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -18,6 +19,9 @@ fn motion_config() -> MotionTransitionConfig {
         sliding_friction: SlidingFrictionModel::ConstantAcceleration {
             acceleration_magnitude: InchesPerSecondSq::new("5"),
         },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(2.0),
+        },
         rolling_resistance: RollingResistanceModel::ConstantDeceleration {
             linear_deceleration: InchesPerSecondSq::new("5"),
         },
@@ -33,11 +37,28 @@ fn rolling_state() -> BallState {
     )
 }
 
+fn rolling_with_vertical_spin_state() -> BallState {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius.as_f64(), 0.0, 6.0),
+    )
+}
+
 fn sliding_stun_state() -> BallState {
     BallState::on_table(
         Inches2::new("10", "20"),
         Velocity2::new("0", "10"),
         AngularVelocity3::zero(),
+    )
+}
+
+fn spinning_state() -> BallState {
+    BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::zero(),
+        AngularVelocity3::new(0.0, 0.0, 6.0),
     )
 }
 
@@ -52,6 +73,27 @@ fn advancing_a_resting_ball_leaves_it_unchanged() {
     );
 
     assert_eq!(advanced, state);
+}
+
+#[test]
+fn advancing_angular_velocity_on_table_depends_on_ball_state_and_total_spin() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(0.0, 0.0, 6.0),
+    );
+
+    let angular = advance_angular_velocity_on_table(
+        &state,
+        Seconds::new(2.0 / 7.0),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
+
+    assert_close(angular.x().as_f64(), -25.0 / (7.0 * radius.as_f64()));
+    assert_close(angular.y().as_f64(), 0.0);
+    assert_close(angular.z().as_f64(), 38.0 / 7.0);
 }
 
 #[test]
@@ -135,6 +177,52 @@ fn advancing_past_the_sliding_transition_continues_into_rolling_for_the_remainin
 }
 
 #[test]
+fn advancing_a_pure_spinning_ball_leaves_position_fixed_and_decays_z_spin_linearly() {
+    let state = spinning_state();
+
+    let advanced = advance_ball_state(
+        &state,
+        Seconds::new(1.0),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
+
+    assert_close(advanced.position.x().as_f64(), 10.0);
+    assert_close(advanced.position.y().as_f64(), 20.0);
+    assert_close(advanced.speed().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.x().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.y().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.z().as_f64(), 4.0);
+    assert_eq!(
+        advanced.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Spinning
+    );
+}
+
+#[test]
+fn advancing_a_rolling_ball_with_vertical_spin_can_enter_the_spinning_phase() {
+    let state = rolling_with_vertical_spin_state();
+
+    let advanced = advance_ball_state(
+        &state,
+        Seconds::new(2.5),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
+
+    assert_close(advanced.position.x().as_f64(), 10.0);
+    assert_close(advanced.position.y().as_f64(), 30.0);
+    assert_close(advanced.speed().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.x().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.y().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.z().as_f64(), 1.0);
+    assert_eq!(
+        advanced.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Spinning
+    );
+}
+
+#[test]
 fn advancing_a_rolling_ball_updates_position_speed_and_spin_consistently() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let state = rolling_state();
@@ -155,6 +243,7 @@ fn advancing_a_rolling_ball_updates_position_speed_and_spin_consistently() {
         -5.0 / radius.as_f64(),
     );
     assert_close(advanced.angular_velocity.y().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.z().as_f64(), 0.0);
     assert_eq!(advanced.motion_phase(radius), MotionPhase::Rolling);
 }
 

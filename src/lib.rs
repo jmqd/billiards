@@ -693,6 +693,17 @@ pub enum SlidingFrictionModel {
     },
 }
 
+/// The vertical-axis spin-decay model used when computing on-table spin evolution.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SpinDecayModel {
+    /// Approximate z-axis spin decay as a constant-magnitude angular deceleration opposite the
+    /// current z-spin direction, matching Eq. (M14') in
+    /// `whitepapers/art_of_billiards_play_files/bil_praa.html`.
+    ConstantAngularDeceleration {
+        angular_deceleration: RadiansPerSecondSq,
+    },
+}
+
 /// The rolling-resistance model used when computing the next motion transition for a rolling
 /// ball.
 #[derive(Clone, Debug, PartialEq)]
@@ -709,6 +720,7 @@ pub enum RollingResistanceModel {
 pub struct MotionTransitionConfig {
     pub phase: MotionPhaseConfig,
     pub sliding_friction: SlidingFrictionModel,
+    pub spin_decay: SpinDecayModel,
     pub rolling_resistance: RollingResistanceModel,
 }
 
@@ -972,6 +984,43 @@ fn sliding_friction_acceleration(config: &MotionTransitionConfig) -> f64 {
     acceleration_magnitude
 }
 
+fn spin_angular_deceleration(config: &MotionTransitionConfig) -> f64 {
+    let angular_deceleration = match &config.spin_decay {
+        SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration,
+        } => angular_deceleration.as_f64(),
+    };
+
+    assert!(
+        angular_deceleration > 0.0,
+        "spin angular deceleration must be positive"
+    );
+
+    angular_deceleration
+}
+
+fn advance_vertical_axis_spin(
+    initial_spin: f64,
+    dt: Seconds,
+    config: &MotionTransitionConfig,
+) -> f64 {
+    let remaining = (initial_spin.abs() - spin_angular_deceleration(config) * dt.as_f64()).max(0.0);
+    initial_spin.signum() * remaining
+}
+
+fn time_until_vertical_axis_spin_stops(
+    initial_spin: f64,
+    config: &MotionTransitionConfig,
+) -> Option<Seconds> {
+    if initial_spin.abs() <= f64::EPSILON {
+        None
+    } else {
+        Some(Seconds::new(
+            initial_spin.abs() / spin_angular_deceleration(config),
+        ))
+    }
+}
+
 fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
     let linear_deceleration = match &config.rolling_resistance {
         RollingResistanceModel::ConstantDeceleration {
@@ -997,14 +1046,15 @@ fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
 ///   `cloth_contact_velocity_on_table(...)` helper implements the same quantity, so
 ///   `tc = ||Wi - Wc|| / (f g)` and `Wc = Wi - (2/7) WEi` become
 ///   `tc = (2/7) ||WEi|| / (f g)`.
-/// - `whitepapers/Alciatore_pool_physics_article.pdf` explains that once rolling develops, the
-///   cue ball continues to roll naturally until it slows to a stop due to rolling resistance.
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.5, Eqs. (M13) through (M14''),
+///   shows that vertical-axis spin decays linearly with time during both sliding and rolling, so a
+///   rolling ball with residual z-spin can transition to `Spinning` when translation stops.
 /// - `whitepapers/55. RollingBall.pdf` reports experimental cases where both `v` and `ω`
 ///   decreased linearly with time while the ball rolled to a stop, which makes a constant linear
 ///   rolling deceleration a reasonable first configurable approximation.
 ///
-/// Spinning and airborne transition prediction are intentionally left as `todo!()` for now so the
-/// transition API can stabilize before those richer branches are implemented.
+/// Airborne transition prediction is intentionally left as `todo!()` for now so the transition API
+/// can stabilize before those richer branches are implemented.
 pub fn compute_next_transition(
     state: &BallState,
     ball: &BallSetPhysicsSpec,
@@ -1020,15 +1070,38 @@ pub fn compute_next_transition(
                     / sliding_friction_acceleration(config),
             ),
         }),
-        MotionPhase::Rolling => Some(NextTransition {
-            phase_before: MotionPhase::Rolling,
+        MotionPhase::Rolling => {
+            let time_until_transition =
+                Seconds::new(ball_speed(state).as_f64() / rolling_linear_deceleration(config));
+            let phase_after = if advance_vertical_axis_spin(
+                state.angular_velocity.z().as_f64(),
+                time_until_transition,
+                config,
+            )
+            .abs()
+                > config.phase.thresholds.rest_angular_speed.as_f64()
+            {
+                MotionPhase::Spinning
+            } else {
+                MotionPhase::Rest
+            };
+
+            Some(NextTransition {
+                phase_before: MotionPhase::Rolling,
+                phase_after,
+                time_until_transition,
+            })
+        }
+        MotionPhase::Spinning => Some(NextTransition {
+            phase_before: MotionPhase::Spinning,
             phase_after: MotionPhase::Rest,
-            time_until_transition: Seconds::new(
-                ball_speed(state).as_f64() / rolling_linear_deceleration(config),
-            ),
+            time_until_transition: time_until_vertical_axis_spin_stops(
+                state.angular_velocity.z().as_f64(),
+                config,
+            )
+            .expect("spinning balls should have non-zero z-spin"),
         }),
         MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
-        MotionPhase::Spinning => todo!("spinning transition prediction is not implemented yet"),
     }
 }
 
@@ -1039,13 +1112,17 @@ pub fn compute_next_transition(
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3, Eqs. (M2'''), (M8), and
 ///   (M10), gives the sliding-period evolution of translational velocity and horizontal angular
 ///   velocity under Coulomb friction.
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.5, Eqs. (M13) through (M14''),
+///   gives the linear decay of vertical-axis spin during both sliding and rolling.
 /// - `whitepapers/55. RollingBall.pdf` supports the current rolling approximation of linear speed
-///   and spin decreasing together under constant-magnitude rolling resistance.
+///   and horizontal rolling spin decreasing together under constant-magnitude rolling resistance.
 ///
-/// For sliding advance, we currently evolve only the horizontal spin components from §7.3 and
-/// keep `ωz` unchanged until a separate spin-decay model from §7.5 is introduced.
+/// This means total spin evolution depends on the full current `BallState`:
 ///
-/// Spinning and airborne state advance are intentionally left as `todo!()` for now.
+/// - `ωx` / `ωy` evolve through the sliding or rolling cloth-contact motion equations
+/// - `ωz` decays independently through the vertical-axis spin model
+///
+/// Airborne state advance is intentionally left as `todo!()` for now.
 pub fn advance_ball_state(
     state: &BallState,
     dt: Seconds,
@@ -1095,7 +1172,11 @@ pub fn advance_ball_state(
                 angular_velocity: AngularVelocity3::new(
                     state.angular_velocity.x().as_f64() + (5.0 / (2.0 * radius)) * delta_vy,
                     state.angular_velocity.y().as_f64() - (5.0 / (2.0 * radius)) * delta_vx,
-                    state.angular_velocity.z().as_f64(),
+                    advance_vertical_axis_spin(
+                        state.angular_velocity.z().as_f64(),
+                        Seconds::new(advance_time),
+                        config,
+                    ),
                 ),
             };
 
@@ -1132,7 +1213,7 @@ pub fn advance_ball_state(
             let dx = vx * displacement_ratio;
             let dy = vy * displacement_ratio;
 
-            BallState {
+            let advanced = BallState {
                 position: Inches2::new(
                     Inches::from_f64(state.position.x().as_f64() + dx),
                     Inches::from_f64(state.position.y().as_f64() + dy),
@@ -1146,13 +1227,53 @@ pub fn advance_ball_state(
                 angular_velocity: AngularVelocity3::new(
                     state.angular_velocity.x().as_f64() * speed_ratio,
                     state.angular_velocity.y().as_f64() * speed_ratio,
-                    state.angular_velocity.z().as_f64() * speed_ratio,
+                    advance_vertical_axis_spin(
+                        state.angular_velocity.z().as_f64(),
+                        Seconds::new(advance_time),
+                        config,
+                    ),
                 ),
+            };
+
+            if dt.as_f64() > stop_time {
+                advance_ball_state(
+                    &advanced,
+                    Seconds::new(dt.as_f64() - stop_time),
+                    ball,
+                    config,
+                )
+            } else {
+                advanced
             }
         }
+        MotionPhase::Spinning => BallState {
+            position: state.position.clone(),
+            height: state.height.clone(),
+            velocity: state.velocity.clone(),
+            vertical_velocity: state.vertical_velocity.clone(),
+            angular_velocity: AngularVelocity3::new(
+                0.0,
+                0.0,
+                advance_vertical_axis_spin(state.angular_velocity.z().as_f64(), dt, config),
+            ),
+        },
         MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
-        MotionPhase::Spinning => todo!("spinning state advance is not implemented yet"),
     }
+}
+
+/// Advance the total on-table angular velocity implied by the current motion model.
+///
+/// This is a convenience helper for callers that care only about spin evolution. It still uses
+/// the full `BallState` because the horizontal components are coupled to translational motion in
+/// the sliding and rolling references, while the vertical component decays through the z-spin
+/// model.
+pub fn advance_angular_velocity_on_table(
+    state: &BallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> AngularVelocity3 {
+    advance_ball_state(state, dt, ball, config).angular_velocity
 }
 
 /// Gives the polar direction (e.g. positive or negative).

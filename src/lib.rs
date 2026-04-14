@@ -648,6 +648,17 @@ pub enum CollisionModel {
     SpinFriction,
 }
 
+/// A predicted future ball-ball impact between two on-table balls.
+///
+/// The stored states are the validated on-table states at the first predicted impact time, making
+/// this result directly composable with `collide_ball_ball_on_table(...)`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PredictedBallBallCollision {
+    pub time_until_impact: Seconds,
+    pub a_at_impact: OnTableBallState,
+    pub b_at_impact: OnTableBallState,
+}
+
 /// Thresholds used when classifying the qualitative motion phase of a ball.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MotionPhaseThresholds {
@@ -1506,6 +1517,27 @@ pub fn advance_angular_velocity_on_table(
     )
 }
 
+fn advance_on_table_with_constant_velocity(
+    state: &OnTableBallState,
+    dt: Seconds,
+) -> OnTableBallState {
+    let state = state.as_ball_state();
+
+    OnTableBallState::try_from(BallState::on_table(
+        Inches2::new(
+            Inches::from_f64(
+                state.position.x().as_f64() + state.velocity.x().as_f64() * dt.as_f64(),
+            ),
+            Inches::from_f64(
+                state.position.y().as_f64() + state.velocity.y().as_f64() * dt.as_f64(),
+            ),
+        ),
+        state.velocity.clone(),
+        state.angular_velocity.clone(),
+    ))
+    .expect("constant-velocity advance should preserve on-table invariants")
+}
+
 fn ideal_ball_ball_collision_velocities(
     a: &Velocity2,
     b: &Velocity2,
@@ -1531,6 +1563,61 @@ fn ideal_ball_ball_collision_velocities(
     };
 
     (rebuild(b_normal, a_tangent), rebuild(a_normal, b_tangent))
+}
+
+/// Predict the next future ball-ball impact for two on-table balls under a constant-velocity
+/// pre-impact approximation.
+///
+/// The local references ground the collision geometry itself:
+///
+/// - `whitepapers/Physics Of Billiards.html` describes the struck ball moving along the line
+///   joining the ball centers at contact, which implies impact occurs when the center distance first
+///   reaches `2R`.
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html` treats the ball-ball event as an
+///   instantaneous collision at a single contact configuration, which is the event this helper
+///   predicts.
+///
+/// Within that contact geometry, this helper uses the current translational velocities as a local
+/// constant-velocity approximation and solves the standard relative-motion quadratic for the first
+/// future time `t > 0` such that `|r + v t| = 2R`. Angular velocity does not affect the timing in
+/// this first-pass ideal scheduler.
+pub fn compute_next_ball_ball_collision_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+) -> Option<PredictedBallBallCollision> {
+    let a_state = a.as_ball_state();
+    let b_state = b.as_ball_state();
+    let rx = b_state.position.x().as_f64() - a_state.position.x().as_f64();
+    let ry = b_state.position.y().as_f64() - a_state.position.y().as_f64();
+    let vx = b_state.velocity.x().as_f64() - a_state.velocity.x().as_f64();
+    let vy = b_state.velocity.y().as_f64() - a_state.velocity.y().as_f64();
+    let contact_distance = 2.0 * ball.radius.as_f64();
+    let quadratic_a = vx * vx + vy * vy;
+    let quadratic_b = 2.0 * (rx * vx + ry * vy);
+    let quadratic_c = rx * rx + ry * ry - contact_distance * contact_distance;
+
+    if quadratic_c <= 0.0 || quadratic_a <= f64::EPSILON || quadratic_b >= 0.0 {
+        return None;
+    }
+
+    let discriminant = quadratic_b * quadratic_b - 4.0 * quadratic_a * quadratic_c;
+    if discriminant < -f64::EPSILON {
+        return None;
+    }
+
+    let impact_time = (-quadratic_b - discriminant.max(0.0).sqrt()) / (2.0 * quadratic_a);
+    if impact_time < 0.0 {
+        return None;
+    }
+
+    let time_until_impact = Seconds::new(impact_time);
+
+    Some(PredictedBallBallCollision {
+        time_until_impact,
+        a_at_impact: advance_on_table_with_constant_velocity(a, time_until_impact),
+        b_at_impact: advance_on_table_with_constant_velocity(b, time_until_impact),
+    })
 }
 
 /// Resolve an instantaneous ball-ball collision for two validated on-table states.

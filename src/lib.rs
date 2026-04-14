@@ -715,7 +715,7 @@ pub enum RollingResistanceModel {
     },
 }
 
-/// Configuration used when computing the next motion transition for a single ball.
+/// Configuration used by the current on-table single-ball motion model.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MotionTransitionConfig {
     pub phase: MotionPhaseConfig,
@@ -724,12 +724,26 @@ pub struct MotionTransitionConfig {
     pub rolling_resistance: RollingResistanceModel,
 }
 
+/// Preferred public name for the current on-table single-ball motion config.
+pub type OnTableMotionConfig = MotionTransitionConfig;
+
 /// The next computed future phase transition for a single ball.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NextTransition {
     pub phase_before: MotionPhase,
     pub phase_after: MotionPhase,
     pub time_until_transition: Seconds,
+}
+
+/// The result of advancing the on-table motion model through a requested duration.
+///
+/// If one or more phase boundaries were crossed while consuming `elapsed`, `transition` records
+/// the first such boundary encountered from the initial state.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MotionAdvance {
+    pub state: BallState,
+    pub elapsed: Seconds,
+    pub transition: Option<NextTransition>,
 }
 
 /// The kinematic state of a billiard ball.
@@ -1036,7 +1050,8 @@ fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
     linear_deceleration
 }
 
-/// Compute the next qualitative motion transition for a single ball.
+/// Compute the next qualitative motion transition for a single ball under the current on-table
+/// motion model.
 ///
 /// The currently implemented cases are grounded in the local references:
 ///
@@ -1055,10 +1070,10 @@ fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
 ///
 /// Airborne transition prediction is intentionally left as `todo!()` for now so the transition API
 /// can stabilize before those richer branches are implemented.
-pub fn compute_next_transition(
+pub fn compute_next_transition_on_table(
     state: &BallState,
     ball: &BallSetPhysicsSpec,
-    config: &MotionTransitionConfig,
+    config: &OnTableMotionConfig,
 ) -> Option<NextTransition> {
     match classify_motion_phase(state, ball, &config.phase) {
         MotionPhase::Rest => None,
@@ -1105,29 +1120,26 @@ pub fn compute_next_transition(
     }
 }
 
-/// Advance a single ball state forward in time under the current single-ball motion model.
-///
-/// The currently implemented cases are grounded in the local references:
-///
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3, Eqs. (M2'''), (M8), and
-///   (M10), gives the sliding-period evolution of translational velocity and horizontal angular
-///   velocity under Coulomb friction.
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.5, Eqs. (M13) through (M14''),
-///   gives the linear decay of vertical-axis spin during both sliding and rolling.
-/// - `whitepapers/55. RollingBall.pdf` supports the current rolling approximation of linear speed
-///   and horizontal rolling spin decreasing together under constant-magnitude rolling resistance.
-///
-/// This means total spin evolution depends on the full current `BallState`:
-///
-/// - `ωx` / `ωy` evolve through the sliding or rolling cloth-contact motion equations
-/// - `ωz` decays independently through the vertical-axis spin model
-///
-/// Airborne state advance is intentionally left as `todo!()` for now.
-pub fn advance_ball_state(
+/// Compatibility wrapper for the older motion API name.
+pub fn compute_next_transition(
     state: &BallState,
-    dt: Seconds,
     ball: &BallSetPhysicsSpec,
     config: &MotionTransitionConfig,
+) -> Option<NextTransition> {
+    compute_next_transition_on_table(state, ball, config)
+}
+
+/// Advance an on-table state within a known qualitative motion phase.
+///
+/// The returned state is clamped to the end of the current phase if `dt` would otherwise cross a
+/// phase boundary. Use `advance_motion_on_table(...)` when you want a full requested duration to
+/// continue across one or more phase transitions.
+pub fn advance_within_phase_on_table(
+    state: &BallState,
+    phase: MotionPhase,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
 ) -> BallState {
     assert!(dt.as_f64() >= 0.0, "advance duration must be non-negative");
 
@@ -1135,10 +1147,12 @@ pub fn advance_ball_state(
         return state.clone();
     }
 
-    match classify_motion_phase(state, ball, &config.phase) {
+    debug_assert_eq!(classify_motion_phase(state, ball, &config.phase), phase);
+
+    match phase {
         MotionPhase::Rest => state.clone(),
         MotionPhase::Sliding => {
-            let transition = compute_next_transition(state, ball, config)
+            let transition = compute_next_transition_on_table(state, ball, config)
                 .expect("sliding balls should predict a rolling transition");
             let transition_time = transition.time_until_transition.as_f64();
             let advance_time = dt.as_f64().min(transition_time);
@@ -1158,7 +1172,7 @@ pub fn advance_ball_state(
             let delta_vx = vx - vx_i;
             let delta_vy = vy - vy_i;
 
-            let advanced = BallState {
+            BallState {
                 position: Inches2::new(
                     Inches::from_f64(state.position.x().as_f64() + dx),
                     Inches::from_f64(state.position.y().as_f64() + dy),
@@ -1178,25 +1192,14 @@ pub fn advance_ball_state(
                         config,
                     ),
                 ),
-            };
-
-            if dt.as_f64() > transition_time {
-                advance_ball_state(
-                    &advanced,
-                    Seconds::new(dt.as_f64() - transition_time),
-                    ball,
-                    config,
-                )
-            } else {
-                advanced
             }
         }
         MotionPhase::Rolling => {
             let initial_speed = ball_speed(state).as_f64();
-            let linear_deceleration = rolling_linear_deceleration(config);
-            let stop_time = initial_speed / linear_deceleration;
+            let stop_time = initial_speed / rolling_linear_deceleration(config);
             let advance_time = dt.as_f64().min(stop_time);
-            let final_speed = (initial_speed - linear_deceleration * advance_time).max(0.0);
+            let final_speed =
+                (initial_speed - rolling_linear_deceleration(config) * advance_time).max(0.0);
             let speed_ratio = if initial_speed <= f64::EPSILON {
                 0.0
             } else {
@@ -1213,7 +1216,7 @@ pub fn advance_ball_state(
             let dx = vx * displacement_ratio;
             let dy = vy * displacement_ratio;
 
-            let advanced = BallState {
+            BallState {
                 position: Inches2::new(
                     Inches::from_f64(state.position.x().as_f64() + dx),
                     Inches::from_f64(state.position.y().as_f64() + dy),
@@ -1233,17 +1236,6 @@ pub fn advance_ball_state(
                         config,
                     ),
                 ),
-            };
-
-            if dt.as_f64() > stop_time {
-                advance_ball_state(
-                    &advanced,
-                    Seconds::new(dt.as_f64() - stop_time),
-                    ball,
-                    config,
-                )
-            } else {
-                advanced
             }
         }
         MotionPhase::Spinning => BallState {
@@ -1252,13 +1244,80 @@ pub fn advance_ball_state(
             velocity: state.velocity.clone(),
             vertical_velocity: state.vertical_velocity.clone(),
             angular_velocity: AngularVelocity3::new(
-                0.0,
-                0.0,
+                state.angular_velocity.x().as_f64(),
+                state.angular_velocity.y().as_f64(),
                 advance_vertical_axis_spin(state.angular_velocity.z().as_f64(), dt, config),
             ),
         },
         MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
     }
+}
+
+/// Advance the current on-table motion model through a full requested duration.
+///
+/// If the duration crosses one or more phase boundaries, the returned `transition` records the
+/// first such boundary and `state` contains the final state after the entire requested `elapsed`
+/// time has been consumed.
+pub fn advance_motion_on_table(
+    state: &BallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> MotionAdvance {
+    assert!(dt.as_f64() >= 0.0, "advance duration must be non-negative");
+
+    if dt.as_f64() == 0.0 {
+        return MotionAdvance {
+            state: state.clone(),
+            elapsed: dt,
+            transition: None,
+        };
+    }
+
+    let phase = classify_motion_phase(state, ball, &config.phase);
+    let next_transition = compute_next_transition_on_table(state, ball, config);
+
+    match next_transition {
+        None => MotionAdvance {
+            state: advance_within_phase_on_table(state, phase, dt, ball, config),
+            elapsed: dt,
+            transition: None,
+        },
+        Some(transition) if dt.as_f64() <= transition.time_until_transition.as_f64() => {
+            MotionAdvance {
+                state: advance_within_phase_on_table(state, phase, dt, ball, config),
+                elapsed: dt,
+                transition: None,
+            }
+        }
+        Some(transition) => {
+            let at_transition = advance_within_phase_on_table(
+                state,
+                phase,
+                transition.time_until_transition,
+                ball,
+                config,
+            );
+            let remainder = Seconds::new(dt.as_f64() - transition.time_until_transition.as_f64());
+            let advanced = advance_motion_on_table(&at_transition, remainder, ball, config);
+
+            MotionAdvance {
+                state: advanced.state,
+                elapsed: dt,
+                transition: Some(transition),
+            }
+        }
+    }
+}
+
+/// Compatibility wrapper for the older motion API name.
+pub fn advance_ball_state(
+    state: &BallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> BallState {
+    advance_motion_on_table(state, dt, ball, config).state
 }
 
 /// Advance the total on-table angular velocity implied by the current motion model.
@@ -1267,13 +1326,25 @@ pub fn advance_ball_state(
 /// the full `BallState` because the horizontal components are coupled to translational motion in
 /// the sliding and rolling references, while the vertical component decays through the z-spin
 /// model.
+pub fn advance_spin_on_table(
+    state: &BallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> AngularVelocity3 {
+    advance_motion_on_table(state, dt, ball, config)
+        .state
+        .angular_velocity
+}
+
+/// Compatibility wrapper for the older angular-velocity helper name.
 pub fn advance_angular_velocity_on_table(
     state: &BallState,
     dt: Seconds,
     ball: &BallSetPhysicsSpec,
     config: &MotionTransitionConfig,
 ) -> AngularVelocity3 {
-    advance_ball_state(state, dt, ball, config).angular_velocity
+    advance_spin_on_table(state, dt, ball, config)
 }
 
 /// Gives the polar direction (e.g. positive or negative).

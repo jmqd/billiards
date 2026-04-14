@@ -630,6 +630,24 @@ impl Default for BallSetPhysicsSpec {
     }
 }
 
+/// The currently supported ball-ball collision approximations.
+///
+/// `Ideal` is the equal-mass, perfectly elastic limit described by the local references:
+///
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html` notes that for two balls of the same
+///   mass in a perfectly elastic collision, the velocity component normal to the point of contact
+///   is exchanged.
+/// - The same reference also states that when the struck ball is initially stationary, the moving
+///   ball departs along the tangent line at contact.
+///
+/// The richer variants are reserved for later phases once throw and spin-transfer models are added.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollisionModel {
+    Ideal,
+    ThrowAware,
+    SpinFriction,
+}
+
 /// Thresholds used when classifying the qualitative motion phase of a ball.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MotionPhaseThresholds {
@@ -1485,6 +1503,93 @@ pub fn advance_angular_velocity_on_table(
         dt,
         ball,
         config,
+    )
+}
+
+fn ideal_ball_ball_collision_velocities(
+    a: &Velocity2,
+    b: &Velocity2,
+    normal_x: f64,
+    normal_y: f64,
+) -> (Velocity2, Velocity2) {
+    let tangent_x = normal_y;
+    let tangent_y = -normal_x;
+    let project = |velocity: &Velocity2, basis_x: f64, basis_y: f64| {
+        velocity.x().as_f64() * basis_x + velocity.y().as_f64() * basis_y
+    };
+
+    let a_normal = project(a, normal_x, normal_y);
+    let a_tangent = project(a, tangent_x, tangent_y);
+    let b_normal = project(b, normal_x, normal_y);
+    let b_tangent = project(b, tangent_x, tangent_y);
+
+    let rebuild = |normal_component: f64, tangent_component: f64| {
+        Velocity2::new(
+            Inches::from_f64(normal_component * normal_x + tangent_component * tangent_x),
+            Inches::from_f64(normal_component * normal_y + tangent_component * tangent_y),
+        )
+    };
+
+    (rebuild(b_normal, a_tangent), rebuild(a_normal, b_tangent))
+}
+
+/// Resolve an instantaneous ball-ball collision for two validated on-table states.
+///
+/// This helper assumes the supplied states describe the ball centers at the instant of impact and
+/// uses the current line of centers as the collision normal. Collision detection and advancement to
+/// impact time remain separate concerns.
+///
+/// In the current `CollisionModel::Ideal` mode, the translational velocity of each equal-mass ball
+/// is decomposed into components normal and tangent to the line of centers. The normal components
+/// are exchanged and the tangential components are preserved, matching the equal-mass elastic limit
+/// described in `whitepapers/art_of_billiards_play_files/bil_praa.html`. Angular velocity is left
+/// unchanged because this first-pass model intentionally excludes throw and spin transfer.
+pub fn collide_ball_ball_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    model: CollisionModel,
+) -> (OnTableBallState, OnTableBallState) {
+    let a_state = a.as_ball_state();
+    let b_state = b.as_ball_state();
+    let dx = b_state.position.x().as_f64() - a_state.position.x().as_f64();
+    let dy = b_state.position.y().as_f64() - a_state.position.y().as_f64();
+    let center_distance = dx.hypot(dy);
+
+    assert!(
+        center_distance > f64::EPSILON,
+        "ball-ball collision requires distinct ball centers"
+    );
+
+    let normal_x = dx / center_distance;
+    let normal_y = dy / center_distance;
+    let (a_velocity, b_velocity) = match model {
+        CollisionModel::Ideal => ideal_ball_ball_collision_velocities(
+            &a_state.velocity,
+            &b_state.velocity,
+            normal_x,
+            normal_y,
+        ),
+        CollisionModel::ThrowAware => {
+            todo!("throw-aware ball-ball collisions are not implemented yet")
+        }
+        CollisionModel::SpinFriction => {
+            todo!("spin-friction ball-ball collisions are not implemented yet")
+        }
+    };
+
+    (
+        OnTableBallState::try_from(BallState::on_table(
+            a_state.position.clone(),
+            a_velocity,
+            a_state.angular_velocity.clone(),
+        ))
+        .expect("ball-ball collision should preserve on-table invariants"),
+        OnTableBallState::try_from(BallState::on_table(
+            b_state.position.clone(),
+            b_velocity,
+            b_state.angular_velocity.clone(),
+        ))
+        .expect("ball-ball collision should preserve on-table invariants"),
     )
 }
 

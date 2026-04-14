@@ -775,8 +775,18 @@ impl BallState {
         Self::on_table(position, Velocity2::zero(), AngularVelocity3::zero())
     }
 
-    pub fn on_table(position: Inches2, velocity: Velocity2, angular_velocity: AngularVelocity3) -> Self {
-        Self::new(position, Inches::zero(), velocity, Inches::zero(), angular_velocity)
+    pub fn on_table(
+        position: Inches2,
+        velocity: Velocity2,
+        angular_velocity: AngularVelocity3,
+    ) -> Self {
+        Self::new(
+            position,
+            Inches::zero(),
+            velocity,
+            Inches::zero(),
+            angular_velocity,
+        )
     }
 
     pub fn airborne<H: Into<Inches>, VV: Into<Inches>>(
@@ -786,7 +796,13 @@ impl BallState {
         vertical_velocity: VV,
         angular_velocity: AngularVelocity3,
     ) -> Self {
-        Self::new(position, height, velocity, vertical_velocity, angular_velocity)
+        Self::new(
+            position,
+            height,
+            velocity,
+            vertical_velocity,
+            angular_velocity,
+        )
     }
 
     pub fn resting_at_position(position: &Position, table_spec: &TableSpec) -> Self {
@@ -907,7 +923,10 @@ pub fn classify_motion_phase(
     let angular_threshold = config.thresholds.rest_angular_speed.as_f64();
 
     if near_zero(linear_speed, config.thresholds.rest_linear_speed.as_f64())
-        && near_zero(vertical_speed, config.thresholds.rest_vertical_speed.as_f64())
+        && near_zero(
+            vertical_speed,
+            config.thresholds.rest_vertical_speed.as_f64(),
+        )
         && near_zero(wx, angular_threshold)
         && near_zero(wy, angular_threshold)
         && near_zero(wz, angular_threshold)
@@ -997,8 +1016,7 @@ pub fn compute_next_transition(
             phase_before: MotionPhase::Sliding,
             phase_after: MotionPhase::Rolling,
             time_until_transition: Seconds::new(
-                (2.0 / 7.0)
-                    * cloth_contact_speed_on_table(state, ball.radius.clone()).as_f64()
+                (2.0 / 7.0) * cloth_contact_speed_on_table(state, ball.radius.clone()).as_f64()
                     / sliding_friction_acceleration(config),
             ),
         }),
@@ -1016,19 +1034,18 @@ pub fn compute_next_transition(
 
 /// Advance a single ball state forward in time under the current single-ball motion model.
 ///
-/// This first implementation intentionally supports only the already-modeled `Rest` and
-/// `Rolling` phases:
+/// The currently implemented cases are grounded in the local references:
 ///
-/// - resting balls remain unchanged
-/// - rolling balls move along their current heading under constant-magnitude linear deceleration
-///   until they reach rest
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3, Eqs. (M2'''), (M8), and
+///   (M10), gives the sliding-period evolution of translational velocity and horizontal angular
+///   velocity under Coulomb friction.
+/// - `whitepapers/55. RollingBall.pdf` supports the current rolling approximation of linear speed
+///   and spin decreasing together under constant-magnitude rolling resistance.
 ///
-/// As a first internally consistent approximation, the full angular-velocity vector is scaled by
-/// the same speed ratio during rolling advance. That preserves exact rolling-without-slip states,
-/// keeps the phase classification stable while the ball is moving, and lands the ball in `Rest`
-/// when advanced to the same stop time predicted by `compute_next_transition(...)`.
+/// For sliding advance, we currently evolve only the horizontal spin components from §7.3 and
+/// keep `ωz` unchanged until a separate spin-decay model from §7.5 is introduced.
 ///
-/// Sliding, spinning, and airborne state advance are intentionally left as `todo!()` for now.
+/// Spinning and airborne state advance are intentionally left as `todo!()` for now.
 pub fn advance_ball_state(
     state: &BallState,
     dt: Seconds,
@@ -1043,6 +1060,56 @@ pub fn advance_ball_state(
 
     match classify_motion_phase(state, ball, &config.phase) {
         MotionPhase::Rest => state.clone(),
+        MotionPhase::Sliding => {
+            let transition = compute_next_transition(state, ball, config)
+                .expect("sliding balls should predict a rolling transition");
+            let transition_time = transition.time_until_transition.as_f64();
+            let advance_time = dt.as_f64().min(transition_time);
+            let alpha = advance_time / transition_time;
+            let slip_velocity = cloth_contact_velocity_on_table(state, ball.radius.clone());
+            let vx_i = state.velocity.x().as_f64();
+            let vy_i = state.velocity.y().as_f64();
+            let we_x = slip_velocity.x().as_f64();
+            let we_y = slip_velocity.y().as_f64();
+            let vx_c = vx_i - (2.0 / 7.0) * we_x;
+            let vy_c = vy_i - (2.0 / 7.0) * we_y;
+            let vx = vx_i - alpha * (vx_i - vx_c);
+            let vy = vy_i - alpha * (vy_i - vy_c);
+            let dx = 0.5 * (vx_i + vx) * advance_time;
+            let dy = 0.5 * (vy_i + vy) * advance_time;
+            let radius = ball.radius.as_f64();
+            let delta_vx = vx - vx_i;
+            let delta_vy = vy - vy_i;
+
+            let advanced = BallState {
+                position: Inches2::new(
+                    Inches::from_f64(state.position.x().as_f64() + dx),
+                    Inches::from_f64(state.position.y().as_f64() + dy),
+                ),
+                height: state.height.clone(),
+                velocity: Velocity2::from_components(
+                    InchesPerSecond::new(Inches::from_f64(vx)),
+                    InchesPerSecond::new(Inches::from_f64(vy)),
+                ),
+                vertical_velocity: state.vertical_velocity.clone(),
+                angular_velocity: AngularVelocity3::new(
+                    state.angular_velocity.x().as_f64() + (5.0 / (2.0 * radius)) * delta_vy,
+                    state.angular_velocity.y().as_f64() - (5.0 / (2.0 * radius)) * delta_vx,
+                    state.angular_velocity.z().as_f64(),
+                ),
+            };
+
+            if dt.as_f64() > transition_time {
+                advance_ball_state(
+                    &advanced,
+                    Seconds::new(dt.as_f64() - transition_time),
+                    ball,
+                    config,
+                )
+            } else {
+                advanced
+            }
+        }
         MotionPhase::Rolling => {
             let initial_speed = ball_speed(state).as_f64();
             let linear_deceleration = rolling_linear_deceleration(config);
@@ -1084,7 +1151,6 @@ pub fn advance_ball_state(
             }
         }
         MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
-        MotionPhase::Sliding => todo!("sliding state advance is not implemented yet"),
         MotionPhase::Spinning => todo!("spinning state advance is not implemented yet"),
     }
 }
@@ -2030,7 +2096,12 @@ impl GameState {
         shooting_position: &Position,
         color: Rgba<u8>,
     ) -> Position {
-        self.add_dotted_aim_line(object_ball, &pocket.aiming_center(), shooting_position, color)
+        self.add_dotted_aim_line(
+            object_ball,
+            &pocket.aiming_center(),
+            shooting_position,
+            color,
+        )
     }
 
     /// Draws a 2D diagram of the current `GameState` and returns encoded PNG bytes.

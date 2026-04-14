@@ -131,6 +131,10 @@ impl Angle {
         Angle(if deg < 0.0 { deg + 360.0 } else { deg })
     }
 
+    pub fn as_degrees(&self) -> f64 {
+        self.0
+    }
+
     /// Return the direction that points 180° opposite this one.
     pub fn flipped(&self) -> Self {
         Angle((self.0 + 180.0).rem_euclid(360.0))
@@ -264,21 +268,51 @@ impl Default for Diamond {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 /// A dimensionless scale factor.
-#[derive(Default)]
 pub struct Scale {
     pub magnitude: BigDecimal,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+impl Scale {
+    pub fn zero() -> Self {
+        Self::from(0u8)
+    }
+
+    pub fn from_f64(magnitude: f64) -> Self {
+        assert!(magnitude.is_finite(), "scale magnitude must be finite");
+        Self {
+            magnitude: BigDecimal::from_f64(magnitude).unwrap(),
+        }
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        self.magnitude.to_f64().unwrap()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 /// Our representation for converting to inches.
-#[derive(Default)]
 pub struct Inches {
     pub magnitude: BigDecimal,
 }
 
 impl Inches {
+    pub fn zero() -> Self {
+        Self::from(0u8)
+    }
+
+    pub fn from_f64(magnitude: f64) -> Self {
+        assert!(magnitude.is_finite(), "inch magnitude must be finite");
+        Self {
+            magnitude: BigDecimal::from_f64(magnitude).unwrap(),
+        }
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        self.magnitude.to_f64().unwrap()
+    }
+
     pub fn double(self) -> Self {
         Self {
             magnitude: self.magnitude.double(),
@@ -303,37 +337,271 @@ impl Neg for Inches {
 }
 
 /// A measure of speed in terms of inches per second.
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 pub struct InchesPerSecond {
     inches: Inches,
 }
 
 impl InchesPerSecond {
-    pub fn new(inches: Inches) -> Self {
-        Self { inches }
+    pub fn new<I: Into<Inches>>(inches: I) -> Self {
+        Self {
+            inches: inches.into(),
+        }
     }
-}
 
-/// A measure of acceleration in terms of inches per second squared.
-pub struct InchesPerSecondSq {
-    inches: Inches,
-}
-
-impl InchesPerSecondSq {
-    pub fn new(inches: Inches) -> Self {
-        Self { inches }
+    pub fn zero() -> Self {
+        Self::new(Inches::zero())
     }
 
     pub fn as_inches(&self) -> &Inches {
         &self.inches
     }
+
+    pub fn as_f64(&self) -> f64 {
+        self.inches.as_f64()
+    }
+}
+
+/// A measure of acceleration in terms of inches per second squared.
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
+pub struct InchesPerSecondSq {
+    inches: Inches,
+}
+
+impl InchesPerSecondSq {
+    pub fn new<I: Into<Inches>>(inches: I) -> Self {
+        Self {
+            inches: inches.into(),
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self::new(Inches::zero())
+    }
+
+    pub fn as_inches(&self) -> &Inches {
+        &self.inches
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        self.inches.as_f64()
+    }
+}
+
+/// A measure of elapsed time in seconds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
+pub struct Seconds(f64);
+
+impl Seconds {
+    pub fn new(seconds: f64) -> Self {
+        assert!(seconds.is_finite(), "seconds must be finite");
+        Self(seconds)
+    }
+
+    pub fn zero() -> Self {
+        Self(0.0)
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        self.0
+    }
+}
+
+impl From<f64> for Seconds {
+    fn from(value: f64) -> Self {
+        Self::new(value)
+    }
 }
 
 /// A measure of angular velocity in terms of radians per second.
+#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
 pub struct RadiansPerSecond(f64);
 
 impl RadiansPerSecond {
+    pub fn new(radians_per_second: f64) -> Self {
+        assert!(
+            radians_per_second.is_finite(),
+            "angular velocity must be finite"
+        );
+        Self(radians_per_second)
+    }
+
+    pub fn zero() -> Self {
+        Self(0.0)
+    }
+
     pub fn as_f64(&self) -> f64 {
         self.0
+    }
+}
+
+impl From<f64> for RadiansPerSecond {
+    fn from(value: f64) -> Self {
+        Self::new(value)
+    }
+}
+
+/// A measure of angular acceleration in terms of radians per second squared.
+#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
+pub struct RadiansPerSecondSq(f64);
+
+impl RadiansPerSecondSq {
+    pub fn new(radians_per_second_sq: f64) -> Self {
+        assert!(
+            radians_per_second_sq.is_finite(),
+            "angular acceleration must be finite"
+        );
+        Self(radians_per_second_sq)
+    }
+
+    pub fn zero() -> Self {
+        Self(0.0)
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        self.0
+    }
+}
+
+impl From<f64> for RadiansPerSecondSq {
+    fn from(value: f64) -> Self {
+        Self::new(value)
+    }
+}
+
+/// A 2D vector whose components are measured in inches.
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
+pub struct Inches2 {
+    x: Inches,
+    y: Inches,
+}
+
+impl Inches2 {
+    pub fn new<X: Into<Inches>, Y: Into<Inches>>(x: X, y: Y) -> Self {
+        Self {
+            x: x.into(),
+            y: y.into(),
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self::new(Inches::zero(), Inches::zero())
+    }
+
+    pub fn x(&self) -> &Inches {
+        &self.x
+    }
+
+    pub fn y(&self) -> &Inches {
+        &self.y
+    }
+
+    pub fn magnitude(&self) -> Inches {
+        Inches::from_f64((self.x.as_f64().powi(2) + self.y.as_f64().powi(2)).sqrt())
+    }
+
+    pub fn angle_from_north(&self) -> Option<Angle> {
+        let x = self.x.as_f64();
+        let y = self.y.as_f64();
+        if x == 0.0 && y == 0.0 {
+            None
+        } else {
+            Some(Angle::from_north(x, y))
+        }
+    }
+}
+
+/// A 2D linear velocity vector measured in inches per second.
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
+pub struct Velocity2 {
+    x: InchesPerSecond,
+    y: InchesPerSecond,
+}
+
+impl Velocity2 {
+    pub fn new<X: Into<Inches>, Y: Into<Inches>>(x: X, y: Y) -> Self {
+        Self {
+            x: InchesPerSecond::new(x),
+            y: InchesPerSecond::new(y),
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self::new(Inches::zero(), Inches::zero())
+    }
+
+    pub fn from_polar(speed: InchesPerSecond, angle: Angle) -> Self {
+        let radians = angle.as_degrees().to_radians();
+        Self::new(
+            Inches::from_f64(speed.as_f64() * radians.sin()),
+            Inches::from_f64(speed.as_f64() * radians.cos()),
+        )
+    }
+
+    pub fn x(&self) -> &InchesPerSecond {
+        &self.x
+    }
+
+    pub fn y(&self) -> &InchesPerSecond {
+        &self.y
+    }
+
+    pub fn speed(&self) -> InchesPerSecond {
+        InchesPerSecond::new(Inches::from_f64(
+            (self.x.as_f64().powi(2) + self.y.as_f64().powi(2)).sqrt(),
+        ))
+    }
+
+    pub fn angle_from_north(&self) -> Option<Angle> {
+        let x = self.x.as_f64();
+        let y = self.y.as_f64();
+        if x == 0.0 && y == 0.0 {
+            None
+        } else {
+            Some(Angle::from_north(x, y))
+        }
+    }
+
+    pub fn displacement_over(&self, duration: Seconds) -> Inches2 {
+        self.clone() * duration
+    }
+}
+
+/// A 3-axis angular velocity vector measured in radians per second.
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
+pub struct AngularVelocity3 {
+    x: RadiansPerSecond,
+    y: RadiansPerSecond,
+    z: RadiansPerSecond,
+}
+
+impl AngularVelocity3 {
+    pub fn new<X: Into<RadiansPerSecond>, Y: Into<RadiansPerSecond>, Z: Into<RadiansPerSecond>>(
+        x: X,
+        y: Y,
+        z: Z,
+    ) -> Self {
+        Self {
+            x: x.into(),
+            y: y.into(),
+            z: z.into(),
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self::new(0.0, 0.0, 0.0)
+    }
+
+    pub fn x(&self) -> RadiansPerSecond {
+        self.x
+    }
+
+    pub fn y(&self) -> RadiansPerSecond {
+        self.y
+    }
+
+    pub fn z(&self) -> RadiansPerSecond {
+        self.z
     }
 }
 
@@ -574,7 +842,7 @@ pub fn gearing_english(cut_angle: CutAngle, shot_speed: InchesPerSecond) -> Radi
     let omega = shot_speed.inches.magnitude.to_f64().unwrap()
         * cut_angle.as_degrees().to_radians().sin()
         / TYPICAL_BALL_RADIUS.magnitude.to_f64().unwrap();
-    RadiansPerSecond(omega)
+    RadiansPerSecond::new(omega)
 }
 
 /// A displacement indicating a direction and distance.
@@ -665,6 +933,94 @@ impl Mul<Scale> for Inches {
     }
 }
 
+impl Mul<Inches> for Scale {
+    type Output = Inches;
+
+    fn mul(self, rhs: Inches) -> Self::Output {
+        rhs * self
+    }
+}
+
+impl Mul<Seconds> for InchesPerSecond {
+    type Output = Inches;
+
+    fn mul(self, rhs: Seconds) -> Self::Output {
+        Inches::from_f64(self.as_f64() * rhs.as_f64())
+    }
+}
+
+impl Mul<InchesPerSecond> for Seconds {
+    type Output = Inches;
+
+    fn mul(self, rhs: InchesPerSecond) -> Self::Output {
+        rhs * self
+    }
+}
+
+impl Mul<Seconds> for InchesPerSecondSq {
+    type Output = InchesPerSecond;
+
+    fn mul(self, rhs: Seconds) -> Self::Output {
+        InchesPerSecond::new(Inches::from_f64(self.as_f64() * rhs.as_f64()))
+    }
+}
+
+impl Mul<InchesPerSecondSq> for Seconds {
+    type Output = InchesPerSecond;
+
+    fn mul(self, rhs: InchesPerSecondSq) -> Self::Output {
+        rhs * self
+    }
+}
+
+impl Mul<Inches> for RadiansPerSecond {
+    type Output = InchesPerSecond;
+
+    fn mul(self, rhs: Inches) -> Self::Output {
+        InchesPerSecond::new(Inches::from_f64(self.as_f64() * rhs.as_f64()))
+    }
+}
+
+impl Mul<RadiansPerSecond> for Inches {
+    type Output = InchesPerSecond;
+
+    fn mul(self, rhs: RadiansPerSecond) -> Self::Output {
+        rhs * self
+    }
+}
+
+impl Mul<Seconds> for RadiansPerSecondSq {
+    type Output = RadiansPerSecond;
+
+    fn mul(self, rhs: Seconds) -> Self::Output {
+        RadiansPerSecond::new(self.as_f64() * rhs.as_f64())
+    }
+}
+
+impl Mul<RadiansPerSecondSq> for Seconds {
+    type Output = RadiansPerSecond;
+
+    fn mul(self, rhs: RadiansPerSecondSq) -> Self::Output {
+        rhs * self
+    }
+}
+
+impl Mul<Seconds> for Velocity2 {
+    type Output = Inches2;
+
+    fn mul(self, rhs: Seconds) -> Self::Output {
+        Inches2::new(self.x * rhs, self.y * rhs)
+    }
+}
+
+impl Mul<Velocity2> for Seconds {
+    type Output = Inches2;
+
+    fn mul(self, rhs: Velocity2) -> Self::Output {
+        rhs * self
+    }
+}
+
 impl Sub for Inches {
     type Output = Inches;
 
@@ -691,6 +1047,54 @@ impl Mul<BigDecimal> for Diamond {
     fn mul(self, rhs: BigDecimal) -> Self::Output {
         Diamond {
             magnitude: self.magnitude * rhs,
+        }
+    }
+}
+
+impl From<u8> for Scale {
+    fn from(value: u8) -> Self {
+        Self {
+            magnitude: BigDecimal::from_u8(value).unwrap(),
+        }
+    }
+}
+
+impl From<i64> for Scale {
+    fn from(value: i64) -> Self {
+        Self {
+            magnitude: BigDecimal::from_i64(value).unwrap(),
+        }
+    }
+}
+
+impl From<&str> for Scale {
+    fn from(value: &str) -> Self {
+        Self {
+            magnitude: BigDecimal::from_str(value).unwrap(),
+        }
+    }
+}
+
+impl From<u8> for Inches {
+    fn from(value: u8) -> Self {
+        Self {
+            magnitude: BigDecimal::from_u8(value).unwrap(),
+        }
+    }
+}
+
+impl From<i64> for Inches {
+    fn from(value: i64) -> Self {
+        Self {
+            magnitude: BigDecimal::from_i64(value).unwrap(),
+        }
+    }
+}
+
+impl From<&str> for Inches {
+    fn from(value: &str) -> Self {
+        Self {
+            magnitude: BigDecimal::from_str(value).unwrap(),
         }
     }
 }

@@ -4,13 +4,21 @@ This is a living plan for growing `billiards` from a geometry + diagramming crat
 
 ## Current foundation
 
-The crate already has useful geometric primitives and a few idealized shot helpers:
+The crate already has a meaningful first simulation slice in place, plus the earlier geometry and diagramming support:
 
 - table / pocket / rail geometry
-- unit types like `Inches`, `InchesPerSecond`, `RadiansPerSecond`, `CutAngle`
+- simulation-facing unit types such as `Seconds`, `Inches`, `Inches2`, `InchesPerSecond`,
+  `InchesPerSecondSq`, `RadiansPerSecond`, `RadiansPerSecondSq`, `Velocity2`,
+  `AngularVelocity3`, and `CutAngle`
+- `BallState` in inch-space, including explicit vertical state for future airborne motion
+- functional helpers such as `projected_position(...)`, `ball_speed(...)`,
+  `cloth_contact_velocity_on_table(...)`, and `cloth_contact_speed_on_table(...)`
+- `classify_motion_phase(...)` for `Airborne` / `Sliding` / `Rolling` / `Spinning` / `Rest`
+- `compute_next_transition(...)` for the first real event-driven case:
+  `Rest => None` and `Rolling => Rest`
 - position translation and ghost-ball-style aiming helpers
 - dotted overlay rendering for aim lines
-- some physics-adjacent helpers such as `gearing_english()`
+- physics-adjacent helpers such as `gearing_english()`
 
 That suggests a good implementation strategy:
 
@@ -52,12 +60,15 @@ Where practical, compute exact or semi-analytic transition times instead of simu
 
 Continue using typed wrappers instead of raw `f64` where possible.
 
-Candidate additions:
+The codebase already has simulation-facing unit and vector wrappers such as:
 
-- `InchesPerSecondVec2`
+- `Seconds`
+- `Inches2`
+- `Velocity2`
 - `AngularVelocity3`
 - `BallState`
-- `SimTimeSeconds`
+
+Future additions should continue that pattern instead of falling back to raw scalars.
 
 ### 4. Start from ideal textbook behavior
 
@@ -122,7 +133,6 @@ pub struct ClothPhysicsSpec {
     pub sliding_friction_coefficient: Scale,
     pub rolling_friction_coefficient: Scale,
     pub spinning_friction_coefficient: Scale,
-    pub assumptions: ClothMotionAssumptions,
 }
 
 pub struct CollisionPhysicsSpec {
@@ -143,15 +153,27 @@ pub struct PocketPhysicsSpec {
 
 pub struct SolverConfig {
     pub integration: IntegrationMode,
-    pub rest: RestThresholds,
+    pub motion_phase: MotionPhaseConfig,
+    pub motion_transitions: MotionTransitionConfig,
     pub event_epsilon: SolverTolerances,
     pub limits: SolverLimits,
 }
 ```
 
+The current code intentionally uses a smaller functional slice inside this larger direction:
+
+- `BallSetPhysicsSpec`
+- `MotionPhaseThresholds`
+- `MotionPhaseConfig`
+- `MotionTransitionConfig`
+- `SlidingToRollingModel`
+- `RollingResistanceModel`
+
+That narrower shape has worked well for TDD. A larger `PhysicsEngineConfig` should only be introduced when it materially improves composition across cloth, collisions, rails, and pockets.
+
 ### Candidate runtime types
 
-These are still suggestions, not commitments.
+Some of these are now real code-level types (`BallState`, `Velocity2`, `AngularVelocity3`, `MotionPhase`); others remain roadmap-level suggestions for later multi-ball simulation layers.
 
 ```rust
 pub struct BallState {
@@ -237,10 +259,11 @@ pub enum IntegrationMode {
     Hybrid { max_dt_seconds: f64 },
 }
 
-pub struct RestThresholds {
-    pub linear_speed: InchesPerSecond,
-    pub angular_speed: RadiansPerSecond,
-    pub contact_speed: InchesPerSecond,
+pub struct MotionPhaseThresholds {
+    pub rest_linear_speed: InchesPerSecond,
+    pub rest_angular_speed: RadiansPerSecond,
+    pub rest_vertical_speed: InchesPerSecond,
+    pub airborne_height: Inches,
 }
 
 pub struct SolverTolerances {
@@ -254,11 +277,14 @@ pub struct SolverLimits {
     pub max_collisions_per_frame: usize,
 }
 
-pub struct ClothMotionAssumptions {
+pub struct MotionPhaseConfig {
+    pub thresholds: MotionPhaseThresholds,
     pub sliding_to_rolling: SlidingToRollingModel,
+}
+
+pub struct MotionTransitionConfig {
+    pub phase: MotionPhaseConfig,
     pub rolling_resistance: RollingResistanceModel,
-    pub spin_decay: SpinDecayModel,
-    pub vertical_motion: VerticalMotionModel,
 }
 
 pub enum SlidingToRollingModel {
@@ -267,7 +293,9 @@ pub enum SlidingToRollingModel {
 }
 
 pub enum RollingResistanceModel {
-    ConstantDeceleration,
+    ConstantDeceleration {
+        linear_deceleration: InchesPerSecondSq,
+    },
     CoefficientBased,
 }
 
@@ -313,50 +341,52 @@ This is the base layer for nearly everything else. Ball-ball and ball-rail inter
 
 ### Phase 1 API sketch
 
-The first slice should probably be built around a dedicated single-ball simulator instead of a pile of free functions.
+The current direction is intentionally functional. A thin `SingleBallSimulator` wrapper may still be useful later, but the Phase 1 core should stabilize as pure functions over explicit state and config structs.
 
 ```rust
-pub struct SingleBallSimulator {
-    pub config: PhysicsEngineConfig,
+pub struct MotionPhaseConfig {
+    pub thresholds: MotionPhaseThresholds,
+    pub sliding_to_rolling: SlidingToRollingModel,
+}
+
+pub struct MotionTransitionConfig {
+    pub phase: MotionPhaseConfig,
+    pub rolling_resistance: RollingResistanceModel,
 }
 
 pub struct NextTransition {
     pub phase_before: MotionPhase,
     pub phase_after: MotionPhase,
-    pub time_seconds: f64,
+    pub time_until_transition: Seconds,
 }
 
-impl SingleBallSimulator {
-    pub fn classify_phase(&self, state: &BallState) -> MotionPhase;
-
-    pub fn contact_point_speed(&self, state: &BallState) -> InchesPerSecond;
-
-    pub fn advance_ball_state(&self, state: &BallState, dt_seconds: f64) -> BallState;
-
-    pub fn compute_next_transition(&self, state: &BallState) -> Option<NextTransition>;
-
-    pub fn simulate_until_rest(&self, state: &BallState) -> SimulationTrace;
-}
-```
-
-If a smaller API is preferable for the very first implementation, this would also be reasonable:
-
-```rust
 pub fn classify_motion_phase(
     state: &BallState,
-    cloth: &ClothPhysicsSpec,
-    solver: &SolverConfig,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionPhaseConfig,
 ) -> MotionPhase;
+
+pub fn compute_next_transition(
+    state: &BallState,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> Option<NextTransition>;
 
 pub fn advance_ball_state(
     state: &BallState,
-    dt_seconds: f64,
-    table: &TablePhysicsSpec,
-    balls: &BallSetPhysicsSpec,
-    cloth: &ClothPhysicsSpec,
-    solver: &SolverConfig,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
 ) -> BallState;
 ```
+
+This naming is deliberate:
+
+- `classify_*` for derived phase labels
+- `compute_*` for deterministic model-based calculations under the chosen assumptions
+- `advance_*` for forward time progression
+
+Avoid `evolve_*` in the public API unless a later abstraction makes that wording materially clearer.
 
 ### Phase 1 tunable knobs
 
@@ -501,22 +531,30 @@ These helpers are directly motivated by the references:
 
 For the first implementation, these cloth-contact helpers are intended for on-table states; code paths that try to use them for airborne states can be guarded by phase classification and may use `todo!()` until airborne dynamics are implemented.
 
-### BallState implementation plan
+### Phase 1 status
 
-1. Add the single `BallState` type with `height` and `vertical_velocity`.
-2. Add `Default`, `new`, `resting_at`, `on_table`, `airborne`, and conversion helpers.
-3. Add derived helpers like `speed()` and `cloth_contact_speed()`.
-4. Add focused tests for zero/resting/default semantics and for conversion round-trips.
-5. Add a rolling-without-slip regression test based on the reference relation `Ω = (-v, u, 0)/r` for on-table rolling motion.
-6. Add `MotionPhase::Airborne` and stub airborne simulator branches with `todo!()`.
-7. Only after that, build the first non-airborne `classify_phase(...)` and single-ball simulator behavior.
+Implemented so far:
 
-### First TDD targets
+1. simulation-space units and vectors, including `Seconds`, `Inches2`, `Velocity2`, and `AngularVelocity3`
+2. `BallState` with `height` and `vertical_velocity`, plus `Default`, `resting_at`, `on_table`, `airborne`, and projection helpers
+3. derived helpers such as `speed()`, `cloth_contact_velocity()`, and `cloth_contact_speed()`
+4. functional `classify_motion_phase(...)` over `BallState`, `BallSetPhysicsSpec`, and `MotionPhaseConfig`
+5. functional `compute_next_transition(...)` for the first real event-driven case:
+   `Rest => None` and `Rolling => Rest`
+6. whitepaper-backed tests for resting/default semantics, rolling-without-slip classification, and rolling stop-time computation
 
-1. A ball with zero linear and angular velocity stays at rest.
-2. A rolling ball slows monotonically and stops.
-3. A sliding ball eventually transitions to rolling.
-4. A spinning-in-place ball eventually stops spinning.
+Still intentionally deferred:
+
+1. `advance_ball_state(...)` beyond the roadmap-level naming and shape
+2. `Sliding => ...`, `Spinning => ...`, and `Airborne => ...` transition computation
+3. multi-ball motion / collision integration
+
+### Next TDD targets
+
+1. add `advance_ball_state(...)` for `Rest` and `Rolling`
+2. verify rolling state advance matches the same constant-deceleration model used by `compute_next_transition(...)`
+3. add `Sliding => Rolling` transition computation
+4. add spinning-in-place decay / stop behavior
 
 ### Good local references
 
@@ -527,7 +565,7 @@ For the first implementation, these cloth-contact helpers are intended for on-ta
 
 ### Suggested stopping point
 
-Reach a trustworthy **single-ball state integrator** with deterministic tests before adding any collisions.
+Reach a trustworthy **single-ball advance / transition layer** with deterministic tests before adding any collisions.
 
 ---
 

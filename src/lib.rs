@@ -616,6 +616,72 @@ pub enum MotionPhase {
     Rest,
 }
 
+/// Shared physical parameters for a set of billiard balls.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BallSetPhysicsSpec {
+    pub radius: Inches,
+}
+
+impl Default for BallSetPhysicsSpec {
+    fn default() -> Self {
+        Self {
+            radius: TYPICAL_BALL_RADIUS.clone(),
+        }
+    }
+}
+
+/// Thresholds used when classifying the qualitative motion phase of a ball.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MotionPhaseThresholds {
+    pub airborne_height: Inches,
+    pub airborne_vertical_speed: InchesPerSecond,
+    pub rest_linear_speed: InchesPerSecond,
+    pub rest_vertical_speed: InchesPerSecond,
+    pub rest_angular_speed: RadiansPerSecond,
+}
+
+impl Default for MotionPhaseThresholds {
+    fn default() -> Self {
+        Self {
+            airborne_height: Inches::from_f64(1e-9),
+            airborne_vertical_speed: InchesPerSecond::new(Inches::from_f64(1e-9)),
+            rest_linear_speed: InchesPerSecond::new(Inches::from_f64(1e-9)),
+            rest_vertical_speed: InchesPerSecond::new(Inches::from_f64(1e-9)),
+            rest_angular_speed: RadiansPerSecond::new(1e-9),
+        }
+    }
+}
+
+/// How rolling without slip is detected from the cloth-contact slip speed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SlidingToRollingModel {
+    /// Treat only numerically exact zero slip as rolling.
+    ExactNoSlip,
+
+    /// Treat sufficiently small slip as rolling.
+    Thresholded {
+        contact_speed_epsilon: InchesPerSecond,
+    },
+}
+
+/// Configuration used when classifying a ball's qualitative motion phase.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MotionPhaseConfig {
+    pub thresholds: MotionPhaseThresholds,
+    pub sliding_to_rolling: SlidingToRollingModel,
+}
+
+impl Default for MotionPhaseConfig {
+    fn default() -> Self {
+        Self {
+            thresholds: MotionPhaseThresholds::default(),
+            sliding_to_rolling: SlidingToRollingModel::Thresholded {
+                contact_speed_epsilon: InchesPerSecond::new(Inches::from_f64(1e-9)),
+            },
+        }
+    }
+}
+
 /// The kinematic state of a billiard ball.
 ///
 /// The local references in `whitepapers/` consistently model each ball using center-of-mass
@@ -697,73 +763,140 @@ impl BallState {
     }
 
     pub fn projected_position(&self, table_spec: &TableSpec) -> Position {
-        Position::new(
-            table_spec.inches_to_diamond(self.position.x().clone()),
-            table_spec.inches_to_diamond(self.position.y().clone()),
-        )
+        projected_position(self, table_spec)
     }
 
     pub fn speed(&self) -> InchesPerSecond {
-        self.velocity.speed()
+        ball_speed(self)
     }
 
     pub fn cloth_contact_velocity(&self, radius: Inches) -> Velocity2 {
-        match self.motion_phase(radius.clone()) {
-            MotionPhase::Airborne => {
-                todo!("cloth-contact velocity for airborne ball states is not implemented yet")
-            }
-            MotionPhase::Sliding
-            | MotionPhase::Rolling
-            | MotionPhase::Spinning
-            | MotionPhase::Rest => self.cloth_contact_velocity_on_table(radius),
-        }
+        cloth_contact_velocity_on_table(self, radius)
     }
 
     pub fn cloth_contact_speed(&self, radius: Inches) -> InchesPerSecond {
-        self.cloth_contact_velocity(radius).speed()
+        cloth_contact_speed_on_table(self, radius)
     }
 
     pub fn motion_phase(&self, radius: Inches) -> MotionPhase {
-        const EPSILON: f64 = 1e-9;
-
-        let near_zero = |value: f64| value.abs() <= EPSILON;
-
-        if self.is_airborne() {
-            return MotionPhase::Airborne;
-        }
-
-        let linear_speed = self.speed().as_f64();
-        let wx = self.angular_velocity.x().as_f64();
-        let wy = self.angular_velocity.y().as_f64();
-        let wz = self.angular_velocity.z().as_f64();
-
-        if near_zero(linear_speed) && near_zero(wx) && near_zero(wy) && near_zero(wz) {
-            MotionPhase::Rest
-        } else if near_zero(linear_speed) && near_zero(wx) && near_zero(wy) && !near_zero(wz) {
-            MotionPhase::Spinning
-        } else if near_zero(self.cloth_contact_velocity_on_table(radius).speed().as_f64()) {
-            MotionPhase::Rolling
-        } else {
-            MotionPhase::Sliding
-        }
-    }
-
-    fn cloth_contact_velocity_on_table(&self, radius: Inches) -> Velocity2 {
-        let vx = self.velocity.x().as_f64();
-        let vy = self.velocity.y().as_f64();
-        let wx = self.angular_velocity.x().as_f64();
-        let wy = self.angular_velocity.y().as_f64();
-        let radius = radius.as_f64();
-
-        Velocity2::from_components(
-            InchesPerSecond::new(Inches::from_f64(vx - radius * wy)),
-            InchesPerSecond::new(Inches::from_f64(vy + radius * wx)),
+        classify_motion_phase(
+            self,
+            &BallSetPhysicsSpec { radius },
+            &MotionPhaseConfig::default(),
         )
     }
+}
 
-    fn is_airborne(&self) -> bool {
-        const EPSILON: f64 = 1e-9;
-        self.height.as_f64().abs() > EPSILON || self.vertical_velocity.as_f64().abs() > EPSILON
+/// Return the planar table projection of a `BallState` in table-space coordinates.
+pub fn projected_position(state: &BallState, table_spec: &TableSpec) -> Position {
+    Position::new(
+        table_spec.inches_to_diamond(state.position.x().clone()),
+        table_spec.inches_to_diamond(state.position.y().clone()),
+    )
+}
+
+/// Return the planar center-of-mass speed of the ball.
+pub fn ball_speed(state: &BallState) -> InchesPerSecond {
+    state.velocity.speed()
+}
+
+fn is_airborne(state: &BallState, thresholds: &MotionPhaseThresholds) -> bool {
+    state.height.as_f64() > thresholds.airborne_height.as_f64()
+        || state.vertical_velocity.as_f64().abs() > thresholds.airborne_vertical_speed.as_f64()
+}
+
+/// Compute the cloth-contact slip velocity for an on-table ball.
+///
+/// `whitepapers/TP_A-4.pdf`, Eq. (3), gives the contact-point velocity at the cloth as
+///
+/// `v_C = (v_x - R ω_y, v_y + R ω_x)`
+///
+/// and explicitly notes that z-axis spin does not affect this contact-point velocity. This helper
+/// implements that table-contact velocity model directly for the current coordinate conventions.
+///
+/// Calling this helper for an airborne ball state is intentionally left as `todo!()` for now.
+pub fn cloth_contact_velocity_on_table(state: &BallState, radius: Inches) -> Velocity2 {
+    if state.height.as_f64() > 0.0 || state.vertical_velocity.as_f64().abs() > 0.0 {
+        todo!("cloth-contact velocity for airborne ball states is not implemented yet")
+    }
+
+    let vx = state.velocity.x().as_f64();
+    let vy = state.velocity.y().as_f64();
+    let wx = state.angular_velocity.x().as_f64();
+    let wy = state.angular_velocity.y().as_f64();
+    let radius = radius.as_f64();
+
+    Velocity2::from_components(
+        InchesPerSecond::new(Inches::from_f64(vx - radius * wy)),
+        InchesPerSecond::new(Inches::from_f64(vy + radius * wx)),
+    )
+}
+
+/// Compute the cloth-contact slip-speed magnitude for an on-table ball.
+pub fn cloth_contact_speed_on_table(state: &BallState, radius: Inches) -> InchesPerSecond {
+    cloth_contact_velocity_on_table(state, radius).speed()
+}
+
+/// Classify a ball's qualitative motion regime from its kinematic state and configurable
+/// thresholds / assumptions.
+///
+/// The classification logic follows the local technical proofs and supporting article notes:
+///
+/// - `whitepapers/TP_A-4.pdf`, Eqs. (3), (10), and (12), defines the cloth contact-point slip
+///   velocity and shows that this slip speed decays to zero, after which the cue ball rolls
+///   without slipping.
+/// - `whitepapers/TP_4-2.pdf`, Eq. (3), gives the straight-line special case `v = ωR` for
+///   immediate rolling without slipping.
+/// - `whitepapers/Alciatore_pool_physics_article.pdf` explains that both draw (bottom spin) and
+///   over-spin are still sliding states until rolling develops, so the rolling/sliding distinction
+///   is based on cloth-contact slip, not merely on the presence or direction of spin.
+pub fn classify_motion_phase(
+    state: &BallState,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionPhaseConfig,
+) -> MotionPhase {
+    let near_zero = |value: f64, threshold: f64| value.abs() <= threshold;
+
+    if is_airborne(state, &config.thresholds) {
+        return MotionPhase::Airborne;
+    }
+
+    let linear_speed = ball_speed(state).as_f64();
+    let vertical_speed = state.vertical_velocity.as_f64();
+    let wx = state.angular_velocity.x().as_f64();
+    let wy = state.angular_velocity.y().as_f64();
+    let wz = state.angular_velocity.z().as_f64();
+    let angular_threshold = config.thresholds.rest_angular_speed.as_f64();
+
+    if near_zero(linear_speed, config.thresholds.rest_linear_speed.as_f64())
+        && near_zero(vertical_speed, config.thresholds.rest_vertical_speed.as_f64())
+        && near_zero(wx, angular_threshold)
+        && near_zero(wy, angular_threshold)
+        && near_zero(wz, angular_threshold)
+    {
+        return MotionPhase::Rest;
+    }
+
+    if near_zero(linear_speed, config.thresholds.rest_linear_speed.as_f64())
+        && near_zero(wx, angular_threshold)
+        && near_zero(wy, angular_threshold)
+        && !near_zero(wz, angular_threshold)
+    {
+        return MotionPhase::Spinning;
+    }
+
+    let contact_speed = cloth_contact_speed_on_table(state, ball.radius.clone()).as_f64();
+    let is_rolling = match &config.sliding_to_rolling {
+        SlidingToRollingModel::ExactNoSlip => contact_speed <= f64::EPSILON,
+        SlidingToRollingModel::Thresholded {
+            contact_speed_epsilon,
+        } => contact_speed <= contact_speed_epsilon.as_f64(),
+    };
+
+    if is_rolling {
+        MotionPhase::Rolling
+    } else {
+        MotionPhase::Sliding
     }
 }
 

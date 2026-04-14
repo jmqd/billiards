@@ -320,7 +320,7 @@ pub struct SingleBallSimulator {
     pub config: PhysicsEngineConfig,
 }
 
-pub struct TransitionPrediction {
+pub struct NextTransition {
     pub phase_before: MotionPhase,
     pub phase_after: MotionPhase,
     pub time_seconds: f64,
@@ -331,9 +331,9 @@ impl SingleBallSimulator {
 
     pub fn contact_point_speed(&self, state: &BallState) -> InchesPerSecond;
 
-    pub fn evolve_for(&self, state: &BallState, dt_seconds: f64) -> BallState;
+    pub fn advance_ball_state(&self, state: &BallState, dt_seconds: f64) -> BallState;
 
-    pub fn next_transition(&self, state: &BallState) -> Option<TransitionPrediction>;
+    pub fn compute_next_transition(&self, state: &BallState) -> Option<NextTransition>;
 
     pub fn simulate_until_rest(&self, state: &BallState) -> SimulationTrace;
 }
@@ -348,7 +348,7 @@ pub fn classify_motion_phase(
     solver: &SolverConfig,
 ) -> MotionPhase;
 
-pub fn evolve_single_ball_for(
+pub fn advance_ball_state(
     state: &BallState,
     dt_seconds: f64,
     table: &TablePhysicsSpec,

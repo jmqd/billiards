@@ -1,5 +1,5 @@
 use billiards::{
-    next_transition, AngularVelocity3, BallSetPhysicsSpec, BallState, Inches2,
+    compute_next_transition, AngularVelocity3, BallSetPhysicsSpec, BallState, Inches2,
     InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
     RollingResistanceModel, TYPICAL_BALL_RADIUS, Velocity2,
 };
@@ -22,7 +22,7 @@ fn a_resting_ball_has_no_next_transition() {
         },
     };
 
-    assert!(next_transition(&state, &BallSetPhysicsSpec::default(), &config).is_none());
+    assert!(compute_next_transition(&state, &BallSetPhysicsSpec::default(), &config).is_none());
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn a_rolling_ball_predicts_the_time_until_rest_using_constant_deceleration() {
         },
     };
 
-    let transition = next_transition(&state, &BallSetPhysicsSpec::default(), &config)
+    let transition = compute_next_transition(&state, &BallSetPhysicsSpec::default(), &config)
         .expect("rolling balls should predict a rest transition");
 
     assert_eq!(transition.phase_before, MotionPhase::Rolling);

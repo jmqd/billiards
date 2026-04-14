@@ -1,6 +1,6 @@
 use billiards::{
-    AngularVelocity3, BallState, Inches2, MotionPhase, Position, TableSpec,
-    TYPICAL_BALL_RADIUS, Velocity2,
+    AngularVelocity3, BallState, Inches2, MotionPhase, MotionPhaseThresholds, OnTableBallState,
+    Position, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -23,7 +23,10 @@ fn default_ball_state_is_a_resting_ball_at_the_simulation_origin() {
     assert_close(state.angular_velocity.x().as_f64(), 0.0);
     assert_close(state.angular_velocity.y().as_f64(), 0.0);
     assert_close(state.angular_velocity.z().as_f64(), 0.0);
-    assert_eq!(state.motion_phase(TYPICAL_BALL_RADIUS.clone()), MotionPhase::Rest);
+    assert_eq!(
+        state.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rest
+    );
 }
 
 #[test]
@@ -35,7 +38,62 @@ fn resting_at_preserves_position_and_zeroes_all_motion() {
     assert_close(state.height.as_f64(), 0.0);
     assert_close(state.speed().as_f64(), 0.0);
     assert_close(state.vertical_velocity.as_f64(), 0.0);
-    assert_eq!(state.motion_phase(TYPICAL_BALL_RADIUS.clone()), MotionPhase::Rest);
+    assert_eq!(
+        state.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rest
+    );
+}
+
+#[test]
+fn on_table_ball_state_accepts_exactly_on_table_states() {
+    let validated = OnTableBallState::try_from(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(1.0, 2.0, 3.0),
+    ))
+    .expect("exact on-table states should validate");
+
+    assert_close(validated.as_ball_state().height.as_f64(), 0.0);
+    assert_close(validated.as_ball_state().vertical_velocity.as_f64(), 0.0);
+}
+
+#[test]
+fn on_table_ball_state_rejects_nonzero_height_and_vertical_velocity() {
+    let by_height = OnTableBallState::try_from(BallState::airborne(
+        Inches2::new("1", "2"),
+        "0.5",
+        Velocity2::zero(),
+        "0",
+        AngularVelocity3::zero(),
+    ));
+    let by_vertical_velocity = OnTableBallState::try_from(BallState::new(
+        Inches2::new("1", "2"),
+        "0",
+        Velocity2::zero(),
+        "1.25",
+        AngularVelocity3::zero(),
+    ));
+
+    assert!(by_height.is_err());
+    assert!(by_vertical_velocity.is_err());
+}
+
+#[test]
+fn on_table_ball_state_threshold_validation_accepts_tiny_vertical_noise() {
+    let validated = OnTableBallState::try_new_with_thresholds(
+        BallState::new(
+            Inches2::new("1", "2"),
+            "0.0000000001",
+            Velocity2::zero(),
+            "0.0000000001",
+            AngularVelocity3::zero(),
+        ),
+        &MotionPhaseThresholds::default(),
+    )
+    .expect("tiny vertical noise within thresholds should validate");
+
+    assert_close(validated.as_ball_state().height.as_f64(), 0.0);
+    assert_close(validated.as_ball_state().vertical_velocity.as_f64(), 0.0);
 }
 
 #[test]
@@ -48,8 +106,14 @@ fn from_position_and_projected_position_round_trip_through_table_inches() {
 
     assert_close(state.position.x().as_f64(), 34.375);
     assert_close(state.position.y().as_f64(), 68.75);
-    assert_close(round_tripped.x.magnitude.to_string().parse().expect("x"), 2.75);
-    assert_close(round_tripped.y.magnitude.to_string().parse().expect("y"), 5.5);
+    assert_close(
+        round_tripped.x.magnitude.to_string().parse().expect("x"),
+        2.75,
+    );
+    assert_close(
+        round_tripped.y.magnitude.to_string().parse().expect("y"),
+        5.5,
+    );
 }
 
 #[test]
@@ -77,7 +141,10 @@ fn a_stationary_ball_with_only_vertical_axis_spin_classifies_as_spinning() {
         AngularVelocity3::new(0.0, 0.0, 3.0),
     );
 
-    assert_eq!(state.motion_phase(TYPICAL_BALL_RADIUS.clone()), MotionPhase::Spinning);
+    assert_eq!(
+        state.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Spinning
+    );
 }
 
 #[test]
@@ -97,7 +164,10 @@ fn a_ball_with_height_or_vertical_velocity_classifies_as_airborne() {
         AngularVelocity3::zero(),
     );
 
-    assert_eq!(by_height.motion_phase(TYPICAL_BALL_RADIUS.clone()), MotionPhase::Airborne);
+    assert_eq!(
+        by_height.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Airborne
+    );
     assert_eq!(
         by_vertical_velocity.motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Airborne

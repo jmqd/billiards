@@ -2,8 +2,9 @@ use billiards::{
     advance_ball_state, advance_motion_on_table, advance_spin_on_table,
     advance_within_phase_on_table, compute_next_transition_on_table, AngularVelocity3,
     BallSetPhysicsSpec, BallState, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableMotionConfig, RadiansPerSecondSq, RollingResistanceModel,
-    Seconds, SlidingFrictionModel, SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq,
+    RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -27,6 +28,10 @@ fn motion_config() -> OnTableMotionConfig {
             linear_deceleration: InchesPerSecondSq::new("5"),
         },
     }
+}
+
+fn on_table(state: BallState) -> OnTableBallState {
+    OnTableBallState::try_from(state).expect("test states should validate as on-table")
 }
 
 fn rolling_state() -> BallState {
@@ -78,7 +83,7 @@ fn advancing_a_resting_ball_leaves_it_unchanged() {
 
 #[test]
 fn advance_motion_on_table_reports_the_first_transition_crossed() {
-    let state = sliding_stun_state();
+    let state = on_table(sliding_stun_state());
 
     let advanced = advance_motion_on_table(
         &state,
@@ -102,7 +107,7 @@ fn advance_motion_on_table_reports_the_first_transition_crossed() {
 #[test]
 fn advance_within_phase_on_table_clamps_at_the_phase_boundary() {
     let radius = TYPICAL_BALL_RADIUS.clone();
-    let state = sliding_stun_state();
+    let state = on_table(sliding_stun_state());
 
     let advanced = advance_within_phase_on_table(
         &state,
@@ -112,18 +117,21 @@ fn advance_within_phase_on_table_clamps_at_the_phase_boundary() {
         &motion_config(),
     );
 
-    assert_close(advanced.velocity.y().as_f64(), 50.0 / 7.0);
-    assert_eq!(advanced.motion_phase(radius), MotionPhase::Rolling);
+    assert_close(advanced.as_ball_state().velocity.y().as_f64(), 50.0 / 7.0);
+    assert_eq!(
+        advanced.as_ball_state().motion_phase(radius),
+        MotionPhase::Rolling
+    );
 }
 
 #[test]
 fn advancing_spin_on_table_depends_on_ball_state_and_total_spin() {
     let radius = TYPICAL_BALL_RADIUS.clone();
-    let state = BallState::on_table(
+    let state = on_table(BallState::on_table(
         Inches2::new("10", "20"),
         Velocity2::new("0", "10"),
         AngularVelocity3::new(0.0, 0.0, 6.0),
-    );
+    ));
 
     let angular = advance_spin_on_table(
         &state,
@@ -162,7 +170,7 @@ fn advancing_a_sliding_stun_ball_halfway_matches_the_section_7_3_linear_velocity
 #[test]
 fn advancing_a_sliding_stun_ball_to_the_transition_time_reaches_pure_rolling() {
     let radius = TYPICAL_BALL_RADIUS.clone();
-    let state = sliding_stun_state();
+    let state = on_table(sliding_stun_state());
     let config = motion_config();
     let transition_time =
         compute_next_transition_on_table(&state, &BallSetPhysicsSpec::default(), &config)
@@ -170,7 +178,7 @@ fn advancing_a_sliding_stun_ball_to_the_transition_time_reaches_pure_rolling() {
             .time_until_transition;
 
     let advanced = advance_ball_state(
-        &state,
+        state.as_ball_state(),
         transition_time,
         &BallSetPhysicsSpec::default(),
         &config,
@@ -193,7 +201,7 @@ fn advancing_a_sliding_stun_ball_to_the_transition_time_reaches_pure_rolling() {
 #[test]
 fn advancing_past_the_sliding_transition_continues_into_rolling_for_the_remaining_time() {
     let radius = TYPICAL_BALL_RADIUS.clone();
-    let state = sliding_stun_state();
+    let state = on_table(sliding_stun_state());
     let config = motion_config();
     let transition_time =
         compute_next_transition_on_table(&state, &BallSetPhysicsSpec::default(), &config)
@@ -201,7 +209,7 @@ fn advancing_past_the_sliding_transition_continues_into_rolling_for_the_remainin
             .time_until_transition;
 
     let advanced = advance_ball_state(
-        &state,
+        state.as_ball_state(),
         Seconds::new(transition_time.as_f64() + 1.0),
         &BallSetPhysicsSpec::default(),
         &config,
@@ -292,14 +300,19 @@ fn advancing_a_rolling_ball_updates_position_speed_and_spin_consistently() {
 
 #[test]
 fn advancing_by_the_predicted_stop_time_reaches_rest() {
-    let state = rolling_state();
+    let state = on_table(rolling_state());
     let config = motion_config();
     let stop_time =
         compute_next_transition_on_table(&state, &BallSetPhysicsSpec::default(), &config)
             .expect("rolling balls should predict a rest transition")
             .time_until_transition;
 
-    let advanced = advance_ball_state(&state, stop_time, &BallSetPhysicsSpec::default(), &config);
+    let advanced = advance_ball_state(
+        state.as_ball_state(),
+        stop_time,
+        &BallSetPhysicsSpec::default(),
+        &config,
+    );
 
     assert_close(advanced.position.x().as_f64(), 10.0);
     assert_close(advanced.position.y().as_f64(), 30.0);
@@ -315,16 +328,21 @@ fn advancing_by_the_predicted_stop_time_reaches_rest() {
 
 #[test]
 fn advancing_past_the_predicted_stop_time_clamps_at_the_same_rest_state() {
-    let state = rolling_state();
+    let state = on_table(rolling_state());
     let config = motion_config();
     let stop_time =
         compute_next_transition_on_table(&state, &BallSetPhysicsSpec::default(), &config)
             .expect("rolling balls should predict a rest transition")
             .time_until_transition;
 
-    let at_stop = advance_ball_state(&state, stop_time, &BallSetPhysicsSpec::default(), &config);
+    let at_stop = advance_ball_state(
+        state.as_ball_state(),
+        stop_time,
+        &BallSetPhysicsSpec::default(),
+        &config,
+    );
     let after_stop = advance_ball_state(
-        &state,
+        state.as_ball_state(),
         Seconds::new(stop_time.as_f64() + 1.0),
         &BallSetPhysicsSpec::default(),
         &config,

@@ -746,6 +746,19 @@ pub struct MotionAdvance {
     pub transition: Option<NextTransition>,
 }
 
+/// Error returned when attempting to validate a `BallState` as an on-table solver input.
+#[derive(Clone, Debug, PartialEq)]
+pub enum OnTableStateError {
+    HeightAboveTablePlane {
+        height: Inches,
+        allowed_height: Inches,
+    },
+    VerticalVelocityPresent {
+        vertical_velocity: InchesPerSecond,
+        allowed_vertical_velocity: InchesPerSecond,
+    },
+}
+
 /// The kinematic state of a billiard ball.
 ///
 /// The local references in `whitepapers/` consistently model each ball using center-of-mass
@@ -864,6 +877,90 @@ impl BallState {
             &BallSetPhysicsSpec { radius },
             &MotionPhaseConfig::default(),
         )
+    }
+}
+
+/// A `BallState` validated for the current cloth-contact motion solver domain.
+///
+/// This wrapper guarantees that the ball center is on the table plane and carries no vertical
+/// center-of-mass motion, making it suitable for the current on-table motion APIs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OnTableBallState(BallState);
+
+impl OnTableBallState {
+    pub fn try_new(state: BallState) -> Result<Self, OnTableStateError> {
+        if state.height.as_f64() > 0.0 {
+            return Err(OnTableStateError::HeightAboveTablePlane {
+                height: state.height.clone(),
+                allowed_height: Inches::zero(),
+            });
+        }
+
+        if state.vertical_velocity.as_f64().abs() > 0.0 {
+            return Err(OnTableStateError::VerticalVelocityPresent {
+                vertical_velocity: state.vertical_velocity.clone(),
+                allowed_vertical_velocity: InchesPerSecond::zero(),
+            });
+        }
+
+        Ok(Self(state))
+    }
+
+    pub fn try_new_with_thresholds(
+        state: BallState,
+        thresholds: &MotionPhaseThresholds,
+    ) -> Result<Self, OnTableStateError> {
+        if state.height.as_f64() > thresholds.airborne_height.as_f64() {
+            return Err(OnTableStateError::HeightAboveTablePlane {
+                height: state.height.clone(),
+                allowed_height: thresholds.airborne_height.clone(),
+            });
+        }
+
+        if state.vertical_velocity.as_f64().abs() > thresholds.airborne_vertical_speed.as_f64() {
+            return Err(OnTableStateError::VerticalVelocityPresent {
+                vertical_velocity: state.vertical_velocity.clone(),
+                allowed_vertical_velocity: thresholds.airborne_vertical_speed.clone(),
+            });
+        }
+
+        Ok(Self(BallState {
+            position: state.position,
+            height: Inches::zero(),
+            velocity: state.velocity,
+            vertical_velocity: InchesPerSecond::zero(),
+            angular_velocity: state.angular_velocity,
+        }))
+    }
+
+    pub fn as_ball_state(&self) -> &BallState {
+        &self.0
+    }
+
+    pub fn into_ball_state(self) -> BallState {
+        self.0
+    }
+}
+
+impl TryFrom<BallState> for OnTableBallState {
+    type Error = OnTableStateError;
+
+    fn try_from(state: BallState) -> Result<Self, Self::Error> {
+        Self::try_new(state)
+    }
+}
+
+impl TryFrom<&BallState> for OnTableBallState {
+    type Error = OnTableStateError;
+
+    fn try_from(state: &BallState) -> Result<Self, Self::Error> {
+        Self::try_new(state.clone())
+    }
+}
+
+impl From<OnTableBallState> for BallState {
+    fn from(state: OnTableBallState) -> Self {
+        state.into_ball_state()
     }
 }
 
@@ -1050,6 +1147,12 @@ fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
     linear_deceleration
 }
 
+fn require_on_table_state(state: &BallState, config: &MotionPhaseConfig) -> OnTableBallState {
+    OnTableBallState::try_new_with_thresholds(state.clone(), &config.thresholds).expect(
+        "on-table motion requires height and vertical velocity to remain within on-table thresholds",
+    )
+}
+
 /// Compute the next qualitative motion transition for a single ball under the current on-table
 /// motion model.
 ///
@@ -1071,10 +1174,12 @@ fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
 /// Airborne transition prediction is intentionally left as `todo!()` for now so the transition API
 /// can stabilize before those richer branches are implemented.
 pub fn compute_next_transition_on_table(
-    state: &BallState,
+    state: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
 ) -> Option<NextTransition> {
+    let state = state.as_ball_state();
+
     match classify_motion_phase(state, ball, &config.phase) {
         MotionPhase::Rest => None,
         MotionPhase::Sliding => Some(NextTransition {
@@ -1126,7 +1231,14 @@ pub fn compute_next_transition(
     ball: &BallSetPhysicsSpec,
     config: &MotionTransitionConfig,
 ) -> Option<NextTransition> {
-    compute_next_transition_on_table(state, ball, config)
+    match classify_motion_phase(state, ball, &config.phase) {
+        MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
+        _ => compute_next_transition_on_table(
+            &require_on_table_state(state, &config.phase),
+            ball,
+            config,
+        ),
+    }
 }
 
 /// Advance an on-table state within a known qualitative motion phase.
@@ -1135,25 +1247,32 @@ pub fn compute_next_transition(
 /// phase boundary. Use `advance_motion_on_table(...)` when you want a full requested duration to
 /// continue across one or more phase transitions.
 pub fn advance_within_phase_on_table(
-    state: &BallState,
+    state: &OnTableBallState,
     phase: MotionPhase,
     dt: Seconds,
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
-) -> BallState {
+) -> OnTableBallState {
     assert!(dt.as_f64() >= 0.0, "advance duration must be non-negative");
 
     if dt.as_f64() == 0.0 {
         return state.clone();
     }
 
+    let state = state.as_ball_state();
     debug_assert_eq!(classify_motion_phase(state, ball, &config.phase), phase);
 
     match phase {
-        MotionPhase::Rest => state.clone(),
+        MotionPhase::Rest => OnTableBallState::try_from(state.clone())
+            .expect("rest states should remain valid on-table states"),
         MotionPhase::Sliding => {
-            let transition = compute_next_transition_on_table(state, ball, config)
-                .expect("sliding balls should predict a rolling transition");
+            let transition = compute_next_transition_on_table(
+                &OnTableBallState::try_from(state.clone())
+                    .expect("sliding states should remain valid on-table states"),
+                ball,
+                config,
+            )
+            .expect("sliding balls should predict a rolling transition");
             let transition_time = transition.time_until_transition.as_f64();
             let advance_time = dt.as_f64().min(transition_time);
             let alpha = advance_time / transition_time;
@@ -1172,7 +1291,7 @@ pub fn advance_within_phase_on_table(
             let delta_vx = vx - vx_i;
             let delta_vy = vy - vy_i;
 
-            BallState {
+            OnTableBallState::try_from(BallState {
                 position: Inches2::new(
                     Inches::from_f64(state.position.x().as_f64() + dx),
                     Inches::from_f64(state.position.y().as_f64() + dy),
@@ -1192,7 +1311,8 @@ pub fn advance_within_phase_on_table(
                         config,
                     ),
                 ),
-            }
+            })
+            .expect("sliding phase advance should preserve on-table invariants")
         }
         MotionPhase::Rolling => {
             let initial_speed = ball_speed(state).as_f64();
@@ -1216,7 +1336,7 @@ pub fn advance_within_phase_on_table(
             let dx = vx * displacement_ratio;
             let dy = vy * displacement_ratio;
 
-            BallState {
+            OnTableBallState::try_from(BallState {
                 position: Inches2::new(
                     Inches::from_f64(state.position.x().as_f64() + dx),
                     Inches::from_f64(state.position.y().as_f64() + dy),
@@ -1236,9 +1356,10 @@ pub fn advance_within_phase_on_table(
                         config,
                     ),
                 ),
-            }
+            })
+            .expect("rolling phase advance should preserve on-table invariants")
         }
-        MotionPhase::Spinning => BallState {
+        MotionPhase::Spinning => OnTableBallState::try_from(BallState {
             position: state.position.clone(),
             height: state.height.clone(),
             velocity: state.velocity.clone(),
@@ -1248,7 +1369,8 @@ pub fn advance_within_phase_on_table(
                 state.angular_velocity.y().as_f64(),
                 advance_vertical_axis_spin(state.angular_velocity.z().as_f64(), dt, config),
             ),
-        },
+        })
+        .expect("spinning phase advance should preserve on-table invariants"),
         MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
     }
 }
@@ -1259,33 +1381,36 @@ pub fn advance_within_phase_on_table(
 /// first such boundary and `state` contains the final state after the entire requested `elapsed`
 /// time has been consumed.
 pub fn advance_motion_on_table(
-    state: &BallState,
+    state: &OnTableBallState,
     dt: Seconds,
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
 ) -> MotionAdvance {
     assert!(dt.as_f64() >= 0.0, "advance duration must be non-negative");
 
+    let state_ref = state.as_ball_state();
+
     if dt.as_f64() == 0.0 {
         return MotionAdvance {
-            state: state.clone(),
+            state: state_ref.clone(),
             elapsed: dt,
             transition: None,
         };
     }
 
-    let phase = classify_motion_phase(state, ball, &config.phase);
+    let phase = classify_motion_phase(state_ref, ball, &config.phase);
     let next_transition = compute_next_transition_on_table(state, ball, config);
 
     match next_transition {
         None => MotionAdvance {
-            state: advance_within_phase_on_table(state, phase, dt, ball, config),
+            state: advance_within_phase_on_table(state, phase, dt, ball, config).into_ball_state(),
             elapsed: dt,
             transition: None,
         },
         Some(transition) if dt.as_f64() <= transition.time_until_transition.as_f64() => {
             MotionAdvance {
-                state: advance_within_phase_on_table(state, phase, dt, ball, config),
+                state: advance_within_phase_on_table(state, phase, dt, ball, config)
+                    .into_ball_state(),
                 elapsed: dt,
                 transition: None,
             }
@@ -1317,7 +1442,18 @@ pub fn advance_ball_state(
     ball: &BallSetPhysicsSpec,
     config: &MotionTransitionConfig,
 ) -> BallState {
-    advance_motion_on_table(state, dt, ball, config).state
+    match classify_motion_phase(state, ball, &config.phase) {
+        MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
+        _ => {
+            advance_motion_on_table(
+                &require_on_table_state(state, &config.phase),
+                dt,
+                ball,
+                config,
+            )
+            .state
+        }
+    }
 }
 
 /// Advance the total on-table angular velocity implied by the current motion model.
@@ -1327,7 +1463,7 @@ pub fn advance_ball_state(
 /// the sliding and rolling references, while the vertical component decays through the z-spin
 /// model.
 pub fn advance_spin_on_table(
-    state: &BallState,
+    state: &OnTableBallState,
     dt: Seconds,
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
@@ -1344,7 +1480,12 @@ pub fn advance_angular_velocity_on_table(
     ball: &BallSetPhysicsSpec,
     config: &MotionTransitionConfig,
 ) -> AngularVelocity3 {
-    advance_spin_on_table(state, dt, ball, config)
+    advance_spin_on_table(
+        &require_on_table_state(state, &config.phase),
+        dt,
+        ball,
+        config,
+    )
 }
 
 /// Gives the polar direction (e.g. positive or negative).

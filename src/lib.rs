@@ -520,10 +520,11 @@ pub struct Velocity2 {
 
 impl Velocity2 {
     pub fn new<X: Into<Inches>, Y: Into<Inches>>(x: X, y: Y) -> Self {
-        Self {
-            x: InchesPerSecond::new(x),
-            y: InchesPerSecond::new(y),
-        }
+        Self::from_components(InchesPerSecond::new(x), InchesPerSecond::new(y))
+    }
+
+    pub fn from_components(x: InchesPerSecond, y: InchesPerSecond) -> Self {
+        Self { x, y }
     }
 
     pub fn zero() -> Self {
@@ -602,6 +603,167 @@ impl AngularVelocity3 {
 
     pub fn z(&self) -> RadiansPerSecond {
         self.z
+    }
+}
+
+/// The qualitative motion phase of a ball.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MotionPhase {
+    Airborne,
+    Sliding,
+    Rolling,
+    Spinning,
+    Rest,
+}
+
+/// The kinematic state of a billiard ball.
+///
+/// The local references in `whitepapers/` consistently model each ball using center-of-mass
+/// translational velocity together with angular velocity:
+///
+/// - `whitepapers/Collision_of_Billiard_Balls_in_3D_with_Spin_and_Friction.pdf` uses a full
+///   translational velocity `U = (U, V, W)` and angular velocity `Ω = (Ωx, Ωy, Ωz)`, and in its
+///   on-table rolling special case has `(u, v, 0)` with `Ω = (-v, u, 0) / r`.
+/// - `whitepapers/Alciatore_pool_physics_article.pdf` distinguishes sidespin and massé spin
+///   components, so we keep the full 3-axis angular-velocity vector even though most early motion
+///   simulation work is planar.
+/// - `whitepapers/motions_of_ball_after_stroke.pdf` likewise summarizes the struck ball by its
+///   translational velocity and rotational angular velocity after impact.
+///
+/// `height` is measured relative to the resting on-table center plane, so an ordinary cloth-bound
+/// ball typically has `height == 0` and `vertical_velocity == 0`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BallState {
+    pub position: Inches2,
+    pub height: Inches,
+    pub velocity: Velocity2,
+    pub vertical_velocity: InchesPerSecond,
+    pub angular_velocity: AngularVelocity3,
+}
+
+impl Default for BallState {
+    fn default() -> Self {
+        Self::resting_at(Inches2::zero())
+    }
+}
+
+impl BallState {
+    pub fn new<H: Into<Inches>, VV: Into<Inches>>(
+        position: Inches2,
+        height: H,
+        velocity: Velocity2,
+        vertical_velocity: VV,
+        angular_velocity: AngularVelocity3,
+    ) -> Self {
+        let height = height.into();
+        assert!(height.as_f64() >= 0.0, "ball height must be non-negative");
+
+        Self {
+            position,
+            height,
+            velocity,
+            vertical_velocity: InchesPerSecond::new(vertical_velocity),
+            angular_velocity,
+        }
+    }
+
+    pub fn resting_at(position: Inches2) -> Self {
+        Self::on_table(position, Velocity2::zero(), AngularVelocity3::zero())
+    }
+
+    pub fn on_table(position: Inches2, velocity: Velocity2, angular_velocity: AngularVelocity3) -> Self {
+        Self::new(position, Inches::zero(), velocity, Inches::zero(), angular_velocity)
+    }
+
+    pub fn airborne<H: Into<Inches>, VV: Into<Inches>>(
+        position: Inches2,
+        height: H,
+        velocity: Velocity2,
+        vertical_velocity: VV,
+        angular_velocity: AngularVelocity3,
+    ) -> Self {
+        Self::new(position, height, velocity, vertical_velocity, angular_velocity)
+    }
+
+    pub fn resting_at_position(position: &Position, table_spec: &TableSpec) -> Self {
+        Self::resting_at(Inches2::new(
+            table_spec.diamond_to_inches(position.x.clone()),
+            table_spec.diamond_to_inches(position.y.clone()),
+        ))
+    }
+
+    pub fn from_position(position: &Position, table_spec: &TableSpec) -> Self {
+        Self::resting_at_position(position, table_spec)
+    }
+
+    pub fn projected_position(&self, table_spec: &TableSpec) -> Position {
+        Position::new(
+            table_spec.inches_to_diamond(self.position.x().clone()),
+            table_spec.inches_to_diamond(self.position.y().clone()),
+        )
+    }
+
+    pub fn speed(&self) -> InchesPerSecond {
+        self.velocity.speed()
+    }
+
+    pub fn cloth_contact_velocity(&self, radius: Inches) -> Velocity2 {
+        match self.motion_phase(radius.clone()) {
+            MotionPhase::Airborne => {
+                todo!("cloth-contact velocity for airborne ball states is not implemented yet")
+            }
+            MotionPhase::Sliding
+            | MotionPhase::Rolling
+            | MotionPhase::Spinning
+            | MotionPhase::Rest => self.cloth_contact_velocity_on_table(radius),
+        }
+    }
+
+    pub fn cloth_contact_speed(&self, radius: Inches) -> InchesPerSecond {
+        self.cloth_contact_velocity(radius).speed()
+    }
+
+    pub fn motion_phase(&self, radius: Inches) -> MotionPhase {
+        const EPSILON: f64 = 1e-9;
+
+        let near_zero = |value: f64| value.abs() <= EPSILON;
+
+        if self.is_airborne() {
+            return MotionPhase::Airborne;
+        }
+
+        let linear_speed = self.speed().as_f64();
+        let wx = self.angular_velocity.x().as_f64();
+        let wy = self.angular_velocity.y().as_f64();
+        let wz = self.angular_velocity.z().as_f64();
+
+        if near_zero(linear_speed) && near_zero(wx) && near_zero(wy) && near_zero(wz) {
+            MotionPhase::Rest
+        } else if near_zero(linear_speed) && near_zero(wx) && near_zero(wy) && !near_zero(wz) {
+            MotionPhase::Spinning
+        } else if near_zero(self.cloth_contact_velocity_on_table(radius).speed().as_f64()) {
+            MotionPhase::Rolling
+        } else {
+            MotionPhase::Sliding
+        }
+    }
+
+    fn cloth_contact_velocity_on_table(&self, radius: Inches) -> Velocity2 {
+        let vx = self.velocity.x().as_f64();
+        let vy = self.velocity.y().as_f64();
+        let wx = self.angular_velocity.x().as_f64();
+        let wy = self.angular_velocity.y().as_f64();
+        let radius = radius.as_f64();
+
+        Velocity2::from_components(
+            InchesPerSecond::new(Inches::from_f64(vx - radius * wy)),
+            InchesPerSecond::new(Inches::from_f64(vy + radius * wx)),
+        )
+    }
+
+    fn is_airborne(&self) -> bool {
+        const EPSILON: f64 = 1e-9;
+        self.height.as_f64().abs() > EPSILON || self.vertical_velocity.as_f64().abs() > EPSILON
     }
 }
 

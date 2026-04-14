@@ -682,6 +682,32 @@ impl Default for MotionPhaseConfig {
     }
 }
 
+/// The rolling-resistance model used when predicting the next motion transition for a rolling
+/// ball.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RollingResistanceModel {
+    /// Approximate rolling as a constant-magnitude linear deceleration opposite the direction of
+    /// travel.
+    ConstantDeceleration {
+        linear_deceleration: InchesPerSecondSq,
+    },
+}
+
+/// Configuration used when predicting the next motion transition for a single ball.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MotionTransitionConfig {
+    pub phase: MotionPhaseConfig,
+    pub rolling_resistance: RollingResistanceModel,
+}
+
+/// A predicted future phase transition for a single ball.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransitionPrediction {
+    pub phase_before: MotionPhase,
+    pub phase_after: MotionPhase,
+    pub time_until_transition: Seconds,
+}
+
 /// The kinematic state of a billiard ball.
 ///
 /// The local references in `whitepapers/` consistently model each ball using center-of-mass
@@ -897,6 +923,50 @@ pub fn classify_motion_phase(
         MotionPhase::Rolling
     } else {
         MotionPhase::Sliding
+    }
+}
+
+/// Predict the next qualitative motion transition for a single ball.
+///
+/// This first implementation only models the rolling-to-rest transition. That choice is grounded
+/// in the local references:
+///
+/// - `whitepapers/Alciatore_pool_physics_article.pdf` explains that once rolling develops, the
+///   cue ball continues to roll naturally until it slows to a stop due to rolling resistance.
+/// - `whitepapers/55. RollingBall.pdf` reports experimental cases where both `v` and `ω`
+///   decreased linearly with time while the ball rolled to a stop, which makes a constant linear
+///   rolling deceleration a reasonable first configurable approximation.
+///
+/// Sliding, spinning, and airborne transition prediction are intentionally left as `todo!()` for
+/// now so the transition API can stabilize before those richer branches are implemented.
+pub fn next_transition(
+    state: &BallState,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> Option<TransitionPrediction> {
+    match classify_motion_phase(state, ball, &config.phase) {
+        MotionPhase::Rest => None,
+        MotionPhase::Rolling => {
+            let linear_deceleration = match &config.rolling_resistance {
+                RollingResistanceModel::ConstantDeceleration {
+                    linear_deceleration,
+                } => linear_deceleration.as_f64(),
+            };
+
+            assert!(
+                linear_deceleration > 0.0,
+                "rolling linear deceleration must be positive"
+            );
+
+            Some(TransitionPrediction {
+                phase_before: MotionPhase::Rolling,
+                phase_after: MotionPhase::Rest,
+                time_until_transition: Seconds::new(ball_speed(state).as_f64() / linear_deceleration),
+            })
+        }
+        MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
+        MotionPhase::Sliding => todo!("sliding transition prediction is not implemented yet"),
+        MotionPhase::Spinning => todo!("spinning transition prediction is not implemented yet"),
     }
 }
 

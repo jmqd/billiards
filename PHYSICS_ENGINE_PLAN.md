@@ -155,9 +155,22 @@ These are still suggestions, not commitments.
 
 ```rust
 pub struct BallState {
-    pub position: Position,
+    pub position: Inches2,
     pub velocity: Velocity2,
     pub angular_velocity: AngularVelocity3,
+}
+
+pub struct AirborneBallState {
+    pub position: Inches2,
+    pub height: Inches,
+    pub velocity: Velocity2,
+    pub vertical_velocity: InchesPerSecond,
+    pub angular_velocity: AngularVelocity3,
+}
+
+pub enum BallKinematicState {
+    OnTable(BallState),
+    Airborne(AirborneBallState),
 }
 
 pub struct Velocity2 {
@@ -180,8 +193,11 @@ pub enum MotionPhase {
 
 pub struct SimBall {
     pub ball: Ball,
-    pub state: BallState,
-    pub phase: MotionPhase,
+    pub state: BallKinematicState,
+}
+
+pub struct SimulationState {
+    pub balls: Vec<SimBall>,
 }
 
 pub enum SimEvent {
@@ -194,9 +210,25 @@ pub enum SimEvent {
 
 pub struct SimulationTrace {
     pub events: Vec<SimEvent>,
-    pub final_state: GameState,
+    pub final_state: SimulationState,
 }
 ```
+
+### Runtime-state design notes
+
+The local references consistently describe billiard motion in terms of center-of-mass translational velocity plus angular velocity, and use the full 3-axis angular velocity vector even in on-table cases.
+
+- `whitepapers/Collision_of_Billiard_Balls_in_3D_with_Spin_and_Friction.pdf` models each ball with translational velocity `U = (U, V, W)` and angular velocity `Ω = (Ωx, Ωy, Ωz)`.
+- In its on-table rolling special case, the moving ball has center velocity `(u, v, 0)` and angular velocity `(-v, u, 0)/r`, which is exactly the cloth-bound restriction we want BallState to capture.
+- `whitepapers/Alciatore_pool_physics_article.pdf` distinguishes sidespin and massé spin components, which is another reason to keep `AngularVelocity3` even when planar translation is enough for the first simulator.
+
+That suggests the following split:
+
+- `BallState` = cloth-bound state in inch-space with planar translation and full 3-axis spin
+- `AirborneBallState` = future-capable non-cloth-contact state with explicit height and vertical velocity
+- `BallKinematicState` = wrapper enum so the abstraction is clean even before airborne behavior is implemented
+
+For the first simulator milestone, it is acceptable for airborne-specific evolution code paths to be `todo!()` as long as the type boundaries are stable and documented.
 
 ### Candidate assumption types
 
@@ -354,6 +386,134 @@ For the first implementation, prefer:
 - all thresholds and coefficients passed through config, even if defaulted
 
 That gives us tunability without committing too early to a fully general solver architecture.
+
+### Agreed BallState design direction
+
+This is the current recommended design direction for the first implementation pass.
+
+#### BallState should live in inch-space
+
+Use simulation-space inches, not layout-space diamonds:
+
+```rust
+pub struct BallState {
+    pub position: Inches2,
+    pub velocity: Velocity2,
+    pub angular_velocity: AngularVelocity3,
+}
+```
+
+Rationale:
+
+- `Position` is excellent for authoring table layouts and rendering intent.
+- physics integration and contact calculations want inch-space values directly.
+- this avoids repeatedly converting between diamonds and inches inside solver code.
+
+#### BallState is cloth-bound
+
+`BallState` should represent a ball whose center is constrained to the table plane.
+
+It should **not** store:
+
+- vertical height
+- vertical center-of-mass velocity
+- derived motion phase
+- acceleration
+- ball radius / mass / coefficients
+
+Those belong in:
+
+- `AirborneBallState`
+- the simulator / solver
+- the physics configuration
+
+#### AirborneBallState exists from the start
+
+Even though airborne evolution is out of scope for the first motion implementation, the type should exist so that later jump / hop / post-collision airborne cases fit the architecture cleanly.
+
+```rust
+pub struct AirborneBallState {
+    pub position: Inches2,
+    pub height: Inches,
+    pub velocity: Velocity2,
+    pub vertical_velocity: InchesPerSecond,
+    pub angular_velocity: AngularVelocity3,
+}
+
+pub enum BallKinematicState {
+    OnTable(BallState),
+    Airborne(AirborneBallState),
+}
+```
+
+Initial airborne-specific simulator methods may legitimately contain `todo!()`.
+
+#### MotionPhase stays derived
+
+`MotionPhase::{Sliding, Rolling, Spinning, Rest}` should remain a derived classification, not a field stored inside `BallState`.
+
+Reason:
+
+- the phase depends on radius, cloth model, thresholds, and solver assumptions
+- the same kinematic state may classify differently under different tolerances / assumptions
+
+#### Default and constructors
+
+Recommended API surface:
+
+```rust
+impl Default for BallState {
+    fn default() -> Self;
+}
+
+impl BallState {
+    pub fn new(
+        position: Inches2,
+        velocity: Velocity2,
+        angular_velocity: AngularVelocity3,
+    ) -> Self;
+
+    pub fn resting_at(position: Inches2) -> Self;
+
+    pub fn resting_at_position(position: &Position, table_spec: &TableSpec) -> Self;
+
+    pub fn from_position(position: &Position, table_spec: &TableSpec) -> Self;
+
+    pub fn to_position(&self, table_spec: &TableSpec) -> Position;
+}
+```
+
+Semantics:
+
+- `Default::default()` means: rest at the simulation origin
+- `resting_at(...)` is the preferred convenience constructor in normal code
+- `resting_at_position(...)` is the preferred bridge from current table-layout APIs
+
+#### First derived helpers to add alongside BallState
+
+```rust
+impl BallState {
+    pub fn speed(&self) -> InchesPerSecond;
+
+    pub fn cloth_contact_velocity(&self, radius: Inches) -> Velocity2;
+
+    pub fn cloth_contact_speed(&self, radius: Inches) -> InchesPerSecond;
+}
+```
+
+These helpers are directly motivated by the references:
+
+- rolling / sliding distinctions are about relative velocity at the cloth contact point
+- rolling-without-slip is the special case where that contact-point slip speed becomes zero
+
+### BallState implementation plan
+
+1. Add `BallState`, `AirborneBallState`, and `BallKinematicState`.
+2. Add `Default`, `new`, `resting_at`, and conversion helpers to/from `Position`.
+3. Add derived helpers like `speed()` and `cloth_contact_speed()`.
+4. Add focused tests for zero/resting/default semantics and for conversion round-trips.
+5. Add a rolling-without-slip regression test based on the reference relation `Ω = (-v, u, 0)/r` for on-table rolling motion.
+6. Only after that, build `classify_phase(...)` and the first single-ball simulator.
 
 ### First TDD targets
 

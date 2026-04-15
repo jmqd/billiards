@@ -1,6 +1,6 @@
 use billiards::{
-    collide_ball_rail_on_table, AngularVelocity3, BallState, Inches, Inches2, OnTableBallState,
-    Rail, RailModel, Velocity2,
+    collide_ball_rail_on_table, collide_ball_rail_on_table_with_radius, AngularVelocity3,
+    BallState, Inches, Inches2, OnTableBallState, Rail, RailModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -66,5 +66,52 @@ fn an_ideal_rail_collision_leaves_spin_unchanged() {
     assert_eq!(
         reflected.as_ball_state().angular_velocity,
         state.as_ball_state().angular_velocity
+    );
+}
+
+#[test]
+fn a_spin_aware_rail_collision_without_english_reduces_tangential_speed_and_adds_running_spin() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let state = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::zero(),
+    ));
+
+    let reflected =
+        collide_ball_rail_on_table_with_radius(&state, Rail::Top, radius, RailModel::SpinAware);
+
+    assert_close(reflected.as_ball_state().velocity.x().as_f64(), 25.0 / 7.0);
+    assert_close(reflected.as_ball_state().velocity.y().as_f64(), -5.0);
+    assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.0);
+    assert_close(reflected.as_ball_state().angular_velocity.y().as_f64(), 0.0);
+    assert_close(
+        reflected.as_ball_state().angular_velocity.z().as_f64(),
+        25.0 / (7.0 * radius_value),
+    );
+}
+
+#[test]
+fn gearing_english_is_a_fixed_point_of_the_first_spin_aware_rail_model() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let geared_spin = 5.0 / radius_value;
+    let state = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::new(0.0, 0.0, geared_spin),
+    ));
+
+    let reflected =
+        collide_ball_rail_on_table_with_radius(&state, Rail::Top, radius, RailModel::SpinAware);
+
+    assert_close(reflected.as_ball_state().velocity.x().as_f64(), 5.0);
+    assert_close(reflected.as_ball_state().velocity.y().as_f64(), -5.0);
+    assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.0);
+    assert_close(reflected.as_ball_state().angular_velocity.y().as_f64(), 0.0);
+    assert_close(
+        reflected.as_ball_state().angular_velocity.z().as_f64(),
+        geared_spin,
     );
 }

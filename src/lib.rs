@@ -655,6 +655,10 @@ pub enum CollisionModel {
 ///
 /// `Mirror` is the ideal no-friction, perfectly elastic limit: the velocity component normal to the
 /// rail reverses sign while the tangential component is preserved.
+///
+/// `SpinAware` currently adds the smallest useful frictional cushion slice: tangential rebound and
+/// z-spin (`ωz`, running / reverse english) are coupled through the in-plane rail-contact slip,
+/// while restitution loss and richer top / draw effects remain future work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RailModel {
     Mirror,
@@ -2282,9 +2286,10 @@ where
             ball: TwoBallEventBall::A,
             impact,
         } => (
-            collide_ball_rail_on_table(
+            collide_ball_rail_on_table_with_radius(
                 &impact.state_at_impact,
                 impact.rail,
+                ball.radius.clone(),
                 rail_model.expect("rail impacts require a rail collision model"),
             ),
             advance_on_table_ball_without_event(b, elapsed, ball, motion),
@@ -2294,9 +2299,10 @@ where
             impact,
         } => (
             advance_on_table_ball_without_event(a, elapsed, ball, motion),
-            collide_ball_rail_on_table(
+            collide_ball_rail_on_table_with_radius(
                 &impact.state_at_impact,
                 impact.rail,
+                ball.radius.clone(),
                 rail_model.expect("rail impacts require a rail collision model"),
             ),
         ),
@@ -2717,50 +2723,136 @@ pub fn collide_ball_ball_on_table(
     (outcome.a_after, outcome.b_after)
 }
 
-fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: &Rail) -> Velocity2 {
+fn rail_collision_basis(rail: Rail) -> (f64, f64, f64, f64) {
     match rail {
-        Rail::Top | Rail::Bottom => Velocity2::new(
-            Inches::from_f64(velocity.x().as_f64()),
-            Inches::from_f64(-velocity.y().as_f64()),
+        Rail::Top => (0.0, -1.0, 1.0, 0.0),
+        Rail::Bottom => (0.0, 1.0, 1.0, 0.0),
+        Rail::Left => (1.0, 0.0, 0.0, 1.0),
+        Rail::Right => (-1.0, 0.0, 0.0, 1.0),
+    }
+}
+
+fn rebuild_velocity_from_basis(
+    normal_component: f64,
+    tangent_component: f64,
+    normal_x: f64,
+    normal_y: f64,
+    tangent_x: f64,
+    tangent_y: f64,
+) -> Velocity2 {
+    Velocity2::new(
+        Inches::from_f64(normal_component * normal_x + tangent_component * tangent_x),
+        Inches::from_f64(normal_component * normal_y + tangent_component * tangent_y),
+    )
+}
+
+fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Velocity2 {
+    let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
+    let normal_component = project_velocity_on_basis(velocity, normal_x, normal_y);
+    let tangent_component = project_velocity_on_basis(velocity, tangent_x, tangent_y);
+
+    rebuild_velocity_from_basis(
+        -normal_component,
+        tangent_component,
+        normal_x,
+        normal_y,
+        tangent_x,
+        tangent_y,
+    )
+}
+
+fn spin_aware_ball_rail_collision_on_table(
+    state: &OnTableBallState,
+    rail: Rail,
+    ball_radius: f64,
+) -> OnTableBallState {
+    assert!(
+        ball_radius > f64::EPSILON,
+        "spin-aware rail collisions require a positive ball radius"
+    );
+
+    let state_ref = state.as_ball_state();
+    let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
+    let normal_component = project_velocity_on_basis(&state_ref.velocity, normal_x, normal_y);
+    let tangent_component = project_velocity_on_basis(&state_ref.velocity, tangent_x, tangent_y);
+    let contact_x = -ball_radius * normal_x;
+    let contact_y = -ball_radius * normal_y;
+    let tangential_spin_scale = contact_x * tangent_y - contact_y * tangent_x;
+    let tangential_contact_slip =
+        tangent_component + state_ref.angular_velocity.z().as_f64() * tangential_spin_scale;
+    let tangential_delta = -(2.0 / 7.0) * tangential_contact_slip;
+    let tangential_after = tangent_component + tangential_delta;
+    let velocity = rebuild_velocity_from_basis(
+        -normal_component,
+        tangential_after,
+        normal_x,
+        normal_y,
+        tangent_x,
+        tangent_y,
+    );
+
+    // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Figure 6 and §7.1, describe the
+    // rail rebound in terms of the tangential cushion speed and the english carried into contact.
+    // Taking the cushion as an immovable body and using the adherence / no-slip limit of Eqs.
+    // (C11) and (C13), the tangential impulse drives the post-impact cushion-contact slip to zero.
+    // In this first slice only in-plane tangential slip is modeled, so the coupled spin update is
+    // limited to z-spin (running / reverse english). Top / draw effects at the rail face remain a
+    // later TODO.
+    let delta_wz =
+        (5.0 / (2.0 * ball_radius * ball_radius)) * tangential_spin_scale * tangential_delta;
+    let angular_velocity = AngularVelocity3::new(
+        state_ref.angular_velocity.x().as_f64(),
+        state_ref.angular_velocity.y().as_f64(),
+        state_ref.angular_velocity.z().as_f64() + delta_wz,
+    );
+
+    build_on_table_ball_state(state_ref.position.clone(), velocity, angular_velocity)
+}
+
+/// Resolve an instantaneous ball-rail collision for a validated on-table state using an explicit
+/// ball radius.
+///
+/// The local rail reference material decomposes the incoming velocity into components tangential and
+/// perpendicular to the cushion and discusses how elasticity and cushion friction modify those
+/// components after impact. See `whitepapers/art_of_billiards_play_files/bil_praa.html`, Figure 6
+/// and §7.1. `RailModel::Mirror` is the simplest limiting case of that picture: perfectly elastic
+/// in the normal direction, no tangential loss, and no spin change.
+///
+/// `RailModel::SpinAware` currently implements the smallest useful richer slice: a no-slip-limit
+/// tangential cushion response for the in-plane rail-contact slip, which lets running / reverse
+/// english (`ωz`) change the returned tangential speed and gain / lose z-spin at the cushion.
+pub fn collide_ball_rail_on_table_with_radius(
+    state: &OnTableBallState,
+    rail: Rail,
+    ball_radius: Inches,
+    model: RailModel,
+) -> OnTableBallState {
+    let state_ref = state.as_ball_state();
+    match model {
+        RailModel::Mirror => build_on_table_ball_state(
+            state_ref.position.clone(),
+            ideal_ball_rail_collision_velocity(&state_ref.velocity, rail),
+            state_ref.angular_velocity.clone(),
         ),
-        Rail::Left | Rail::Right => Velocity2::new(
-            Inches::from_f64(-velocity.x().as_f64()),
-            Inches::from_f64(velocity.y().as_f64()),
-        ),
+        RailModel::RestitutionOnly => {
+            todo!("restitution-aware rail collisions are not implemented yet")
+        }
+        RailModel::SpinAware => {
+            spin_aware_ball_rail_collision_on_table(state, rail, ball_radius.as_f64())
+        }
     }
 }
 
 /// Resolve an instantaneous ball-rail collision for a validated on-table state.
 ///
-/// The local rail reference material decomposes the incoming velocity into components tangential and
-/// perpendicular to the cushion and discusses how elasticity and cushion friction modify those
-/// components after impact. See `whitepapers/art_of_billiards_play_files/bil_praa.html`, which
-/// states this decomposition explicitly for rail impacts. The current `RailModel::Mirror` helper is
-/// the simplest limiting case of that picture: perfectly elastic in the normal direction, no
-/// tangential loss, and no spin change.
-///
-/// In this first slice, angular velocity is intentionally left unchanged. That means a rolling ball
-/// can become a sliding ball immediately after the idealized rebound, which is acceptable until the
-/// later spin-aware cushion model is implemented.
+/// This compatibility wrapper uses the default ball radius. Prefer
+/// `collide_ball_rail_on_table_with_radius(...)` when the active ball size should be explicit.
 pub fn collide_ball_rail_on_table(
     state: &OnTableBallState,
     rail: Rail,
     model: RailModel,
 ) -> OnTableBallState {
-    let state_ref = state.as_ball_state();
-    let velocity = match model {
-        RailModel::Mirror => ideal_ball_rail_collision_velocity(&state_ref.velocity, &rail),
-        RailModel::RestitutionOnly => {
-            todo!("restitution-aware rail collisions are not implemented yet")
-        }
-        RailModel::SpinAware => todo!("spin-aware rail collisions are not implemented yet"),
-    };
-
-    build_on_table_ball_state(
-        state_ref.position.clone(),
-        velocity,
-        state_ref.angular_velocity.clone(),
-    )
+    collide_ball_rail_on_table_with_radius(state, rail, BallSetPhysicsSpec::default().radius, model)
 }
 
 /// Gives the polar direction (e.g. positive or negative).

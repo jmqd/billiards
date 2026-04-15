@@ -1,5 +1,6 @@
 use billiards::{
     advance_motion_on_table, advance_to_next_two_ball_event_with_rails_on_table,
+    collide_ball_rail_on_table_with_radius, compute_next_two_ball_event_with_rails_on_table,
     simulate_two_balls_with_rails_on_table, AngularVelocity3, BallSetPhysicsSpec, BallState,
     CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
     MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail,
@@ -165,6 +166,48 @@ fn advancing_to_a_ball_b_rail_impact_reflects_that_ball_and_advances_ball_a_too(
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Sliding
     );
+}
+
+#[test]
+fn advancing_to_a_spin_aware_rail_impact_uses_the_spin_aware_rebound_model() {
+    let table = TableSpec::default();
+    let ball = BallSetPhysicsSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let a = on_table(BallState::on_table(
+        inches2(10.0, top_plane - 7.5),
+        Velocity2::new("5", "10"),
+        AngularVelocity3::new(-10.0 / radius, 5.0 / radius, 0.0),
+    ));
+    let b = on_table(BallState::resting_at(inches2(30.0, 20.0)));
+    let event =
+        compute_next_two_ball_event_with_rails_on_table(&a, &b, &ball, &table, &motion_config())
+            .expect("an event should be predicted");
+    let expected_a = match &event {
+        TwoBallOnTableEvent::BallRailImpact {
+            ball: TwoBallEventBall::A,
+            impact,
+        } => collide_ball_rail_on_table_with_radius(
+            &impact.state_at_impact,
+            impact.rail,
+            ball.radius.clone(),
+            RailModel::SpinAware,
+        ),
+        other => panic!("expected ball A rail impact, got {other:?}"),
+    };
+
+    let advanced = advance_to_next_two_ball_event_with_rails_on_table(
+        &a,
+        &b,
+        &ball,
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        RailModel::SpinAware,
+    );
+
+    assert_eq!(advanced.event, Some(event));
+    assert_eq!(advanced.a, expected_a);
 }
 
 #[test]

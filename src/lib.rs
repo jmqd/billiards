@@ -705,13 +705,12 @@ pub enum TwoBallEventBall {
     B,
 }
 
-/// The next predicted event among two on-table balls under the currently implemented single-ball
-/// and ball-ball predictors.
+/// The next predicted event among two on-table balls under the currently implemented predictors.
 ///
-/// This is the first small scheduler layer toward an event-driven simulator: it compares the next
-/// on-table motion transition of each ball against their next predicted ball-ball impact and returns
-/// the earliest one. Simultaneous events are currently broken deterministically in this order:
-/// ball-ball collision first, then ball A motion transition, then ball B motion transition.
+/// This scheduler event is reused by both the rail-free and rail-aware two-ball helpers. When the
+/// rail-aware scheduler is used, simultaneous events are currently broken deterministically in this
+/// order: ball-ball collision first, then ball A rail impact, then ball B rail impact, then ball A
+/// motion transition, then ball B motion transition.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TwoBallOnTableEvent {
     BallBallCollision(PredictedBallBallCollision),
@@ -2225,63 +2224,14 @@ pub fn compute_next_event_for_two_on_table_balls_with_rails(
     compute_next_two_ball_event_with_rails_on_table(a, b, ball, table, config)
 }
 
-/// Advance two on-table balls to the next currently supported event and resolve that event.
-///
-/// This is the first execution step built on top of `compute_next_event_for_two_on_table_balls(...)`:
-///
-/// - if the next event is a motion transition, both balls are advanced by that elapsed time through
-///   the on-table motion model;
-/// - if the next event is a ball-ball collision, the stored impact states from the current
-///   collision predictor are resolved through `collide_ball_ball_on_table(...)`.
-///
-/// The collision path intentionally uses the predictor's stored impact states directly so that the
-/// same collision-geometry assumptions used during event scheduling are the ones resolved here.
-pub fn advance_to_next_event_for_two_on_table_balls(
-    a: &OnTableBallState,
-    b: &OnTableBallState,
+fn advance_on_table_ball_without_event(
+    state: &OnTableBallState,
+    dt: Seconds,
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
-    collision_model: CollisionModel,
-) -> TwoBallOnTableAdvance {
-    let Some(event) = compute_next_event_for_two_on_table_balls(a, b, ball, motion) else {
-        return TwoBallOnTableAdvance {
-            a: a.clone(),
-            b: b.clone(),
-            elapsed: Seconds::zero(),
-            event: None,
-        };
-    };
-
-    let elapsed = two_ball_event_time(&event);
-    let (a_after, b_after) =
-        match &event {
-            TwoBallOnTableEvent::MotionTransition { .. } => {
-                let a_after = OnTableBallState::try_from(
-                    advance_motion_on_table(a, elapsed, ball, motion).state,
-                )
-                .expect("two-ball motion advance should preserve on-table invariants for ball A");
-                let b_after = OnTableBallState::try_from(
-                    advance_motion_on_table(b, elapsed, ball, motion).state,
-                )
-                .expect("two-ball motion advance should preserve on-table invariants for ball B");
-                (a_after, b_after)
-            }
-            TwoBallOnTableEvent::BallBallCollision(collision) => collide_ball_ball_on_table(
-                &collision.a_at_impact,
-                &collision.b_at_impact,
-                collision_model,
-            ),
-            TwoBallOnTableEvent::BallRailImpact { .. } => {
-                unreachable!("rail impacts are only produced by the rail-aware scheduler")
-            }
-        };
-
-    TwoBallOnTableAdvance {
-        a: a_after,
-        b: b_after,
-        elapsed,
-        event: Some(event),
-    }
+) -> OnTableBallState {
+    OnTableBallState::try_from(advance_motion_on_table(state, dt, ball, motion).state)
+        .expect("two-ball motion advance should preserve on-table invariants")
 }
 
 fn advance_two_on_table_balls_without_event(
@@ -2291,28 +2241,144 @@ fn advance_two_on_table_balls_without_event(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
 ) -> (OnTableBallState, OnTableBallState) {
-    let a_after = OnTableBallState::try_from(advance_motion_on_table(a, dt, ball, motion).state)
-        .expect("two-ball motion advance should preserve on-table invariants for ball A");
-    let b_after = OnTableBallState::try_from(advance_motion_on_table(b, dt, ball, motion).state)
-        .expect("two-ball motion advance should preserve on-table invariants for ball B");
-
-    (a_after, b_after)
+    (
+        advance_on_table_ball_without_event(a, dt, ball, motion),
+        advance_on_table_ball_without_event(b, dt, ball, motion),
+    )
 }
 
-/// Simulate two on-table balls forward over a requested duration.
+fn advance_to_next_two_ball_event_with_scheduler<FindNextEvent>(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: Option<RailModel>,
+    find_next_event: FindNextEvent,
+) -> TwoBallOnTableAdvance
+where
+    FindNextEvent: Fn(&OnTableBallState, &OnTableBallState) -> Option<TwoBallOnTableEvent>,
+{
+    let Some(event) = find_next_event(a, b) else {
+        return TwoBallOnTableAdvance {
+            a: a.clone(),
+            b: b.clone(),
+            elapsed: Seconds::zero(),
+            event: None,
+        };
+    };
+
+    let elapsed = two_ball_event_time(&event);
+    let (a_after, b_after) = match &event {
+        TwoBallOnTableEvent::MotionTransition { .. } => {
+            advance_two_on_table_balls_without_event(a, b, elapsed, ball, motion)
+        }
+        TwoBallOnTableEvent::BallBallCollision(collision) => collide_ball_ball_on_table(
+            &collision.a_at_impact,
+            &collision.b_at_impact,
+            collision_model,
+        ),
+        TwoBallOnTableEvent::BallRailImpact {
+            ball: TwoBallEventBall::A,
+            impact,
+        } => (
+            collide_ball_rail_on_table(
+                &impact.state_at_impact,
+                impact.rail,
+                rail_model.expect("rail impacts require a rail collision model"),
+            ),
+            advance_on_table_ball_without_event(b, elapsed, ball, motion),
+        ),
+        TwoBallOnTableEvent::BallRailImpact {
+            ball: TwoBallEventBall::B,
+            impact,
+        } => (
+            advance_on_table_ball_without_event(a, elapsed, ball, motion),
+            collide_ball_rail_on_table(
+                &impact.state_at_impact,
+                impact.rail,
+                rail_model.expect("rail impacts require a rail collision model"),
+            ),
+        ),
+    };
+
+    TwoBallOnTableAdvance {
+        a: a_after,
+        b: b_after,
+        elapsed,
+        event: Some(event),
+    }
+}
+
+/// Advance two on-table balls to the next supported event and resolve it.
 ///
-/// This repeatedly chooses the currently earliest supported event, advances / resolves it, and
-/// continues until either the full requested duration has been consumed or no further event occurs
-/// within the remaining time budget. Any leftover time after the last in-window event is consumed
-/// by advancing both balls through ordinary on-table motion without recording an additional event.
-pub fn simulate_two_on_table_balls(
+/// This is the execution step built on top of `compute_next_two_ball_event_on_table(...)`.
+pub fn advance_to_next_two_ball_event_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+) -> TwoBallOnTableAdvance {
+    advance_to_next_two_ball_event_with_scheduler(
+        a,
+        b,
+        ball,
+        motion,
+        collision_model,
+        None,
+        |a_state, b_state| compute_next_two_ball_event_on_table(a_state, b_state, ball, motion),
+    )
+}
+
+/// Advance two on-table balls to the next supported event while also resolving idealized rail
+/// impacts against the current table geometry.
+pub fn advance_to_next_two_ball_event_with_rails_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+) -> TwoBallOnTableAdvance {
+    advance_to_next_two_ball_event_with_scheduler(
+        a,
+        b,
+        ball,
+        motion,
+        collision_model,
+        Some(rail_model),
+        |a_state, b_state| {
+            compute_next_two_ball_event_with_rails_on_table(a_state, b_state, ball, table, motion)
+        },
+    )
+}
+
+/// Compatibility wrapper for the original two-ball advance helper name.
+pub fn advance_to_next_event_for_two_on_table_balls(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+) -> TwoBallOnTableAdvance {
+    advance_to_next_two_ball_event_on_table(a, b, ball, motion, collision_model)
+}
+
+fn simulate_two_ball_system_on_table<FindNextEvent, AdvanceNextEvent>(
     a: &OnTableBallState,
     b: &OnTableBallState,
     dt: Seconds,
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
-    collision_model: CollisionModel,
-) -> TwoBallOnTableSimulation {
+    find_next_event: FindNextEvent,
+    advance_next_event: AdvanceNextEvent,
+) -> TwoBallOnTableSimulation
+where
+    FindNextEvent: Fn(&OnTableBallState, &OnTableBallState) -> Option<TwoBallOnTableEvent>,
+    AdvanceNextEvent: Fn(&OnTableBallState, &OnTableBallState) -> TwoBallOnTableAdvance,
+{
     assert!(
         dt.as_f64() >= 0.0,
         "simulation duration must be non-negative"
@@ -2325,9 +2391,7 @@ pub fn simulate_two_on_table_balls(
     let mut events = Vec::new();
 
     while remaining > f64::EPSILON {
-        let Some(next_event) =
-            compute_next_event_for_two_on_table_balls(&a_state, &b_state, ball, motion)
-        else {
+        let Some(next_event) = find_next_event(&a_state, &b_state) else {
             let (a_after, b_after) = advance_two_on_table_balls_without_event(
                 &a_state,
                 &b_state,
@@ -2356,13 +2420,7 @@ pub fn simulate_two_on_table_balls(
             break;
         }
 
-        let advanced = advance_to_next_event_for_two_on_table_balls(
-            &a_state,
-            &b_state,
-            ball,
-            motion,
-            collision_model,
-        );
+        let advanced = advance_next_event(&a_state, &b_state);
         let step_elapsed = advanced.elapsed.as_f64();
         assert!(
             step_elapsed > f64::EPSILON,
@@ -2385,6 +2443,80 @@ pub fn simulate_two_on_table_balls(
         elapsed,
         events,
     }
+}
+
+/// Simulate two on-table balls forward over a requested duration.
+///
+/// This repeatedly chooses the currently earliest supported event, advances / resolves it, and
+/// continues until either the full requested duration has been consumed or no further event occurs
+/// within the remaining time budget. Any leftover time after the last in-window event is consumed
+/// by advancing both balls through ordinary on-table motion without recording an additional event.
+pub fn simulate_two_balls_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+) -> TwoBallOnTableSimulation {
+    simulate_two_ball_system_on_table(
+        a,
+        b,
+        dt,
+        ball,
+        motion,
+        |a_state, b_state| compute_next_two_ball_event_on_table(a_state, b_state, ball, motion),
+        |a_state, b_state| {
+            advance_to_next_two_ball_event_on_table(a_state, b_state, ball, motion, collision_model)
+        },
+    )
+}
+
+/// Simulate two on-table balls forward over a requested duration while also resolving idealized
+/// rail impacts against the current table geometry.
+pub fn simulate_two_balls_with_rails_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+) -> TwoBallOnTableSimulation {
+    simulate_two_ball_system_on_table(
+        a,
+        b,
+        dt,
+        ball,
+        motion,
+        |a_state, b_state| {
+            compute_next_two_ball_event_with_rails_on_table(a_state, b_state, ball, table, motion)
+        },
+        |a_state, b_state| {
+            advance_to_next_two_ball_event_with_rails_on_table(
+                a_state,
+                b_state,
+                ball,
+                table,
+                motion,
+                collision_model,
+                rail_model,
+            )
+        },
+    )
+}
+
+/// Compatibility wrapper for the original two-ball simulation helper name.
+pub fn simulate_two_on_table_balls(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+) -> TwoBallOnTableSimulation {
+    simulate_two_balls_on_table(a, b, dt, ball, motion, collision_model)
 }
 
 fn ideal_collision_outcome_on_table(

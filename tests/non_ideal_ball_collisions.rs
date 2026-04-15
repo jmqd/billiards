@@ -1,10 +1,10 @@
 use billiards::{
-    collide_ball_ball_detailed_on_table, collide_ball_ball_on_table,
-    estimate_post_contact_cue_ball_bend_on_table, gearing_english, Angle, AngularVelocity3,
-    BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
-    RadiansPerSecondSq, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    collide_ball_ball_analyzed_on_table, collide_ball_ball_detailed_on_table,
+    collide_ball_ball_on_table, estimate_post_contact_cue_ball_bend_on_table, gearing_english,
+    Angle, AngularVelocity3, BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches,
+    Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
+    OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, RollingResistanceModel,
+    SlidingFrictionModel, SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -243,6 +243,51 @@ fn over_gearing_flips_the_throw_and_transferred_spin_directions() {
             .as_f64()
             > 0.0
     );
+}
+
+#[test]
+fn the_analyzed_collision_helper_threads_the_post_contact_bend_estimate() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-6.0, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let detailed =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let analyzed = collide_ball_ball_analyzed_on_table(
+        &cue_ball,
+        &object_ball,
+        CollisionModel::ThrowAware,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
+
+    assert_eq!(analyzed.outcome, detailed);
+    assert_eq!(
+        analyzed.cue_ball_bend,
+        detailed
+            .estimate_post_contact_cue_ball_bend(&BallSetPhysicsSpec::default(), &motion_config())
+    );
+    assert!(analyzed.cue_ball_bend.is_some());
+}
+
+#[test]
+fn the_collision_outcome_convenience_method_reports_no_bend_when_the_cue_ball_stops_immediately() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::zero(),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+
+    assert!(outcome
+        .estimate_post_contact_cue_ball_bend(&BallSetPhysicsSpec::default(), &motion_config())
+        .is_none());
 }
 
 #[test]

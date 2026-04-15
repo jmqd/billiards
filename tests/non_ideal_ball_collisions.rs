@@ -1,7 +1,10 @@
 use billiards::{
-    collide_ball_ball_detailed_on_table, collide_ball_ball_on_table, gearing_english, Angle,
-    AngularVelocity3, BallState, CollisionModel, CutAngle, Inches, Inches2, OnTableBallState,
-    Velocity2, TYPICAL_BALL_RADIUS,
+    collide_ball_ball_detailed_on_table, collide_ball_ball_on_table,
+    estimate_post_contact_cue_ball_bend_on_table, gearing_english, Angle, AngularVelocity3,
+    BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
+    RadiansPerSecondSq, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -14,6 +17,26 @@ fn assert_close(actual: f64, expected: f64) {
 
 fn on_table(state: BallState) -> OnTableBallState {
     OnTableBallState::try_from(state).expect("test states should validate as on-table")
+}
+
+fn motion_config() -> OnTableMotionConfig {
+    MotionTransitionConfig {
+        phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("5"),
+        },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(2.0),
+        },
+        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new("5"),
+        },
+    }
+}
+
+fn smallest_angle_distance_degrees(a: Angle, b: Angle) -> f64 {
+    let delta = (a.as_degrees() - b.as_degrees()).abs().rem_euclid(360.0);
+    delta.min(360.0 - delta)
 }
 
 fn inches2(x: f64, y: f64) -> Inches2 {
@@ -219,5 +242,103 @@ fn over_gearing_flips_the_throw_and_transferred_spin_directions() {
             .z()
             .as_f64()
             > 0.0
+    );
+}
+
+#[test]
+fn follow_bends_the_post_contact_cue_ball_path_toward_the_incoming_shot_line() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-6.0, 0.0, 0.0),
+    ));
+    let incoming_heading = cue_ball
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("incoming cue ball should be moving");
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let immediate_heading = outcome
+        .a_after
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("cue ball should still be moving after the cut shot");
+    let bend = estimate_post_contact_cue_ball_bend_on_table(
+        &outcome.a_after,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("follow should produce a sliding cue-ball bend estimate");
+    let bent_heading = bend
+        .state_after_bend
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("cue ball should still be moving after the bend");
+
+    assert!(bend.time_until_bend_completes.as_f64() > 0.0);
+    assert_eq!(
+        bend.state_after_bend
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rolling
+    );
+    assert!(
+        smallest_angle_distance_degrees(bent_heading, incoming_heading)
+            < smallest_angle_distance_degrees(immediate_heading, incoming_heading),
+        "follow should bend the cue ball toward the incoming shot line"
+    );
+}
+
+#[test]
+fn draw_bends_the_post_contact_cue_ball_path_away_from_the_incoming_shot_line() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(6.0, 0.0, 0.0),
+    ));
+    let incoming_heading = cue_ball
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("incoming cue ball should be moving");
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let immediate_heading = outcome
+        .a_after
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("cue ball should still be moving after the cut shot");
+    let bend = estimate_post_contact_cue_ball_bend_on_table(
+        &outcome.a_after,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("draw should produce a sliding cue-ball bend estimate");
+    let bent_heading = bend
+        .state_after_bend
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("cue ball should still be moving after the bend");
+
+    assert!(bend.time_until_bend_completes.as_f64() > 0.0);
+    assert_eq!(
+        bend.state_after_bend
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rolling
+    );
+    assert!(
+        smallest_angle_distance_degrees(bent_heading, incoming_heading)
+            > smallest_angle_distance_degrees(immediate_heading, incoming_heading),
+        "draw should bend the cue ball away from the incoming shot line"
     );
 }

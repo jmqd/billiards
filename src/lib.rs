@@ -661,8 +661,9 @@ pub enum CollisionModel {
 ///
 /// `SpinAware` combines configurable normal restitution with a tunable tangential friction model:
 /// tangential rebound and z-spin (`ωz`, running / reverse english) are coupled through the in-plane
-/// rail-contact slip, with partial-slip vs no-slip behavior determined by the friction coefficient,
-/// while richer top / draw effects remain future work.
+/// rail-contact slip, while top / draw (`ωx`, `ωy`) enter through the vertical component of the
+/// rail-face contact slip. Partial-slip vs no-slip behavior is determined by the friction
+/// coefficient.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RailModel {
     Mirror,
@@ -2884,6 +2885,16 @@ fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Veloc
     restitution_aware_ball_rail_collision_velocity(velocity, rail, 1.0)
 }
 
+fn rail_vertical_contact_slip(
+    angular_velocity: &AngularVelocity3,
+    normal_x: f64,
+    normal_y: f64,
+    ball_radius: f64,
+) -> f64 {
+    ball_radius
+        * (normal_x * angular_velocity.y().as_f64() - normal_y * angular_velocity.x().as_f64())
+}
+
 fn spin_aware_ball_rail_collision_on_table(
     state: &OnTableBallState,
     rail: Rail,
@@ -2905,13 +2916,21 @@ fn spin_aware_ball_rail_collision_on_table(
     let tangential_spin_scale = contact_x * tangent_y - contact_y * tangent_x;
     let tangential_contact_slip =
         tangent_component + state_ref.angular_velocity.z().as_f64() * tangential_spin_scale;
-    let no_slip_tangential_delta = -(2.0 / 7.0) * tangential_contact_slip;
-    let friction_limited_delta_magnitude =
-        tangential_friction_coefficient * (1.0 + normal_restitution) * (-normal_component).max(0.0);
-    let tangential_delta = no_slip_tangential_delta.signum()
-        * no_slip_tangential_delta
-            .abs()
-            .min(friction_limited_delta_magnitude);
+    let vertical_contact_slip =
+        rail_vertical_contact_slip(&state_ref.angular_velocity, normal_x, normal_y, ball_radius);
+    let contact_slip_norm = tangential_contact_slip.hypot(vertical_contact_slip);
+    let coupling_scale = if contact_slip_norm <= f64::EPSILON {
+        0.0
+    } else {
+        let no_slip_scale: f64 = 2.0 / 7.0;
+        let friction_limited_scale = tangential_friction_coefficient
+            * (1.0 + normal_restitution)
+            * (-normal_component).max(0.0)
+            / contact_slip_norm;
+        no_slip_scale.min(friction_limited_scale)
+    };
+    let tangential_delta = -coupling_scale * tangential_contact_slip;
+    let vertical_contact_delta = -coupling_scale * vertical_contact_slip;
     let tangential_after = tangent_component + tangential_delta;
     let velocity = rebuild_velocity_from_basis(
         -normal_restitution * normal_component,
@@ -2923,19 +2942,21 @@ fn spin_aware_ball_rail_collision_on_table(
     );
 
     // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Figure 6 and §7.1, describe the
-    // rail rebound in terms of normal elasticity `N`, tangential friction `fi`, and the contact
-    // slip vector `WCa`. Taking the cushion as an immovable body, Eq. (C10) gives a friction-
-    // limited tangential speed change proportional to `fi (1 + N) |Wn|`, while Eqs. (C11) and
-    // (C13) provide the no-slip / adherence limit. This first-pass rail model uses the smaller of
-    // those two effects so low friction yields partial slip and high friction saturates at the
-    // no-slip limit. Only in-plane tangential slip is modeled so far, so the coupled spin update is
-    // limited to z-spin (running / reverse english). Top / draw effects at the rail face remain a
-    // later TODO.
-    let delta_wz =
-        (5.0 / (2.0 * ball_radius * ball_radius)) * tangential_spin_scale * tangential_delta;
+    // rail rebound in terms of normal elasticity `N`, tangential friction `fi`, and the full
+    // contact-slip vector `WCa` inside the rail tangent plane. Eq. (C10) gives a friction-limited
+    // change along `-WCa`, while Eqs. (C11) and (C13) provide the no-slip / adherence limit.
+    // This first-pass rail model therefore uses the smaller of those two magnitudes on the full
+    // 2D slip vector: along-rail slip from running / reverse english and vertical slip from top /
+    // draw both contribute. Because the current on-table state does not represent post-impact
+    // vertical center-of-mass velocity, the vertical translational component of that frictional rail
+    // impulse is projected out after using it to compute the coupled spin change.
+    let normal_cross_tangent_z = normal_x * tangent_y - normal_y * tangent_x;
+    let delta_wz = -(5.0 / (2.0 * ball_radius)) * normal_cross_tangent_z * tangential_delta;
+    let delta_wx = -(5.0 / (2.0 * ball_radius)) * vertical_contact_delta * normal_y;
+    let delta_wy = (5.0 / (2.0 * ball_radius)) * vertical_contact_delta * normal_x;
     let angular_velocity = AngularVelocity3::new(
-        state_ref.angular_velocity.x().as_f64(),
-        state_ref.angular_velocity.y().as_f64(),
+        state_ref.angular_velocity.x().as_f64() + delta_wx,
+        state_ref.angular_velocity.y().as_f64() + delta_wy,
         state_ref.angular_velocity.z().as_f64() + delta_wz,
     );
 
@@ -2956,9 +2977,10 @@ fn spin_aware_ball_rail_collision_on_table(
 /// and angular velocity unchanged.
 ///
 /// `RailModel::SpinAware` currently implements the smallest useful richer slice: the same
-/// configurable normal restitution plus a tunable tangential cushion-friction response for the in-
-/// plane rail-contact slip, which lets running / reverse english (`ωz`) change the returned
-/// tangential speed and gain / lose z-spin at the cushion.
+/// configurable normal restitution plus a tunable cushion-friction response for the full rail-face
+/// contact-slip vector. Running / reverse english (`ωz`) changes the returned tangential speed and
+/// z-spin, while top / draw (`ωx`, `ωy`) changes the vertical slip component and therefore the
+/// horizontal spin carried away from the cushion.
 pub fn collide_ball_rail_on_table_with_radius_and_config(
     state: &OnTableBallState,
     rail: Rail,

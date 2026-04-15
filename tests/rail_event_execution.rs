@@ -190,16 +190,24 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_configured_restitution_and_spi
     let event =
         compute_next_two_ball_event_with_rails_on_table(&a, &b, &ball, &table, &motion_config())
             .expect("an event should be predicted");
-    let expected_a = match &event {
+    let (impact_wx, expected_a) = match &event {
         TwoBallOnTableEvent::BallRailImpact {
             ball: TwoBallEventBall::A,
             impact,
-        } => collide_ball_rail_on_table_with_radius_and_config(
-            &impact.state_at_impact,
-            impact.rail,
-            ball.radius.clone(),
-            RailModel::SpinAware,
-            &rail_config,
+        } => (
+            impact
+                .state_at_impact
+                .as_ball_state()
+                .angular_velocity
+                .x()
+                .as_f64(),
+            collide_ball_rail_on_table_with_radius_and_config(
+                &impact.state_at_impact,
+                impact.rail,
+                ball.radius.clone(),
+                RailModel::SpinAware,
+                &rail_config,
+            ),
         ),
         other => panic!("expected ball A rail impact, got {other:?}"),
     };
@@ -217,6 +225,10 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_configured_restitution_and_spi
 
     assert_eq!(advanced.event, Some(event));
     assert_eq!(advanced.a, expected_a);
+    assert!(
+        (advanced.a.as_ball_state().angular_velocity.x().as_f64() - impact_wx).abs() > 1e-9,
+        "spin-aware rail response should update the carried vertical-plane spin"
+    );
 }
 
 #[test]

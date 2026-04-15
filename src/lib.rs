@@ -640,12 +640,28 @@ impl Default for BallSetPhysicsSpec {
 /// - The same reference also states that when the struck ball is initially stationary, the moving
 ///   ball departs along the tangent line at contact.
 ///
-/// The richer variants are reserved for later phases once throw and spin-transfer models are added.
+/// `ThrowAware` adds a first-pass non-ideal tangential-slip model for cut-induced and spin-induced
+/// throw while preserving `Ideal` as the zero-throw limiting case. It currently models only the
+/// immediate post-impact translational deflection, not transferred spin or the later post-contact
+/// cue-ball bend caused by residual top / bottom / side spin on the cloth.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CollisionModel {
     Ideal,
     ThrowAware,
     SpinFriction,
+}
+
+/// Detailed output for a ball-ball collision response.
+///
+/// `throw_angle_degrees` is the signed deflection of the object-ball departure away from the ideal
+/// line-of-centers direction, measured in degrees toward the positive collision-tangent basis used
+/// internally by the solver. `transferred_spin` is reserved for later non-ideal models.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollisionOutcome {
+    pub a_after: OnTableBallState,
+    pub b_after: OnTableBallState,
+    pub throw_angle_degrees: Option<f64>,
+    pub transferred_spin: Option<AngularVelocity3>,
 }
 
 /// A predicted future ball-ball impact between two on-table balls.
@@ -1662,6 +1678,41 @@ fn refine_ball_ball_collision_time_during_current_phases(
     Seconds::new(right)
 }
 
+const THROW_AWARE_MAX_ANGLE_DEGREES: f64 = 5.0;
+
+fn collision_contact_basis(a: &OnTableBallState, b: &OnTableBallState) -> (f64, f64, f64, f64) {
+    let a_state = a.as_ball_state();
+    let b_state = b.as_ball_state();
+    let dx = b_state.position.x().as_f64() - a_state.position.x().as_f64();
+    let dy = b_state.position.y().as_f64() - a_state.position.y().as_f64();
+    let center_distance = dx.hypot(dy);
+
+    assert!(
+        center_distance > f64::EPSILON,
+        "ball-ball collision requires distinct ball centers"
+    );
+
+    let normal_x = dx / center_distance;
+    let normal_y = dy / center_distance;
+    let tangent_x = normal_y;
+    let tangent_y = -normal_x;
+
+    (normal_x, normal_y, tangent_x, tangent_y)
+}
+
+fn project_velocity_on_basis(velocity: &Velocity2, basis_x: f64, basis_y: f64) -> f64 {
+    velocity.x().as_f64() * basis_x + velocity.y().as_f64() * basis_y
+}
+
+fn build_on_table_ball_state(
+    position: Inches2,
+    velocity: Velocity2,
+    angular_velocity: AngularVelocity3,
+) -> OnTableBallState {
+    OnTableBallState::try_from(BallState::on_table(position, velocity, angular_velocity))
+        .expect("ball-ball collision should preserve on-table invariants")
+}
+
 fn ideal_ball_ball_collision_velocities(
     a: &Velocity2,
     b: &Velocity2,
@@ -2075,64 +2126,142 @@ pub fn simulate_two_on_table_balls(
     }
 }
 
+fn ideal_collision_outcome_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+) -> CollisionOutcome {
+    let a_state = a.as_ball_state();
+    let b_state = b.as_ball_state();
+    let (normal_x, normal_y, _, _) = collision_contact_basis(a, b);
+    let (a_velocity, b_velocity) = ideal_ball_ball_collision_velocities(
+        &a_state.velocity,
+        &b_state.velocity,
+        normal_x,
+        normal_y,
+    );
+
+    CollisionOutcome {
+        a_after: build_on_table_ball_state(
+            a_state.position.clone(),
+            a_velocity,
+            a_state.angular_velocity.clone(),
+        ),
+        b_after: build_on_table_ball_state(
+            b_state.position.clone(),
+            b_velocity,
+            b_state.angular_velocity.clone(),
+        ),
+        throw_angle_degrees: None,
+        transferred_spin: None,
+    }
+}
+
+fn throw_aware_collision_outcome_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+) -> CollisionOutcome {
+    let ideal = ideal_collision_outcome_on_table(a, b);
+    let a_state = a.as_ball_state();
+    let b_state = b.as_ball_state();
+
+    // TODO(physics): model transferred spin and the later post-contact cue-ball bend caused by
+    // residual follow / draw / side spin interacting with the cloth after impact.
+    if ball_speed(b_state).as_f64() > 1e-9 {
+        return ideal;
+    }
+
+    let (normal_x, normal_y, tangent_x, tangent_y) = collision_contact_basis(a, b);
+    let ball_radius = 0.5 * center_distance_squared(a, b).sqrt();
+    let tangential_relative_speed =
+        project_velocity_on_basis(&a_state.velocity, tangent_x, tangent_y)
+            - project_velocity_on_basis(&b_state.velocity, tangent_x, tangent_y);
+    let contact_slip = tangential_relative_speed
+        - ball_radius
+            * (a_state.angular_velocity.z().as_f64() + b_state.angular_velocity.z().as_f64());
+    let slip_scale = tangential_relative_speed.abs()
+        + ball_radius
+            * (a_state.angular_velocity.z().as_f64().abs()
+                + b_state.angular_velocity.z().as_f64().abs());
+    let throw_angle_degrees = if slip_scale <= f64::EPSILON {
+        0.0
+    } else {
+        THROW_AWARE_MAX_ANGLE_DEGREES * (contact_slip / slip_scale).clamp(-1.0, 1.0)
+    };
+
+    let object_speed = ball_speed(ideal.b_after.as_ball_state()).as_f64();
+    let throw_radians = throw_angle_degrees.to_radians();
+    let b_velocity = Velocity2::new(
+        Inches::from_f64(
+            object_speed * (throw_radians.cos() * normal_x + throw_radians.sin() * tangent_x),
+        ),
+        Inches::from_f64(
+            object_speed * (throw_radians.cos() * normal_y + throw_radians.sin() * tangent_y),
+        ),
+    );
+    let total_momentum_x = a_state.velocity.x().as_f64() + b_state.velocity.x().as_f64();
+    let total_momentum_y = a_state.velocity.y().as_f64() + b_state.velocity.y().as_f64();
+    let a_velocity = Velocity2::new(
+        Inches::from_f64(total_momentum_x - b_velocity.x().as_f64()),
+        Inches::from_f64(total_momentum_y - b_velocity.y().as_f64()),
+    );
+
+    CollisionOutcome {
+        a_after: build_on_table_ball_state(
+            a_state.position.clone(),
+            a_velocity,
+            a_state.angular_velocity.clone(),
+        ),
+        b_after: build_on_table_ball_state(
+            b_state.position.clone(),
+            b_velocity,
+            b_state.angular_velocity.clone(),
+        ),
+        throw_angle_degrees: Some(throw_angle_degrees),
+        transferred_spin: None,
+    }
+}
+
+/// Resolve an instantaneous ball-ball collision for two validated on-table states and return the
+/// detailed post-impact outcome.
+///
+/// `CollisionModel::ThrowAware` currently implements a first-pass tangential-slip throw model for
+/// the common case of a cut shot into an initially stationary object ball. The sign and zero-slip
+/// condition are grounded in the local references:
+///
+/// - `whitepapers/Alciatore_pool_physics_article.pdf`, Section VI "Throw", describes the throw
+///   term as proportional to `(v sin(φ) - R ω_z)`.
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C6'), (C11), and (C13),
+///   express the same contact-patch tangential slip and the no-slip / gearing condition.
+///
+/// This first slice keeps the ideal equal-mass line-of-centers speed transfer and maps the signed
+/// tangential contact slip to a bounded signed deflection angle. Exact throw magnitudes and
+/// transferred spin remain future work.
+pub fn collide_ball_ball_detailed_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    model: CollisionModel,
+) -> CollisionOutcome {
+    match model {
+        CollisionModel::Ideal => ideal_collision_outcome_on_table(a, b),
+        CollisionModel::ThrowAware => throw_aware_collision_outcome_on_table(a, b),
+        CollisionModel::SpinFriction => {
+            todo!("spin-friction ball-ball collisions are not implemented yet")
+        }
+    }
+}
+
 /// Resolve an instantaneous ball-ball collision for two validated on-table states.
 ///
-/// This helper assumes the supplied states describe the ball centers at the instant of impact and
-/// uses the current line of centers as the collision normal. Collision detection and advancement to
-/// impact time remain separate concerns.
-///
-/// In the current `CollisionModel::Ideal` mode, the translational velocity of each equal-mass ball
-/// is decomposed into components normal and tangent to the line of centers. The normal components
-/// are exchanged and the tangential components are preserved, matching the equal-mass elastic limit
-/// described in `whitepapers/art_of_billiards_play_files/bil_praa.html`. Angular velocity is left
-/// unchanged because this first-pass model intentionally excludes throw and spin transfer.
+/// This convenience helper returns only the post-impact states. Use
+/// `collide_ball_ball_detailed_on_table(...)` if you also want throw metadata.
 pub fn collide_ball_ball_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
     model: CollisionModel,
 ) -> (OnTableBallState, OnTableBallState) {
-    let a_state = a.as_ball_state();
-    let b_state = b.as_ball_state();
-    let dx = b_state.position.x().as_f64() - a_state.position.x().as_f64();
-    let dy = b_state.position.y().as_f64() - a_state.position.y().as_f64();
-    let center_distance = dx.hypot(dy);
+    let outcome = collide_ball_ball_detailed_on_table(a, b, model);
 
-    assert!(
-        center_distance > f64::EPSILON,
-        "ball-ball collision requires distinct ball centers"
-    );
-
-    let normal_x = dx / center_distance;
-    let normal_y = dy / center_distance;
-    let (a_velocity, b_velocity) = match model {
-        CollisionModel::Ideal => ideal_ball_ball_collision_velocities(
-            &a_state.velocity,
-            &b_state.velocity,
-            normal_x,
-            normal_y,
-        ),
-        CollisionModel::ThrowAware => {
-            todo!("throw-aware ball-ball collisions are not implemented yet")
-        }
-        CollisionModel::SpinFriction => {
-            todo!("spin-friction ball-ball collisions are not implemented yet")
-        }
-    };
-
-    (
-        OnTableBallState::try_from(BallState::on_table(
-            a_state.position.clone(),
-            a_velocity,
-            a_state.angular_velocity.clone(),
-        ))
-        .expect("ball-ball collision should preserve on-table invariants"),
-        OnTableBallState::try_from(BallState::on_table(
-            b_state.position.clone(),
-            b_velocity,
-            b_state.angular_velocity.clone(),
-        ))
-        .expect("ball-ball collision should preserve on-table invariants"),
-    )
+    (outcome.a_after, outcome.b_after)
 }
 
 /// Gives the polar direction (e.g. positive or negative).

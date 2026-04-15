@@ -14,3 +14,97 @@ shoot(9).angle(-60).draw(max).speed(max)
 #+END_CODE
 
 * TODO Add facilities to change the conditions -- humidity, dirt on table, dirt on balls, etc.
+
+* TODO Update in-repo references to renamed whitepapers
+  The whitepaper history rewrite changed many files from ad hoc names to title-based
+  snake_case names.  I did not update references in code/docs yet because =src/lib.rs=
+  had local edits at the time.  The following locations still reference pre-rewrite
+  filenames and should be updated.
+
+  Line numbers below are current as of 2026-04-15.
+
+** TODO Update =src/lib.rs=
+   - L886:
+     =whitepapers/Collision_of_Billiard_Balls_in_3D_with_Spin_and_Friction.pdf=
+     -> =whitepapers/collision_of_billiard_balls_in_3d_with_spin_and_friction.pdf=
+   - L889, L1146, L2535, L2829, L3309:
+     =whitepapers/Alciatore_pool_physics_article.pdf=
+     -> =whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf=
+   - L892:
+     =whitepapers/motions_of_ball_after_stroke.pdf=
+     -> =whitepapers/motions_of_a_billiard_ball_after_a_cue_stroke.pdf=
+   - L1106, L1141:
+     =whitepapers/TP_A-4.pdf=
+     -> =whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf=
+   - L1144:
+     =whitepapers/TP_4-2.pdf=
+     -> =whitepapers/tp_4_2_center_of_percussion_of_the_cue_ball.pdf=
+   - L1289:
+     =whitepapers/55. RollingBall.pdf=
+     -> =whitepapers/rolling_motion_of_a_ball_spinning_about_a_near_vertical_axis.pdf=
+   - L1779, L1837, L3312:
+     =whitepapers/Physics Of Billiards.html=
+     -> =whitepapers/the_physics_of_billiards.html=
+   - L2834:
+     =whitepapers/billiards_ball_collisions.pdf=
+     -> =whitepapers/non_smooth_modelling_of_billiard_and_superbilliard_ball_collisions.pdf=
+
+** TODO Update =PHYSICS_ENGINE_PLAN.md=
+   - L233, L661:
+     =whitepapers/Collision_of_Billiard_Balls_in_3D_with_Spin_and_Friction.pdf=
+     -> =whitepapers/collision_of_billiard_balls_in_3d_with_spin_and_friction.pdf=
+   - L235, L612, L658:
+     =whitepapers/Alciatore_pool_physics_article.pdf=
+     -> =whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf=
+   - L561, L772:
+     =whitepapers/motions_of_ball_after_stroke.pdf=
+     -> =whitepapers/motions_of_a_billiard_ball_after_a_cue_stroke.pdf=
+   - L562:
+     =whitepapers/sliding_and_rolling.pdf=
+     -> =whitepapers/sliding_and_rolling_the_physics_of_a_rolling_ball.pdf=
+   - L563:
+     =whitepapers/55. RollingBall.pdf=
+     -> =whitepapers/rolling_motion_of_a_ball_spinning_about_a_near_vertical_axis.pdf=
+   - L613:
+     =whitepapers/Physics Of Billiards.html=
+     -> =whitepapers/the_physics_of_billiards.html=
+   - L614, L660:
+     =whitepapers/billiards_ball_collisions.pdf=
+     -> =whitepapers/non_smooth_modelling_of_billiard_and_superbilliard_ball_collisions.pdf=
+   - L659:
+     =whitepapers/amateur_physics.pdf=
+     -> =whitepapers/amateur_physics_for_the_amateur_pool_player.pdf=
+   - L662, L720:
+     =whitepapers/Mathavan_Sports_2014.pdf=
+     -> =whitepapers/numerical_simulations_of_the_frictional_collisions_of_solid_balls_on_a_rough_surface.pdf=
+   - L719:
+     =whitepapers/Mathavan_IMechE_2010.pdf=
+     -> =whitepapers/a_theoretical_analysis_of_billiard_ball_dynamics_under_cushion_impacts.pdf=
+   - L773:
+     =whitepapers/Shepard_squirt.pdf=
+     -> =whitepapers/everything_you_always_wanted_to_know_about_cue_ball_squirt_but_were_afraid_to_ask.pdf=
+   - L774:
+     =whitepapers/coriolis_billiards.pdf=
+     -> =whitepapers/theorie_mathematique_des_effets_du_jeu_de_billard_par_g_coriolis.pdf=
+   - L775:
+     =whitepapers/Design Fabrication and Implementation of Jump-Cue Testing Machi.pdf=
+     -> =whitepapers/design_fabrication_and_implementation_of_jump_cue_testing_machine.pdf=
+   - L845:
+     =whitepapers/competitive_pool_playing_robot.pdf=
+     -> =whitepapers/toward_a_competitive_pool_playing_robot.pdf=
+   - L846:
+     =whitepapers/computational_pool.pdf=
+     -> =whitepapers/computational_pool_an_or_optimization_point_of_view.pdf=
+   - L847:
+     =whitepapers/Long_IEEE_04_article.pdf=
+     -> =whitepapers/robotic_pool_an_experiment_in_automatic_potting.pdf=
+   - L848:
+     =whitepapers/Nierhoff_IEEE_15_article.pdf=
+     -> =whitepapers/robotic_billiards_understanding_humans_in_order_to_counter_them.pdf=
+
+** TODO Optional follow-up
+   - Re-scan the repo after the above edits with something like:
+     =rg -n -F 'whitepapers/' . --glob '!whitepapers/**' --glob '!.git/**' --glob '!.hive/**'=
+   - Decide whether support-directory citations should stay as direct paths like
+     =whitepapers/art_of_billiards_play_files/bil_praa.html= or be redirected to the new
+     top-level entry points such as =whitepapers/the_art_of_billiards_play.html=.

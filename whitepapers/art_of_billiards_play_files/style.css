@@ -1,0 +1,19 @@
+/* Ma feuille de style externe - 23 avril 2021 */
+html{font-size:100%;} /* page caracteres : taille globale (correctif pour bug I.E. Windows) */
+body{
+ background-image:none;background-color:white; /* Page arriere-plan (image et couleur) */
+ color:black; /* Page caracteres (couleur) */
+ font-family:Arial, Verdana, Helvetica, sans-serif; /* Page caracteres : Famille police (prefere puis remplacement) */
+ font-style:normal;font-size:16px; /* Page caracteres : Style police et taille */
+ margin:2em; /* Page bordure (2 x taille caractere dans police du bloc) */
+ width:95%; /* Page largeur (en relatif) */
+    }
+p{text-indent:0.5em;text-align:justify;} /* Paragraphe : indentation 1ere ligne (en relatif) et alignement texte */
+h3{margin-top:2em;text-indent:3em;} /* Titre h3 : marge superieure et indentation (en relatif) */
+h4{margin-top:2em;text-indent:6em;} /* Titre h4 : marge superieure et indentation (en relatif) */
+h5{margin-top:2em;text-indent:9em;} /* Titre h5 : marge superieure et indentation (en relatif) */
+h6{margin-top:2em;text-indent:12em;} /* Titre h6 : marge superieure et indentation (en relatif) */
+a:link{color:blue;} /* Lien non visite : couleur premier-plan */
+a:visited{color:purple;} /* Lien visite : couleur premier-plan */
+a:active{background-color:red;} /* Lien active : couleur arriere-plan */
+a:hover{background-color:yellow;} /* Lien survole par pointeur souris : couleur arriere-plan */

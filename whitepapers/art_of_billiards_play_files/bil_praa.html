@@ -1,0 +1,964 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<!-- saved from url=(0037)http://www.regispetit.fr/bil_praa.htm -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+   
+   <link rel="stylesheet" type="text/css" href="./style.css">
+   <title>Regis Petit - Physics of Billiards - The Art of Billiards Play</title>
+   <meta name="description" content="Regis Petit,Physics of billiards,The Art of Billiards Play">
+   <meta name="author" content="Regis Petit">
+   <meta name="keywords" content="billiards,physics,theory,science,software">
+   <meta name="robots" content="index,follow">
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body bgcolor="white" text="black" link="blue" vlink="purple" alink="red">
+
+<!-- Menu bar -->
+   <table summary="menu bar composed of 2 rows" border="0" width="95%" cellspacing="0" cellpadding="2" bgcolor="aqua">
+      <tbody><tr align="center">
+         <td lang="fr"><a href="http://www.regispetit.fr/bil_pra.htm">En Français</a></td>
+         <td><a href="http://www.regispetit.fr/indexa.htm" accesskey="1">Home/Contact</a></td>
+         <td bgcolor="white"><a href="http://www.regispetit.fr/billarda.htm" accesskey="5">Billiards</a></td>
+         <td><a href="http://www.regispetit.fr/beliera.htm" accesskey="6">Hydraulic ram</a></td>
+         <td><a href="http://www.regispetit.fr/snha.htm" accesskey="7">HNS</a></td>
+         <td><a href="http://www.regispetit.fr/rela.htm" accesskey="8">Relativity</a></td>
+         <td><a href="http://www.regispetit.fr/bot.htm" accesskey="9">Botany</a></td>
+         <td><a href="http://www.regispetit.fr/mus.htm" accesskey="3">Music</a></td>
+         <td><a href="http://www.regispetit.fr/orn.htm" accesskey="4">Ornitho</a></td>
+         <td><a href="http://www.regispetit.fr/met.htm" accesskey="2">Meteo</a></td>
+         <td><a href="http://www.regispetit.fr/liensa.htm" accesskey="0">Help</a></td>
+      </tr>
+      <tr align="center" bgcolor="silver">
+         <td></td>
+         <td></td>
+         <td><a href="http://www.regispetit.fr/bil_inta.htm">Theory of the Game</a></td>
+         <td bgcolor="white"><a href="http://www.regispetit.fr/bil_praa.htm">The Art</a></td>
+         <td><a href="http://www.regispetit.fr/bil_liva.htm">Bibliography</a></td>
+         <td></td>
+         <td></td>
+         <td></td>
+         <td></td>
+         <td></td>
+         <td></td>
+      </tr>
+   </tbody></table>
+   <br clear="all">
+
+<!-- Page title -->
+   <h1><a name="jump">Billiards</a></h1>
+   <h2><a name="art">The Art of Billiards Play</a> <i>( <a href="http://www.regispetit.fr/bil_inta.htm">Previous</a> / <a href="http://www.regispetit.fr/bil_liva.htm">Next</a> Chapter )</i></h2>
+
+<h3><a name="artp">Preamble</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art">Start</a> / <a href="http://www.regispetit.fr/bil_praa.htm#arts">Next</a> Paragraph )</i></h3>
+
+<p>The author R. Petit published the French article <span lang="fr">"La pratique du billard"</span> in Magazine <span lang="fr">"Pour la Science"</span> No. 246 in April 1998.<br>
+This article translated by P. Freedenberg and published on the "vrbilliard" Web site is not any longer available. The full text of Web article is reproduced below. In addition were added :<br>
+- Figures 1 to 4 produced by J.A. Gomez Valderrama and derived from his VRCarom simulator ;<br>
+- Figures 5 and 6, coming from R. Petit's book : Billard - Théorie du jeu (see <a href="http://www.regispetit.fr/bil_praa.htm#art6">References</a>) ;<br>
+- Glossary and Results from the mechanics, coming from R. Petit's book : Billard - Théorie du jeu (see <a href="http://www.regispetit.fr/bil_praa.htm#art6">References</a>) ;<br>
+- Proof of these results, produced by R. Petit on this Website.<br>
+</p>
+
+
+
+<h3><a name="arts">Contents of this chapter</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#artp">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art0">Next</a> Paragraph )</i></h3>
+
+<ol type="1" start="0">
+   <li><a href="http://www.regispetit.fr/bil_praa.htm#art0">Figures</a>
+   </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art1">The billiards play</a>
+   </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art2">French-English glossary of billiard terms</a>
+   </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art3">Results from the mechanics of collisions as applied to billiards</a>
+   </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art4">Results from the mechanics of moving balls as applied to billiards</a>
+   </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art5">Synthesis of a theory of billiards</a>
+   </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art6">References</a>
+   </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art7">Proof of these results</a>
+   <ol type="1" start="1">
+      <li><a href="http://www.regispetit.fr/bil_praa.htm#art71">Ball-ball, ball-cushion or ball-cloth collision</a>
+      </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art72">Cue-ball collision</a>
+      </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art73">Sliding movement : &#937; horizontal, Wc, tc, W and WE</a>
+      </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art74">Rolling movement without sliding : W, t translation_stop and &#937; horizontal</a>
+      </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art75">z-spin vector when sliding or rolling : &#937; vertical and t rotation_stop</a>
+      </li><li><a href="http://www.regispetit.fr/bil_praa.htm#art76">Horizontal cue stroke : sliding distances y, yb and yc</a>
+   </li></ol>
+</li></ol>
+
+
+<h3><a name="art0">0. Figures</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#arts">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art1">Next</a> Paragraph )</i></h3>
+
+
+<center><img src="./practica1.gif" width="600" height="500" alt="Picture practica1.gif">
+<br clear="all">
+</center>
+<p>Figure 1 above : Running three cushions while skirting the second object ball</p>
+
+
+<center><img src="./practica2.gif" width="600" height="500" alt="Picture practica2.gif">
+<br clear="all">
+</center>
+<p>Figure 2 above : Two rail stroke</p>
+
+
+<center><img src="./practica3.gif" width="600" height="500" alt="Picture practica3.gif">
+<br clear="all">
+</center>
+<p>Figure 3 above : Rail-first stroke</p>
+
+
+<center><img src="./practica4.gif" width="600" height="500" alt="Picture practica4.gif">
+<br clear="all">
+</center>
+<p>Figure 4 above : Direct stroke</p>
+
+
+<center><img src="./billfig3.jpg" width="600" height="450" alt="Picture billfig3.jpg">
+<br clear="all">
+</center>
+<p>Figures 5 above : Adjustment of the fullness of first object ball hit (Figure on the left) ; Adjustment of the force of the cue stroke (Figure on the right)</p>
+
+
+<center><img src="./billfig4.jpg" width="800" height="450" alt="Picture billfig4.jpg">
+<br clear="all">
+</center>
+<p>Figure 6 above : Adjustment of amount of english to the cue ball</p>
+
+
+
+<h3><a name="art1">1. The billiards play</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art0">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art2">Next</a> Paragraph )</i></h3>
+
+<p><b>Régis Petit. <i>A knowledge of the laws of physics ensures a more reasoned and confident game. Physics both determines and explains the game's playing parameters.</i></b></p>
+
+
+<h4>Foreword</h4>
+
+      <p>There are several types of billiards. In the 
+      mathematician's idealized billiards, the balls are points, friction does 
+      not exist, and rebounds follow the laws of optics. In the physicist's less 
+      abstract model of billiards, friction influences the trajectory of the 
+      balls, but even this model lacks the "intelligence" that is found in an 
+      expert player's fingertips. This paper examines how physical laws and 
+      mathematics can improve our play of this noble game.</p>
+
+      <p>Billiards has existed in its current form for 
+      about a century and is steadily gathering more adherents. In particular, 
+      French billiards or "carambola" is played with three balls and is divided 
+      into five specialities : straight rail, balkline, cushion carom billiards, 
+      three cushion billiards, and artistic billiards. Of these, three cushion 
+      billiards has developed abroad, mainly in the United States and Japan ; the 
+      "rec.sport.billiard" Internet newsgroup is a particularly rich source of 
+      material on it.</p>
+
+      <p>Billiards is above all a game of practice, 
+      based on the knowledge and the control of a certain number of techniques 
+      (e.g., draw, follow, "massé", etc.) and of tactics (e.g., position play, 
+      gathering, stun, etc.). The theory of billiards is based on the mechanics 
+      of solid bodies. The first theoretical treatise on the mechanics of 
+      billiards is, to our knowledge, that of G.G. Coriolis, published in 1835. 
+      Other treatises followed, both in France and abroad. But works which 
+      establish links or synthesis between these two approaches, the one quite 
+      practical and the other very theoretical, are rare indeed. Is it really 
+      possible to approach billiards play from the viewpoint of mechanics and 
+      mathematics ? Is there a "reasoned practice" of billiards ? In my recently 
+      published book (see <a href="http://www.regispetit.fr/bil_praa.htm#art6">References</a>), which was the inspiration for this 
+      article, interested readers will find mathematical justifications for the 
+      assertions presented here.</p>
+
+      <p>To illustrate how to make use of a knowledge 
+      of mechanics, we will consider an example of running three cushions while 
+      skirting the second object ball (see <a href="http://www.regispetit.fr/bil_praa.htm#art0">Figure 1</a>). The objective is to hit 
+      the first object ball with the cue ball, then to go around the second 
+      object ball, making the required circuit by contacting three cushions in 
+      succession, and finally landing on the second object ball. Four variables 
+      suffice for this shot : the height of the cue stroke, the fraction of the 
+      first object ball that is hit, the force of the cue stroke, and the amount 
+      of english employed.</p>
+
+
+<h4>The Height of the Contact Point</h4>
+      
+      <p>The first variable which the billiardist must 
+      control is the height of the contact point on the cue ball. Three 
+      possibilities are available to the player a priori : a more or less low 
+      attack ; a more or less high attack ; or a very high attack. The objective 
+      is to hit the first object ball, then the long rail located behind it. The 
+      mechanics of ball motion teaches us that, after a collision between two 
+      balls, each ball's path follows a parabolic curve, followed by a straight 
+      segment. To obtain a curve that bends forward so as to strike the long 
+      rail rather than the short rail, one must impart heavy follow to the cue 
+      ball so that it folds back toward the long rail as soon after the 
+      collision as possible. In practice, this result is obtained by a very high 
+      point of attack on the cue ball.</p>
+
+
+
+<h4>The Fullness of First Object Ball Hit</h4>
+
+      <p>The second variable to be controlled is the 
+      fraction of the first object ball that is struck by the cue ball. Again, 
+      there are three possibilities : ½ ball ; ¾ ball ; or almost full. The 
+      objective is for the cue ball to go around the second object ball after 
+      striking the first object ball. The mechanics of collisions between two 
+      solids teaches us that, just after a perfectly elastic collision between a 
+      moving ball and a stationary ball of the same mass, the moving ball always 
+      rebounds along a line tangent to the point of collision. To avoid hitting 
+      the second object ball, it is thus necessary to raise this tangent as much 
+      as possible, while maintaining sufficient speed to contact three cushions. 
+      In practice, a half-ball hit does not raise the tangent line sufficiently. 
+      While an almost full hit makes it possible to avoid hitting the second 
+      object ball, this type of collision slows the cue ball too much. Aiming 
+      for about a ¾ ball hit is a good compromise (see <a href="http://www.regispetit.fr/bil_praa.htm#art0">Figure 5 on the left</a>).</p>
+
+
+<h4>Force of the Cue Stroke</h4>
+
+      <p>The third variable to be controlled is the 
+      force of the cue stroke, which determines the speed of the cue stick when 
+      it hits the cue ball. Three possibilities are again available to the 
+      player : a soft, medium, or forceful stroke. The objective is to minimize 
+      the risk of a collision while the cue ball goes around the second object 
+      ball. We saw previously that the cue ball departs its collision with the 
+      first object ball along the tangent line. To avoid the second object ball, 
+      the cue ball must follow this tangent line as far as possible. This result 
+      is obtained by a forceful cue stroke (see <a href="http://www.regispetit.fr/bil_praa.htm#art0">Figure 5 on the right</a>).</p>
+
+
+<h4>Amount of english to the cue ball</h4>
+
+      <p>The fourth variable is the amount of english 
+      imparted to the cue ball. Three possibilities are again available to the 
+      player a priori : running english, centerball (i.e., no english), or 
+      reverse english. The objective is to control the rebound of the cue ball 
+      off the first rail, in order to hit three cushions before landing on the 
+      second object ball. Mechanics teaches us that, following a collision with 
+      a rail, the rebound of the cue ball depends on the amount of english it 
+      possesses (see <a href="http://www.regispetit.fr/bil_praa.htm#art0">Figure 6</a>) :</p>
+
+      <p>Just before colliding with a cushion, the 
+      ball's linear velocity (Wa) may be decomposed into a velocity tangential to the 
+      rail and a velocity perpendicular to the rail. What occurs immediately 
+      after the collision ?</p>
+
+      <p>Without english (case (1)), the ball's perpendicular 
+      velocity (Wi) after striking the rail is decreased by the rail's imperfect 
+      elasticity, while its tangential velocity is considerably reduced by the 
+      rubbing of the ball against the rail. These two components determine the 
+      angle (Ai1) at which the cue ball departs from the rail.</p>
+
+      <p>With running or natural english (case (2)), the ball rubs 
+      very little when it contacts the rail. The only change compared with the 
+      preceding case relates to the tangential speed returned by the rail, which 
+      is higher. The cue ball thus departs at a smaller angle (Ai2) from the rail.</p>
+
+      <p>In practice, to run three cushions before 
+      landing on the second object ball, experience shows that one must impart a 
+      little running english to the cue ball.</p>
+
+      <p>Let us now compile the various parameters that 
+      we must apply : a very high attack on the cue ball to bend its path towards 
+      the long rail behind the first object ball ; a ¾ ball hit on the first 
+      object ball to go around the second object ball without losing too much 
+      speed in the collision ; a forceful cue stroke to minimize the risk of a 
+      premature collision ; and running english to contact three rails before 
+      landing on the second object ball. I consider this a "reasoned practice" 
+      to achieve a complex stroke.</p>
+
+      <p>On other strokes, there may generally be up to 
+      three additional variables to control. The fifth variable is the 
+      inclination of the cue stick with respect to the cloth, which facilitates 
+      "massé", "piqué", and jump shots. The sixth variable is the mass of the cue 
+      stick, which enables the cue tip to contact the cue ball closer to or 
+      further from its edge. The final variable is the most important : choosing 
+      the best tactic to make a successful billiard when several approaches are 
+      possible.</p>
+
+
+
+<h4>The Choice of the Best Tactic</h4>
+
+      <p>Let us consider an example (see <a href="http://www.regispetit.fr/bil_praa.htm#art0">Figure 2</a>) from 
+      the game of straight rail, in which the objective is to make a successful 
+      billiard by contacting the two object balls with the cue ball ; rail 
+      contacts are optional. Three possibilities are available to the player a 
+      priori : direct stroke, rail-first stroke, or two rail stroke. 
+      Mechanics teaches us that, when the cue ball is rolling without slipping 
+      on the cloth, hitting half of the first object ball ensures that the cue 
+      ball will run at a final angle of 40 degrees ; moreover, this final angle 
+      is relatively insensitive to variations on either side of a half-ball hit. 
+      Fortunately, then, we may select this fraction of the first object ball to 
+      be hit and play two rails to achieve a low risk billiard.</p>
+
+      <p>For comparison, how reliable are the two 
+      alternative tactics ? Hitting a rail (see <a href="http://www.regispetit.fr/bil_praa.htm#art0">Figure 3</a>) 
+      requires that a thin fraction of the first object ball be hit, and thus 
+      implies extreme precision in aiming, which is risky in practice. A head-on 
+      hit (see <a href="http://www.regispetit.fr/bil_praa.htm#art0">Figure 4</a>) requires backspin on the cue ball commensurate with a precise ball 
+      fraction and, taking into account the distance between the balls, a 
+      sufficiently powerful cue stroke to preserve this backspin until the balls 
+      collide, which is even riskier. In practice, a player should try to select 
+      robust two rail tactics : a high point of attack to make the cue ball roll 
+      without slipping against the cloth, a fractional hit close to ½ ball to 
+      obtain a 40° final angle, a soft cue stroke so as not to disperse the 
+      three balls, and the right amount of english to control the rebound from 
+      the first rail and land on the second object ball for the count after 
+      contacting two rails. This is another example of "reasoned practice" for 
+      the given play situation.</p>
+
+      <p>Theory and practice are complementary, but 
+      theory can never replace practice. Indeed, only practice makes it possible 
+      to progress in the area of consistency of performance. Theory, on the 
+      other hand, has an instructional value : it enables us to understand and 
+      impart to others the variables which a player must address. Both practice 
+      and theory thus combine to form a "reasoned practice" of billiards, and 
+      will continue to fascinate both players and theoreticians.</p>
+
+
+<h3><a name="art2">2. French-English glossary of billiard terms</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art1">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art3">Next</a> Paragraph )</i></h3>
+
+
+<p>
+<br>
+<b>Adhérence pendant le choc</b>&nbsp;: <span lang="en">contact without slipping, or momentarily grabbing</span> <br>
+<b>Amorti</b>&nbsp;: <span lang="en">dead ball</span> <br>
+<b>Attaque basse/haute</b>&nbsp;: <span lang="en">below-center/above center hit</span> <br>
+<b>"Bande-avant"</b> ou <b>"Bricole"</b>&nbsp;: <span lang="en">rail-first shot or kick shot</span> <br>
+<b>Bande lisse/rugueuse</b>&nbsp;: <span lang="en">slippery/sticky cushion, or low/high friction cushion</span> <br>
+<b>Bande molle/dure</b>&nbsp;: <span lang="en">soft/hard cushion</span> <br>
+<b>Billard (table)</b> : <span lang="en">table</span> <br>
+<b>Billard français</b>&nbsp;: <span lang="en">carom billiards</span> <br>
+<b>"Bille collée"</b>&nbsp;: <span lang="en">frozen ball</span> <br>
+<b>Bille N°1, N°2 et N°3</b>&nbsp;: <span lang="en">cue ball, first object ball and second object ball</span> <br>
+<b>"Bosse"</b> ou <b>"Contre"</b>&nbsp;: <span lang="en">double kiss (shot where the first object ball rebounds back into the cue ball)</span> <br>
+<b>"Butage"</b>&nbsp;: <span lang="en">cling or skid</span> <br>
+<b>Chevalet</b>&nbsp;: <span lang="en">bridge</span> <br>
+<b>Choc bille-tapis</b>&nbsp;: <span lang="en">ball-cloth collision</span> <br>
+<b>"Coulé"</b>&nbsp;: <span lang="en">follow shot</span> <br>
+<b>Coup de queue incliné, faible/moyen/fort</b>&nbsp;: <span lang="en">soft/medium/hard cue-elevated stroke</span> <br>
+<b>"Coup-dur"</b>&nbsp;: <span lang="en">kiss-back shot or double kiss, but only when the first object ball is close to or frozen to the cushion</span> <br>
+<b>Déviation initiale/finale</b>&nbsp;: <span lang="en">initial/final deflection angle</span> <br>
+<b>Effet de côté contraire,</b> par rapport à la bande/bille N°2&nbsp;: <span lang="en">reverse or inside English</span> <br>
+<b>Effet de côté naturel ou "Bon effet",</b> par rapport à la bande/bille N°2&nbsp;: <span lang="en">running or outside English</span> <br>
+<b>"Fausse-queue"</b>&nbsp;: <span lang="en">miscue</span> <br>
+<b>Force de frottement</b>&nbsp;: <span lang="en">friction force</span> <br>
+<b>"Glissement pur"</b>&nbsp;: <span lang="en">pure sliding</span> <br>
+<b>Hauteur d'attaque</b>&nbsp;: <span lang="en">height of the cue tip contact point</span> <br>
+<b>Limage</b>&nbsp;: <span lang="en">warm-up stroke</span> <br>
+<b>"Massé"</b>&nbsp;: <span lang="en">massé shot</span> <br>
+<b>Moment cinétique</b>&nbsp;: <span lang="en">angular momentum</span> <br>
+<b>Moment d'inertie</b>&nbsp;: <span lang="en">moment of inertia</span> <br>
+<b>Paramètre de pivotement</b>&nbsp;: <span lang="en">coefficient of boring friction or z-spin coefficient of friction</span> <br>
+<b>Patinage avant/arrière</b>&nbsp;: <span lang="en">forward/backward overspin or top-/back-overspin</span> <br>
+<b>Percussion</b>&nbsp;: <span lang="en">percussion</span> <br>
+<b>"Piqué"</b>&nbsp;: <span lang="en">piqué shot (massé shot aiming to move back the cue ball)</span> <br>
+<b>"Placement"</b>&nbsp;: <span lang="en">position play</span> <br>
+<b>Point d'appui de la bille</b>&nbsp;: <span lang="en">ball-cloth contact point</span> <br>
+<b>Point de choc</b>&nbsp;: <span lang="en">collision point</span> <br>
+<b>Point de visée</b>&nbsp;: <span lang="en">aiming point</span> <br>
+<b>Principe fondamental de la dynamique</b>&nbsp;: <span lang="en">Newton's laws of motion</span> <br>
+<b>Procédé</b>&nbsp;: <span lang="en">cue tip</span> <br>
+<b>"Quantité de bille"</b> (plein, 3/4 plein, fin)&nbsp;: <span lang="en">fullness of ball hit (full, 3/4-full, fine)</span> <br>
+<b>Quantité de mouvement</b>&nbsp;: <span lang="en">linear momentum</span> <br>
+<b>Queue légère/massive</b>&nbsp;: <span lang="en">light/heavy cue stick</span> <br>
+<b>"Queutage"</b>&nbsp;: <span lang="en">push shot (foul shot where the cue ball is close to or touching the object ball)</span> <br>
+<b>"Rappel"</b>&nbsp;: <span lang="en">gather shot</span> <br>
+<b>"Rencontre"</b>&nbsp;: <span lang="en">time shot (shot where the first object ball pushes the second object ball towards the cue ball)</span> <br>
+<b>"Renversé"</b>&nbsp;: <span lang="en">reverse-the-corner shot or double-the-rail shot</span> <br>
+<b>"Repère"</b>&nbsp;: <span lang="en">diamond</span> <br>
+<b>Résistance à l'avancement</b>&nbsp;: <span lang="en">rolling resistance</span> <br>
+<b>"Rétro"</b>&nbsp;: <span lang="en">draw shot</span> <br>
+<b>Roulement</b>&nbsp;: <span lang="en">rolling without slipping</span> <br>
+<b>Saut</b>&nbsp;: <span lang="en">jump shot</span> <br>
+<b>Spécialités</b> (partie libre, jeu de cadre, jeu par 1 bande, par 3 bandes, billard artistique)&nbsp;: <span lang="en">disciplines (straight rail, balkaline, one-cushion, three-cushion, artistic billiards)</span> <br>
+<b>Tapis</b>&nbsp;: <span lang="en">cloth</span> <br>
+<b>Vitesse de glissement</b>&nbsp;: <span lang="en">relative surface velocity</span> <br>
+<b>Vitesse de translation/rotation</b>&nbsp;: <span lang="en">translational/rotational velocity</span> <br>
+</p>
+<br>
+
+
+
+
+
+<h3><a name="art3">3. Results from the mechanics of collisions as applied to billiards</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art2">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art4">Next</a> Paragraph )</i></h3>
+
+      <p>The general equations which model a collision 
+      between two arbitrary bodies, taking into account elasticity and the 
+      friction between the bodies during the collision, are discussed below.</p>
+
+<h4>Notation</h4>
+
+<center><img src="./billfig1_retouche600ppp.gif" width="330" height="260" alt="Picture billfig1_retouche600ppp.gif"> </center>
+<br clear="all">
+
+      <p>
+      <br>
+         C, <b>WC</b> : point of collision between bodies, and surface velocity of C relative to body 1 <br>
+         G, M : center of gravity and mass of body 1<br>
+         I, R : moment of inertia about the central axis of body 1, and radius of body 1 (for a spherical and homogeneous body I = (2/5) M R<sup>2</sup> )<br>
+         <b>P</b> : percussion vector exerted at C by body 2<br>
+         Q : kinetic energy of the two body system<br>
+         <b>x*</b> : unit vector, normal to the tangent plane through C and directed toward the interior of body 1<br>
+         <b>W</b>, <b>&#937;</b> : translational velocity vector and angular velocity vector of body 1<br>
+         ' : index signifying body 2<br>
+         a, i : indices signifying the instants immediately preceding and immediately after collision<br>
+         fi, N : coefficients of friction and elasticity between the two bodies<br>
+         e : percentage of kinetic energy lost during the collision<br>
+         <b>v1</b>.<b>v2</b> and <b>v1</b> x <b>v2</b> : scalar product and vector product of the two vectors <b>v1</b> and <b>v2</b>, particularly : <b>v1</b> x <b>v1</b> = <b>0</b><br>
+         mixed product : (<b>v1</b> x <b>v2</b>).<b>v3</b> = (<b>v2</b> x <b>v3</b>).<b>v1</b><br>
+         double vector product : <b>v1</b> x (<b>v2</b> x <b>v3</b>) = (<b>v1</b>.<b>v3</b>) <b>v2</b> - (<b>v1</b>.<b>v2</b>) <b>v3</b><br>
+         ||<b>v1</b>|| : norm of vector <b>v1</b>, such that ||<b>v1</b>||<sup>2</sup> = <b>v1</b>.<b>v1</b>
+       </p>
+
+
+
+
+<h4>Equations and results</h4>
+
+      <p>The standard laws of the mechanics of collisions may be written :<br>
+      <br>
+      <b>Conservation of linear momentum :</b><br>
+          M <b>Wi</b> = M <b>Wa</b> + <b>P</b><br>
+          M' <b>W'i</b> = M' <b>W'a</b> + (-<b>P</b>)<br>
+          where vectors <b>Wi</b> and <b>W'i</b> are to be determined.<br>
+      <br>
+      <b>Conservation of angular momentum</b><br>
+          I <b>&#937;i</b> = I <b>&#937;a</b> + <b>GC</b> x <b>P</b><br>
+          I' <b>&#937;'i</b> = I' <b>&#937;'a</b> + <b>G'C</b> x (-<b>P</b>)<br>
+          where vectors <b>&#937;i</b> and <b>&#937;'i</b> are to be determined.<br>
+      <br>
+      <b>Coulomb's law of friction :</b><br>
+          <b>P</b> = P* (<b>x*</b> - fi <b>WCa</b> / ||<b>WCa</b>||)<br>
+          P* = k M (<b>W'a</b> - <b>Wa</b>).<b>x*</b><br>
+          <b>WCa</b> = (<b>Wa</b> - <b>W'a</b>) - [(<b>Wa</b> - <b>W'a</b>).<b>x*</b>] <b>x*</b> + <b>x*</b> x (R <b>&#937;a</b> + R' <b>&#937;'a</b>)<br>
+          where the constant k is to be determined.<br>
+      <br>
+      <b>Newton's law of collisions for homogeneous and spherical spheres :</b><br>
+          (<b>Wi</b> - <b>W'i</b>).<b>x*</b> = - N (<b>Wa</b> - <b>W'a</b>).<b>x*</b><br>
+          with N constant.<br>
+      <br>
+      <b>Theorem of kinetic energy</b><br>
+          Qa - Qi = e Qa<br>
+          where e is not constant (if N is constant).<br>
+          Q = (1/2) (M <b>W</b><sup>2</sup> + I <b>&#937;</b><sup>2</sup> + M' <b>W'</b><sup>2</sup> + I' <b>&#937;'</b><sup>2</sup>)<br>
+      </p>
+
+      <p>
+      <br>
+      There are thus 5 equations for 5 unknowns (<b>Wi</b>, <b>&#937;i</b>, <b>W'i</b>, <b>&#937;'i</b>, k). Vectorial resolution yields the unique solution 
+      (equations 1a) :<br>
+      </p>
+ 
+          <table summary="monocell chart for text frames" border="1" cellspacing="0" cellpadding="10"><tbody><tr><td>
+          <b>Wi</b> = <b>Wa</b> + (<b>P*</b>/M) (<b>x*</b> - fi <b>WCa</b> / ||<b>WCa</b>||)<br>
+          <b>&#937;i</b> = <b>&#937;a</b> + (5/ 2R) fi (P*/M) <b>x*</b> x <b>WCa</b> / ||<b>WCa</b>||<br>
+          <b>W'i</b> = <b>W'a</b> + (M/M') (<b>Wa</b> - <b>Wi</b>)<br>
+          <b>&#937;'i</b> = <b>&#937;'a</b> - (M/M') (R/R') (<b>&#937;a</b> - <b>&#937;i</b>)<br>
+          k = (1 + N)/(1 + M/M')<br>
+          </td></tr></tbody></table>
+
+      <p>
+      <br>
+      We may also deduce that :<br>
+      </p>
+
+          <table summary="monocell chart for text frames" border="1" cellspacing="0" cellpadding="10"><tbody><tr><td>
+          <b>Wi</b>.<b>x*</b> = k <b>W'a</b>.<b>x*</b> + (1 - k) <b>Wa</b>.<b>x*</b><br>
+          <b>W'i</b>.<b>x*</b> = (k M/M') <b>Wa</b>.<b>x*</b> + (1 - k M/M') <b>W'a</b>.<b>x*</b><br>
+          <b>WCi</b> = u <b>WCa</b><br>
+          where u = 1 - (7/2) fi (1 + M/M') (P*/M) / ||<b>WCa</b>||<br>
+          e (1 + M/M') = (1 - N<sup>2</sup>) (1/2) M [ (<b>W'a</b> - <b>Wa</b>).<b>x*</b> ) ]<sup>2</sup> / Qa, when fi is negligible.<br>
+          </td></tr></tbody></table>
+
+
+
+<h4>Discussion</h4>
+
+        <p>1- For a ball-cloth collision in which the ball 
+        rebounds from the cloth after jumping in the air, these equations are 
+        exact.</p>
+
+        <p>2- For the case of a ball-ball collision, the 
+        equations projected horizontally on the cloth are exact, provided we may 
+        ignore the influence of the horizontal percussion arising from 
+        the cloth. In the vertical dimension, the slow translational velocity of 
+        each ball is destroyed by the resistance of the cloth (when the ball is 
+        forced into the cloth) or is made insensitive by the weight of the ball 
+        which immediately brings it back against the cloth when the ball jumps 
+        in the air. The equations are almost exact if we ignore the vertical 
+        speed of translation of each ball (components <b>Wi</b>.<b>z</b> and <b>W'i</b>.<b>z</b>).</p>
+
+        <p>If we consider a perfectly elastic collision 
+        between two balls of the same mass ( N = 1, M = M'), then a collision 
+        assumed to take place without friction (fi = 0) results only in an 
+        exchange of velocity normal to the point of collision between balls ; 
+        under the same conditions, a collision with a stationary ball (<b>W'a</b> = <b>0</b>) 
+        makes the moving ball rebound along a line tangent to the point of 
+        collision, even in the presence of friction.</p>
+
+        <p>3- The case of a ball-rail collision is similar 
+        to that of the collision between balls, setting <b>W'a</b> = <b>&#937;'a</b> = (M/M') = 0.</p>
+
+        <p>4- In the general case where the cloth is 
+        sufficiently compressible so that the various simple collisions which 
+        occur (ball-ball, ball-rail and ball-cloth) may be considered 
+        sequential, the equations are exact.</p>
+
+        <p>5- In the four preceding cases, if the relative 
+        motion between the two bodies is not&nbsp; sufficient to overcome 
+        friction (u &lt; 0), there is adherence during the collision and the 
+        equations must be modified by replacing the quantity fi (P*/M)/||<b>WCa</b>|| 
+        by the quantity (2/7)/(1 + M/M'), which gives (equations 1b) :<br>
+        </p>
+
+          <table summary="monocell chart for text frames" border="1" cellspacing="0" cellpadding="10"><tbody><tr><td>
+          <b>Wi</b> = <b>Wa</b> + (P*/M) <b>x*</b> - (2/7) <b>WCa</b>/(1 + M/M')<br>
+          <b>&#937;i</b> = <b>&#937;a</b> + (5/7R) [<b>x*</b> x <b>WCa</b>/(1 + M/M')]<br>
+          <b>W'i</b> = <b>W'a</b> + (M/M') (<b>Wa</b> - <b>Wi</b>)<br>
+          <b>&#937;'i</b> = <b>&#937;'a</b> - (M/M') (R/R') (<b>&#937;a</b> - <b>&#937;i</b>)<br>
+          k = (1 + N)/(1 + M/M')<br>
+          </td></tr></tbody></table>
+
+        <p>
+        <br>
+        These equations also include the ideal case 
+        of body 1 rolling without slipping on body 2 immediately before the 
+        collision (<b>WCa</b> = <b>0</b>).</p>
+
+        <p>6- Suppose that, just before the collision 
+        between the two bodies, body 2 is stationary (<b>W'a</b> = <b>&#937;'a</b> = <b>0</b>), and body 
+        1's kinetic energy of rotation is small (&#937;a is negligible). If the 
+        collision is nearly head-on (<b>Wa</b> // <b>x*</b>) and friction is small (fi 
+        negligible), then the coefficients e and N are related, to a first 
+        approximation, by :<br>
+        </p>
+
+          <table summary="monocell chart for text frames" border="1" cellspacing="0" cellpadding="10"><tbody><tr><td>
+          e = (1 - N<sup>2</sup>)/(1 + M/M')<br>
+         </td></tr></tbody></table>
+
+        <p>7- The case of a horizontal cue stick-cue ball 
+        collision is special : the cue stick simultaneously strikes the ball and 
+        the hand posed on the cloth. To model this collision, the percussion vector 
+        (<b>P</b>) is almost parallel with the axis of the cue stick 
+        (<b>P</b> // <b>W'a</b> and <b>&#937;'i</b> = <b>0</b>), with the proportion of kinetic energy 
+        dissipated in the collision remaining almost constant. If D indicates 
+        the offset of the cue with respect to the center of the ball, vectorial 
+        resolution yields the unique solution (equations 1c) :<br>
+        </p>
+
+          <table summary="monocell chart for text frames" border="1" cellspacing="0" cellpadding="10"><tbody><tr><td>
+          <b>Wi</b> = <b>W'a</b> [1 + (1 - e - e K2 M'/M)<sup>1/2</sup>] / [K2 + M/M']<br>
+          <b>&#937;i</b> = (5/ 2R) (<b>GC</b>/R) x <b>Wi</b><br>
+          <b>W'i</b> = <b>W'a</b> - (M/M') <b>Wi</b><br>
+          K2 = 1 + (5/2) (D/R)<sup>2</sup><br>
+          </td></tr></tbody></table>
+
+        <p>8- The case of a ball-cue collision in which the 
+        cue stroke is inclined with respect to the plane of the cloth is similar 
+        to the case of the horizontal cue stick-cue ball collision. If for 
+        simplicity we suppose that the cloth is sufficiently compressible to be 
+        able to time sequence the two simple collisions which occur (the ball-cue 
+        stick collision and the ball-cloth collision), we may replace the terms <b>Wa</b> 
+        and <b>&#937;a</b> in equations 1a, respectively, by the terms <b>Wi</b> and <b>&#937;i</b> given by 
+        equations 1c.</p>
+
+
+
+<h3><a name="art4">4. Results from the dynamics of moving balls as applied to billiards</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art3">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art5">Next</a> Paragraph )</i></h3>
+
+      <p>The generalized equations which govern a ball's motion immediately after the collision which caused the motion are given below.</p>
+
+
+<h4>Complementary Notation</h4>
+
+<center><img src="./billfig2_retouche600ppp.gif" width="400" height="260" alt="Picture billfig2_retouche600ppp.gif"></center>
+<br clear="all">
+
+        <p>
+        <br>
+           E, <b>WE</b> : position of the ball on the cloth, and relative surface velocity vector at E<br>
+           <b>F</b>, <b>K</b> : reaction force, and the frictional torque of the cloth on the ball<br>
+           <b>z</b> : vertical unit vector, directed upward<br>
+           c : index relating to the instant when the ball rolls without slipping on the cloth<br>
+           d<b>v</b>/dt : time derivative of vector <b>v</b><br>
+           f, fc, fz : coefficient of friction, coefficient of rolling resistance, and z-spin friction parameter between the ball and cloth<br>
+           g, t : acceleration of gravity, and time<br>
+        </p>
+
+
+
+
+<h4>Equations and results</h4>
+
+      <p>The standard laws of the mechanics of a ball in motion may be written :<br>
+      <br>
+      <br>
+      <b>Newton's law of motion :</b><br>
+          M d<b>W</b>/dt = <b>F</b> - M g <b>z</b> <br>
+          I d<b>&#937;</b>/dt = <b>GE</b> x <b>F</b> + <b>K</b><br>
+          with vectors <b>W</b>, <b>&#937;</b> and <b>F</b> to be determined.<br>
+      <br>
+      <br>
+      <b>Particular scenarios :</b><br>
+      <br>
+        <b>1. Jumped ball</b><br>
+        <b>F</b> = <b>0</b> and <b>K</b> = <b>0</b><br>
+      <br>
+        <b>2. Ball sliding on the cloth (Coulomb's Law of friction)</b><br>
+        E immediately below G (ignoring rolling resistance compared to friction)<br>
+        <b>F</b> = M g (<b>z</b> - f <b>WE</b> / ||<b>WE</b>||)<br>
+        with <b>WE</b> = <b>W</b> + <b>z</b> x (R <b>&#937;</b>)<br>
+        <b>K horizontal</b> is negligible compared to <b>GE</b> x <b>F</b> <br>
+        <b>K vertical</b> = - (fz / R) (M g R) (<b>&#937; vertical</b>) / ||<b>&#937; vertical</b>||<br>
+      <br>
+        <b>3. Ball rolling without slipping on the cloth</b><br>
+        <b>W</b> = - <b>z</b> x (R <b>&#937;</b>)<br>
+        <b>K horizontal</b> = <b>0</b><br>
+        <b>K vertical</b> = - (fz / R) (M g R) (<b>&#937; vertical</b>) / ||<b>&#937; vertical</b>||<br>
+      </p>
+
+      <p>
+      <br>
+      There are thus 3 equations for 3 unknowns (<b>W</b>, <b>&#937;</b> and <b>F</b>). Vectorial resolution yields a unique solution (equations 2a) :<br>
+      <br>
+      <br>
+        <b>1. Jumped ball</b><br>
+      </p>
+
+          <table summary="monocell chart for text frames" border="1" cellspacing="0" cellpadding="10"><tbody><tr><td>
+          <b>W</b> = <b>Wi</b> - g t <b>z</b> and <b>&#937;</b> = <b>&#937;i</b> <br>
+          </td></tr></tbody></table>
+
+      <p>
+      <br>
+        <b>2. Ball sliding on the cloth (for t &lt; tc)</b><br>
+      </p>
+
+          <table summary="monocell chart for text frames" border="1" cellspacing="0" cellpadding="10"><tbody><tr><td>
+          <b>W</b> = <b>Wi</b> - (t/tc) (<b>Wi</b> - <b>Wc</b>)<br>
+          <b>&#937; horizontal</b> = <b>&#937;i horizontal</b> + (5/ 2R) (t/tc) <b>z</b> x (<b>Wi</b> - <b>Wc</b>)<br>
+          <b>&#937; vertical</b> = <b>&#937;i vertical</b> [1 - (5/ 2R) (fz / R) (g / ||<b>&#937;i vertical</b>||) t]<br>
+          tc = ||<b>Wi</b> - <b>Wc</b>||/(f g)<br>
+          <b>Wc</b> = (5/7) [<b>Wi</b> - (2 R/5) <b>z</b> x <b>&#937;i</b> ]<br>
+          <b>&#937;c horizontal</b> = (1/R) <b>z</b> x <b>Wc</b> = (5/7) [(1/R) <b>z</b> x <b>Wi</b> + (2/5) <b>&#937;i horizontal</b>]<br>
+          <b>F</b> = M g (<b>z</b> - f <b>WEi</b> / ||<b>WEi</b>||), which indicates that the force <b>F</b> remains constant during the entire sliding motion<br>
+          </td></tr></tbody></table>
+
+        <p>
+        <br>
+          <b>3. Ball rolling without slipping on the cloth (for t &gt; tc)</b><br>
+        </p>
+
+          <table summary="monocell chart for text frames" border="1" cellspacing="0" cellpadding="10"><tbody><tr><td>
+          <b>W</b> = <b>Wc</b> [1 - fc (g / ||<b>Wc</b>||) (t - tc)]<br>
+          <b>&#937; horizontal</b> = (1/R) <b>z</b> x <b>W</b><br>
+          <b>&#937; vertical</b> = <b>&#937;i vertical</b> [ 1 - (5/ 2R) (fz / R) (g / ||<b>&#937;i vertical</b>||) t ]<br>
+          <b>F</b> = M g (<b>z</b> - fc <b>Wc</b> / ||<b>Wc</b>||), which indicates that the force <b>F</b> remains constant during the entire rolling motion<br>
+          </td></tr></tbody></table>
+
+      <p>
+      <br>
+      In each case, one may integrate the equations for <b>W</b> and <b>&#937;</b> to obtain the trajectory and the rotation of the ball.
+      </p>
+
+
+<h4>Discussion</h4>
+
+        <p>If the ball jumps in the air immediately 
+        after the collision, its trajectory is a parabola in a vertical plane.</p>
+
+        <p>If the ball remains in contact with the 
+        cloth, it starts its motion by slipping in a horizontal plane in a 
+        parabolic arc, then rolls without slipping in a straight line. </p>
+
+
+
+<h3><a name="art5">5. Synthesis of a theory of billiards</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art4">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art6">Next</a> Paragraph )</i></h3>
+
+      <p>The complete synthesis of the theory of 
+      billiards, including the justification for the assertions made in this 
+      article, may be found in the French book "Billiards - Theory of Play" by Regis Petit (see <a href="http://www.regispetit.fr/bil_praa.htm#art6">References</a>).</p>
+
+
+<h3><a name="art6">6. References</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art5">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art7">Next</a> Paragraph )</i></h3>
+
+   <ol type="1">
+
+      <li lang="fr">CORIOLIS G.G., <a href="http://www.gabay-editeur.com/epages/300555.sf/fr_FR/?ObjectPath=/Shops/300555/Products/081">Théorie mathématique des effets du jeu de billard</a>, Jacques Gabay, 1990 (réimpression du livre original, 1835).
+      </li><li lang="fr">CORIOLIS G.G., <a href="http://books.google.com/books?id=V99CAAAAIAAJ&amp;printsec=frontcover&amp;dq=coriolis&amp;hl=fr#PPR5,M1">Théorie mathématique des effets du jeu de billard (Fig. 1-68 mal scannérisées)</a>, Carilian-Goeury, Paris, 1835.  Exemplaire du "Berkeley University of California".
+      </li><li lang="fr">CORIOLIS G.G., <a href="http://books.google.com/books?id=a2USAAAAIAAJ&amp;printsec=frontcover&amp;dq=coriolis+th%C3%A9orie+math%C3%A9matique+jeu+billard+gaspard&amp;lr=&amp;ei=vFAGSL-pApL-jgGO7vjXAQ#PRA1-PA74,M1">Théorie mathématique des effets du jeu de billard (Fig. 1-68 mal scannérisées)</a>, Carilian-Goeury, Paris, 1835. Exemplaire du "Stanford University of California".
+      </li><li lang="fr">CORIOLIS G.G., <a href="http://www.regispetit.fr/Coriolis/Coriolis_errata2.xls" title="Coriolis_errata2 (.xls, 40 Ko)">Errata n°2 par PETIT R. (.xls, 40 Ko)</a>
+
+      </li><li lang="en">CORIOLIS G.G., <a href="http://www.worldcat.org/title/mathematical-theory-of-spin-friction-and-collision-in-the-game-of-billiards/oclc/71266905">Mathematical Theory of Spin, Friction, and Collision in the Game of Billiards</a>, English translation by D. Nadler, 2005.
+      </li><li lang="en">KOEHLER J.H., <a href="http://www.amazon.com/gp/product/0962289027/102-5543228-0151329?v=glance&amp;n=283155">The Science of Pocket Billiards</a>, Sportology Publications, 1995.
+      </li><li lang="en">MARLOW W.C., <a href="http://www.amazon.com/gp/product/0964537001/ref=nosim/102-5543228-0151329?n=283155">The Physics of Pocket Billiards</a>, Marlow Advanced Systems Technologies (MAST), 1995.
+
+      </li><li lang="fr">PEREZ J.P., Mécanique : points matériels - solides - fluides, Masson, 1995.
+      </li><li lang="fr">PETIT R.,  <a href="http://www.regispetit.fr/bil_inta.htm">Billard - Théorie du jeu</a>, Chiron, 1996, 2004.
+      </li><li lang="fr">RUGERE R., <a href="http://www.amazon.fr/exec/obidos/ASIN/2865790169/402-5649970-4792942">Traité de billard</a>, Leymarie, 1988.
+
+      </li><li lang="en">SHEPARD R., <a href="http://www.sfbilliards.com/Misc/Shepard_apapp.pdf">Amateur Physics for the Amateur Pool Player (APAPP)</a>, 1997.
+
+   </li></ol>
+
+<p>Regis Petit is computing engineer of the company <span lang="fr">"Electricité de France"</span> (EDF).</p><br>
+
+
+
+<h3><a name="art7">7. Proof of results</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art6">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art">Start</a> Paragraph )</i></h3>
+
+
+<h4><a name="art71">7.1. Ball-ball, ball-cushion or ball-cloth collision</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art7">Start</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art72">Next</a> Subparagraph )</i></h4>
+
+<p>
+<b>Basic equations :</b><br>
+<br>
+Index ' is relative to the collided body (ball 2, cushion or cloth).<br>
+(C1) M <b>Wi</b> = M <b>Wa</b> + <b>P</b><br>
+(C2) M' <b>W'i</b> = M'<b> W'a</b> + (-<b>P</b>)<br>
+(C3) I <b>&#937;i </b>= I <b>&#937;a</b> + <b>GC</b> x <b>P</b> <br>
+(C4) I' <b>&#937;'i</b> = I' <b>&#937;'a</b> + <b>G'C</b> x (-<b>P</b>)<br>
+   with : I = (2/5) M R<sup>2</sup> and I' = (2/5) M' R'<sup>2</sup><br>
+(C5) (<b>Wi</b> - <b>W'i</b>).<b>x*</b> = - N (<b>Wa</b> - <b>W'a</b>).<b>x*</b><br>
+(C6) <b>P</b> = P* ( <b>x*</b> - fi  <b>WCa</b> / ||<b>WCa</b>||)<br>
+(C6') <b>WCa</b> = (<b>Wa</b> - <b>W'a</b>) - [ (<b>Wa</b> - <b>W'a</b>).<b>x*</b> ] <b>x*</b> + <b>x*</b> x (R <b>&#937;a</b> + R' <b>&#937;'a</b>)<br>
+(C6") P* = k M (<b>W'a</b> - <b>Wa</b>).<b>x*</b><br>
+<br>
+<b>Solution :</b><br>
+<br>
+Equations (C1) and (C2) give <b>W'i</b> as follows :<br>
+(C7) <b>W'i</b> = <b>W'a</b> + (M/M') (<b>Wa</b> - <b>Wi</b>)<br>
+Equations (C3) and (C4) give <b>&#937;'i</b> as follows :<br>
+(C8) <b>&#937;'i</b> = <b>&#937;'a</b> - (M/M') (R/R') (<b>&#937;a</b> - <b>&#937;i</b>)<br>
+Equations (C1), (C6) and (C6") give <b>Wi</b> as follows :<br>
+(C10) <b>Wi</b> = <b>Wa</b> + (P*/M) (<b>x*</b> - fi <b>WCa</b> / ||<b>WCa</b>||)<br>
+Equations (C3), (C6) and (C6") give <b>&#937;i</b> as follows :<br>
+(C11) <b>&#937;i</b> = <b>&#937;a</b> + (5/2)(1/R) <b>x*</b> x (<b>Wa</b> - <b>Wi</b>) = <b>&#937;a</b> + (5/2)(1/R) fi (P*/M) <b>x*</b> x <b>WCa</b> / ||<b>WCa</b>||<br>
+Replacing of (C7) in (C5) gives <b>Wi</b> as follows :<br>
+(<b>Wi</b> - <b>Wa</b>).<b>x*</b> = ((1 + N)/(1 + M/M')) (<b>W'a</b> - <b>Wa</b>).<b>x*</b><br>
+Replacing of (C10) in this last equation gives the coefficient k as follows :<br>
+(C9) k = (1 + N)/(1 + M/M')<br>
+It also shows that :<br>
+(C12) <b>WCi</b> = (<b>Wi</b> - <b>W'i</b>) - [ (<b>Wi</b> - <b>W'i</b>).<b>x*</b> ] <b>x*</b> + <b>x*</b> x (R <b>&#937;i</b> + R' <b>&#937;'i</b>) = u <b>WCa</b><br>
+<br>
+The adherence case during the collision is special. It occurs when the relative motion between the two bodies is not sufficient to overcome friction, which is written :<br>
+(C13) <b>WCi</b> = <b>0</b><br>
+Replacing of (C13) in (C12) gives the adherence condition as follows :<br>
+u &lt; 0 which includes the case <b>WCa</b> = <b>0</b><br>
+Equations (C7)(C8)(C10)(C11) must be modified by replacing the quantity fi (P*/M)/||<b>WCa</b>|| by the quantity (2/7)/(1 + M/M')<br>
+</p>
+
+
+<h4><a name="art72">7.2. Cue-ball collision</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art71">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art73">Next</a> Subparagraph )</i></h4>
+
+<p>
+<b>Basic equations :</b><br>
+<br>
+Index ' is relative to the cue.<br>
+(C21) M <b>Wi</b> = M <b>Wa</b> + <b>P</b><br>
+(C22) M' <b>W'i</b> = M'<b> W'a</b> + (-<b>P</b>)<br>
+(C23) I <b>&#937;i</b> = I <b>&#937;a</b> + <b>GC</b> x <b>P</b><br>
+   with : I = (2/5) M R<sup>2</sup><br>
+(C24) Qa - Qi = e Qa<br>
+(C24') Q = (1/2) (M <b>W</b><sup> 2</sup> + I <b>&#937;</b><sup>2</sup> + M' <b>W'</b><sup>2 </sup> + I' <b>&#937;'</b><sup>2</sup>)<br>
+<br>
+<b>Assumptions :</b><br>
+<br>
+- The ball is at rest just before collision :<br>
+&nbsp;&nbsp;&nbsp;(C25) <b>Wa</b> = <b>&#937;a</b> = <b>0</b><br>
+- The cue movement just before collision is a translation :<br>
+&nbsp;&nbsp;&nbsp;(C26) <b>&#937;'a</b> = <b>0</b><br>
+- The cue collides the ball at point C : <b>GC</b> = - R <b>x*</b> and we define the following coefficient : K2 = 1 + (5/2) (D/R)<sup>2</sup><br>
+- The hand or bridge guiding the cue completely absorbs the transversal shock wave :<br>
+&nbsp;&nbsp;&nbsp;(C27) <b>P</b> is parallel to <b>W'a</b><br>
+&nbsp;&nbsp;&nbsp;(C28) <b>&#937;'i</b> = <b>0</b><br>
+- The offset (D) of the cue is not too large so that the cue and the ball automatically split just after collision :<br>
+&nbsp;&nbsp;&nbsp;(C29) <b>Wi</b>.<b>x*</b> &gt; <b>W'i</b>.<b>x*</b><br>
+<br>
+<b>Solution :</b><br>
+<br>
+Equations (C21) and (C25) give <b>W'i</b> as follows :<br>
+<b>W'i</b> = <b> W'a</b> - (M/M') <b>Wi</b><br>
+Equations (C23), (C25) and (C2) give <b>&#937;i</b> as follows :<br>
+<b>&#937;i</b> = (5/2)(1/R) (<b>GC</b>/R) x <b>Wi</b><br>
+Equations (C24')(C25)(C26) and (C28) give Qa and Qi as follows :<br>
+Qa = (1/2) M' <b>W'a</b><sup>2</sup><br>
+Qi = (1/2) (M <b>Wi</b><sup>2</sup> + I <b>&#937;i</b><sup>2</sup> + M' <b>W'i</b><sup>2 </sup>)<br>
+Equations (C23) and (C25) give <b>&#937;i</b><sup>2</sup> as follows :<br>
+<b>&#937;i</b><sup>2</sup> = ((5/2)(D/R)(1/R))<sup>2</sup> <b>Wi</b><sup>2</sup><br>
+Equations (C24)(C27) and (C29) give <b>Wi</b> as follows :<br>
+<b>Wi</b> = <b>W'a</b> [1 + Square_root of (1 - e - e K2 M'/M)] / [K2 + M/M']<br>
+<br>
+The condition of automatic cue-ball splitting can be written as follows :<br>
+(D/R)<sup>2</sup> &lt; (2/5)(1 + M/M')(1 - e (1 + M'/M))<br>
+
+</p>
+
+
+
+
+<h4><a name="art73">7.3. Sliding movement : &#937; horizontal, Wc, tc, W and WE</a>  <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art72">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art74">Next</a> Subparagraph )</i></h4>
+
+<p>
+<b>Basic equations :</b><br>
+<br>
+(M1) M d<b>W</b>/dt = <b>F</b> - M g <b>z</b><br>
+(M2) I d<b>&#937;</b>/dt = <b>GE</b> x <b>F</b> + <b>K</b><br>
+   with : I = (2/5) M R<sup>2</sup><br>
+(M3) <b>F</b> = M g [ <b>z</b> - (f <b>WE</b> / ||<b>WE</b>||) ]<br>
+(M4) <b>WE</b> = <b>W</b> + <b>z</b> x R <b>&#937;</b> = <b>W</b> + <b>z</b> x R <b>&#937; horizontal</b><br>
+<br>
+<b>Assumptions :</b><br>
+<br>
+- The ball remains in contact with the cloth at the beginning and during the sliding period : <b>Wi</b> = <b>Wi</b> - (<b>Wi</b>.<b>z</b>) <b>z</b> and <b>W</b>.<b>z</b> = 0<br>
+- The rolling resistance is negligible compared to the friction force : <b>GE</b> = - R <b>z</b><br>
+- The term <b>K horizontal</b> is negligible compared to the product <b>GE</b> x <b>F</b> : <b>K horizontal</b> = <b>0</b><br>
+<br>
+<b>Solution :</b><br>
+<br>
+Equations (M1) and (M3) give d<b>W</b>/dt as follows :<br>
+(M1') d<b>W</b>/dt = - f g <b>WE</b> / ||<b>WE</b>||<br>
+Equations (M2) and (M3) give d<b>&#937; horizontal</b> /dt as follows :<br>
+(M2") d<b>&#937; horizontal</b> /dt = - (5/2) (1/R) <b>z</b> x (<b>F</b> / M) = - (5/2) (1/R) <b>z</b> x d<b>W</b>/dt<br>
+Equations (M4) and (M2") give d<b>WE</b>/dt as follows :<br>
+d<b>WE</b>/dt = d<b>W</b>/dt + <b>z</b> x R d<b>&#937;</b>/dt = d<b>W</b>/dt + <b>z</b> x R d<b>&#937; horizontal</b> /dt  = d<b>W</b>/dt - (5/2) <b>z</b> x (<b>z</b> x d<b>W</b>/dt) = (7/2) d<b>W</b>/dt<br>
+From Equation (M1') we deduce that d<b>WE</b>/dt is parallel to <b>WE</b>.<br>
+<b>WE</b> keeps a constant direction during the movement and <b>WE</b> can be written as follows :<br>
+(M3') <b>WE</b> / ||<b>WE</b>|| = <b>WEi</b> / ||<b>WEi</b>||<br>
+From Equation (M3) <b>F</b> can be written as follows :<br>
+(M3") <b>F</b> = M g [ <b>z</b> - (f <b>WEi</b> / ||<b>WEi</b>||) ]<br>
+Then <b>F</b> keeps a constant amplitude and direction during the movement.<br>
+<br>
+Integrating of Equation (M2") gives <b>&#937; horizontal</b> as follows :<br>
+(M2''') <b>&#937; horizontal</b> - <b>&#937;i horizontal</b> = - (5/2) (1/R) <b>z</b> x (<b>W</b> - <b>Wi</b>)<br>
+<br>
+From Equation (M4) <b>WE</b> can be written as follows :<br>
+(M4') <b>WE</b> - <b>WEi</b> = (<b>W</b> - <b>Wi</b>) + <b>z</b> x R (<b>&#937; horizontal</b> - <b>&#937;i horizontal</b>) = (<b>W</b> - <b>Wi</b>) - (5/2) <b>z</b> x (<b>z</b> x (<b>W</b> - <b>Wi</b>)) = (7/2) (<b>W</b> - <b>Wi</b>)<br>
+At the end of sliding period <b>WE</b> = <b>0</b> when <b>W</b> = <b>Wc</b>. Then <b>Wc</b> can be written as follows :<br>
+(M8) <b>Wc</b> = <b>Wi</b> - (2/7) <b>WEi</b> = (5/7) (<b>Wi</b> - (2/5) R <b>z</b> x <b>&#937;i</b>)<br>
+<br>
+From Equations (M3') and (M8) integrating of (M1') gives <b>W</b> as follows :<br>
+<b>W</b> - <b>Wi</b> = - f g t (<b>Wi</b> - <b>Wc</b>) / ||<b>Wi</b> - <b>Wc</b>||<br>
+At the end of sliding period t = tc when <b>W</b> = <b>Wc</b>. Then <b>W</b> and tc can be written as follows :<br>
+(M10) <b>W</b> = <b>Wi</b> - (t/tc) (<b>Wi</b> - <b>Wc</b>)<br>
+(M10') tc = ||<b>Wi</b> - <b>Wc</b>|| / (f g)<br>
+<br>
+From Equations (M4') and (M8) <b>WE</b> can be written as follows :<br>
+<b>WE</b> = (7/2) (1 - (t/tc)) (<b>Wi</b> - <b>Wc</b>) = (1 - (t/tc)) <b>WEi</b><br>
+</p>
+
+
+
+
+<h4><a name="art74">7.4. Rolling movement without sliding : W, t translation_stop and &#937; horizontal</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art73">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art75">Next</a> Subparagraph )</i></h4>
+
+<p>
+<b>Basic equations :</b><br>
+<br>
+(M1) M d<b>W</b>/dt = <b>F</b> - M g <b>z</b><br>
+(M2) I d<b>&#937;</b>/dt = <b>GE</b> x <b>F</b> + <b>K</b><br>
+with :<br>
+I = (2/5) M R<sup>2</sup><br>
+(M5) Point E is shifted to the front of the ball at an angle (#) : cos[#] = - (1/R) <b>GE</b>.<b>z</b> and we define the following coefficient : fc = sin[#] / (2/5 + cos[#])<br>
+(M6) <b>W</b> = - <b>z</b> x R <b>&#937;</b><br>
+<br>
+<b>Assumptions :</b><br>
+<br>
+- The ball remains in contact with the cloth at the beginning and during the rolling period : <b>W</b>.<b>z</b> = 0<br>
+- The term <b>K horizontal</b> is negligible compared to the product <b>GE</b> x <b>F</b> : <b>K horizontal</b> = <b>0</b><br>
+<br>
+<b>Solution :</b><br>
+<br>
+Equations (M2) and (M6) give d<b>W</b>/dt as follows :<br>
+d<b>W</b>/dt = - <b>z</b> x R d<b>&#937;</b>/dt = - (R/I) <b>z</b> x (<b>GE</b> x <b>F</b>) = - (R/I) ( (<b>F</b>.<b>z</b>) <b>GE</b> - (<b>GE</b>.<b>z</b>) <b>F</b> )<br>
+Equation (M1) gives then d<b>W</b>/dt as follows :<br>
+d<b>W</b>/dt = - (R/I) ( M g <b>GE</b> - (<b>GE</b>.<b>z</b>) (M g <b>z</b> + M d<b>W</b>/dt) )<br>
+Then :<br>
+(M11) d<b>W</b>/dt = - g (<b>GE</b> - (<b>GE</b>.<b>z</b>) <b>z</b>) / ((2/5) R - (<b>GE</b>.<b>z</b>)) = - g (R sin[#] <b>W</b> / ||<b>W</b>||) / ((2/5) R + R cos[#]) = - g fc <b>W</b> / ||<b>W</b>||<br>
+We deduce that d<b>W</b>/dt is parallel to <b>W</b>.<br>
+Then <b>W</b> keeps a constant direction during the movement and <b>W</b> can be written as follows :<br>
+(M11') <b>W</b> / ||<b>W</b>|| = <b>Wc</b> / ||<b>Wc</b>||<br>
+From Equation (M1) <b>F</b> can be written as follows :<br>
+(M11") <b>F</b> = M g [ <b>z</b> - (fc <b>Wc</b> / ||<b>Wc</b>||) ]<br>
+<b>F</b> keeps a constant amplitude and direction during the movement. The coefficient fc reflects the rolling resistance on the cloth.<br>
+<br>
+Integrating of Equation (M11) gives <b>W</b> as follows :<br>
+(M12) When t &gt; t translation_stop : <b>W</b> = <b>0</b><br>
+(M12') When t &lt; t translation_stop : <b>W</b> = (1 - (t - tc)/(t translation_stop - tc)) <b>Wc</b><br>
+(M12") t translation_stop = tc + ||<b>Wc</b>||/(fc g)<br>
+<br>
+Equation (M6) gives then <b>&#937; horizontal</b> as follows :<br>
+(1/R) <b>z</b> x <b>W</b> = - (1/R) <b>z</b> x (<b>z</b> x R <b>&#937;</b>) = <b>&#937;</b> - (<b>&#937;</b>.<b>z</b>) <b>z</b> = <b>&#937; horizontal</b><br>
+</p>
+
+
+<h4><a name="art75">7.5. z-spin vector when sliding or rolling : &#937; vertical and t spin_stop</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art74">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art76">Next</a> Subparagraph )</i></h4>
+
+<p>
+<b>Basic equations :</b><br>
+<br>
+(M1) M d<b>W</b>/dt = <b>F</b> - M g <b>z</b><br>
+(M2) I d<b>&#937;</b>/dt = <b>GE</b> x <b>F</b> + <b>K</b><br>
+with :<br>
+I = (2/5) M R<sup>2</sup><br>
+(M7) <b>K vertical</b> = - (fz / R) (M g R) <b>&#937; vertical</b> / ||<b>&#937; vertical</b>||<br>
+<br>
+<b>Solution :</b><br>
+Equations (M3") and (M11") give the following equations :<br>
+For the sliding period : (<b>z</b> x <b>GE</b>).(<b>F</b>/(M g)) = ( <b>z</b> x (-R) <b>z</b> ).(<b>F</b>/(M g)) = <b>0</b><br>
+For the rolling period : (<b>z</b> x <b>GE</b>).(<b>F</b>/(M g)) = ( <b>z</b> x R (sin[#] (<b>W</b>/||<b>W</b>||) - cos[#] <b>z</b>) ).(<b>F</b>/(M g)) = R sin[#] ( <b>z</b> x (<b>W</b>/||<b>W</b>||) ).( <b>z</b> - fc (<b>W</b>/||<b>W</b>||) ) = <b>0</b><br>
+Equation (M2) can be written :<br>
+(M13) I d<b>&#937; vertical</b>/dt = ((<b>GE</b> x <b>F</b>).<b>z</b>) <b>z</b> + <b>K vertical</b> = (<b>z</b> x <b>GE</b>).<b>F</b>  + <b>K vertical</b> = <b>K vertical</b> = - (fz / R) (M g R) <b>&#937; vertical</b> / ||<b>&#937; vertical</b>||<br>
+We deduce that d<b>&#937; vertical</b>/dt is parallel to <b>&#937; vertical</b>.<br>
+<b>&#937; vertical</b> keeps a constant direction during the movement and <b>&#937; vertical</b> can be written :<br>
+(M13') <b>&#937; vertical</b> / ||<b>&#937; vertical</b>|| = <b>&#937;i vertical</b> / ||<b>&#937;i vertical</b>||<br>
+Integrating of Equation (M13) gives <b>&#937; vertical</b> as follows :<br>
+(M14) When t &gt; t spin_stop : <b>&#937; vertical</b> = <b>0</b><br>
+(M14') When t &lt; t spin_stop : <b>&#937; vertical</b> = (1 - (t / t spin_stop)) <b>&#937;i vertical</b><br>
+(M14") t spin_stop = (2/5) R<sup>2</sup> ||<b>&#937;i vertical</b>||/(fz g)<br>
+</p>
+
+
+<h4><a name="art76">7.6. Horizontal cue stroke : sliding distances y, yb and yc</a> <i>( <a href="http://www.regispetit.fr/bil_praa.htm#art75">Previous</a> / <a href="http://www.regispetit.fr/bil_praa.htm#art7">Start</a> Subparagraph )</i></h4>
+
+<p>
+The different vectors projected in the cue reference {<b>x</b>, <b>y</b>, <b>z</b>} can be written as follows :<br>
+<b>W</b>   = (0, V, 0)<br>
+<b>Wi</b>  = (0, Vi, 0)<br>
+<b>Wc</b>  = (0, Vc, 0)<br>
+<b>&#937;</b>  = (p, 0, r)<br>
+<b>&#937;i</b> = (pi, 0, ri)<br>
+<b>z</b>   = (0, 0, 1)
+<br>
+Equations (M2''') (M8) (M10') and (M10) can be written more simply :<br>
+p = pi - (5/2) (1/R) (Vi - V)<br>
+Vc = (5/7) (Vi - (2/5) R pi)<br>
+V = Vi - (t/tc) (Vi - Vc)<br>
+tc = |Vi - Vc| / (f g)<br>
+<br>
+If H is the height of the cue tip contact point, the cue-ball collision gives the following equation for any english :<br>
+pi = (5/2) (1/R) Vi (1 - (H/R))<br>
+Then :<br>
+p = (5/2) (1/R) (V - (H/R) Vi)<br>
+Vi - Vc = Vi (1 - (5/7)(H/R))<br>
+V = Vi - s f g t<br>
+s = Sign of [1 - (5/7)(H/R)]<br>
+Integrating of the last equation gives the distance (y) at any time (t) during the sliding period as follows :<br>
+y = Vi t - (1/2) s f g t<sup>2</sup> = s (Vi<sup>2</sup> - V<sup>2</sup>) / (2 f g)<br>
+<br>
+The sliding is pure for p = 0, then : Vb = (H/R) Vi<br>
+The sliding stops for p = - (1/R) Vc, then : Vc = (5/7) (H/R) Vi<br>
+Consequently the distances yb (until pure sliding point) and yc (until sliding breakpoint) can be written :<br>
+For H &lt; R : yb = Vi<sup>2</sup> (1 - (H/R)<sup>2</sup>) / (2 f g)<br>
+For any H : yc = Vi<sup>2</sup> |1 - ((5/7)(H/R))<sup>2</sup>| / (2 f g)<br>
+</p>
+
+
+<!-- Visit counter, copyright and last update date -->
+   <br>
+   <hr>
+<font size="1">Copyright © 2005 Régis Petit.
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a title=" Website registered on CopyrightFrance.com " href="http://www.copyrightfrance.com/phtml/p_logo1_us.php" target="_blank"><img border="0" src="./logsc8.gif" alt=" CopyrightFrance.com "></a>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Last page update : December 29, 2023.</font>
+
+
+
+
+</body></html>

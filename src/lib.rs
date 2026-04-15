@@ -655,7 +655,11 @@ pub enum CollisionModel {
 ///
 /// `throw_angle_degrees` is the signed deflection of the object-ball departure away from the ideal
 /// line-of-centers direction, measured in degrees toward the positive collision-tangent basis used
-/// internally by the solver. `transferred_spin` is reserved for later non-ideal models.
+/// internally by the solver.
+///
+/// `transferred_spin` is the angular-velocity increment transferred to the struck ball. In the
+/// current first-pass non-ideal model this is limited to z-axis spin for the common cut-shot case
+/// into an initially stationary object ball.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollisionOutcome {
     pub a_after: OnTableBallState,
@@ -2156,6 +2160,21 @@ fn ideal_collision_outcome_on_table(
     }
 }
 
+fn transferred_spin_from_contact_slip(
+    contact_slip: f64,
+    ball_radius: f64,
+) -> Option<AngularVelocity3> {
+    if contact_slip.abs() <= 1e-9 {
+        None
+    } else {
+        Some(AngularVelocity3::new(
+            0.0,
+            0.0,
+            contact_slip / (2.0 * ball_radius),
+        ))
+    }
+}
+
 fn throw_aware_collision_outcome_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -2164,8 +2183,8 @@ fn throw_aware_collision_outcome_on_table(
     let a_state = a.as_ball_state();
     let b_state = b.as_ball_state();
 
-    // TODO(physics): model transferred spin and the later post-contact cue-ball bend caused by
-    // residual follow / draw / side spin interacting with the cloth after impact.
+    // TODO(physics): model the later post-contact cue-ball bend caused by residual follow / draw /
+    // side spin interacting with the cloth after impact.
     if ball_speed(b_state).as_f64() > 1e-9 {
         return ideal;
     }
@@ -2205,19 +2224,40 @@ fn throw_aware_collision_outcome_on_table(
         Inches::from_f64(total_momentum_y - b_velocity.y().as_f64()),
     );
 
+    // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C11) and (C13), show that in
+    // the equal-ball adherence / no-slip limit the collision-induced spin increment is the same on
+    // both balls. Restricting this first slice to z-axis transfer only, the common increment `Δω`
+    // that cancels the tangential contact slip satisfies `2 R Δω = WCa`, so
+    // `Δω = WCa / (2 R)`.
+    let transferred_spin = transferred_spin_from_contact_slip(contact_slip, ball_radius);
+    let spin_delta_z = transferred_spin
+        .as_ref()
+        .map(|spin| spin.z().as_f64())
+        .unwrap_or(0.0);
+    let a_angular_velocity = AngularVelocity3::new(
+        a_state.angular_velocity.x().as_f64(),
+        a_state.angular_velocity.y().as_f64(),
+        a_state.angular_velocity.z().as_f64() + spin_delta_z,
+    );
+    let b_angular_velocity = AngularVelocity3::new(
+        b_state.angular_velocity.x().as_f64(),
+        b_state.angular_velocity.y().as_f64(),
+        b_state.angular_velocity.z().as_f64() + spin_delta_z,
+    );
+
     CollisionOutcome {
         a_after: build_on_table_ball_state(
             a_state.position.clone(),
             a_velocity,
-            a_state.angular_velocity.clone(),
+            a_angular_velocity,
         ),
         b_after: build_on_table_ball_state(
             b_state.position.clone(),
             b_velocity,
-            b_state.angular_velocity.clone(),
+            b_angular_velocity,
         ),
         throw_angle_degrees: Some(throw_angle_degrees),
-        transferred_spin: None,
+        transferred_spin,
     }
 }
 
@@ -2233,9 +2273,10 @@ fn throw_aware_collision_outcome_on_table(
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C6'), (C11), and (C13),
 ///   express the same contact-patch tangential slip and the no-slip / gearing condition.
 ///
-/// This first slice keeps the ideal equal-mass line-of-centers speed transfer and maps the signed
-/// tangential contact slip to a bounded signed deflection angle. Exact throw magnitudes and
-/// transferred spin remain future work.
+/// This first slice keeps the ideal equal-mass line-of-centers speed transfer, maps the signed
+/// tangential contact slip to a bounded signed deflection angle, and adds a first-pass transferred
+/// z-spin increment for the stationary-object equal-ball case. Exact throw magnitudes and richer
+/// transferred-spin components remain future work.
 pub fn collide_ball_ball_detailed_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,

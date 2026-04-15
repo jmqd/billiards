@@ -55,7 +55,7 @@ fn throw_aware_head_on_collision_matches_ideal_and_reports_zero_throw() {
 }
 
 #[test]
-fn a_cut_shot_without_side_spin_produces_cut_induced_throw() {
+fn a_cut_shot_without_side_spin_produces_cut_induced_throw_and_transferred_spin() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
         inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
@@ -73,6 +73,9 @@ fn a_cut_shot_without_side_spin_produces_cut_induced_throw() {
         .velocity
         .angle_from_north()
         .expect("the object ball should move after impact");
+    let transferred_spin = outcome
+        .transferred_spin
+        .expect("a slipping cut shot should transfer z-spin");
 
     assert!(
         outcome
@@ -84,6 +87,16 @@ fn a_cut_shot_without_side_spin_produces_cut_induced_throw() {
     assert!(
         (object_heading.as_degrees() - ideal_line.as_degrees()).abs() > 1e-9,
         "cut-induced throw should deflect the object ball away from the ideal line"
+    );
+    assert!(transferred_spin.z().as_f64().abs() > 1e-9);
+    assert_close(
+        outcome
+            .b_after
+            .as_ball_state()
+            .angular_velocity
+            .z()
+            .as_f64(),
+        transferred_spin.z().as_f64(),
     );
 }
 
@@ -112,6 +125,7 @@ fn gearing_english_cancels_throw_for_a_stationary_object_ball_cut() {
             .abs()
             < 1e-9
     );
+    assert!(throw_aware.transferred_spin.is_none());
     assert_close(
         throw_aware.a_after.as_ball_state().velocity.x().as_f64(),
         ideal.0.as_ball_state().velocity.x().as_f64(),
@@ -131,7 +145,7 @@ fn gearing_english_cancels_throw_for_a_stationary_object_ball_cut() {
 }
 
 #[test]
-fn over_gearing_flips_the_throw_direction() {
+fn over_gearing_flips_the_throw_and_transferred_spin_directions() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball_heading = Angle::from_north(0.0, 10.0);
     let line_of_centers = Angle::from_north(radius * 2.0_f64.sqrt(), radius * 2.0_f64.sqrt());
@@ -151,6 +165,14 @@ fn over_gearing_flips_the_throw_direction() {
         outcome
             .throw_angle_degrees
             .expect("throw-aware collisions should report a throw angle")
+            > 0.0
+    );
+    assert!(
+        outcome
+            .transferred_spin
+            .expect("over-gearing should produce transferred spin")
+            .z()
+            .as_f64()
             > 0.0
     );
 }

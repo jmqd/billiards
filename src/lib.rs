@@ -1490,25 +1490,60 @@ pub fn advance_within_phase_on_table(
         }
         MotionPhase::Rolling => {
             let initial_speed = ball_speed(state).as_f64();
-            let stop_time = initial_speed / rolling_linear_deceleration(config);
+            let linear_deceleration = rolling_linear_deceleration(config);
+            let stop_time = initial_speed / linear_deceleration;
             let advance_time = dt.as_f64().min(stop_time);
-            let final_speed =
-                (initial_speed - rolling_linear_deceleration(config) * advance_time).max(0.0);
-            let speed_ratio = if initial_speed <= f64::EPSILON {
+            let final_speed = (initial_speed - linear_deceleration * advance_time).max(0.0);
+            let start_heading = state
+                .velocity
+                .angle_from_north()
+                .expect("rolling states should have a velocity heading");
+            let curve = rolling_side_spin_curve_during(
+                start_heading,
+                initial_speed,
+                state.angular_velocity.z().as_f64(),
+                Seconds::new(advance_time),
+                ball,
+                config,
+            );
+            let curve_duration = curve.map_or(0.0, |curve| curve.duration.as_f64());
+            let speed_after_curve = (initial_speed - linear_deceleration * curve_duration).max(0.0);
+            let curve_distance = 0.5 * (initial_speed + speed_after_curve) * curve_duration;
+            let (curve_angle_degrees, heading_after_curve) = curve
+                .map(|curve| (curve.angle_degrees, curve.heading_after_curve))
+                .unwrap_or((0.0, start_heading));
+            let curve_mid_heading = rotate_angle_degrees(start_heading, 0.5 * curve_angle_degrees);
+            let curve_mid_radians = curve_mid_heading.as_degrees().to_radians();
+            let mut dx = curve_distance * curve_mid_radians.sin();
+            let mut dy = curve_distance * curve_mid_radians.cos();
+
+            let remaining_time = advance_time - curve_duration;
+            if remaining_time > f64::EPSILON {
+                let straight_distance = 0.5 * (speed_after_curve + final_speed) * remaining_time;
+                let straight_heading_radians = heading_after_curve.as_degrees().to_radians();
+                dx += straight_distance * straight_heading_radians.sin();
+                dy += straight_distance * straight_heading_radians.cos();
+            }
+
+            let final_velocity = if final_speed <= f64::EPSILON {
+                Velocity2::zero()
+            } else {
+                Velocity2::from_polar(
+                    InchesPerSecond::new(Inches::from_f64(final_speed)),
+                    heading_after_curve,
+                )
+            };
+            let radius = ball.radius.as_f64();
+            let rolling_wx = if final_speed <= f64::EPSILON {
                 0.0
             } else {
-                final_speed / initial_speed
+                -final_velocity.y().as_f64() / radius
             };
-            let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
-            let vx = state.velocity.x().as_f64();
-            let vy = state.velocity.y().as_f64();
-            let displacement_ratio = if initial_speed <= f64::EPSILON {
+            let rolling_wy = if final_speed <= f64::EPSILON {
                 0.0
             } else {
-                travel_distance / initial_speed
+                final_velocity.x().as_f64() / radius
             };
-            let dx = vx * displacement_ratio;
-            let dy = vy * displacement_ratio;
 
             OnTableBallState::try_from(BallState {
                 position: Inches2::new(
@@ -1516,14 +1551,11 @@ pub fn advance_within_phase_on_table(
                     Inches::from_f64(state.position.y().as_f64() + dy),
                 ),
                 height: state.height.clone(),
-                velocity: Velocity2::from_components(
-                    InchesPerSecond::new(Inches::from_f64(vx * speed_ratio)),
-                    InchesPerSecond::new(Inches::from_f64(vy * speed_ratio)),
-                ),
+                velocity: final_velocity,
                 vertical_velocity: state.vertical_velocity.clone(),
                 angular_velocity: AngularVelocity3::new(
-                    state.angular_velocity.x().as_f64() * speed_ratio,
-                    state.angular_velocity.y().as_f64() * speed_ratio,
+                    rolling_wx,
+                    rolling_wy,
                     advance_vertical_axis_spin(
                         state.angular_velocity.z().as_f64(),
                         Seconds::new(advance_time),
@@ -1797,6 +1829,71 @@ fn signed_angle_difference_degrees(from: Angle, to: Angle) -> f64 {
 
 fn rotate_angle_degrees(angle: Angle, delta: f64) -> Angle {
     Angle((angle.as_degrees() + delta).rem_euclid(360.0))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RollingSideSpinCurve {
+    duration: Seconds,
+    angle_degrees: f64,
+    heading_after_curve: Angle,
+}
+
+fn rolling_side_spin_curve_during(
+    start_heading: Angle,
+    initial_speed: f64,
+    initial_z_spin: f64,
+    max_duration: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> Option<RollingSideSpinCurve> {
+    if max_duration.as_f64() <= f64::EPSILON
+        || initial_speed <= f64::EPSILON
+        || initial_z_spin.abs() <= f64::EPSILON
+    {
+        return None;
+    }
+
+    let stop_time = initial_speed / rolling_linear_deceleration(config);
+    if stop_time <= f64::EPSILON {
+        return None;
+    }
+
+    let curve_duration = Seconds::new(
+        time_until_vertical_axis_spin_stops(initial_z_spin, config)
+            .expect("non-zero z-spin should have a stop time")
+            .as_f64()
+            .min(max_duration.as_f64())
+            .min(stop_time),
+    );
+    if curve_duration.as_f64() <= f64::EPSILON {
+        return None;
+    }
+
+    let linear_deceleration = rolling_linear_deceleration(config);
+    let end_speed = (initial_speed - linear_deceleration * curve_duration.as_f64()).max(0.0);
+    let end_z_spin = advance_vertical_axis_spin(initial_z_spin, curve_duration, config);
+    let average_speed = 0.5 * (initial_speed + end_speed);
+    if average_speed <= f64::EPSILON {
+        return None;
+    }
+
+    let average_z_spin = 0.5 * (initial_z_spin + end_z_spin);
+    let slip_ratio = (ball.radius.as_f64() * average_z_spin / average_speed).clamp(-1.0, 1.0);
+    if slip_ratio.abs() <= f64::EPSILON {
+        return None;
+    }
+
+    let duration_fraction = (curve_duration.as_f64() / stop_time).clamp(0.0, 1.0);
+    let angle_degrees = (slip_ratio * duration_fraction).to_degrees();
+    if angle_degrees.abs() <= f64::EPSILON {
+        return None;
+    }
+
+    Some(RollingSideSpinCurve {
+        duration: curve_duration,
+        angle_degrees,
+        heading_after_curve: rotate_angle_degrees(start_heading, angle_degrees),
+    })
 }
 
 fn build_on_table_ball_state(
@@ -2875,9 +2972,9 @@ pub fn collide_ball_ball_analyzed_on_table(
 ///
 /// This helper builds on the current bend estimate: if the cue ball first slides into natural roll,
 /// the side-spin-driven curve is estimated from that later rolling state; otherwise the current
-/// state is used directly if it is already rolling. The estimate uses the remaining z-spin and the
-/// current rolling deceleration / z-spin decay rates to produce a bounded signed heading change,
-/// without altering the core motion solver's position evolution yet.
+/// state is used directly if it is already rolling. The estimate uses the same bounded rolling
+/// side-spin coupling now applied by `advance_within_phase_on_table(...)`, so the reported heading
+/// change matches the current rolling motion solver for the same interval.
 ///
 /// The local references motivating this are:
 ///
@@ -2887,9 +2984,9 @@ pub fn collide_ball_ball_analyzed_on_table(
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3 and §7.5, which provide the
 ///   rolling deceleration and z-spin decay primitives used to bound the estimate in time.
 ///
-/// This first slice is intentionally analysis-only and heuristic. It captures the sign and rough
-/// scaling of later side-spin curve from residual z-spin on the cloth, but it does not yet feed
-/// that curve back into the solver's simulated trajectory.
+/// This remains a first-pass bounded model rather than a full separate cloth-force derivation for
+/// curved rolling, but it now feeds directly into the rolling motion advance used by the event
+/// predictors and simulator.
 pub fn estimate_post_contact_cue_ball_curve_on_table(
     state: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
@@ -2910,51 +3007,27 @@ pub fn estimate_post_contact_cue_ball_curve_on_table(
     let start_heading = curve_start.velocity.angle_from_north()?;
     let start_speed = ball_speed(curve_start).as_f64();
     let start_z_spin = curve_start.angular_velocity.z().as_f64();
-    if start_speed <= f64::EPSILON || start_z_spin.abs() <= f64::EPSILON {
-        return None;
-    }
-
     let rolling_transition = compute_next_transition_on_table(&curve_start_state, ball, motion)?;
     if rolling_transition.phase_before != MotionPhase::Rolling {
         return None;
     }
-    let time_until_linear_stop = rolling_transition.time_until_transition;
-    let time_until_z_spin_stops = time_until_vertical_axis_spin_stops(start_z_spin, motion)
-        .expect("non-zero z-spin should have a stop time");
-    let curve_duration = if time_until_z_spin_stops.as_f64() < time_until_linear_stop.as_f64() {
-        time_until_z_spin_stops
-    } else {
-        time_until_linear_stop
-    };
-    if curve_duration.as_f64() <= f64::EPSILON {
-        return None;
-    }
 
-    let linear_deceleration = rolling_linear_deceleration(motion);
-    let end_speed = (start_speed - linear_deceleration * curve_duration.as_f64()).max(0.0);
-    let end_z_spin = advance_vertical_axis_spin(start_z_spin, curve_duration, motion);
-    let average_speed = 0.5 * (start_speed + end_speed);
-    if average_speed <= f64::EPSILON {
-        return None;
-    }
-    let average_z_spin = 0.5 * (start_z_spin + end_z_spin);
-    let slip_ratio = (ball.radius.as_f64() * average_z_spin / average_speed).clamp(-1.0, 1.0);
-    if slip_ratio.abs() <= f64::EPSILON {
-        return None;
-    }
-
-    let rolling_stop_time = time_until_linear_stop.as_f64();
-    let duration_fraction = (curve_duration.as_f64() / rolling_stop_time).clamp(0.0, 1.0);
-    let curve_angle_degrees = (slip_ratio * duration_fraction).to_degrees();
-    let heading_after_curve = rotate_angle_degrees(start_heading, curve_angle_degrees);
+    let curve = rolling_side_spin_curve_during(
+        start_heading,
+        start_speed,
+        start_z_spin,
+        rolling_transition.time_until_transition,
+        ball,
+        motion,
+    )?;
 
     Some(PostContactCueBallCurve {
         time_until_curve_starts,
         time_until_curve_completes: Seconds::new(
-            time_until_curve_starts.as_f64() + curve_duration.as_f64(),
+            time_until_curve_starts.as_f64() + curve.duration.as_f64(),
         ),
-        curve_angle_degrees,
-        heading_after_curve,
+        curve_angle_degrees: curve.angle_degrees,
+        heading_after_curve: curve.heading_after_curve,
     })
 }
 
@@ -2975,9 +3048,9 @@ pub fn estimate_post_contact_cue_ball_curve_on_table(
 ///   Dave proofs for rolling and draw cue-ball deflection (`TP_B-13`, `TP_B-14`) and post-impact
 ///   cue-ball trajectory (`TP_A-4`).
 ///
-/// The current implementation only reports bend that arises through the existing sliding / rolling
-/// cloth model. That means follow / draw effects are represented, while later side-spin-only curve
-/// effects remain future work.
+/// This helper only reports the sliding-to-rolling bend portion of the later cue-ball path.
+/// Side-spin-driven rolling curve is handled separately by
+/// `estimate_post_contact_cue_ball_curve_on_table(...)`.
 impl CollisionOutcome {
     /// Estimate the later cloth-driven cue-ball bend from this immediate post-collision outcome.
     ///

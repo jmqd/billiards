@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<!-- saved from url=(0069)https://www.real-world-physics-problems.com/physics-of-billiards.html -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Physics Of Billiards</title><meta name="description" content="The physics of billiards, with discussion on conservation of momentum during ball collision, ball sweet spot, and slipping."><link href="./Physics Of Billiards_files/A.style.css.pagespeed.cf.87iRDIfLVr.css" rel="stylesheet" type="text/css"><meta id="viewport" name="viewport" content="">
+<!-- start: tool_blocks.sbi_html_head -->
+<link rel="canonical" href="https://www.real-world-physics-problems.com/physics-of-billiards.html">
+<meta property="og:site_name" content="Real World Physics Problems">
+<meta property="og:title" content="Physics Of Billiards">
+<meta property="og:description" content="The physics of billiards, with discussion on conservation of momentum during ball collision, ball sweet spot, and slipping.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://www.real-world-physics-problems.com/physics-of-billiards.html">
+<meta property="og:image" content="https://www.real-world-physics-problems.com/images/pool_shot_edit.jpg">
+<meta property="og:image" content="https://www.real-world-physics-problems.com/images/physics_billiards_1.png">
+<meta property="og:image" content="https://www.real-world-physics-problems.com/images/physics_billiards_8.png">
+<meta property="og:image" content="https://www.real-world-physics-problems.com/physics-problems-fb.png">
+<meta property="og:image" content="https://www.real-world-physics-problems.com/images/physics_billiards_20.png">
+<meta property="og:image" content="https://www.real-world-physics-problems.com/images/physics_billiards_21.png">
+<!-- SD -->
+<script>var https_page=0</script>
+<script src="./Physics Of Billiards_files/gdprcookie.js.pagespeed.jm.LyJeXqoTyT.js" async="" defer=""></script><!-- end: tool_blocks.sbi_html_head -->
+<!-- start: shared_blocks.10233148#end-of-head -->
+<!-- end: shared_blocks.10233148#end-of-head -->
+<script>var FIX=FIX||{};</script><script>var MOBILE=MOBILE||{};MOBILE.enabled=true;</script><script>var MOBILE=MOBILE||{};MOBILE.viewMode="full";MOBILE.deviceType="other";MOBILE.userAgent="";if(typeof mobileSandBox!=='undefined'){MOBILE.enabled=true;}MOBILE.hasCookie=function(key,value){var regexp=new RegExp(key+'='+value);return regexp.test(document.cookie);};MOBILE.overwriteViewport=function(){var viewport=document.querySelector("#viewport");if(viewport){viewport.content='';}};MOBILE.checkIfMobile=function(){if(!MOBILE.enabled){MOBILE.enabled=/mobileTrial=1/.test(document.cookie);}MOBILE.userAgent=navigator.userAgent;var androidMobile=(/Android/i.test(MOBILE.userAgent)&&(/Mobile/i.test(MOBILE.userAgent)));if(androidMobile){if((screen.width>1000)&&(screen.height>550)){androidMobile=false;}}if(MOBILE.enabled&&((/iPhone|iPod|BlackBerry/i.test(MOBILE.userAgent)&&(!/iPad/i.test(MOBILE.userAgent)))||androidMobile)){MOBILE.deviceType="mobile";document.documentElement.className+=" m";if(MOBILE.hasCookie("fullView",'true')){document.documentElement.className+=" fullView";MOBILE.viewMode="full";MOBILE.overwriteViewport();}else{document.documentElement.className+=" mobile";MOBILE.viewMode="mobile";}if(MOBILE.userAgent.match(/Android 2/i)){document.documentElement.className+=" android2";}}else{MOBILE.overwriteViewport();}};MOBILE.viewportWidth=function(){var viewportWidth;if(typeof window.innerWidth!="undefined"){viewportWidth=window.innerWidth;}else if(typeof document.documentElement!="undefined"&&typeof document.documentElement.offsetWidth!="undefined"&&document.documentElement.offsetWidth!=0){viewportWidth=document.documentElement.offsetWidth;}else{viewportWidth=document.getElementsByTagName('body')[0].offsetWidth;}return viewportWidth;};MOBILE.destroyAd=function(slot){var ins=document.getElementsByTagName("ins");for(var i=0,insLen=ins.length;i<insLen;i++){var elem=ins[i];if(elem.getAttribute("data-ad-slot")==slot){var parent=elem.parentNode;parent.removeChild(elem);break;}}if(!elem){throw new Error("INS tag with data-ad-slot value "+slot+" is absent in the code");}};MOBILE.updateValues=function(client,slot,width,height){var ins=document.getElementsByTagName("ins");for(var i=0,insLen=ins.length;i<insLen;i++){var elem=ins[i];if(/adsbygoogle/.test(elem.className)){break;}}if(!elem){throw new Error("INS tag with class name 'adsbygoogle' is absent in the code");}elem.style.width=width+'px';elem.style.height=height+'px';elem.setAttribute('data-ad-client',client);elem.setAttribute('data-ad-slot',slot);};MOBILE.checkIfMobile();if(typeof mobileSandBox!=='undefined'){MOBILE.enabled=true;}MOBILE.hasCookie=function(key,value){var regexp=new RegExp(key+'='+value);return regexp.test(document.cookie);};MOBILE.overwriteViewport=function(){var viewport=document.querySelector("#viewport");if(viewport){viewport.content='';}};MOBILE.checkIfMobile=function(){if(!MOBILE.enabled){MOBILE.enabled=/mobileTrial=1/.test(document.cookie);}MOBILE.userAgent=navigator.userAgent;var androidMobile=(/Android/i.test(MOBILE.userAgent)&&(/Mobile/i.test(MOBILE.userAgent)));if(androidMobile){if((screen.width>1000)&&(screen.height>550)){androidMobile=false;}}if(MOBILE.enabled&&((/iPhone|iPod|BlackBerry/i.test(MOBILE.userAgent)&&(!/iPad/i.test(MOBILE.userAgent)))||androidMobile)){MOBILE.deviceType="mobile";document.documentElement.className+=" m";if(MOBILE.hasCookie("fullView",'true')){document.documentElement.className+=" fullView";MOBILE.viewMode="full";MOBILE.overwriteViewport();}else{document.documentElement.className+=" mobile";MOBILE.viewMode="mobile";}if(MOBILE.userAgent.match(/Android 2/i)){document.documentElement.className+=" android2";}}else{MOBILE.overwriteViewport();}};MOBILE.viewportWidth=function(){var viewportWidth;if(typeof window.innerWidth!="undefined"){viewportWidth=window.innerWidth;}else if(typeof document.documentElement!="undefined"&&typeof document.documentElement.offsetWidth!="undefined"&&document.documentElement.offsetWidth!=0){viewportWidth=document.documentElement.offsetWidth;}else{viewportWidth=document.getElementsByTagName('body')[0].offsetWidth;}return viewportWidth;};MOBILE.destroyAd=function(slot){var ins=document.getElementsByTagName("ins");for(var i=0,insLen=ins.length;i<insLen;i++){var elem=ins[i];if(elem.getAttribute("data-ad-slot")==slot){var parent=elem.parentNode;parent.removeChild(elem);break;}}if(!elem){throw new Error("INS tag with data-ad-slot value "+slot+" is absent in the code");}};MOBILE.updateValues=function(client,slot,width,height){var ins=document.getElementsByTagName("ins");for(var i=0,insLen=ins.length;i<insLen;i++){var elem=ins[i];if(/adsbygoogle/.test(elem.className)){break;}}if(!elem){throw new Error("INS tag with class name 'adsbygoogle' is absent in the code");}elem.style.width=width+'px';elem.style.height=height+'px';elem.setAttribute('data-ad-client',client);elem.setAttribute('data-ad-slot',slot);};MOBILE.checkIfMobile();</script><style type="text/css">.eucookiebar button,.eucookiebar p{display:inline-block;margin:.25em .5em !important;font-family:"Lucida Grande",Geneva,Arial,Verdana,sans-serif !important;}.eucookiebar{text-align:center;position:absolute;top:-250px;left:0;right:0;background:#fff;padding:.5% 2%;box-shadow:0 4px 10px 1px rgba(0,0,0,.2);z-index:9999;font-size:12px;font-family:"Lucida Grande",Geneva,Arial,Verdana,sans-serif;color:#666;transition:top .5s ease,bottom .5s ease, opacity .5s ease}.eucookiebar a{color:#00f;font-weight:400;text-decoration:underline}.eucookiebar a:visited{color:#551A8B}.eucookiebar a:active{color:red}.eucookiebar button{background:#eee;border:1px solid #888;border-radius:4px;font-size:100%;font-weight:700;color:#666}.eucookiebar button:hover{background:#666;color:#fff}.eucookiebar.show{top:0;opacity:1;}.eucookiebar.hide{top:-250px;opacity:0;pointer-events:none;}.eucookiebar.bottom{top:auto;bottom:-250px;position:fixed;}.eucookiebar.bottom.show{bottom:0;}.eucookiebar.bottom.hide{bottom:-250px;}</style><script async="" defer="" src="./Physics Of Billiards_files/ldr.js" id="_ss_ldr_script"></script></head>
+<body>
+<div id="PageWrapper">
+<div id="Header">
+<div class="Liner">
+<!-- start: shared_blocks.10233116#top-of-header -->
+<!-- end: shared_blocks.10233116#top-of-header -->
+<!-- start: shared_blocks.10233020#bottom-of-header -->
+<!-- end: shared_blocks.10233020#bottom-of-header -->
+</div><!-- end Liner -->
+</div><!-- end Header -->
+<div id="ContentWrapper">
+<div id="ContentColumn">
+<div class="Liner">
+<!-- start: shared_blocks.10232907#above-h1 -->
+<!-- end: shared_blocks.10232907#above-h1 -->
+<h1 style="text-align: center">The Physics Of Billiards<br></h1>
+<!-- start: shared_blocks.10233203#below-h1 -->
+<!-- end: shared_blocks.10233203#below-h1 -->
+<img src="./Physics Of Billiards_files/xpool_shot_edit.jpg.pagespeed.ic.UVcyGXaFyh.webp" width="400" height="285" alt="pool shot">
+<br>
+<br>
+Source: http://www.flickr.com/photos/ventsislav/2222807833
+<br>
+<br>
+<br>
+<b>Physics Of Billiards – Ball Collision</b>
+<br>
+<br>
+The physics behind billiards (or the physics behind pool), in large part, involves collisions between billiard balls. When two billiard balls collide the collision is nearly elastic. An elastic collision is one in which the kinetic energy of the system is conserved before and after impact. Therefore, for simplicity one can assume that for collisions involving billiard balls, the collision is perfectly elastic.
+<br>
+<br>
+For collisions between balls, momentum is always conserved (just like in any other collision). For a simplified case assuming no friction (discussed below), we can combine this fact with the elastic-collision assumption to find the trajectory of two colliding billiard balls after impact. The figure below shows a collision between two billiard balls. For the general case, the collision is not head on, which is what the figure shows.
+<br>
+<br>
+It is assumed that balls A and B have the same mass and that ball B is initially at rest (zero velocity). The initial velocity of ball A is <i>V<sub>1A</sub></i>. After impact, ball A moves at velocity <i>V<sub>2A</sub></i> in the direction shown, and ball B moves at velocity <i>V<sub>2B</sub></i> in the direction shown.
+<br>
+<br>
+<img src="./Physics Of Billiards_files/xphysics_billiards_1.png.pagespeed.ic.5pRnBlXNJr.webp" width="345" height="489" alt="billiard ball collision">
+<br>
+<br>
+The line L<sub>1</sub> is drawn at a tangent to both balls at the point of contact. Due to geometry, L<sub>1</sub> is perpendicular to the line passing through the center of the two balls and the contact point CP. Due to geometry, L<sub>1</sub> also makes an angle θ with the vertical, and the line passing through the center of the balls makes an angle θ with the horizontal.
+<br>
+<br>
+After impact at CP, ball B moves in the direction of the line joining the center of the two balls, as shown. This is because the force (impulse) delivered by ball A to ball B acts normal to the surface of ball B, assuming there is no friction between the balls (a good assumption since billiard balls are smooth). Thus, ball B moves in the direction of this impulse.
+<br>
+<br>
+Notice that, after impact, ball A moves in a direction perpendicular to the direction of ball B. This interesting result can be proven as follows.
+<br>
+<br>
+<br>
+&nbsp; &nbsp;<i><b>Analysis Of Ball Collision</b></i>
+<br>
+<br>
+For the two colliding balls, the general vector equation for conservation of linear momentum is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRiYDAABXRUJQVlA4TBoDAAAvDIEOADfBJpLtNgdFOQNJMKROSBxal+ZiamahoG0jN2cod78XkGcU23aTHye9R0RCZ/8cxAK4Yo+RbClS5r8KoNggq7xCuX/1X9UBCiV4YLSegE0FxSUAjLQfimMxOBQdYGgE8lQGmw2E5o3ddPviBE8gggIOHCQGANu2jZY7s+NJpqZUWfz/RmIQEKDuEdF/SG4jOZIygD05Kcvl7BPy///zI5DlMHy7rVxJ3e4bmu6a/cW5VU3qt1kiPuj7TI79nXerb57UcgAPQtCPxg4bsNqAVCL8Lt7FDVhtQCo1AwFwsKgbsNqAVCQmk4MBYQNWG5BaDvjGuz0EPeIGrG73e89SKBPMhBO+5Mtv2ktM9ug3rfAIbMCqXg5blspbN+SEx+QIEALxNgCf0c3nzapWPlsGy1bO8rzrx9iPSWAy78BkhdOeGj57d1YkpLxKYbHuy3vY5HfTkHMUjERwBCy/yZtVrVy2bGr6UwCF18cRb2gB15ij3dTozapWLluWmg93GRb3KWBsAVc/rnDa/VtVTj9zKTlsGR6QyVMg2uIwI8zvLcYDn1a1Ly5bNu/QLRvBp7rF5xds8vkhMNqFrg6GUv8WGyv0OW4v8mJCSicVmR2rkGLYBEG7mkwCtS2+HPBwAOyMB+FiwGoxtsrL8ZpTwVB4Qa0glbrr7X7ISinCVg/Z1fMOvXupueN2QQRkaDxLm/iKTbVJ5lZfQ658kouNolRScSAHRyHFsNW7ROch5LMc0HuAMz2/C8iRhWWKAavF3Ir0R+EFpZcqaKTZCinCJvjCbPE2YBNmMJo/4SFp5jvBFANWi7kVgturvEr39FIAGxGCQophWy/LeZT1GJUCzN6qZP44Wnsl8mwopBRsisBFL/ufVCkFmAerkrdg7QUfBuedeL57CyuwyTLtc47yYsAsmqSHTvts7QVHUn700n4FNqHKp/J9UfTmoVKA2Vvl6a5QXWy9oDHwQCmktGwyXHwjijZw7EctmLHV1KB/A5h63e7vMnrqFVIKNrkIzNUTvisERG1QgJlbkeF5MPXC5G1QIA0s239gAw==" alt="vector equation for billiard ball collision">
+<br>
+<br>
+Since the masses <i>m<sub>A</sub></i> and <i>m<sub>B</sub></i> are assumed equal, this equation simplifies to:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRmQCAABXRUJQVlA4TFcCAAAvsIANAAfBKLbtJldKehfSZCRmAmzZgRe8YUJB20ZuzlDufi8gryiSpObOCTmbyOGPAyyANtTgZf6rAIgBQWUU3PWj/4IP2XoUhseCTCP2QjgKY9gEcFeE4fS8MU3PFxcMAQgcCBCkCYjof4yNbFtNALWjNuv+14nv5840Ef1n4LaRIi0c37nHb4Bl21akBvteqyUioZn/MF/xHviu5jMrov+O3EhSpBw4kRund5+Q/yHaUr/9M9Hxavi2fpLje9H3TbFlz+0y68eXL0LHqVNPVi7YvJSLikbHqR03YmZEMDpM7QxDOkDTgNAfoLZM6xEzMAb9AerUl6Ms3mZESbXR8dpB1aK2K56kMTng0RSoWtKvlnp1oCWIMrqesMhhR1qN3uuMvHW6aGETAlLzzdNyB3QRAl1PVGS/zMEWchEC3ZCgyI60qIs00dWOvAUX2ZptOGAmbwS6foqKbM1Z6L2pl7904SHyGi6po4uKEEQCXN4aAmoFeuSvvlz4wodbxaReKJYOmhTDk+qzewMupEEtopcyn1Vf41WuRCfGmkqxNNC/c66snqx5Iwq1gB577h5TlLCTRWL8fV+Z5zTQvJBvwIW0q8ee8iy/jaFSGinhpPIhCQ11WXS/dniRBrUCfXlHt6+YkDS+QAu/cATCGfQCbxOnIqSYITAr6585I+GAhn+wY/D6jAnxVLMW8zuiyxkFZ9Bwh/pPhBNdZxGfXX8h8wSCM2jIDlv6FFv4PN2HWZh7/s8Rh2PQZ23cMbn92Buzmpf7Ltkj+r5jCxQMnEHjAdrv7q9QAQA=" alt="simplified vector equation for billiard ball collision">
+<br>
+<br>
+For an elastic collision kinetic energy is conserved, and the equation is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRqQFAABXRUJQVlA4TJcFAAAvqsETAD/BJpLtNgdFOQP5PKROSFLr0lxMzSwUtG3k5gzl7vcC8mwi23byvpOcv4hA7q8DLIAreoz8liBl/qsAihUy4TXK/dV/ogM0SvLAYDwBKwHNJQEMrB+KtRgcmg6QKFahkKcyWE2g7N7YdLcvTvAUoijgwIGibbtt64i25VSnvy4mphlJ+P9fDMgLAqSQ6RPRfwmOJCmSlLFwfJGe1VnUL6D//9c/vJVDuCNv5BEKH0jEEPyph0co/CCxfnAnyCUU64f/hYz1g+FBw54KYkjDCxJ7yX57uFIyS3BHBbGk4QSJ3WT/cyba7icjj3sqiCENJ0jsq/1Hf6JQ9CUKxcEi2njNk2Bjux/8J9HKaycaXpBYzuFCxmKvbDWGQndUzMGhyX46zNjt25tRVj1RGJBg9aExdnGIrEjkMoOTASbBbDW0t/uAHDRaF2bm77NNUp1RYBIa5/Y0hi8OUQcSduJhWmVW5ayZgSMap2nkWQahwCQ0NvdAw7g4RMOS2O6P1zqbMFUG2ofp+qF2lC9EywsNKoQCk9D43AEN6+IQDUsioT4fq+zz8ap3WTQvtjekEAobEqwd0LAuDtGgJLb7wwwslHmtHzVdfTkXwzQVs8xEYwqhwCR0RrU01g8DtD7z4hD1qk/mwZSLNRJ8Q0iwhbK/K/4lzapsjJ2QngRCYUOCpaRhE8MVh6hPfVIxmFL59MeWkYVmZ06rGLNJN/iKwdxZBiQQChsSLC0NgxiwOESd6sOjLx+v3Aji6ZbCJNtCTpbzYSb9dBSbV8YpYN11JCGgEEgY00AyiQGLQ4RIWGr9cPzxmpvKJU9s/CLbQtlzezGYjmL/yVlPAqIwIsHS0TCJAYtD1Kc+OZweZ3b87dOt6BoN2V+gxRtFdb9IA4SaBERhRYKVesd4xSFS1ycIAlbfXIiH6+e5zE+TffrlSt/7rUMiEYxIFChMSbCaaUiTQeF/L8Uh6vIoVacu5aJK2eXY1bS81uc1wBc9CYjCigSr95cBi0PUpT7LuVhaFJNrW5fDM3UM7w16f4c/0oFEgcKUBKv7HxmwOERd/khmp/UmJGPby9fiX0q1F3gAWpg43Qh6RH76b7g1JBpQCCRIvnS3o2EQrSgiatatxRFICDaJutSn6iLLuegCKVwA1ur2Bu0qYXthD7B2+KZngK23hkQDCoEEyZfudjRQmKNIx+v6YRJICCgEEoJNoi71qTeKBYPtnldWAEt9hVD3meWMn6zEJgSPgrmO0pBoQSEkKV+629FAYY4iTqCnNRZHICHYLPz1+/lhLhJFU2z+8mqurVWz9/IK9n4U0CPb6X5IoiHRhEIgUQhdulvS0EcrCraL6i8Up4GEYFNNooOWdxmd77UtkVBgj8LUOZpMUBDBZrsDGpxWtCRR2BySxPZ0Q4CX89TiDIXgka/AB5UNCjb0dkc0krCANiAh2ByKRAwBLleW86XBGQrsMQ/8gpENCiJ06b4DGtv9RcheTUKymc1eggwGO4l8RxTxfqFpqFYheOwzRq1IGKEgdOnemYYRimIyjLDdKkkINq1IJIutL9Hyjkh8KS42GK0Ce8x9dnJGJKxQoEv33jSMUDB3cabTkcA2bUhUj34KysOUfLqRxS0hPysNHjvIhoRdeujSvTcNIxTrh+KlOjMSyKah4l3lXGN2/cCmsrrzsLvD3OCxg2xImKEAl+79aUAU6hx1/RO5m6BNQ23P1X/ApylOSCDhhdxBwS3AGzEJd+QEiuLA0xkVJLyRFyiKFxWdUUHCG3mBIh9m8kZMwh05gYJXrN5o/eDQ73uBIk3kjtJE/sgJFNmh6YhJuCMnUCxv/anH8tahTydQ8Gs83ohJuCMnUPwp+4x+LCAwCTfkBIrlHCod3XiEBBJeyAkUOQC58ehAEn58F1D8/7/+iSMA" alt="kinetic energy equation for billiard ball collision">
+<br>
+<br>
+Since the masses <i>m<sub>A</sub></i> and <i>m<sub>B</sub></i> are equal, this equation simplifies to:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRkADAABXRUJQVlA4TDQDAAAvDUEOAAfBKLbtJldKehfSZCRmAmzZgRe8YUJB20ZuzlDufi8gryCSreT9JriXcMlBBtrQg3rzXwUgFiSVU0jXz/4LmPW4x4NKY/YiWJAUzgA4BLgrwXL63tim74sLjgCCBAYMZNm2FbeRHOM0UvqGGFNIb/7DBHRfh+o3Ef2H4EaSIqnqGMvN00+gP4BzXabp9QCw/6Zp+7hSGkZyANgBTP9+iLa3QAPlAWAHMMWRIAeAHcC0vUkH+QFgBzBt7z8mpZfHm6IK8kUhibyMAVCmjZan17bAtzzX6uK+AFl9IH8FfFuUokQGNhTKsNHyqatpXfaAPJ2kVZYLkCThEHdAKVyUXgdE4UbTV7e97Xst3l3l7H1peSYq38SkO4pxMbBRUEaNti7nG2dJmn7d3npmblNBJ3ZAMS4GNhTKoNHQAWhdekPWnYjyNHe1ttRsjg4oxiWHpeCN0jYaI6A63u+uXSEzaXJdxJ3pgHJw1RgWhTKDtb9cagX60yFaGpgcAGXjqjEsCtGmwKiSutviFKTlw3x1QiGXOJkYCoWydlPAqnKvPl1E+TnCAeXgqjEuCllmUOJcZ7R+/iUFxAFl76rhj7KOOFtABBPBAeXgYub/+TYaCiaytKUtGYw3hzfGKCKHN/4oJtGsrxvl18MV1YPrLS9qiPBHFCjBrRdyGYYCBU2RP9DoA+0I5QKfLdYF14ufuxXbgSWKufUydaVggmJM6e66LrBafaOh00K14CmfYETUYm7nHAbF3HqZulIwQTGmGJjJZdBo6CSZmf7CkZ/Rpul2Bs6SwRCDvSsFO1QMu8pemd42abTUdygzCJkyylNGxedJtGc4oIjarLR3pWCEQqbmibDhTRpte5Mux/tqts8bbKVo+16BqlkezVwOKGRKaCcxRJWLqKdQRHyNJX06dUARtVuvAVzlMutM29vMlGaAUlQHItea4vmmZDugCN16Obvy9KoytWcENA7tULJ5vI/yRAQWWoeP5Sh06+XuytOsMdWmQ7PYFCW68e7HSe4f0Xuq/ILbAYVuvQZwMSjG1F+zxH03QZRDtoPk6af93kwZLSjD5P7Wa0AXMu0LOP3QX/0J" alt="simplified kinetic energy equation for billiard ball collision">
+<br>
+<br>
+By the Pythagorean theorem, this last equation tells us that the vectors <i>V<sub>1A</sub></i>, <i>V<sub>2A</sub></i>, <i>V<sub>2B</sub></i> form a right-angled triangle. Therefore, the vector equation for conservation of momentum can be drawn as shown below.
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRnYEAABXRUJQVlA4TGoEAAAvo0AvADfBJrbtKDd9ROx7XCQsAiKBDhO0CKBEC95QoaBtIzdnKHe/F5BnFElymzsmyhlETjhEQSwEwC/j8NfQ5r8KgJgQ4Nq9Gk5Krg8wIdgZU3E86r+GSwAIi7gXwjQ9OuKpCMfJULY3lu6j/BCJQJ8DhgIUDgQIyJJtN5EkN6l7mJoxi97+tziZMkl6+pyJ6L8Et40kSZLDvVk52YWYM3NRgXgA/hei023Z9AV4Lav+ICkdv24jALty+YGsdLo9e1AJvF6BTctFpfkE15fzFwDY8Y0XBw43DyDTymJmHK63+55u+e62rLJ72ZUrgHGRwm7qtXwB4yIsNYBBKI7f+BZVLBcqifl4LH/UojqL8kXfqQT/M71UqtKYnFR/lluLHv/gcL19odZUjl+D/24sSzOJ2Vjv9fy5/kad3gA8rqjv6CMVmFv1l3LWWXS6W9M4fHrB61nsX44BpiYP190DzG6bflXnm+AaYCZ2pfeTdPwJqOvDdfQYAeOD195fjeP3F0Bd4/H8BaE1Bmx2O3U/qN3udBt9PxkEMIjD5w/sH6p3hz9oDzM/qXaMK+zKpujvxgQ6stAEQCIxRSKTc+QRkyCLwTQ5hAFAAmFCApM28IcRYB+YQR52AMxhCfOkKcRhC2hXWcM6aQ5p2APOgQOM4QJAF07QTXrBFm6Aa+AIVXgC8IQvPJPO0IQ3IFnlD8dkADgiACAYxAAlesSgAMEjDNFXBUAZwSMApU4gcIQi8GQAWkbc8Kf00gg6cKdrBI14ABciiCZnxixii1HxnC9DFjEHJsVzsRBxsUnxnC8D//pgUjzn/dIfuGBTPBfsbS42KZ4LsHe0ByJwwKZ4LtQ5QX3MHpviuRBnwmogTpuGSfFclP+jAPBzt3judNsoDDre18nEAKX4uVs8B+DxT53QlzqVIADFzb3iOaCqVgLw2tiQo+A4xkDx3K76Xh5+3QbELeF+8Vx9ffzx3vj9DYKru8Vzjeunl6r+C0AQxJNu8Vx1rQ6I57GQSKfp6vrwG+3tJADBXNUgbn9gXiMRbbzVzJ1u9brGpT/K8RUABvvDYXckQ1jsDI194bErRPaEya4Q2REq+yEZQmYv2OwEnX3gswuE9oHPDlDaAckQTptDamtYbQytrWG1Lbw2RTKkYcY+I3a0x3x9RqzofZSvz4gR3Xfw9RmxoX83vj4jZnTS4OszYsLAH2S+PiMmSB++PiMWDJivz4gFQ9vaYJ8RADjeI6bmGfJonxGVUNS+DrMMHg6G+oxoXqNuyBYMpDLcZwTbI1pKRo+Bo31Gqke0MTWJDDLYZwTVI9qYmmL8pDrYZ0Q/oiXE6jBdfdMOvxF4O5nAzqrPSPWIlg4rV31Gqke0cS/HERHkoRmQiIYRQSYaRTJkcyoaQjkXjaCcjAZQzkZ9lNPREMhHfUSQkLpIhmzOSG2UU1IT5ZzUQjkpdUBWaiGCtNRAMmRzXtIoJyaFcmZSbE5NK8q5SYPktCKC7LQskiBqUX4SwT+pBQ==" alt="vector diagram for billiard ball collision">
+<br>
+<br>
+Thus, after impact ball A moves in a direction perpendicular to the direction of ball B. This is a very slick result.
+<br>
+<br>
+<br>
+There are two additional special cases to consider, involving ball collision.
+<br>
+<br>
+For the case where the target ball B must be hit at an angle θ very close to zero (such as to sink it in the side pocket), ball A needs to be moving at a high speed <i>V<sub>1A</sub></i> (meaning you would have to hit ball A quite hard with the cue). This is because only a very small fraction of the momentum of ball A (and therefore velocity) is transferred to ball B, due to the obliqueness of the impact.
+<br>
+<br>
+For the case where the impact is head on (θ = 90°) the above solution does not apply. In this case <i>V<sub>2A</sub></i> = 0 and <i>V<sub>2B</sub></i> = <i>V<sub>1A</sub></i>. This essentially means that the velocity of ball A is completely transferred to ball B.
+<br>
+<br>
+For a more detailed and complete analysis, in which the trajectory of ball A is calculated (after impact), under the influence of friction between the ball and billiard table, see the problem, <a href="https://www.real-world-physics-problems.com/support-files/cue_ball_traj.pdf">Cue ball trajectory with table friction</a>.
+<br>
+<br>
+<br>
+<b>The Sweet Spot</b>
+<br>
+<br>
+The physics of billiards is similar to the <a href="https://www.real-world-physics-problems.com/physics-of-hitting-a-baseball.html">Physics Of Hitting A Baseball</a>, in that there is also a sweet spot on a billiard ball where you can strike with the cue stick so that no friction force develops between the ball and the billiard table. Knowing the location of this sweet spot can give you an idea of where to hit the ball so that it develops backspin or forward spin, which can be useful when making a shot.
+<br>
+<br>
+Consider the figure below showing the position of the cue at height <i>h</i>.
+<br>
+<br>
+<img src="./Physics Of Billiards_files/xphysics_billiards_7.png.pagespeed.ic.x9U7WjibkG.webp" width="283" height="224" alt="billiard ball and cue">
+<br>
+<br>
+We wish to find the height <i>h</i> so that no (horizontal) frictional force develops at point <i>P</i> when the ball is struck by the cue.
+<br>
+<br>
+<br>
+&nbsp; &nbsp;<i><b>Analysis Of The Sweet Spot</b></i>
+<br>
+<br>
+In this analysis, we can represent the ball + cue system with a free-body diagram as shown below.
+<br>
+<br>
+<img src="data:image/webp;base64,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" alt="free body diagram of billiard ball and cue">
+<br>
+<br>
+Where:
+<br>
+<br>
+<i>F</i> is the force the cue exerts on the ball when it strikes
+<br>
+<br>
+<i>r</i> is the radius of the ball
+<br>
+<br>
+<i>G</i> is the center of mass of the ball
+<br>
+<br>
+<i>g</i> is the acceleration due to gravity, which is 9.8 m/s<sup>2</sup>
+<br>
+<br>
+<i>P</i> is the point of contact of the ball with the billiard table
+<br>
+<br>
+<i>F<sub>Px</sub></i> is the x-component of the force exerted on the ball by the billiard table, at point <i>P</i>. This is a frictional force.
+<br>
+<br>
+<i>F<sub>Py</sub></i> is the y-component of the force exerted on the ball by the billiard table, at point <i>P</i>.
+<br>
+<br>
+<br>
+By Newton's Second Law, the general force equation in the x-direction is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRnICAABXRUJQVlA4TGYCAAAvj0ALAD/BqLZtJSfKd29hWAwoY1OGdCGmgraN3Jyh3P1eQF5RJEnNnRNyFgG/448DkJDMIAsBSJn/AARBMnMK6fkFptmDppAC5ngcpplTDCA4Akb7kJ0LFQAEzaYTwFtRcFVA6L6okMDZScj+WARHkMCAIU1ARP9jatu2YfasPf8/aztzgIj+K2zbBikcANsTkASAaSLFtmV6L3YBzf+/SBJgYbztIaL/DNy2jRNnR7cls3u/Af9fwlTgxBVXA/DDRUlL+cst73A98EhHn0n55hdXBK87OfRQKM7AvHBNEB6A5QYbXClCfd5mb/pBo3B1CHXNy7qMq4B3dg3UpGIgCjrEQUdr6ECvgWJNFfdfPQCUFEehNSNBmLeWxrw72IaOBo8L7sAQyr2H0FnRdvarzjtTFaouVM/NVNQefFwmdFOx2L6I/Ma2QPtFxY0u0d5umAIWai1qlwtwUYvzCeNCQ/F4o8132SsxEh2zeB17dfEdImv8Ka+H7w1S+PGNYiRqLp+niAnPQazTrJXLTUinSuRlxzV62ctDw99qMfwTUzEONYWKsnhPlDYpD541AXjPoOQOElok/LnzGYJPP0uT7xlwpCo7BjJr0x425myN9NfFZN+MnaNyTGysIY2Jpa1nKpebSE49qVAaSnN2DKreta6Tbf5kOXtzY2lpQ3llmQolOzEOqzOECszeQmVi1HkXQYr3CDTEvuxLTI/lJoYZratwFO82Odxo7fsAzFsuXMMGjwLRbLldMT0c1tv78yjD8RPKiLUYYWV6KXpjfpQdjMnB105TXVNL6aH8nG18zWdBl5Q3Rg==" alt="general force equation in x-direction for billiard ball">
+<br>
+<br>
+Where:
+<br>
+<br>
+<i>m</i> is the mass of the ball
+<br>
+<br>
+<i>a<sub>Gx</sub></i> is the acceleration of the center of mass in the x-direction
+<br>
+<br>
+This equation becomes
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRrQCAABXRUJQVlA4TKcCAAAvscANAEfBqLZtJSfKd28haAwoY1OGdKEaLRS0beTmDOXu9wLyiiJJau6ckLMI+B1/HICEZAZZCEDK/FcBEATJxCmk+xf/TR40hRQw++MwTZxiAMERMNqH7FioACBoVp0AnoqCqwJC90aFBM5GQvbFIjiCBAYMaQIi+h9z5EaSIi0z8253D9P/n1iV1dJk31cR/Wfgtm2c3tcyu0vdvcGVbLtpozIzN5wYsv8lWlJArn47Ef1n4LZto9srd8qor/1C+y9utgvonO+qoFNGw330j2keG1rNbID7aLexofXMBcwaSmA/2qCTRf+AnVbodNHtJ1/8QNrog04XDa0nM9cATRqbASwHIxUGjmJoiE6SALppF/KaGAG6CAGZox2aOgChsTsIjO54FidhRbenIi4BKghdwNC/Q2hsdzPN7WJWu3mdY2iXe8Q65zm0XRA3CwnQH4AOWcxWeLpT73WTPSCHRyUQTwMLqrtIIMaHNjB7hcAmcDvVRisi950j3tRMFser+NACk4HugV/vWjQ/y7OoFQ1yQBOs6PZRuyHS0P6BwWFm2I/U1L4B8W6IBPTwR+yCMCRoavpmXiGxrfY4D1T25KElZlp/+PIOiMYY3L5Q5VBs+88oARlST6jp/iEjOvKVzEWJpCGf7NubBN0hN69kpswi27cfib7fWYOOFEK7BGQn1pEoMA7yLYxx9aR5La9pb5Hjn49hkwwaASRYH4nIJhEfPvBzNBVL6PHtUpGrpXltD9NQkC9Rtw/gBdyxTphzemYXcygua9PxZDEv5q2qWQ+tPoe8maw73sM6Gprm7oBb0xhh2PPgdgD6x73VNZuAasNkbZcdra08KzsfBme0QOkyWScdfGZnN01QC0Uz/tPgPz6RNWocvVzAXOXY0eGtEGP93z4CAA==" alt="specific force equation in x-direction for billiard ball">
+<br>
+<br>
+Since <i>F<sub>Px</sub></i> = 0 we get
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRrQCAABXRUJQVlA4TKgCAAAvzcANAD/BqLZtJSfKd29hWAwoY1OGdCGmgraN3Jyh3P1eQF5RJEnNnRNyFgG/448DkJDMIAsBSJn/AARBMnMK6fkFptmDppAC5ngcpplTDCA4Akb7kJ0LFQAEzaYTwFtRcFVA6L6okMDZScj+WARHkMCAASQBYNM2LvMYtTVkx/7/F0X1pCbXRfQfghtJiqTKhRvqzeLqe0L5dwFpE1S8lvlHlMbLb8trmSqaYy0LB6BI46VDmSjG05r9QNosvhkBWA1+OjRBck5fZZLAN8UAyzUhpfGLzvwWjmXiAP53QXNy4VycIKn/DGWqiIrp8ptCIW1evZTgx9HICTy5Y2BhFLXaG1kdjj7Bld8UjVXJb173QEAtzHzQoLHW9Bw9CowEYTwhjfH8QDZwQNQSTIhQ0edrPPEOd8MCpERl+8Pkfo3La9qsBqx3DZe0OXKqTm4ERasbEoPPZVGNGysLoPd/t3R4pIyAcGTMub6Nk9665XQOaePjE+HJ8cmIJSb3ByoK4eUyiLql9Hpwi0mlCegi+PwBtTErVrVrcU3YHZmGj99F1K0YXjW1HWAh1kpYepLUFIYj0/Nj+e12fG8SQy3Z2ghKG0YB6FFxLK+njVPzvzcBY0/ymKbFFRJRLLh/FxbgHSN/WtWOO7vF+lgpnsxdTTimZxTSHFY9+rC7FsW2hgFyVwtBsBUxfDXMRPlNLE4psBpQa7SpUosaQ3VUg6s+denaYL41FMfccyi0LBu5X9lKq0HJ3tIajiNidiIC+vRAm5HpA5SSwUM/mswlsW4Qowlv+uD+JedSvDTrxijnYF3JZQYgN69RVCmrxfJbBT/aJc4AhAgj5DezKKXNyA0A8p4FAC9M3Crto12Y1vx3ZSbAJwdeOuIx7Qf82XkH8LZH4yIfpf9dAg==" alt="specific force equation in x-direction for billiard ball 2">
+<br>
+<br>
+<br>
+By Newton's Second Law, the general force equation in the y-direction is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRpoCAABXRUJQVlA4TI4CAAAvnMANAHfBJrJtJyvlR7IIyicEM6mlxAsyFbRt5OYM5e73AvKMYttukjjpPSJC/+xxwJJtM4EExCCiNy/zH6AAgmBsELjnJwAEYQagseEmPzLHo8Jiw02ICoE4FwYg2BgTDqIikhXRWzF6k001SX5J64saAUZ12XUg/hgkRsJBQJAmIKL/MbVtJEXRXQUfBRwh/feHiEYbo4j+K3LbBhncsKNHwJJtt20D997tdHWliJSw//URAAVT5TMT0X8HbiMp0lYfLFc17n4B/3UCtEMSsksvmTsOFGReFn4SJUwidGge0wIHi1bzUTAwqxgBu8cBQ5gCMSw4AfuJA4bamgfccRSgNLtkKf5T4NChtJKt210VVoCgG7PGYpciISn6MPsVLMJDZU7HEbE+LZ4Qr2txMZEgF8CRmIlSLklC3GUnVJhddtRa69MkihcYTyIzLeySudSRYEI67IQKE+urKDR91/fSI7XkfF2gYS6NuWO5hzpDy0esIybBvVzC4YLOAfPXQkwNI1LcOCHdQbHOcqB5D83e+ZIcUcKWHbIgJny+8ct0hPaPHEtPQHuI8KU7dcGoiUM5I48QqlY7C3w/imvFHQWfVwivOb7Or4ie9EThbnS5FB+xHh6i6LgjDCzslR+OzctGhNWIGwz3fkAlrpt+465KdEV6x3B7q3iA7OrrNM13Ffrus7Gmq/Y6tPyJSZqZPZ+eRqwvOFe6nJgB9YkXTzwtFFpIBbVcJ4bXTsdoHrOKznt6TmBp/6gXmgL1B3aP+uRptgwWxfuBXs29Fw9GnmWuPYEFQi6u5PuAmM+UNCksTsbhXPWBvugj1kMKS6/ermLgj3BaWDI1nxHQYnd/j7ua0who6WCIhtPykWI=" alt="general force equation in y-direction for billiard ball">
+<br>
+<br>
+where <i>a<sub>Gy</sub></i> is the acceleration of the center of mass in the y-direction.
+<br>
+<br>
+Since the billiard ball only moves in the x-direction <i>a<sub>Gy</sub></i> = 0, so the above equation becomes
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRkIDAABXRUJQVlA4TDUDAAAv8YAOAHfBJrJtJyvlR7IIyicEM6mlxAsyFbRt5OYM5e73AvKMYttukjjpPSJC/+xxwJJtM4EExCCiNy/zH6AAgmBsELjnJwAEYQagseEmPzLHo8Jiw02ICoE4FwYg2BgTDqIikhXRWzF6k001SX5J64saAUZ12XUg/hgkRsJBQECibbtpY7mQDE8pGa4fpGgn/v/vs66cWEofQ0T/HbiNpEjde0xV1Xj7hPD/f/8V7740Ka/CN993QuLtzGRLP9DV0yZ8691GBX35mA/PmdkZAPj78K33naH37gTuWlMgAP8evvHeLqg44k12jXS1qcJ3wndYJAJCslAcmvDtd1Yk0YpMfDvA5e/O8sQYZAtd2ZdID2dOoQibdDKzY0Sh4O0CXiEqswwRkdkjodSgZmkCkTAR+M4YpEfx7X1pZ3rmbiZsbHp2+GjLpCJnbA8Q/wCjNtnagkaRmza+LECCArlWSrAJBGihM5/ljD2+2mpQc2b2+ZHWh6/XTXBRXBAPuT7qwGYRiqbyWM7wcQifcoM5MH135mEVoizz54atTSwp2oXE1TDYjpWgi1ooeNryAuVLyIbuVYEYBYnk2ZnbKmA6MGPjSQF2V2Nmsq9R0YF9LDNQrlcUB9kjU74sSIwfLlgYVteDe0heDoSNb2WIuBaWOm/3gijyqbAAZ2f2kEr3ZRXp5+cGEkukU+K/AGjDqCjAxuU0kRuYBaKlxTKbBSoDXH/iOuAscoPtjcnjTOHXADvBUgE2y8/u6QZzw7EU2cmNLwZ8l33br6kt6H0ieuH2zGremg3k/C4ROA3YmEv+6mMx/Xp3Tn35Xo4KpmhmLtohzaJdVIGiQ5MlN1EcqwY2+Pmvmp6GJA0bF6B2AdBtSg8UQarCjXy3dUx7+CXsVaLOYsee0HXWw7oaZBAVQcET30O7UPsmDTrx5aM42kVyJ1AQQZbfYwJBJf8/ziValR3BWRxu2LwlRVDwxJZL5PxaGrRNWRFG4BZXsjpSUBBBll5Coq5+WIqXhC/xaBejeJoNEVpLgqAICu7LROVrnV/sGTojcJtovpdysvNL+Kb4BYjg7071N+Sk22WIgEvvt8NBhP+JOAA=" alt="specific force equation in y-direction for billiard ball">
+<br>
+<br>
+Therefore
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRkYCAABXRUJQVlA4TDkCAAAvdYANAE/BKJKtRiOFnIV8H2AmXTniZa2tCwVtG7k5Q7n7vYA8o9i22nyc9I6JXvY4wAJJzEQWW7zMfxcA0cETWgPAnB/8Jw5MDZNcSMYjxK9hEswCwOZCsDVawgCzMAXcimBLDuujXMryYsDUJcC+eCiawgADRpqAiP6HrmTbTZtwmblhUqz979CWHdDoMzMR/WfgtpGi7dHiDc+8wWFsW4nzV+Lusi4fhv47hPeZfNJARP8ZuG2kaHaPqe3cwBtwpQdIPBceKAi15//ND9QzqFAQei/sCAFwQElIvZgSAD8UBPXUZiQQkBAzaiqUhZr0Yd+xkl1B2Jkl/iMYjwsdWt0/IQ7neAGupnl2FUB46ESHgAzjoaKF/hIkzCHCHrNvtXBV9uW8N8uFc8JprtJRsfqbP1djKppDSDHdundMN+SPdvgdrNVHzCquNtD+7LyjykeP6U1EhX+dagUJkYj6cN1erMBtoA3csnARG6jQxEU/SlRPjGtSSJ66BMXyj+JHAh68k0mV1qdoHZKHpj5czH8HisgaqR8QUKqb0JKRGz3R1GL5RwTIANyYFuYC0PVapRMUkBqhpYs97BHfC5JVdH0GuEP21e5NMZ7h/EBjGKm2syWExeJYJAbxVZGlko7e4p/8Sb0ZwrOw5Ccc55h4NXwZRiIvTzp1/+Sg4MGT/zgSzVXKjohGZKtpT2BAFbNFSrAOEtXzeGGZN0uc9pjwGBKHFXDWjJGA/NMoUB5g3z4FFnE0QK/DAAA=" alt="specific force equation in y-direction for billiard ball 2">
+<br>
+<br>
+<br>
+We must now write the general moment equation for rotation of a rigid body about its center of mass <i>G</i>.
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRpoCAABXRUJQVlA4TI4CAAAvoYAOABfBJrJtJ1fKz1lE/qQWCZhJLSVesAYqFLRt5OYM5e73AvKsattKBE3cKeHyTwMqMClevbE4868QQAAEoOEAFAYIRkbAXT+CY3SDZZVtj/oPgt8C7Av7uMAwfhwgkLtiiyMCT0wQFAaxvXEhDIIDAgjSBET0P8Ywkq00cXcPDv1XCdGXFBDRf0VuGymLx8LQH2DJttu2QRK698pYhQX736QFEIQE+dcT0X8GbtvGqVN09+wkvb6AX3KRtgCwkXjEBfEwYg/w16MhoA6JUlyInshngJONsLigI1tUnIEiCfK7E0g0MJAwAZUTWqNmIocgZkVcmLUY7FtE2SrwR0FU2t3h92WkyoPDGUBraf8veMNvvFkI8pliPgMoLbi4+HkWFIa+sDGSFBf6mB/aS+sA/AXBX2fNpuSc9q8ARMEEjTrmunNWC6tmRQVXY/nyfBdO2p+wGXnegIyTwgEanCWRSODqQ2Fx3ReyGkcCrc7VqaO7kx8yjXGVr7Bmg+jJH3H5wrgwOw/aoYeckhXdpSuVzkmAKwjYDabar178RkB7YPV86JXIHEK/MRxM1V+9iJgqkN29/mQgV4R36dY9CRiZAyMe0WclOecctLsrvuVPTBjL03oWewBw+TaJJgq+gq5Eh3hNZIycEQIUlZ8Lq6rKOZ/gwzSDCg09OrriwMGRECFXNcJiTUXPYpa2josSQxCK7Gkm6fsNDI5Q0T1ORuLlRniYEaSotAYFSqh8ZR+TF79xUYSxHSGown44UNAlOylRxRcXxpL0VksromuHeh1b8pk8zsIyhdYZ0GWobz9Gl6JHTPXkDOgygFVp9CGYAd0fbD645LP7BLpm4PNjXJzs6H4EPB/z7Oh+zwU=" alt="general moment equation for billiard ball">
+<br>
+<br>
+Where:
+<br>
+<br>
+<i>ΣM<sub>G</sub></i> is the sum of the moments about the center of mass <i>G</i>
+<br>
+<br>
+<i>I<sub>G</sub></i> is the moment of inertia of the ball about its center of mass, about an axis pointing out of the page
+<br>
+<br>
+<span style="font-size:20px;font-family:TimesNewRoman,Times New Roman,Times"><i>α</i></span> is the angular acceleration of the ball
+<br>
+<br>
+Since no frictional force develops between the ball and table, there is no relative slipping at point <i>P</i>. This means that we have a case of pure rolling. Thus, we can write the following:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRgoCAABXRUJQVlA4TP4BAAAvgMARABfBKLbtJldKehfStnGQmAmwZYkXZCpo28jNGcrd7wXkGcW23eTHSe8R0ds+DpIdW3CDOJww/wGIAV6lFczzo2rAMmX7EbhVWnFggBdctA+Cs5AC4DVsAngrcvt9McGDtjAI/ngImsAAAwZZtm23bXPRbCAdKiCgBIV3/oMESbn7/TlrRfQ/+dW1YYtsnlJH0Jnj2w+VKLQ7z73AVMrszvIosJS5nnTmsSBSZkPkMYLOFLmedOZRYCmzO8ujO3jKbLDc++NZJd4t2Ox6qZTSoBLnYv4Fnf9mzgZTORs8xYyA3dQG239zNkQeJVJOd5iRszuYyu4s726JQhed+aRBJTaYSlHryVTO9YRNZxZbLKWNYHk0eG7deYobwfIoOnNbT5HyFpW4rSfL/fbT8p1GwBY5R1CJHz2CzpzdRW7N98d6S3z7eoLnbCpxQeQnWLCbygLL9QTPt4+AyL3YBstnCp6P/MTrCZZHf3A6U2KBSjy6Q6TE9QTLuwbLtxc8H7njffiW7hB5jKAzRRbozGOBqXy24PnIz1tgKveCX5azXymvwVRuDb6ZOr5XyhsBnrPAs2GqRIkjYDOVcwSV+LV0gecssJS6YKrEBdNS7HrSucSmEsV2Z5un6II/3ytFL+pXougR4Cm7QWfKXuApez2pRNndmUrZBZb/WwA=" alt="angular acceleration for billiard ball">
+<br>
+<br>
+In the above equation the negative sign is there to match the sign convention used in this problem.
+<br>
+<br>
+<br>
+The moment equation becomes
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRoIFAABXRUJQVlA4THYFAAAvO0EYAJfBJrJtJ0fEF5ATUCLiyyAZQEamokxSsIYLto0kKc7WUQRn3jOT+2xqa2+SX0TaFnq10HtZ4wAkBBdIQFYd2TMigPkvAlD0EBO0WqJiWf/C4TdWgF4mVR6YRMLwGdBDLPNVFv8xiQTjhdx0ASiVDXZRxRAk5FwBlOgAqTdrCvbSrjZADL6eBblvWkk+6QMOFAQIkG5tbxsp2hLIltlC75hqig0Z3//VFcnyZwfxCyL671C2lSB6zGw1tQYIiFJ9QPr/P/3birabF2PZ9uc/k93kTz+PZjyuh2Q1uSkU7pZkM82ibmfz7jRBsoRqeylevJ9JAGvp+HIeH7f4mtDR+gCydzPVNtm7mcxGzd1MNhM5vrT1DjAtByJ6kQKAR2MPQcngdpPHse3u0QkgEpQBz1CCKJnPkT0hwoqxJyBn4loFgAxEIDi+NHVOgwiMx5fMJRwh+sPYCx1Ax4F1VWkCIYepFyLsk29Bxyl5S/F7fdjLmHA+rsS71xHRcnyjDNBfzr4mM+nXg34EqhAvX7NWQ3XHQEpH+ftA6St3/iOf+f45CWHXawes3cIxLQRCJrZhdFiDYLshomzi+TbxWRJCR/qmTCDnRI5SIqlMhSe+dRBDCuRPQEkwU70iq0agUtmL0lLFtBPsqfaE0BJl1p/Au6oMmDq2hI50hM1rPYxLrvQGCYBRVtr5z/I/ouKUflEM5zj4g4KLDhIjQLxWMCWXBoX8DUYOtpuh6N0B2G7qTqqvVBU0M5DsS77t+qZV4iw0vlMwJftAIPRq1HaD4LNDnnHwRU+6mR8I280hpdpriJlyX2E6M9jlD54ODR7ABGPU6cI3HrV3ZS1WMnx7rBAFg3rSU3eTF3Z7BpftpnbpTyrbzCo4ed/gAUxxxWyOL3UBeUA9so5kcS3shkO8/Nm8rYfoINT9/qpul23iqtcA91RlLiNnQ6wHfG/jLpu4MDnbbjB/iavOG4fUch3LE4rYCi+GgDvL9rb8T9DH8aWeY+ap6k6VV+QCLcL42SFDyUocMXSEoQ7ZBJqxDg5BaKiJe2tHosLTOlLGgax0wbhLq6Xr49oZtE8/+xeBC+Gk7vCkzl/VHbtPNHI/KSkMeg+Pa1awXqLtRmK3xDF3SL33iesilywcZAK03SjNZZdoDiT8hh3DBffU7anMjKtNMCtOssVA5x8XkSe1FM/vRfk8AvoJ5i7RyJul4kBHPs09Nb5rMM/0KMPT1eXPJJin1vndyRPZZCDQtpoEdMhIGJJ1AIacmaqhHoLFn0WQodZ/5/F203AGCNStpj/AjxcU2IHQqVXxEj5hE44xUkAuiasc3IRF0/1Dnobr4XqXZIS8hdu5cKyjdocKXQ6SLDUWTfd+SSPL1l4CyJoFA+Z5Q1brj6cQoUFSpdRoVV403XtDoeYxXpaW9A056tWq0Avczh0dPnQEl7ZhQOaCngQ0Fk3x82gEIebRQk4eGiFNm5M7zhlCDK7+vk5WFMq61yDYOgnfcY1otkvwWZ8wJPCy87CHmRrrsAN4hgrbXDTdKVLQDSJxHRe1igcPI49d72kumu4VynWukcX4ke+UBHBloLloultoKvmjX8oZtuvxq4yNRdPdQhBbIDf8mTc3JNAMqG02Fk3TnBhWY/pTEl80TSnNmleaSceXf3eYzku9qQ86Ozh4haaDL1sB1jGv0Ohh7fOm8LgoVWiUZO07lOiXCXiFRk/WPl+/3WKVzCs0erL2vQ50YOQVGj2Z+xIg9gSv0HRQsQBTCRsZ+x+Ftff9SbCJut6twS+MI4cVwLNhZcAzlpCb/oqMyZ9mQQZHT0u/APbSVN9lsZjcMg33NtM036GymvwECneHZDcFGv3dvcz2//9pXgI=" alt="specific moment equation for billiard ball">
+<br>
+<br>
+Combine equations (1) and (2) and we get
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRogCAABXRUJQVlA4THsCAAAvhsATACfBJrJtJ0fKz9lF9gEdSlJLiRdkKmjbyM0Zyt3vBeTZxLbVCJzkjAjoUvsdUNKCGyQgZ1O5UuY/gCJDsBgF9/wE03IBKD7BsD9q2YoDAZqA0H6IzoUVGcCheyuGKbhUQOi+KBBsGkR/LIIhcCBAAIJs22mbH2YGJalai/a/SP3/Bbak8kxE/yFIkty2uZVkIxZwCQs8wf0bgNkAYtK56qFn+F8D4OXsWgCFf1sAAVPXAthLI8p6Nn5zLYBsRIsvr10LYDaju2sBFDSi5csxayNaYrMKAJjaW32JIzarIqpQ5SSOXqNOQmizinmnLMVJiUX7WaCv9eD/6Blb7Hs5TiqGiTpRXt4ym0F2Yi/YiRimFD0MxZ/MhpSL6imH2QEXWc7U9jJQJhR+tbjotKgymyGcXM+wLKH3Qwo9GRedttEEEWhombkzBdOhXFxkXJQCEligN5mATPGzYrjpGRcJYQxh1gTx2h2/ybPKczo0qli7su4bCeJTrMoOP7/tJxpJlEQqE0TCaZutWwmrZef6IJWQDb6LIAI+KEb77CRgLyQkSrsDBn74MnqwMLsJh8sFdumFOTDtl0b0Eybqwd0FUTNO93Fw5SAmvRwPXPteUY+SCENM9KwHd+dLE1AW048JHh5/C0GOaEWvrQpClKCyBC0JgZKEtLMbdw7LLhr4xKTGb3j+iUlHNZ/AsisAsvbXHItrNXWMvVCWXRkUTK5e2wKJNaMmjGVXBgmLtcPhu7vjdJGw7MrgWyadY8NYmbDs2sBYu8ChrFznKzExP3uRDZRrfLnnIUn0LmGtj5Rl14ZASOJQe8HIpBS6NhDzM73zSyamzn+KAAA=" alt="height of cue stick for billiard ball">
+<br>
+<br>
+For a solid sphere
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRqoCAABXRUJQVlA4TJ0CAAAvhAARADfBJpLtNgdFOQP5AMRA6oQkuHVpLoapoG0jN2cod78XkGcT2baT953k/EXkQP8cUNKCCqwg5wtAyvwHIBZEwmqE52e4iQ2oq+ZjsAjUfBAlF+uHZC8CC6JmA0oEK1HAWwksC1JOXxwQDa8/HrAUoAigQAGSAKBtG7KjrO5htaahkvj/GyXh1Fh0HyL6z0CSpCasieDJRU6ewH9hiDsAWJzZNhBq3LBlhJVjLkPnPRuGryVPAI7tIj2JD9zCkj8B+Hyxj3y5YfuIu0zUPmjWsX3EneNPAPgpUCHdQXHXaFgPW9Uz3feMLR5hrbtSvHecA0l7ZlNOffjmSj71GcqXD1fqfGSCjCSsQEBz+R5pvGE1QVJEMABVzb6Miqi5GFl4cBx3ZCU7JMccnj8+K28kF6GRhmslDcCxhhtWzeSnVAQsEk0Sa4Mvs0ANFWMrPVgJGGtd+1ramdKsYw8KJdfdOJaGcTOagRua92G1OPvFuZZ6up33eKOR7cRdMwlR3M1f16XqaMki6Q2rJemkOgQN9Sweshg9XB/OUqRYTUID01CFCxCTQdg4Lq8fO5Yxz89OKuptiWq6LfyK10Q97rT+RMJqXI/qELHo+PKqqCua2AWqtUunx0lCRa14odCButb9AlUSinQTtAwwKiIuggtXmSkth8fBP2kSasZpjHPADQsb6bbyxrBSCb95jgXiIayEe751U5wD9VlXM1TI4hQO7+c920e6FQZte8Ml7mqdkelNhoGCWs/CkNvLw7ywZTV2qDrb2w2Iu/J+WGlRTXfNbkZ41R8f+hQ2Asr9EwABfAK7ZIKKY/vwteHahwf4FMhjIWEfVRb0CYA+h+onsYFaFpdPAPQpkIp724uGr6J0WBtPRNOtWOj/wwAA" alt="moment of inertia for billiard ball">
+<br>
+<br>
+Therefore
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRugBAABXRUJQVlA4TNsBAAAvZAAUAAehJpKt5qT88hOEJBkfM6llqPCCNlQoaNvIzRnK3e8F5NkEAJAGmrgTAj57acFr0SgiW5z5rwJARHASJaLWD/5FP9W0hyFKquiHogLg9QUhOrZdIXTqMNuNxCzwXgxCERQQIJDo2lZbR4eSxqsQyOABm/P/X+nCixTrevpIEf1P/hcx4NFSbgt49JQ7Pkd2g86U+5HZtWB5gPHJ8wBJZ8qfTpZdguM8wFJkheeaMKvIhNlSZNKZWws6D76qSInTybEbn2x1lFpVZDfgfimUmkxhl9Q1Uup0cuymExzFVhXZVehMsckUdgmO+1bozL2mk2PXgorcM2Gx3K2qyG58MoX7JnjulkxhN8By3+mkM+VXmEL5Axzlt6Ai5Y9PpnAeMFtKrrBsAYvOFJzgWzBlfNKZ3YDPPUVMJ52T41xhCuVWmG+WS4Kj4AFvr4XzdFKRX8NX+PUWoDOXClMod3yC55rg+DDgc08JFaZwmU4qUnCC51phvt8odjqpyDXBfWSKHZ9M4Zowe/7etYDNUnbFpiJFt/fIA1TLA7T3yANULJ7SW8DmKD9hMYXyE2bLAwyYPeW3AMcDVFgeYDo5HmB88jxANYXyp3Ok5ITZcR5fMkW3gNUU/qMDAA==" alt="height of cue stick for billiard ball 2">
+<br>
+<br>
+This is the height to hit the ball so that no friction develops at point <i>P</i>. No matter how hard you hit the ball at this location, no friction (reaction) force will develop at point <i>P</i>. Therefore, pure rolling of the ball will always result after impact (no relative slipping).
+<br>
+<br>
+<br>
+In the cases where the cue strikes above or below this height <i>h</i>, friction is necessary to prevent the ball from slipping on the surface of the billiard table. And if the ball is hit hard enough (above or below height <i>h</i>) relative slipping will occur, due to insufficient friction between ball and table.
+<br>
+<br>
+In the cases where slipping occurs we have the following inequality:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRjYCAABXRUJQVlA4TCoCAAAvewASABfBKLbtJldKehfStnGQmAmwZYkXZCpo28jNGcrd7wXkGcW23eTHSe8R0ds+DpIdW3CDOJww/wGIAV6lFczzo2rAMmX7EbhVWnFggBdctA+Cs5AC4DVsAngrcvt9McGDtjAI/ngImsAAAwbJtm23bXPREiAdkoziBIX3/z8SJB1VYuZBRP+Tn6MrVs9qOWF3MrF/+yEC52vGcstQhdM1o7lnaE63nGTiHuE5XYXn3p1MnG05ycQ9Q3O6ZjT3ZmA5XYXm1r6eReDHiFUvl8LjV4jAEdU/J9PfxLVCFY4Kywm6w6ZKhW6/uVZ47tlzhmYwPEczUIWjGc0P74HzRZn4X4UIrFCFsywnVTiWE1aZmHXWnKg7zb3Ccm3G8sVZJj6xO809y8R1OXm+tjvPp0YRuC4nze39p+bD3WH1HN2JwNtRFT61O5k4mvFcq21fy3vgI8sJlqOKwAjP2814PjtiU4UZmssJlo90B88t6wrNKxXXLY+5nKC5ty9GJt6uIvDAGSJwbwaet5eT5oGXEzQ/VGjeUWXi1YzrnhuewzubgefenUy83Z3lkTNk4h6hCq9WXLc8ZIYq3DJ+aY72xuvdeR66QhWuFbaq0r8XXo+q8NDdwXJkWFYMEXi9Gc+Dd4dVFY7uROD15aT5mTDCcmRoThgxRGDE0JxxOcmUfRWBMzajq+WsGX++F84axa/AWbuD5bQVMnHaCMtpl5MInLYZVThthuYnfA==" alt="relative slipping for billiard ball">
+<br>
+<br>
+This means that there is relative motion between the ball and billiard table at point <i>P</i> immediately after impact. In other words (immediately after impact), the tangential velocity of the ball at point <i>P</i> is <i>not</i> equal in magnitude and opposite in direction to the velocity of the center of mass of the ball <i>G</i>.
+<br>
+<br>
+In the case of pure rolling, the tangential velocity of the ball at point <i>P</i> is equal in magnitude and opposite in direction to the velocity of the center of mass of the ball <i>G</i>. Therefore, the velocities cancel out and there is no relative slipping at point <i>P</i>.
+<br>
+<br>
+<br>
+&nbsp; &nbsp;<i><b>Relative Slipping Analysis</b></i>
+<br>
+<br>
+Relative slipping between ball and billiard table is an interesting point of analysis. It's informative to understand how the ball moves depending on where it is hit relative to <i>h</i>.
+<br>
+<br>
+Consider the figure below.
+<br>
+<br>
+<img src="data:image/webp;base64,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" alt="distinct regions to hit billiard ball">
+<br>
+<br>
+<br>
+When the ball is hit sufficiently hard with a leftward force in region A<sub>1</sub> the ball is given a leftward velocity, and is given a backspin in the CW direction. Relative slipping occurs at point <i>P</i>, and the resulting frictional force at this location is pointing right. The leftward velocity of the ball decreases and it accelerates to the right due to the direction of the frictional force. The rate of backspin decreases due to the direction of the frictional force. This occurs until relative slipping at point <i>P</i> stops and pure rolling occurs.
+<br>
+<br>
+When the ball is hit sufficiently hard with a leftward force in region A<sub>2</sub> the ball is given a leftward velocity, and is given a forward spin in the CCW direction. Relative slipping occurs at point <i>P</i>, and the resulting frictional force at this location is pointing right. The leftward velocity of the ball decreases and it accelerates to the right due to the direction of the frictional force. The rate of forward spin increases due to the direction of the frictional force. This occurs until relative slipping at point <i>P</i> stops and pure rolling occurs.
+<br>
+<br>
+When the ball is hit sufficiently hard with a leftward force in region A<sub>3</sub> the ball is given a leftward velocity, and is given a forward spin in the CCW direction. Relative slipping occurs at point <i>P</i>, and the resulting frictional force at this location is pointing left. The leftward velocity of the ball increases and it accelerates to the left due to the direction of the frictional force. The rate of forward spin decreases due to the direction of the frictional force. This occurs until relative slipping at point <i>P</i> stops and pure rolling occurs.
+<br>
+<br>
+<br>
+Thus, the nature of the slipping will change depending on which of the regions, (A<sub>1</sub>, A<sub>2</sub>, A<sub>3</sub>), the cue stick strikes the ball.
+<br>
+<br>
+Note that for the three cases above, the frictional force that develops due to relative slipping is known as <i>kinetic friction</i>. Kinetic friction occurs when there is "rubbing" between two surfaces. This type of friction always opposes the direction of motion. So for example, if a crate is sliding on the floor in the left direction, the kinetic friction between the crate and floor acts to the right. In the cases where we have this type of friction you have to account for the direction of relative slipping and then assign the direction of friction to be in the <i>opposite</i> direction.
+<br>
+<br>
+On the other hand, when there is no relative slipping between two surfaces the frictional force between them is known as <i>static friction</i>. So in the general cases where the billiard ball experiences no relative slipping at point <i>P</i>, we have static friction maintaining pure rolling. Accounting for static friction differs from kinetic friction in that you don't need to know the direction in which it acts. The direction is solved for in the dynamics equations. So in this sense it is easier to account for static friction than kinetic friction.
+<br>
+<br>
+<br>
+<b>A Closer Look At Relative Slipping (optional)</b>
+<br>
+<br>
+This is a continuation of the previous section, with a more in-depth look at relative slipping. This section is optional, so you may skip it if you like.
+<br>
+<br>
+The figure below shows a free-body diagram of a billiard ball experiencing a general case of relative slipping.
+<br>
+<br>
+<img src="data:image/webp;base64,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" alt="free body diagram of billiard ball 2">
+<br>
+<br>
+Where:
+<br>
+<br>
+<i>V<sub>G</sub></i> is the velocity of the center of mass of the ball. (In practical terms, when one refers to the velocity of the ball he is referring to the velocity of the center of mass of the ball).
+<br>
+<br>
+<i>w</i> is the angular velocity of the ball
+<br>
+<br>
+<br>
+Let <i>w<sub>i</sub></i> represent the initial angular velocity of the ball immediately after impact.
+<br>
+<br>
+Let <i>V<sub>Gi</sub></i> represent the initial velocity of the ball immediately after impact.
+<br>
+<br>
+With no loss of generality we can assume <i>V<sub>Gi</sub></i> is to the left (negative, according to the sign convention) and <i>w<sub>i</sub></i> is either CW (negative) or CCW (positive).
+<br>
+<br>
+<br>
+If the cue strikes the ball in region A<sub>3</sub> and relative slipping occurs, then<br><i>w<sub>i</sub></i>r &gt; -<i>V<sub>Gi</sub></i>.
+<br>
+<br>
+If the cue strikes the ball anywhere below height <i>h</i> and relative slipping occurs, then <i>w<sub>i</sub></i>r &lt; -<i>V<sub>Gi</sub></i>.
+<br>
+<br>
+<br>
+Set
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRkwDAABXRUJQVlA4TEADAAAvvsAVAF/BJrJtJyvllZ8gImcbmEktJV7QBiYUtG3k5gzl7vcC8owiSVI064R5RTDdfc/Bajiv7GX+r8AAZMCbaCXm+tHvkh/Z9ohvKl3QYFaAYF8IA15JSy7sWgAM7K4Iw+pQWZ6Y8FpaWN44oQUQGDAwSLBtN24bypFnp6NkdxJbsy1DkfvfIAiQJyDAzj0R/XcYAG3bQPdEii0r5oP03w9agziltF6ygHPqLeOcHxEFD99Tf+lIsgBj6jGdGYkA+Jce0xL4zT31mHHGZWJ9XFKXCZjQL51bCU7hmFKyZioIsvk4OKNlAq+XIf+u44/S0upuR6RiLOkZFvieGoQtRNnmQyRVHhdMVxg0cd7c3eQHLXPAm8291YfQd+P7C8LngvCwHb2mRRcFb9vEGbaQ8KdPcx4w4ViQ48zbl0IrvzNlTkQMwI1NBMNs3dzjh5gRb6Uxb4dXqmqnNWPYN1ppcrF5WhDcuahGV78GODVbaeI8fHwDwoclHEqj1BtVyy7pFMvMlXiM7zimDeD1PQE+XZeibGX366WyMJD669GK9+zDR/oER/KOhUIudXUNYVtpED1JgZs4JJPO2JmxHgc3vTGm3SlC2C1lFVuSgq8shy7iserLETdpUiwI9egigLYwTvNonpg1I6EtiJdWK6PQxBlyj6oIRBFv7IFkoQ1IpkfYiig06wWPOPTJcGRXDUKbUNTJGQH+I8d/HFyjAxdnSeuTRdUWlbJ4ZS+8WWgTymoP1gvq+7YTSHjxhTsNILTVJWwlnZNYWvw9fyy+UfDwysO3bfFhvS3tG3GJTc50ensCz5GEzzR7TLKx0G0U+jLP0KoYtXxeLui2SHl7p6cfoRtzqEHtMsnNmvdIusywNVNCjV2vCRfDt8iapJCiYv09BeGOpgYIdzR1PBHtaGqBYEdTB0Q7mlpeFuxoaoFgR1MF5DqaaiDb0VQB2Y6mEoh2NGVBo6Op4ka2o6kEVUeT0RLkcDQ1oO5oMluCFUeTCC07mhpQdTS5LcGKo0nElB1NDag4kNyWIIejqQIVR5PZEqw6mlhoJYnqTlLlWYLqIM8SVAs5lqC+HQ5xlqA+iLMENe4vSbMEe7899lOB/30R" alt="factor for direction of relative slipping for billiard ball">
+<br>
+<br>
+This is equal to +1 or -1. This factor accounts for the direction of relative slipping, which is important to know since we are dealing with kinetic friction. Such factors are mathematically very convenient when accounting for the direction of kinetic friction. (Note that |x| means the absolute value of x).
+<br>
+<br>
+<br>
+From before
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRkYCAABXRUJQVlA4TDkCAAAvdcAKAE/BKJKtRiOFnIV8H2AmXTniZa2tCwVtG7k5Q7n7vYA8o9i22nyc9I6JXvY4wAJJzEQWW7zMfxcA0cETWgPAnB/8Jw5MDZNcSMYjxK9hEswCwOZCsDVawgCzMAXcimBLDuujXMryYsDUJcC+eCiawgADRpqAiP6HjmzbTZtwmblhUqz979CWHdDRLIOI/jNw20jR9mjxhmfe4DC2rcT5K3F3WZcPQ/8dwvtMPmkgov8M3DZSNLvH1HZu4A24ugAkngsPFITa8//mB+oZVCgIvRd2hAA4oCSkXkwJgB8KgnpqMxIISIgZNRXKQk36sO9Yya4g7MwS/xGMx4UOre6fEIdzvABX0zy7CiA8dKJDQIbxUNFCfwkS5hBhj9m3Wrgq+3Lem+XCOeE0V+moWP3Nn6sxFc0hpJhu3TumG/JHO/wO1uojZhVXG2h/dt5R5aPH9Caiwr9OtYKESER9uG4vVuA20AZuWbiIDVRo4qIfJaonxjUpJE9dgmL5R/EjAQ/eyaRK61O0DslDUx8u5r8DRWSN1A8IKNVNaMnIjZ5oarH8IwJkAG5MC3MB6Hqt0gkKSI3Q0sUe9ojvBckquj4D3CH7avemGM9wfqAxjFTb2RLCYnEsEoP4qshSSUdv8U/+pN4M4VlY8hOOc0y8Gr4MI5GXJ526f3JQ8ODJfxyJ5iplR0QjstW0JzCgitkiJVgHiep5vLDMmyVOe0x4DInDCjhrxkhA/mkUKA+wb58CizgaoNc7AAA=" alt="normal force for billiard ball">
+<br>
+<br>
+This is the normal force acting on the ball at point <i>P</i>.
+<br>
+<br>
+The general force equation in the x-direction is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRngCAABXRUJQVlA4TGwCAAAvk0ANAD/BqLZtJSfKd29hWAwoY1OGdCGmgraN3Jyh3P1eQF5RJEnNnRNyFgG/448DkJDMIAsBSJn/AARBMnMK6fkFptmDppAC5ngcpplTDCA4Akb7kJ0LFQAEzaYTwFtRcFVA6L6okMDZScj+WARHkMCAIU1ARP9jZNI2MuZfbru9g4j+K0jbgGEK/jzAkm23bQM1J3HvRV0iJex/iwRA0qT0m4noPwNJUqOweAtyJvEL+P8VdAFW3HBVADdsJikZgvmeNrguONxHF8kQ6D9cGZxstaGFbOQW6DeuDYI9MN9hiyuGL0+75EMfqEZcJzxZ8WuVh/WAF78CSq1oTmEO2aDCJtyPSyBZXYT9VgsAOcmRaMmMIEw7Y8a0P5qEB4WDhf18TPK1vwXfUdMU/02ljS6ysczGlpMuKC+8VyOzLphsG9p+k4l6Q5dbqrWSqdYFF6fIBIYHi2hO58DWm+J/mhCWcD2MojstI30ZYxZybUJr+CGxhZ8tkvjpg6I7FQ8BVxEajo0sjzO3znfhPgWSX8tjnGunHQq+i6b/K7pgNpQkKq7Fc/OB4EO/x8a1hoeoElJuMUIJhb8PPnLwoWmOUFmPLda1pcFZblvY6oshikGZDeZJ38gAhciV30Adh8Q02DJP57tQTlWVjQpyioxwp+WsvJ7GWkDK6+TDiamlRemNNBmjZFFjh58EvrJCgBIvPI2MMm0CueLcPAmxzdsc42O+8/zxeRhQcS+6/YnmygVg2nHnFWwZFQhG8/2G8WGhlqkeoNKdlnCNWIquy5fhitrq39E0aXTwuZbWggNUWsiX81tQ8lHS5sodAw==" alt="general force equation in x-direction for billiard ball 2">
+<br>
+<br>
+The kinetic friction acting at <i>P</i> is given by:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRtQDAABXRUJQVlA4TMcDAAAvD0ELAK/BJrJtJyvlZ6IIyi8EM6mlxAvaUKGgbSM3Zyh3vxeQZ1tbWxPY5OPkNAR0oC0bWNrqeG6Rs6PMfx0gyQg6Y7XDgLt/QkbQzahWO1qjBxywP+ZHVtwIsh8AHIsiI1gZIw7IJnQC4qkUg9Esq+CCR8ARvVEQYGS7TQ/4YhQYAQcAkG7bWts4uGFPd5kmpYtJEykG9L3/u8H9ECCsf1mJ6D8Et40cSe3du5tsV557Av3XDnYrYmjo0jAqei6gxaILDxjaZU+XhxHRcwEjVmcgYO/oAhEXPRtQQiIB+4UuEHHRc4GhveiKAaLnBnYLFeN3zWUDjB1ROIIJRBcQVQE0ZIq9OVO9ABNFFI4gIrpGUUBEQbu0W0YK+qjM1OH9uidyB0lTQ4uMls1MBBFUTHQFolQg6MkIsQfW0C2gSGYfstvqp47cbSa6RlHusOiUJLXozLK3W2947jKVKZNlyq6jelFie9fVKMqI1dd9GKd+XPVkvOnBM56QX/scHZgpRG8Vn5m7zUTXKEqL+yfybtq879mQiS7zt8v7YbfgrOEjVYvcbSa6RlGeUGCixTWcImPctFhldQ2TxMp7bk/FkVNqRzKJiUoWbQJnsF8FotDF/lJ8CHCFM43ImwfSktgdO4P20aOU9SSjBYsDSI/hI8rKEG23jbfd6lyDKC0ioRh5J4NmlxtiLFNGoBKZ2meaCEMLkeRNsOh+eY0w5KSLNpBby74CUax5abC6ERKtZgp4WKVErUkzw5S9h7Xyxm5ZSGiZI1rJcJ631vSi3AHvC45W4vVDkKIX2bZTKXUieHr5w4e3ES/QAMD1wDDGYx8M0EBXKgD9AMQjJWVomdWSRLtDQ6HIKJ99EEQTijJsmw06/KkC0rowIDbszZ/1sRve91BJ9J4geZHHHoqDO/08drrAihSSCOxV756SSRrmGciN4cO5MlEEq/wOFhu3d0HVHbBgioHH0IantA0Z+dYP7wrkbkoR0tIbK5kkvw9UBfepNlGRm5f+gBA0iN5HkkWHB+g9BAw4RV03ZV7/IFNGoK4zGq077CMMGvrdVybKROYDVbY7g8XdKTD1YcfrIoRjhIf3EpisxHZKJ3fH14yWECEUln2uTZSKrbKvzGBxg0PV6VsXvOL3+2B96wMPE3gsOjjfHT/n2yqlR3niQytTJ2ElY+rvH89UmSi7xY87FN4GvypgbIRkXSwU2AZ4sLSH8+12iiYB/UCLtIZrt5GKwia3mkQBIo20LLSkecB3mgdgW7h82Ju/7Vz8MxfesWYA8PrwjzsAAA==" alt="friction force equation for billiard ball">
+<br>
+<br>
+where <i>μ<sub>k</sub></i> is the coefficient of kinetic friction between the ball and table.
+<br>
+<br>
+Now,
+<br>
+<br>
+<img src="data:image/webp;base64,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" alt="equation for acceleration of center of mass of billiard ball">
+<br>
+<br>
+<br>
+The general moment equation for rotation of a rigid body about its center of mass <i>G</i> is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRpYCAABXRUJQVlA4TIoCAAAvnUAOABfBJrJtJ1fKz1lE/qQWCZhJLSVesAYqFLRt5OYM5e73AvKsattKBE3cKeHyTwMqMClevbE4868QQAAEoOEAFAYIRkbAXT+CY3SDZZVtj/oPgt8C7Av7uMAwfhwgkLtiiyMCT0wQFAaxvXEhDIIDAgjSBET0P8YwkmRT37b5lH+Ufn9/AhH9V9u2DZMy2079AZZsu20bJKF7r4waKWL/m7QAkKBg/3oi+s/AbSNFO7PHkIGlL+BXexm3ALDJccQFcRjRA/wNaCRQlhxSXGS9kM4AJxvD4oKO7KTgCMxCkL9dBqKFCcJEqJzQUIqaZQjZTIgLsz0G2z1iXgvijxmDxt0dfhsjqzw4NBatjvv/jCf8xpu5Pp2nWFuLUoOLi5+nQJhyf2NkUlzoY62dkV4BhNtX7jptN5J33DcBCMFEWnWs+aDKTKSaHdBUlabL81U4sD9hW3neQl5OCuM1Ykq6EoLZB4XG9SBMah0ZZ3WuTpc0GLWgeQra8rK2G0RPvojLBuPC7Dxou5jWGFDkFS5UOid4JwDsOkvtVzN7QWB3rlSpBSJzBv3GsLNUfzUTKVahrnf5yUBuCK/SrweCr4x7xSP6TGxlnsGut+Jb/sSMYnlZzloPAC7dZrGHgq7AzeFcQZcIQdfP7BWVncvZUeFcDNhhns6DuhgdbmAMigSJX9Z+La+momexGreOG5R1fRAZ087SxlsgJ2hw+Yh3BaUgwff3oqg0hwRKonRlH8tPXONChK+rMKZAPx0ocEkNJaxCJ9RCeoMpki0ulmttSWfyNAvHvHaa4WJ5yVBdRAuY68k3wEWwKm2F698A91cXnUg6u4/ANRAx5sXF6UNwLcSLfs0M93uMAA==" alt="general moment equation for billiard ball 2">
+<br>
+<br>
+This becomes
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRqwEAABXRUJQVlA4TKAEAAAvRsENAGfBKJJsJy3lBzK4yEIwk64c8YI2VCho28jNGcrd7wXk2cS21ejhJGdEQJdaHKABN0hAzqZypcx/HUAKoo01EO6fURBtLgwDoQFQ+2N+YnAQ0TWo7AcFdSyCYgAMjQ9dlgTwVKKxjSCY3qiIRlYwfbEEViBAQUG2bbtx2zCOmFGZ2zpz2JqpQYn//4EGcEVA9Gsb0X8JjiQpkpS5B80ZkVi1P6j//9d/T2iJAeq2O1TEYE739Sh0ugka5JEqaa/Nz5tdb5DSUCsdEaUl9oUwj4tWmJWC9lq5qp0pCcwJ4OpdWTrK4ulmUBbMzyImkj0yMoid8lk70yzYLHGsR6LU0b+HP5or4JZsDcL5OfRLbz62ApnC0BEEgABVqGRENd2cfPEHfvdI9UKRPwKdnzs6ppMvDeblXUuJJlg6BckxghJnTXaKuOlGZ5jmtsRFj4qOQEHYB5psTdzsR2+cDMkAnxHpSHXQ+RmApIG0zM+2pBYpaHbxgpnhwEEKXolborJPc7vohhwYQA6BH01BoaHANJO45IkzN1+R1ZKE9V7kEiiv090OVfpsMVuPecyRl3KFyFuUbjm0D7xczv5GQYV220LCa0NosyvxdH/owcI6+YdNEm8COK0wDb1lupHW5YHcajZ0c9pWJDa7S2RiXLtQiQO59EKde5nj23I83Wz+nPPhSEMVdQP4gW11xdlcKeZnnYcXhmLTYKpGwFwgKdHgHJ2C05MRUQpw8Ph57+Lq6UaQpcKj+bgyOa8HuxKDUR7gsNUWe+Ks1DoWZ53fjtMsoOzwzFcFAuxpUx1y5dMKCHGTTh596o5OSOEEw3HN4WKsTMyDZgpICoMrzua3gn+r4zngJrFkchLAlVnBX6DpmxUkHqO3HM/Pghx+DKBT9SexRY4429+qY19z76MggS/3tXoJmVeIDoY29xoQk/wZw7FmV7oKVFUCvbYBp+GWEhuvZG12clxaATcBiNJ2myynIAFzDYZ6PaPMK5FxZRDR2/kDB7YIMR3BcDIc3XHWxbeKmW1+26MlZHgcqtsqG9zC6nRLwzEPrqYBl6H5VsjpRrknMBoO229uXrfaduEcnSQ5jOWHMGNcAefCW0lVqFGbICaQ0/1073USz7VOL0phWYiZzIZ/SnTKSVUlSPXNKKsDqSVRuQRVTg0BbM38rGaBzGnojjMHJKS4zNuqMo6BkedMTjjzPMb+1DKqy4V/MnCW/fosuww8cC3+Ae/O2nZJDZjvQe0TdAyOOEV+hYDrF+v3lwYBKr6XLlQBJMlzh2e62VZ2N69gutnx0rUD6Py8Zee219q02Unnr7bDkXrYh6E2T5foyQOBO/OQe9nvaihN5XxnWWWACFxhv23BcJEYa/oxNUFOrjSAhOlpl3e6WcSdh3JuIBYUPt7fWRcmhVV5m58bjM6uwQB3m+fnbnYN8zKP6SJsLAIXGOsAB5JXfvVy7HiXqHIGitH3Qy/HDS1luv3F8AxmgglztShOqlGuTdsKv0rDiuoOjYdxiHvs+goSCyA63R+4nT/aDSXQ7tcDygHLjehotcQAQnDo+JdDaaxgv6dXTUEOV/9lVw==" alt="general moment equation for billiard ball 3">
+<br>
+<br>
+From equations (3) and (4) we get:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRsAEAABXRUJQVlA4TLMEAAAvlwAoAGfBJrJtJyvlf3JykQUggQ4lqaXEC9pQoaBtIzdnKHe/F5BXFAAstDVx3yHmN3w1oII2YgkgyvzXAQijWAQd7f4VjGLxMK00hO1J/9DZYBQMFSH1ISAcC3UAjKmipUgAnop2V7C80VAQ9ECgQb44giDQEBAg0batNm6wJdw07r0S4zIPif//QL0mAX7pSUT/IUiS3LbhKjGBe4fDAbSXeED+AxHgZnTbbA5CnzNY9IIBzwtu9zUbg3iL5yU/ZGsQ57JtwnTXajnYim8z1Kz+ceMY6enOsWBa4qKAyWIoasxMfTw523nJFZG86/ECgh+i61Vq4NAwKLiLNZO4PrtEJ+NW29J9eDeIfmDF6m8kVMztyfdZMKQCiIXEkRFLXbGOhAZ2gdtS1jDigfKsgHFDiSePFbBifdxwR5X6AHermFUB6EfB0BXrwhIKhYPwXXE9edYcANvFqrNpfIVSfaSwP/n1jXPxIYLf8TKrzs70QuVyDVDi6fBeYIrZrZ8eC7lTaEbMsSyZYLBMT+QCg0ixZMpkWSN0n/Oed3QxEIugYNplH+MG6c7ecbfkPHf7hv4dj4V6Kd1rjxs6YJsvk65yFppfLJcUkkemzH/J0xgBnrPToVDd0RUe5qAJJCCxfoQwz28vZYkLJxyRLyluonAN5vlqrToIrqSRBYWHmEK0cEx3t+iugVrEqrFCekb+PDqxrmMfS3s16gGS9l/HS8EgglDn57ghZFmYJj9UYK0h9vMPQkConemu6oIOR+qlqzouSB7hwO2yZRBMq9PNBjbWIMW9nRd26bjRk/V4fJP2Xign1kAUn5W1Cf2aPPoShjm7vL0U5aybCt12du30RDg4gopD3sBuQKPrhU6kog0z64jp5P//+P8/fkDwS1/mbxOKyPwBox6ooAu4mFFR/gckgHKtllBA5h+J4jNSfWRg8k9F+R8ckgiupaWQzB+JwO4rqrZDt6XsFOU/CcJ4C+2o0krJ/FHw920fVwfoMwkVXfmffA8tJZJyMn9w3QMKq9316ZYpHlXlf0RKDb3LyfyjOxgyOu+cRDJWrar8DzsXLQkLi8n8kVC3zew0up4V5T9NJQ2hnMyfqsip7YJwVVH+Q1u950qZv+x6UousGgVxt6L8D419r5X5C3pxZi2rxuiGdEVoyA8nNCZbXSvzF1T+GDG0PGI6bfGK8h/bR1vLSpl/ZHyEdZa4qRsU5T+2hHahy/wFlf9CKMr/xqHL/KnKfylKKv8bwAKZP1X5L4Wi/G99WSCVR5X/mkVR/jeNBTJ/pvJfQbOC8p820FtiYlWZv6DyX4oKyn/adwAZHVat2fZU/nx4EXuQG6j+FNyXA/5mI/EDb8tdjFDjpGczBMJ3xm2WIPmyz6m6JrHUwshSsP4A6dc/JApZ9mJeT8/ZDABdwA3QbcdTQ/7eQYds2CeBM+bJJ9L3CXclvz7BbmlM+jsmfaDaIpAO1SQAfpsEvPszCdOdVevJW/Wn+2jVHnJPZxLsGnSAs2rPD1ipVu3RShUmtPn6UEqVJrQxANEJ1ssT2nx1kH8fOPZDmdDGFgSr8qc2oY0lkCe0sQXChDb2FC1NaGMNpAlt7AGf0ObvBgAA" alt="final acceleration equations for relative slipping for billiard ball">
+<br>
+<br>
+<br>
+The linear velocity of the ball is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRiQDAABXRUJQVlA4TBcDAAAv6YAMADfBJrJtJ0fKz1nEL5MM6GgxkVpKvOANEwraNnJzhnL3ewF5NgEApIEm7oRwWQ4yrAX/tJpFmf8qAEQHp1EK6v7Bf8EDyfowdHB2E7pgoyHHgtDBKSbcNsNToelWDW8s4EBZUPC+WAkKEuEHBAikW9vbtg01vDO9WTOtSY37v0YKIMAPSX+2Ef2HIElu2wi4fAqDDOkJ839p1Duix3keXxaAgyHvX1CnU/YTJ+ie34D3R2o4SBQVfNw/06kHGmXAa6DxCAMcX4jZNLubewbQxzs45qCAzAgDXgMd3x4wwBeaO2lVKN7Qapk981RsQTZ9A16YVbiw+Z7d4CCyKHQ60QCMr3eUSQa84wuiABSouNYaG2p22hTjnFY6S7OnjuRK8K6N5NVJJPMiHtSgDjdGCr0puGI7nk7dU2cOiUbAdzMkr0bGl/aRO8B7o0/DiJsikcaBBaXgg+BU39Iq21lZ5MGV9Qjk5aqQtKINq8aNwcEC7pkfhme2pvQRddzRtQ+Dg8C8sqQVNb/CjawiITqdyukYCvFPK03waIJ6g9UKyivKdGL55yvcmFawOTK+lAFZdko8EpXBQTBeqd4YZGSOHV8q3Aj8XWRnwVPb5F2fNgaTGMsrfSl4oe532FUVngy1sq8ucsUhMF6movD/p1WFG2mTRZkkStUvhQeEgvolwadbxXQx4JWEteO0vTZ3LTHyquIhc6Ff6Q4ZX6jFknVREWckr2LdlYVu/39yuH8/lJb6zPCF+lHqpmlL/aq7kOx13qZCxXQx4BWF7hbdMzshfSqJlwSJuCWUBWYJSulTubGkdTlovHgRoUTyyhdaNosjuVL3VBLngsSdRvdNZkyx1hDPJd7geUjBm3PlaERM6wl5BoPVNc20qjadRWaJpcO6WuKdLg8z4jn0FhuF71EskrLXBoojwbxpZ0dMF3G06h7iAiI9mL0KRDBvONgRZ28dZwNVvFQClb5v7ipmMO90vpsRz/PXh9GbMMWbOoTSnUZsJHDe8e3X3Yp4joc8n/Jtf4p6OmUteaPrrYiD6+mm/c9oBQA=" alt="linear velocity for relative slipping of billiard ball">
+<br>
+<br>
+where <i>t</i> is time
+<br>
+<br>
+<br>
+The angular velocity of the ball is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRqwCAABXRUJQVlA4TKACAAAvyYALADfBJrJtJyvlBzKIoEwtDsBMainxgkwFbRu5OUO5+72AvKIAYKGtifsOMb/hq4EKpFBKDHHmP4Awikkw0J5fTRjTQGsIx5PYJsHgI0BbkXMhGMUGMGQkeBAQ3opgq2m0fNFQ7K4/DoIABBoCAmDJttu2gXsv6RGTMGZIav9rJPEAEXL5y0T034HbSIrUvUyXpoF7Qv+PrvqNSnFvNJzNANN2DgT5iahccbNLf1c07X7MALcYe0eTjgH46U9/T9QwoA6Oy9WNyHI7mrbnZi4yq7IA8S+rZEpcDDdL4Ivr8pxD1jEhB0lxGtG5/sDkoyKQ0UF+grB7mss0wzPJgT08XRzCjgg5QCAnS2C5ywOZnQfwc1woNelbglwdIRjmNwKorOdGSEV1SVtO7eeBMXsyqzBMNU+FmAS/hwZu7o78umWIX53AMxqkKvkJLI7LElPGYfXV/DTpALySO4LX42J4LvGs+ft8qoRxLeCMB6mKx3Y7LuiM4DaathwwbSs4rw3kaULNb7k6Jb+IcCNAKoUAGSDsMRvtztFTwg94uNQok+6vq05pGYWYQiobzADB8Pxk9lVdhCRqklIIH6e+d5MuroTMH/BII6RiuSIey8rxUMZFyVEbRU/hzwl12SrHwuQmn88WxhlADhBut6dDyeb4bvhVwXPQ3Bfh5dDyCCaaJ6Uxs4P0amRUAY8F2oTZJe0vrmD/Wh06oR54VwMObfpQfmprAkaAVATGRL48F4gmXQ1wsBskQSVznwUhZC2Bzjw/g1G6GUDqH0pb3pvyVjw/kd1r4ngoLogw5a52QoEDh2vVMKxRiourNbR2Zlesbt7CcoUa1/01a37SS/maZ3hXP6PPT2rk3RWvteG5br2lf0LS7rvrH4TWLuZfDAU=" alt="angular velocity for relative slipping of billiard ball">
+<br>
+<br>
+<br>
+We wish to find the time it takes for the ball to stop slipping, and begin pure rolling. Thus, using equations (5) and (6) we can formulate the following equality, which holds true when there is pure rolling:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRhACAABXRUJQVlA4TAMCAAAvg8ALAEfBJrJtJyvll9HFJyMDzKSWEi94w4SCto3cnKHc/V5AnlVs20rua+L+Qjg8+aUKKQhEFe8y/1UA0uBNtIq5f/Rf9CPbH0Ez2VQXNJgVIDgWQoNXadGFqQFgYE9FaC6nNzq8zeGLHVoAAgYMjAQQSftTbxHR/zQiImTZttVGziOoHZAjOIPB0PDu/EcIUnUFyfzZa0X0P/EfWqALi95W2gymZEfdYmdHKmPSRCpjZ6cxbSKNi6Qypg2ksRcZMS07MtjaO4952ZHFYGdwNDuy2OobjEAWI5BBT6RxeFuFx0gaRwcaBlvQGIE0AnXhEahrHF4X4dGLjLg/0XWLl4E0RiGVMZJBZydjskV4HF5IRrR3HicUUhn8fVUZ47dHr4suBqcUUhnB4Iy6yIjnX05G9PoGI9Hn9xmPJrpucZFI5aRxSltl5B/sZAR/jRhBfPA4J5CuryJOaavwz56djEgGo61kcFKgt+88Hkt03eIlO/HzE3oQvr7OGIVkxDnsqFtcDzQ0f8t4nJ34GNGD+PXFYwtkcFJbSeNqIZXRCxkcwI4MRqJusbETHifVRWVcK2SxJ4sD2GlsiTT2uqiMk+qTx7W6aFz88TiAv3hsRWXsiTT+jiAjpmenMjo7GjJi1rZq7IUM5m2rxp5kxMRBeAx2GjO3VUb0uljMHWhTGf/qAgA=" alt="equality for slipping to stop for billiard ball">
+<br>
+<br>
+From this we can solve for time <i>t</i>.
+<br>
+<br>
+<img src="data:image/webp;base64,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" alt="time for slipping to stop for billiard ball">
+<br>
+<br>
+For a solid sphere
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRqoCAABXRUJQVlA4TJ0CAAAvhAARADfBJpLtNgdFOQP5AMRA6oQkuHVpLoapoG0jN2cod78XkGcT2baT953k/EXkQP8cUNKCCqwg5wtAyvwHIBZEwmqE52e4iQ2oq+ZjsAjUfBAlF+uHZC8CC6JmA0oEK1HAWwksC1JOXxwQDa8/HrAUoAigQAGSAKBtG7KjrO5htaahkvj/GyXh1Fh0HyL6z0CSpCasieDJRU6ewH9hiDsAWJzZNhBq3LBlhJVjLkPnPRuGryVPAI7tIj2JD9zCkj8B+Hyxj3y5YfuIu0zUPmjWsX3EneNPAPgpUCHdQXHXaFgPW9Uz3feMLR5hrbtSvHecA0l7ZlNOffjmSj71GcqXD1fqfGSCjCSsQEBz+R5pvGE1QVJEMABVzb6Miqi5GFl4cBx3ZCU7JMccnj8+K28kF6GRhmslDcCxhhtWzeSnVAQsEk0Sa4Mvs0ANFWMrPVgJGGtd+1ramdKsYw8KJdfdOJaGcTOagRua92G1OPvFuZZ6up33eKOR7cRdMwlR3M1f16XqaMki6Q2rJemkOgQN9Sweshg9XB/OUqRYTUID01CFCxCTQdg4Lq8fO5Yxz89OKuptiWq6LfyK10Q97rT+RMJqXI/qELHo+PKqqCua2AWqtUunx0lCRa14odCButb9AlUSinQTtAwwKiIuggtXmSkth8fBP2kSasZpjHPADQsb6bbyxrBSCb95jgXiIayEe751U5wD9VlXM1TI4hQO7+c920e6FQZte8Ml7mqdkelNhoGCWs/CkNvLw7ywZTV2qDrb2w2Iu/J+WGlRTXfNbkZ41R8f+hQ2Asr9EwABfAK7ZIKKY/vwteHahwf4FMhjIWEfVRb0CYA+h+onsYFaFpdPAPQpkIp724uGr6J0WBtPRNOtWOj/wwAA" alt="moment of inertia for billiard ball 2">
+<br>
+<br>
+Therefore
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRsYEAABXRUJQVlA4TLkEAAAv0cAVAH/BJrJtJyvllf8DInK2gZnUUuIFbahQ0LaRmzOUu98LyDOqbSvVo4k7JZjZlAZkoKl/6TL/dQAS4c20CnP/gAhvNlBVmOQHA7Y/4i8qBxrMBoCBHQshwqtoyUHRAWBgT0WI8DZarXkjwetoofmiQwsgMGBgkGhtW9s2eNBtJZ0mO2TQhiK4/9sz3/eDCUXdJ6L/DgMAaRvoIquALNEL0v8V0e67F8xve5drnpRSmydmI+hdSlYB7okrtetNVLe6TT2jU6w1QI8MRMOcRINq7k7Yju0PTSFfun4kNkhW0t8B+rRN2/NPclaPFh0NPi4dgBTo8F+6w3lCcXrEeEV/YEBzTvBUS+DXj12KixL2jjZLFg0bYTQo6XzSwCrn6Xl8Meh+vwijyTHC0yORD3hSixEUoMBxCm9SSlaKPDhW7EQ5dveenNCfMAwhH2AlrskTSmA5x9gtcLGV+DlIYhUzEk33pF/dgnQseNCZkTYXVRCoPY+D4lhdEOzcHuQj9jon52kH9zGg3Te5KKUy4L3xEoPoncB50FsvW4NFz+oW0aozkKyoDtvIHssQ9EFF329y/sFHkGjq83vZGFwf4JSMovweDU8EdwC3bSwHczlP68d4FTPEc0lZdvWhYGmu74/wGgdNJKzahpeNJC1/QDD7fgtA50mmgqV1DoLKohHh7Umz+qgIOZlef0q5vsIRQvRFxfV9iWQDchGpimnKZnuOF1XCV8HHx3SAmzNxLGzpG0etVxTedisN4DwV5KQc4CE3l420BkBpjsYCOY2mVBJ3ndmD5ogiyluujTxJ7eqErwEYBKEqqRMk9Vx9+VKM9GST4YU8kkGTUr7WuXQFoJH7gqZc2bZ/gAqZMJq6wGcFZp7BSAucFgRs8+27cAgygwKi1NGAR8Tz9rG+ktNG/YD5tI+8QpPngkATTdGygYY3reWo5dQ3sjDbi4tX/GTAP3LN3a6S01a/p45cvKKrZrPgGDsp3DTESk59o7mR6q/5VZAKql2dm2ynD81f7TkV0Hc+zbGKeon+GSoM/3w1iZxoKor7MSN0FRYGYXq3MJjphcFGHR01IDxKSUEXcuUiXAJPXRi0apenGEuCeYbod2lRMM8wtunPI3IWlWOCz2yMOzNFU1ETwCKUH/iLO2pijxMzklXDrsLvhe67QDtc/9TDT7VBC7RbitrOCraNDdEFwHkSqx+hw8WT9LqpLXZBRuYRpeZk0JRCSINVU1uvYBF8ZKckOh/ZfNOoH9JgRT+F3risMiicJxpgbvY7eOoRNM3eh9Y68jTE1PZMND0/gp4nVvG4PoTuvaWxRhXV0wLYcU2nBFpYA8QNH0fcTd5gB1ahMS2MNf7NMXcn/KPVwFoSRAuBhhZ/HA59Nu14lUoLMdGMrTgTaP6YJ15f3OOkYA8NImnH0viqTS9YbdC44W+HTKBFe87e4t4PpwY3JbDyLm2lhBve4Y4Rwcqd8B+4dDbexlHFrrho9kGjmdjD0aDH2zp2RXPO+2TmT5kBaROBHevPeSoryfHGMidYRDRDhZrtKfYVRiGRpXkaKYGbgAucnHzBZki+B0mnhtoxEHKjgH7zdDBu3HxPG5uG3wGxeVNcLrj+i4gA" alt="time for slipping to stop for billiard ball 2">
+<br>
+<br>
+<br>
+Let's now find the distance traveled by the ball before pure rolling begins, using the time <i>t</i> from above.
+<br>
+<br>
+The distance <i>d</i> is:
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRogDAABXRUJQVlA4THwDAAAvzIASAG/BJrJtJyvlBzKIoEwyQAImUkuJF2QqaNvIzRnK3e8F5FlFkuxkn5NEZkWQWXSgARf3T7SGl/kPEIEmlUHy/B4CTQyfQdL4MdpfgEAHgzROGeCdy0GggeHTSLJOAG91EGhVYTeCLzYQlU1C548DlQCCBA8P0m1ba+OG6TO25DS5i5TBsQnie//3g49PcFX4Fa+I/jtwJLdteGkuoHhiMaX8gD77gFWqo1pAK1UTIRra/20lmLw6DphS/OOVzNq8ppR/PZG/39OqYPLTGib+XjW0AEwt/h5ktDsotekLTdOKoSNWAtQEU57ym9RV7vKBo7crtjDEjOpSC6KRE8AyNwg2T4CfPZAgIA9MQr+kANiZVrmUjQGy0ogkMuk8m2yfDl+uNEMIbGxD5F5BlrZbwAToRGy+iXqCwEVAYMNyYwvyEuJYqLPDXW7KhHrUjNkBD/ZCNia+MSkYtGtEdQvSMU1NNtmx2goUy2qzBbCBgFXPoS3Xyggx20y+V+xYeYQJy6vhy9d83hZadE0aPKKpRskQZsIdAtGSm8iMBR9K3EHgXc4GAJtEDuSYbEj7gpsojX4BIHEHNkVxqsrZADC0uw8+AOKYB5oumGx3GIsVjPj7xFatunI2AOhk7gym1pogBTeR7NSR/EjNUSPgtlg+d0UPJORx2jq5A8ZUrfbuVDDXGQ0y5CP9LjzGabTpA+ssR1f2LUFuC24iXpZGABDhemx7y9kAwLX4+x/3kGOhv02hY+j656T6ZZRuiFjFxF2eNn0eF8JqZSkainIY6f1PuZFDK8SgQI/HlAnWszr8JnsPJHHy9O49XPl7HeHCILDBwB3YYz2a/QvwNbI2EUpG2kH7+00/1jxAZGj5SiQM475ncEnZINuO6BPUX0/uKHlGyDLBXf4+o2GDKIpe7KKmcGsGF4HN/KGF5MaswCfgwuKeBfsi4O8jP3/PFgP+8TpDLmT2Zjk7QEObrKhijXA3c+TCesWlQCDMBjIN1F5WaBBc2AbQcsD6L74H4R9wj1OhC+jKuRC9fVvSPiNv4twhbnh9+Y16JSFrYi4WcyHbuMvHW0+LgU43qyywaGseCVapppSLUXveDa4Z/EsywL3aU0UQe6N6gC1a6wG2rK4H7KanemBoG6oITFW02Krc5C5VeZ+uVA9U6q1roMAdVIJtBdRaeaf4EwkA" alt="distance for slipping to stop for billiard ball">
+<br>
+<br>
+<br>
+A final consideration is finding the velocity of the ball before pure rolling begins. To do this we calculate the velocity <i>V<sub>G</sub></i> using the time <i>t</i> from above.
+<br>
+<br>
+<img src="data:image/webp;base64,UklGRpwCAABXRUJQVlA4TI8CAAAvuIAMAC/BJrJtJ0fKz1nEL5MM6GgxkVpKvOANEwraNnJzhnL3ewF5VpFttQEnvSOiw0MHGuKC/1Rr8TL/VQAKgKAxCu7+yX/BD8X6KAAEuw0gOGnEsTAABMWGz2Z5KjZ9quWNCQGMBYfoi4NgCBwIEKQJiOh/zJEbSYo0tMxMQ03//2OpIavqvoroPwO3jRRp8bjXqQa+AMu27bSNwkyGFatmwfznKL8n2e86v10R/XfgNpIiVe8eQ6phZ97g/2kJrUhk3tv7BHAD8v5euDzY5gS7Acj7i9Fwuy7f/wCvZJgrH1mjmN9Gul4AXuFwxx8fmmbGx+1SxBXwSrsSsILL6UDbRyVlBcBr75mwowiqhJcJxjPyS3LXIwDvPJnIE5odDLQScZD2vplK1QgONoB3hgIJydodTzUuEiPiH80hYC8ckEbFI5PjjcQMmUNkxJ7DSl9J2GFU21r2QwDetMJJssFiJZI/v5Fu0JIfAvCm5XLWHR8GK3YhISDSKFIfAvAmm5tBjixP0StwvCJEaLU3J9EVAMCbvIncM49FFKTVdemApD8iyMsipcj7dsFgJfI3/BbZo0VCT93kvsN6eJMaFZFdP+s3jFjircRNqlMIbPjeDcnbJGcmrSlRn3aiK+MP/NMPYRj4W3NIZJVPbJOtiTcluhy3M33GXkDE/la/jcAFc4ymNNL4MxKN5U3+UPgTdY3e1M4Y4kj98u5VR7oLyBsqmaGII/FGglVoLg+0JNNhOcbxurLGOe27XqsWsne2tVc3JK+5AJ0myZNCi+A32xrJ29yATv3tGrSa3lSEe4/kdUUFdDqc9apmum8xhwzJa59/Fcyp2dn1TJ9Vappe3ZG8o9qjiPuqi7Ojf44NAA==" alt="linear velocity when pure rolling begins for billiard ball">
+<br>
+<br>
+Note that the above three equations are only valid as long as there is relative slipping at point <i>P</i>.
+<br>
+<br>
+<br>
+<span style="text-decoration:underline;">Sample Calculation For Relative Slipping</span>
+<br>
+<br>
+This is a sample calculation using the results of the previous section.
+<br>
+<br>
+<br>
+<i>V<sub>Gi</sub></i> = -1 m/s (initial leftward velocity)
+<br>
+<br>
+<i>w<sub>i</sub></i> = -20 rad/s (backspin, CW rotation)
+<br>
+<br>
+<i>r</i> = 0.028 m
+<br>
+<br>
+<i>μ<sub>k</sub></i> = 0.3
+<br>
+<br>
+<i>g</i> = 9.8 m/s<sup>2</sup>
+<br>
+<br>
+<i>δ</i> = 1
+<br>
+<br>
+<i>a<sub>Gx</sub></i> = 2.94 m/s<sup>2</sup> - calculated from equation (3)
+<br>
+<br>
+<br>
+Therefore the time it takes the ball to stop slipping is
+<br>
+<br>
+<i>t</i> = 0.15 s
+<br>
+<br>
+<br>
+The distance traveled by the ball during slipping is
+<br>
+<br>
+<i>d</i> = -0.12 m (the ball has traveled to the left)
+<br>
+<br>
+<br>
+The velocity of the ball just before pure rolling begins is
+<br>
+<br>
+<i>V<sub>G</sub></i> = -0.56 m/s (leftward velocity)
+<br>
+<br>
+<br>
+<b>Closing Remarks</b>
+<br>
+<br>
+As you can see, the physics of billiards can get pretty involved when you start considering all the things that can happen in a typical game of pool. You can bet that professional players are very proficient in the practical usage of the physics presented here, as well as other aspects of the game not discussed here.
+<br><br><br><br>
+<a href="https://www.real-world-physics-problems.com/physics-of-sports.html">Return to <b>The Physics Of Sports</b> page</a>
+<br><br><br>
+<a href="https://www.real-world-physics-problems.com/">Return to <b>Real World Physics Problems</b> home page</a>
+<!-- start: shared_blocks.10233147#below-paragraph-1 -->
+<!-- end: shared_blocks.10233147#below-paragraph-1 -->
+<!-- start: shared_blocks.10233146#above-socialize-it -->
+<!-- end: shared_blocks.10233146#above-socialize-it -->
+<!-- start: shared_blocks.10232936#socialize-it -->
+<!-- end: shared_blocks.10232936#socialize-it -->
+<!-- start: shared_blocks.10233115#below-socialize-it -->
+<!-- end: shared_blocks.10233115#below-socialize-it -->
+</div><!-- end Liner -->
+</div><!-- end ContentColumn -->
+</div><!-- end ContentWrapper -->
+<div id="NavColumn">
+<div class="Liner">
+<!-- start: shared_blocks.10233257#top-of-nav-column -->
+<!-- end: shared_blocks.10233257#top-of-nav-column -->
+<!-- start: shared_blocks.10233175#navigation -->
+<!-- start: tool_blocks.navbar --><div class="Navigation"><ul><li class=""><a href="https://www.real-world-physics-problems.com/">Home</a></li><li class=""><a href="https://www.real-world-physics-problems.com/search.html">Search Website</a></li><li><h3>Real World Applications —<br>for high school level and above</h3><ul><li class=""><a href="https://www.real-world-physics-problems.com/amusement-park-physics.html">Amusement Parks</a></li><li class=""><a href="https://www.real-world-physics-problems.com/physics-of-battle.html">Battle &amp; Weapons</a></li><li class=""><a href="https://www.real-world-physics-problems.com/engineering.html">Engineering</a></li><li class=""><a href="https://www.real-world-physics-problems.com/physics-essays.html">Essays</a></li><li class=""><a href="https://www.real-world-physics-problems.com/miscellaneous-physics.html">Miscellaneous</a></li><li class=""><a href="https://www.real-world-physics-problems.com/physics-of-sports.html">Sports</a></li></ul></li><li><h3>Education &amp; Theory —<br>for high school level and above</h3><ul><li class=""><a href="https://www.real-world-physics-problems.com/kinematics.html">Kinematics</a></li><li class=""><a href="https://www.real-world-physics-problems.com/dynamics.html">Dynamics</a></li><li class=""><a href="https://www.real-world-physics-problems.com/physics-formulas.html">Useful Formulas</a></li><li class=""><a href="https://www.real-world-physics-problems.com/physics-questions.html">Physics Questions</a></li><li class=""><a href="https://www.real-world-physics-problems.com/example-mechanics-problems.html">Example Mechanics Problems</a></li><li class=""><a href="https://www.real-world-physics-problems.com/learn-physics.html">Learn Physics Compendium</a></li></ul></li><li><h3>Kids Section</h3><ul><li class=""><a href="https://www.real-world-physics-problems.com/physics-for-kids.html">Physics For Kids</a></li><li class=""><a href="https://www.real-world-physics-problems.com/science-experiments.html">Science Experiments</a></li><li class=""><a href="https://www.real-world-physics-problems.com/science-fair-project-ideas.html">Science Fair Ideas</a></li><li class=""><a href="https://www.real-world-physics-problems.com/science-quiz.html">Science Quiz</a></li><li class=""><a href="https://www.real-world-physics-problems.com/science-toys.html">Science Toys</a></li><li class=""><a href="https://www.real-world-physics-problems.com/science-teaching-resources.html">Teacher Resources</a></li></ul></li><li><h3>Site Info</h3><ul><li class=""><a href="https://www.real-world-physics-problems.com/about-me.html">About Me</a></li><li class=""><a href="https://www.real-world-physics-problems.com/advertise.html">Advertise</a></li><li class=""><a href="https://www.real-world-physics-problems.com/contact.html">Contact</a></li><li class=""><a href="https://www.real-world-physics-problems.com/commercial-disclosure.html">Commercial Disclosure</a></li><li class=""><a href="https://www.real-world-physics-problems.com/disclaimer.html">Disclaimer</a></li><li class=""><a href="https://www.real-world-physics-problems.com/privacy-policy.html">Privacy Policy</a></li></ul></li></ul></div>
+<!-- end: tool_blocks.navbar -->
+<!-- end: shared_blocks.10233175#navigation -->
+<!-- start: shared_blocks.10233301#bottom-of-nav-column -->
+<!-- end: shared_blocks.10233301#bottom-of-nav-column -->
+</div><!-- end Liner -->
+</div><!-- end NavColumn -->
+<div id="ExtraColumn">
+<div class="Liner">
+<!-- start: shared_blocks.10233084#top-extra-default -->
+<h2><u>Free Newsletter</u></h2>
+<p><span style="font-family: &#39;Arial Black&#39;, Gadget;">Subscribe to my free newsletter below. In it I explore physics ideas that seem like science fiction but could become reality in the distant future. I develop these ideas with the help of AI. I will send it out a few times a month.</span></p>
+<!-- start: tool_blocks.ezine2 -->
+<div class="Ezine2 EzineLeft  EzineVertical">
+<form action="https://www.real-world-physics-problems.com/cgi-bin/mailout/mailmgr.cgi" method="POST" accept-charset="UTF-8">
+<input type="hidden" name="list_id" value="21111675">
+<input type="hidden" name="action" value="subscribe">
+<div class="EzineRow EzineEmailRow">
+<label for="EzineEmail.4">Email</label>
+<input id="EzineEmail.4" required="" type="email" name="email" onfocus="SS_LDR_recaptcha()">
+</div><div class="EzineRow EzineGDPRAgeConsentRow">
+<label for="EzineGDPRAgeConsent.4"><input id="EzineGDPRAgeConsent.4" required="" type="checkbox" name="gdpr_age_consent">I am at least 16 years of age.</label>
+</div>
+<div class="EzineRow GDPRPrivacyPolicyConsentRow">
+<label for="GDPRPrivacyPolicyConsent.4"><input id="GDPRPrivacyPolicyConsent.4" required="" type="checkbox" name="gdpr_privacy_policy_consent">I have read and accept the <a href="https://www.real-world-physics-problems.com/privacy-policy.html" target="_new">privacy policy</a>.</label>
+</div>
+<div class="EzineRow GDPRInformationPurposeRow">
+<label for="GDPRInformationPurpose.4"><input id="GDPRInformationPurpose.4" required="" type="checkbox" name="gdpr_information_purpose">I understand that you will use my information to send me a newsletter.</label>
+</div><div class="EzineRow EzineButtonRow">
+<button class="EzineButton" type="submit">Subscribe</button>
+</div>
+</form>
+</div><!-- end: tool_blocks.ezine2 -->
+<!-- end: shared_blocks.10233084#top-extra-default -->
+<!-- start: shared_blocks.10233202#extra-default-nav -->
+<!-- end: shared_blocks.10233202#extra-default-nav -->
+<!-- start: shared_blocks.10233087#bottom-extra-default -->
+<!-- end: shared_blocks.10233087#bottom-extra-default -->
+</div><!-- end Liner-->
+</div><!-- end ExtraColumn -->
+<div id="Footer">
+<div class="Liner">
+<!-- start: shared_blocks.10233021#above-bottom-nav -->
+<!-- end: shared_blocks.10233021#above-bottom-nav -->
+<!-- start: shared_blocks.10233086#bottom-navigation -->
+<!-- end: shared_blocks.10233086#bottom-navigation -->
+<!-- start: shared_blocks.10232908#below-bottom-nav -->
+<!-- end: shared_blocks.10232908#below-bottom-nav -->
+<!-- start: shared_blocks.10233085#footer -->
+<!-- Google tag (gtag.js) -->
+<script async="" src="./Physics Of Billiards_files/js"></script>
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-ZQZRHWV9TF');</script>
+<p style="text-align: center;"> © Copyright 2009-2025 real-world-physics-problems.com<br></p>
+<!-- end: shared_blocks.10233085#footer -->
+</div><!-- end Liner -->
+</div><!-- end Footer -->
+</div><!-- end PageWrapper --><script src="./Physics Of Billiards_files/mobile.js.pagespeed.jm.be5RhGEm5B.js"></script><div class="eucookiebar show"><p>Cookies help us deliver our services. By using our services, you agree to our use of cookies. <a href="https://www.real-world-physics-problems.com/privacy-policy.html" target="_blank">Learn more</a>.</p><button>Got it!</button></div>
+<script>MOBILE.contentColumnWidth='500px';</script>
+<script src="./Physics Of Billiards_files/fix.js.pagespeed.jm.3phKUrh9Pj.js"></script>
+<script>FIX.doEndOfBody();MOBILE.doEndOfBody();</script>
+<!-- start: tool_blocks.sbi_html_body_end -->
+<script>var SS_PARAMS={pinterest_enabled:false,googleplus1_on_page:false,socializeit_onpage:false};</script><style>.g-recaptcha{display:inline-block}.recaptcha_wrapper{text-align:center}</style>
+<script>if(typeof recaptcha_callbackings!=="undefined"){SS_PARAMS.recaptcha_callbackings=recaptcha_callbackings||[]};</script><script>(function(d,id){if(d.getElementById(id)){return;}var s=d.createElement('script');s.async=true;s.defer=true;s.src="/ssjs/ldr.js";s.id=id;d.getElementsByTagName('head')[0].appendChild(s);})(document,'_ss_ldr_script');</script><!-- end: tool_blocks.sbi_html_body_end -->
+<!-- Generated at 13:49:26 13-Oct-2025 with gears v139 -->
+<script async="" src="./Physics Of Billiards_files/lazyload.min.js.pagespeed.jm.GZJ6y5Iztl.js"></script>
+
+
+</body></html>

@@ -48,6 +48,7 @@
             cargo-udeps
             cargo-watch
             just
+            poppler-utils
           ];
 
           shellHook = ''

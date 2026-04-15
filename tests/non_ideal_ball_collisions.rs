@@ -55,6 +55,51 @@ fn throw_aware_head_on_collision_matches_ideal_and_reports_zero_throw() {
 }
 
 #[test]
+fn head_on_backspin_transfers_forward_spin_to_the_object_ball() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(4.0, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let transferred_spin = outcome
+        .transferred_spin
+        .expect("backspin should transfer horizontal spin to the object ball");
+
+    assert_close(
+        outcome
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle"),
+        0.0,
+    );
+    assert!(transferred_spin.x().as_f64() < 0.0);
+    assert_close(transferred_spin.y().as_f64(), 0.0);
+    assert_close(transferred_spin.z().as_f64(), 0.0);
+    assert_close(
+        outcome
+            .b_after
+            .as_ball_state()
+            .angular_velocity
+            .x()
+            .as_f64(),
+        transferred_spin.x().as_f64(),
+    );
+    assert!(
+        outcome
+            .b_after
+            .as_ball_state()
+            .angular_velocity
+            .x()
+            .as_f64()
+            < 0.0
+    );
+}
+
+#[test]
 fn a_cut_shot_without_side_spin_produces_cut_induced_throw_and_transferred_spin() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

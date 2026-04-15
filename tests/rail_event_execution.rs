@@ -1,6 +1,6 @@
 use billiards::{
     advance_motion_on_table, advance_to_next_two_ball_event_with_rail_config_on_table,
-    advance_to_next_two_ball_event_with_rails_on_table, collide_ball_rail_on_table_with_radius,
+    advance_to_next_two_ball_event_with_rails_on_table,
     collide_ball_rail_on_table_with_radius_and_config,
     compute_next_two_ball_event_with_rails_on_table, simulate_two_balls_with_rail_config_on_table,
     simulate_two_balls_with_rails_on_table, AngularVelocity3, BallSetPhysicsSpec, BallState,
@@ -172,11 +172,14 @@ fn advancing_to_a_ball_b_rail_impact_reflects_that_ball_and_advances_ball_a_too(
 }
 
 #[test]
-fn advancing_to_a_spin_aware_rail_impact_uses_the_spin_aware_rebound_model() {
+fn advancing_to_a_spin_aware_rail_impact_uses_the_configured_restitution_and_spin_response() {
     let table = TableSpec::default();
     let ball = BallSetPhysicsSpec::default();
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let rail_config = RailCollisionConfig {
+        normal_restitution: Scale::from_f64(0.8),
+    };
     let a = on_table(BallState::on_table(
         inches2(10.0, top_plane - 7.5),
         Velocity2::new("5", "10"),
@@ -190,16 +193,17 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_spin_aware_rebound_model() {
         TwoBallOnTableEvent::BallRailImpact {
             ball: TwoBallEventBall::A,
             impact,
-        } => collide_ball_rail_on_table_with_radius(
+        } => collide_ball_rail_on_table_with_radius_and_config(
             &impact.state_at_impact,
             impact.rail,
             ball.radius.clone(),
             RailModel::SpinAware,
+            &rail_config,
         ),
         other => panic!("expected ball A rail impact, got {other:?}"),
     };
 
-    let advanced = advance_to_next_two_ball_event_with_rails_on_table(
+    let advanced = advance_to_next_two_ball_event_with_rail_config_on_table(
         &a,
         &b,
         &ball,
@@ -207,6 +211,7 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_spin_aware_rebound_model() {
         &motion_config(),
         CollisionModel::Ideal,
         RailModel::SpinAware,
+        &rail_config,
     );
 
     assert_eq!(advanced.event, Some(event));

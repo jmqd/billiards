@@ -1,8 +1,7 @@
 use billiards::{
-    collide_ball_rail_on_table, collide_ball_rail_on_table_with_radius,
-    collide_ball_rail_on_table_with_radius_and_config, AngularVelocity3, BallState, Inches,
-    Inches2, OnTableBallState, Rail, RailCollisionConfig, RailModel, Scale, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    collide_ball_rail_on_table, collide_ball_rail_on_table_with_radius_and_config,
+    AngularVelocity3, BallState, Inches, Inches2, OnTableBallState, Rail, RailCollisionConfig,
+    RailModel, Scale, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -100,7 +99,7 @@ fn a_restitution_only_rail_collision_reduces_the_outgoing_normal_speed() {
 }
 
 #[test]
-fn a_spin_aware_rail_collision_without_english_reduces_tangential_speed_and_adds_running_spin() {
+fn a_spin_aware_rail_collision_combines_restitution_with_tangential_spin_response() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();
     let state = on_table(BallState::on_table(
@@ -108,12 +107,20 @@ fn a_spin_aware_rail_collision_without_english_reduces_tangential_speed_and_adds
         Velocity2::new("5", "5"),
         AngularVelocity3::zero(),
     ));
+    let config = RailCollisionConfig {
+        normal_restitution: Scale::from_f64(0.8),
+    };
 
-    let reflected =
-        collide_ball_rail_on_table_with_radius(&state, Rail::Top, radius, RailModel::SpinAware);
+    let reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &state,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &config,
+    );
 
     assert_close(reflected.as_ball_state().velocity.x().as_f64(), 25.0 / 7.0);
-    assert_close(reflected.as_ball_state().velocity.y().as_f64(), -5.0);
+    assert_close(reflected.as_ball_state().velocity.y().as_f64(), -4.0);
     assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.0);
     assert_close(reflected.as_ball_state().angular_velocity.y().as_f64(), 0.0);
     assert_close(
@@ -123,7 +130,7 @@ fn a_spin_aware_rail_collision_without_english_reduces_tangential_speed_and_adds
 }
 
 #[test]
-fn gearing_english_is_a_fixed_point_of_the_first_spin_aware_rail_model() {
+fn gearing_english_remains_a_tangential_fixed_point_in_the_combined_spin_aware_model() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();
     let geared_spin = 5.0 / radius_value;
@@ -132,12 +139,20 @@ fn gearing_english_is_a_fixed_point_of_the_first_spin_aware_rail_model() {
         Velocity2::new("5", "5"),
         AngularVelocity3::new(0.0, 0.0, geared_spin),
     ));
+    let config = RailCollisionConfig {
+        normal_restitution: Scale::from_f64(0.8),
+    };
 
-    let reflected =
-        collide_ball_rail_on_table_with_radius(&state, Rail::Top, radius, RailModel::SpinAware);
+    let reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &state,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &config,
+    );
 
     assert_close(reflected.as_ball_state().velocity.x().as_f64(), 5.0);
-    assert_close(reflected.as_ball_state().velocity.y().as_f64(), -5.0);
+    assert_close(reflected.as_ball_state().velocity.y().as_f64(), -4.0);
     assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.0);
     assert_close(reflected.as_ball_state().angular_velocity.y().as_f64(), 0.0);
     assert_close(

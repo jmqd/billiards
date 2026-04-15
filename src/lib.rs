@@ -659,9 +659,9 @@ pub enum CollisionModel {
 /// `RestitutionOnly` keeps the tangential component unchanged but scales the rebound in the rail-
 /// normal direction by a configurable coefficient of restitution.
 ///
-/// `SpinAware` currently adds the smallest useful frictional cushion slice: tangential rebound and
-/// z-spin (`ωz`, running / reverse english) are coupled through the in-plane rail-contact slip,
-/// while restitution loss and richer top / draw effects remain future work.
+/// `SpinAware` combines configurable normal restitution with the current tangential friction slice:
+/// tangential rebound and z-spin (`ωz`, running / reverse english) are coupled through the in-plane
+/// rail-contact slip, while richer top / draw effects remain future work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RailModel {
     Mirror,
@@ -674,8 +674,8 @@ const DEFAULT_RAIL_NORMAL_RESTITUTION: f64 = 0.85;
 /// Configurable coefficients for the current ball-rail response helpers.
 ///
 /// The default `normal_restitution` is a conservative first-pass placeholder intended to make the
-/// `RestitutionOnly` model usable without forcing coefficient plumbing through every caller yet.
-/// Callers that care about table-specific calibration should pass an explicit value instead.
+/// restitution-aware rail models usable without forcing coefficient plumbing through every caller
+/// yet. Callers that care about table-specific calibration should pass an explicit value instead.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RailCollisionConfig {
     pub normal_restitution: Scale,
@@ -2875,6 +2875,7 @@ fn spin_aware_ball_rail_collision_on_table(
     state: &OnTableBallState,
     rail: Rail,
     ball_radius: f64,
+    normal_restitution: f64,
 ) -> OnTableBallState {
     assert!(
         ball_radius > f64::EPSILON,
@@ -2893,7 +2894,7 @@ fn spin_aware_ball_rail_collision_on_table(
     let tangential_delta = -(2.0 / 7.0) * tangential_contact_slip;
     let tangential_after = tangent_component + tangential_delta;
     let velocity = rebuild_velocity_from_basis(
-        -normal_component,
+        -normal_restitution * normal_component,
         tangential_after,
         normal_x,
         normal_y,
@@ -2932,9 +2933,10 @@ fn spin_aware_ball_rail_collision_on_table(
 /// coefficient of elasticity `N` in the cushion-normal direction while leaving the tangential speed
 /// and angular velocity unchanged.
 ///
-/// `RailModel::SpinAware` currently implements the smallest useful richer slice: a no-slip-limit
-/// tangential cushion response for the in-plane rail-contact slip, which lets running / reverse
-/// english (`ωz`) change the returned tangential speed and gain / lose z-spin at the cushion.
+/// `RailModel::SpinAware` currently implements the smallest useful richer slice: the same
+/// configurable normal restitution plus a no-slip-limit tangential cushion response for the in-
+/// plane rail-contact slip, which lets running / reverse english (`ωz`) change the returned
+/// tangential speed and gain / lose z-spin at the cushion.
 pub fn collide_ball_rail_on_table_with_radius_and_config(
     state: &OnTableBallState,
     rail: Rail,
@@ -2958,9 +2960,12 @@ pub fn collide_ball_rail_on_table_with_radius_and_config(
             ),
             state_ref.angular_velocity.clone(),
         ),
-        RailModel::SpinAware => {
-            spin_aware_ball_rail_collision_on_table(state, rail, ball_radius.as_f64())
-        }
+        RailModel::SpinAware => spin_aware_ball_rail_collision_on_table(
+            state,
+            rail,
+            ball_radius.as_f64(),
+            validated_rail_normal_restitution(config),
+        ),
     }
 }
 

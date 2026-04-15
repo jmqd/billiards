@@ -1,0 +1,29 @@
+@charset "utf-8";
+/* CSS Document */
+
+/* --- Zero everything to bring all browsers to the same state -------- */
+body, div, dl, dt, dd, ul, ol, li, h1, h2, h3, h4, h5, h6, pre, form, fieldset, input, textarea, p, blockquote, th, td { margin:0; padding:0; }
+table { border-collapse:collapse; border-spacing:0; }
+fieldset, img { border:0; }
+address, caption, cite, code, dfn, em, strong, th, var { font-style:normal; font-weight:normal; }
+ol, ul { list-style:none; }
+caption, th { text-align:left; }
+caption { text-align: justify; font-size: 80%; font-weight: 500; ; margin-top:.5vw;
+font-style: italic; padding-left: 1em; padding-right: 1em;caption-side:bottom;}
+h1, h2, h3, h4, h5, h6 { font-size:100%; font-weight:normal; }
+q:before, q:after { content:''; }
+abbr, acronym { border:0; }
+/* ---Rebuild tags ------------------------------------------------------ */
+p { margin:10px }
+em { font-style:italic; }
+strong {font-weight:bold; }
+td {margin: 3px;}
+ul li { list-style-type: disc; }
+dt {margin-left:20px; }
+dd {margin-left:40px; }
+ol  {list-style-type:lower-latin; }
+ol ol {list-style-type:decimal; }
+ol ol ol {list-style-type:upper-latin; }
+th {font-weight:bold; }
+th p {font-weight:bold; }
+blockquote {margin-left: 30px; }

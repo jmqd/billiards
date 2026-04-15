@@ -1,0 +1,127 @@
+/* default style sheet for Oxford Croquet Copyright Dr Ian Plummer, all rights reserved*/
+body, br, p, dl, dt, dd, ul, li, ol {font-family: Arimo, Arial, Helvetica, freesans, sans-serif ; font-style: normal; font-weight: 400; text-decoration:
+ none; font-size:13.5px; color: #000000; background-repeat: no-repeat; } 
+bodyX { background-image: url("/wmark.gif"); background-repeat: repeat; }
+/*body { margin-right:10pt; } */
+body { margin:0px; padding:0px; border:hidden; }
+.p, ul, ol { margin-left: 10pt; margin-right: 10pt; }
+li { margin-left: 20pt; margin-right: 10pt; }
+td + p { margin:0; margin-bottom:1px; } /* firefox fix */
+th + p { margin:0; padding: 0; margin-bottom:1px; } /* firefox fix */
+page_frame { margin:0px; padding:0px; border:hidden; }
+.search { margin: 0em; padding: 0em; background-color: #99CCFF; text-decoration: none; width:135px; height:200px; text-align:center; }/* search pane */
+.menu { margin: 0em; padding: 0em; background-color: #99CCFF; text-decoration: none; width:135px }/* hide underlining */
+ul#navigation { margin: 0px; margin-left: -29px; padding: 0em; list-style: none; }
+ul#navigation li a { font: 11px/26px Verdana, Arial, Helvetica, sans-serif; background-color:#066; color: #fff; text-decoration: none; font-weight: 500; display: block; width: 120px; margin-left: 0em; padding-left: 11px; border-bottom: 1px solid #FFFFFF; }
+ul#navigation li a:hover { background-color: #99CCFF; color: #000000; }
+@media print {
+.noprint { display: none }
+}
+h1, h2, h3, h4, h5, h6 {  font-weight: bold; text-transform: none; text-decoration: none; text-align: left; letter-spacing: 0px; color: #000066; margin-top:5px; margin-bottom:4px; }
+h1 { font-size: 20px; text-indent: 0px; margin-left: 0px; }
+h2 { font-size: 18px; text-indent: 2px; margin-left: 2px; color:#02c}
+h3 { font-size: 16px; text-indent: 3px; margin-left: 3px; color:#06F}
+h4 { font-size: 14px; text-indent: 4px; margin-left: 4px; }
+h5 { font-size: 12px; text-indent: 5px; margin-left: 5px; }
+h6 { font-size: 11px; text-indent: 6px; margin-left: 6px; }
+centre { text-align:center } /* fudge to get centring */
+.centre { margin-left:auto;margin-right:auto;} /* fudge to get centring */
+/*----------------*/
+.index { margin-left:0; padding:0; margin-right:40pt; } /* Used in FRAME definition remove space allowing for scroll bar */
+.nomargin { margin:0px; border:0px; padding:0px } /*used for main page table - prevents other table commands upsets*/
+@media print {
+.noprint { display: none }
+}
+page_frame { margin:0px; padding:0px; border:hidden; }
+.menu { margin: 0em; padding: 0em; background-color: #99CCFF; text-decoration: none; width:135px; border-left:1px solid #FFFFFF }/* hide underlining */
+ul#navigation { margin: 0px; margin-left: -26px; padding: 0em; list-style: none; }
+ul#navigation li a { font: 11px/26px Verdana, Arial, Helvetica, sans-serif; background-color:#066; color: #fff; text-decoration: none; font-weight: 500; display: block; width: 120px; margin-left: 0em; padding-left: 11px; border-bottom: 1px solid #FFFFFF; }
+ul#navigation li { list-style-type:none; }
+ul#navigation li a:hover { background-color: #99CCFF; color: #000000; }
+/* For main list in menu pages to give separate access to first and second columns*/
+/* the second definition overrides the settings of the 1st */
+table.menu-list { width:100%; } /* cope with non-full-width tables */
+table.menu-list tr td { vertical-align:top; border-bottom:#CCCCCC solid thin; } /* both columns */
+table.menu-list tr td p { margin:0px; margin-left:10px; margin-bottom:2px; margin-right:5px; padding:0px; font-weight:600; text-align:left; border:0px solid blue; } /* all columns */
+table.menu-list tr td + td { width:65%; } /* 2nd column */
+table.menu-list tr td + td p { Xfont-weight:100; Xtext-align: justify; } /* 2nd column */
+table.menu-list tr td + td p:before { content:url(/bullet.gif) } /* 2nd column bullet - Fire fox, not IE*/
+table.menu-list tr td + td + td { width:5%; text-align:right; font-weight:900; } /* 3rd column */
+table.menu-list tr td + td + td p { text-align:right; font-weight:600; font-size:9px } /* 3rd column */
+table.menu-list tr td + td + td p:before { content:""; } /* 3rd column - cancel bullet*/
+/* Used in Whats New */
+table.new-list { width:100%; } /* cope with non-full-width tables */
+table.new-list tr td { vertical-align:top; border-bottom:#CCCCCC solid thin; } /* both columns */
+table.new-list tr td p { margin:0px; margin-bottom:2px; margin-top:2px; margin-right:5px; padding:0px; font-weight:100; border:0px solid blue; }
+table.new-list tr td + td p { font-weight:600; } /* 2nd column */
+table.new-list tr td + td + td p { font-weight:100; } /* 3rd column */
+table.new-list tr td + td + td p:before { content:""; }
+/* */
+td.list { border: 1px solid silver; }
+sup { font-size:80% }
+sub { font-size:80% }
+a	{color:#069; font-weight:900; text-decoration:none; }
+a:hover { color: #FF6600; text-decoration:underline;}
+a.menues:hover { color: #000000; background-color: #FFFF00 } /* for roll-over effect in menues */
+img { margin: 5pt; }
+.headerstyle { font-size: 10px; }
+.banner { padding-top:7px; }
+.banner a { font-size: 24pt; font-weight:700; color: #0A6400; ; text-decoration:none; font-family: Verdana, Geneva, sans-serif; font-style: italic; line-height:24px; }
+
+.Xbanner a { font-size: 24pt; font-weight:700; color: #0A6400; ; text-decoration:none; font-family: Verdana, Geneva, sans-serif; font-style: italic; line-height:24px; }
+
+
+.pagetitle { font-size: 22pt; font-weight: bold; text-align: center; margin:0px; padding:0px; } /* main page title: no margins to save space on notebooks */
+.firstword { font-size: 16pt; font-style: italic; font-weight: bold; color: #0A6400; }
+.oxc { font-size: 12pt; font-weight: bold; font-style: italic; color: #ff3333 } /* for the Ox Croq logo */
+.menufont { font-size: 9pt; } /* for right hand menu*/
+.section { font-size: 9pt; text-align: left; font-style: italic; margin:0px; padding:0px; } /* title indicating section */
+.caption { font-size: 8pt; font-weight: bold; text-align: center; } /* for pictures in tables */
+.footerstyle { font-size: 8pt; }
+.author { font-size: 8pt; text-align: right; margin-right: 10pt; }
+.copy { font-size: 8pt; text-align: right; margin-right: 10pt; } /* for copyright footer */
+.copyc { font-size: 8pt; text-align: center ; margin-right: 10pt; margin-left:10pt} /* for copyright centred */
+.frame { margin-right:0 } /*fix for body above */
+.container { margin:0px; padding:0px; }
+/* -- page header start --*/
+head { margin:1px; }
+.head-left { float:left; width: 150px; height:75px; text-align:left; background-color:#99CCFF; margin-left:2px; border-bottom:1px solid #000000; }
+.head-center { float:none; height:75px; text-align:center; background-color:#99CCFF;  border-bottom:1px solid #000000; }
+.head-right { float:right; width: 150px; height:75px; text-align:right; background-color:#99CCFF; margin-right:0px; border-bottom:1px solid #000000; font-size: 8pt;}
+.head hr { }
+/* -- page header end --*/
+/* -- Amazon store advert settings -- */
+.advert { background-color:#FF6633; border:medium #E5F4FC solid;} /*defines boarder and bg colour of table cell */
+.advert tr td p { text-align:center; text-decoration:none; font-weight:bold; margin:8px; margin-left:10px; margin-right:10px; } /* text properties */
+.advert tr td a { text-decoration:none; color:#FFFFFF; } /* link properties */
+.advert tr td a:hover { text-decoration:none; color:#639 ; } /* link hover properties */
+/* -- End Amazon store advert settings -- */
+/* close pack a table */
+.tight { border:medium #E5F4FC solid; background-color:#FFFFFF } /* for concise tables defines border and bg colour of table cell */
+.tight tr td { vertical-align: top; }
+.tight tr td p { margin:0px; margin-left:2px; margin-right:2px;} /* text properties */
+.tight tr td  { border-bottom:thin #E5F4FC solid; } /* text properties */
+.tight tr td a { text-decoration:none; color:#0000FF; } /* link properties */
+.tight tr td a:hover { text-decoration:none; color:#EE8800; } /* link hover properties */
+table.center { margin-left:auto; margin-right:auto; }
+/* end close pack a table */
+.rounded { -webkit-border-radius: 10px; border-radius: 10px; padding-left:5px; padding-right:5px;}
+.virtual { background-color:#FF0; border:1px solid #000000;font-family:Arial, Helvetica, sans-serif;font-size:10px;padding:0 2px;}
+.Xvirtual::after { content: "\2122";}
+.red {color:red;}
+.green {color:green;}
+.strikethrough {text-decoration: line-through;}
+/* -- from php -- */
+.t-left { text-align:left; }
+.t-right { text-align:right; }
+.t-centre { text-align:center; }
+
+.clear-float {clear:both;}
+figure { padding:1em; margin:0; page-break-inside: avoid;}
+figure > img { display:block; aspect-ratio:auto; margin:auto; max-width:100%; }
+
+figure img { width:100%; } /*img is 100% of figure */
+figcaption { text-align:justify; font-size:80%; font-weight:500; ; margin-top:.5vw; font-style:italic; padding-left:1em;padding-right:1em; }
+.fig-right { float:right; clear:right; width:40%; padding-right:1em; margin:0; }	/* default 40% */
+.fig-left { float:left; clear:left; padding-left:1em; width:40% }	/* default 40% */
+.fig-cent { margin:auto; width:100%; padding-left:0; padding-right:0; }	/* default 100% */

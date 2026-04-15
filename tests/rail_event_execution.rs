@@ -179,6 +179,7 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_configured_restitution_and_spi
     let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
     let rail_config = RailCollisionConfig {
         normal_restitution: Scale::from_f64(0.8),
+        tangential_friction_coefficient: Scale::from_f64(0.1),
     };
     let a = on_table(BallState::on_table(
         inches2(10.0, top_plane - 7.5),
@@ -226,6 +227,7 @@ fn advancing_to_a_restitution_only_rail_impact_uses_the_configured_restitution()
     let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
     let rail_config = RailCollisionConfig {
         normal_restitution: Scale::from_f64(0.8),
+        tangential_friction_coefficient: Scale::from_f64(1.0),
     };
     let a = on_table(BallState::on_table(
         inches2(10.0, top_plane - 7.5),
@@ -275,6 +277,7 @@ fn simulating_with_configured_restitution_records_the_rail_impact() {
     let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
     let rail_config = RailCollisionConfig {
         normal_restitution: Scale::from_f64(0.8),
+        tangential_friction_coefficient: Scale::from_f64(1.0),
     };
     let a = on_table(BallState::on_table(
         inches2(10.0, top_plane - 7.5),

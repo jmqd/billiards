@@ -659,9 +659,10 @@ pub enum CollisionModel {
 /// `RestitutionOnly` keeps the tangential component unchanged but scales the rebound in the rail-
 /// normal direction by a configurable coefficient of restitution.
 ///
-/// `SpinAware` combines configurable normal restitution with the current tangential friction slice:
+/// `SpinAware` combines configurable normal restitution with a tunable tangential friction model:
 /// tangential rebound and z-spin (`ωz`, running / reverse english) are coupled through the in-plane
-/// rail-contact slip, while richer top / draw effects remain future work.
+/// rail-contact slip, with partial-slip vs no-slip behavior determined by the friction coefficient,
+/// while richer top / draw effects remain future work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RailModel {
     Mirror,
@@ -675,16 +676,19 @@ const DEFAULT_RAIL_NORMAL_RESTITUTION: f64 = 0.85;
 ///
 /// The default `normal_restitution` is a conservative first-pass placeholder intended to make the
 /// restitution-aware rail models usable without forcing coefficient plumbing through every caller
-/// yet. Callers that care about table-specific calibration should pass an explicit value instead.
+/// yet. `tangential_friction_coefficient` is the current first-pass coefficient `fi` from
+/// `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.1.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RailCollisionConfig {
     pub normal_restitution: Scale,
+    pub tangential_friction_coefficient: Scale,
 }
 
 impl Default for RailCollisionConfig {
     fn default() -> Self {
         Self {
             normal_restitution: Scale::from_f64(DEFAULT_RAIL_NORMAL_RESTITUTION),
+            tangential_friction_coefficient: Scale::from_f64(1.0),
         }
     }
 }
@@ -2848,6 +2852,15 @@ fn validated_rail_normal_restitution(config: &RailCollisionConfig) -> f64 {
     restitution
 }
 
+fn validated_rail_tangential_friction_coefficient(config: &RailCollisionConfig) -> f64 {
+    let friction = config.tangential_friction_coefficient.as_f64();
+    assert!(
+        friction >= 0.0,
+        "rail tangential friction coefficient must be non-negative"
+    );
+    friction
+}
+
 fn restitution_aware_ball_rail_collision_velocity(
     velocity: &Velocity2,
     rail: Rail,
@@ -2876,6 +2889,7 @@ fn spin_aware_ball_rail_collision_on_table(
     rail: Rail,
     ball_radius: f64,
     normal_restitution: f64,
+    tangential_friction_coefficient: f64,
 ) -> OnTableBallState {
     assert!(
         ball_radius > f64::EPSILON,
@@ -2891,7 +2905,13 @@ fn spin_aware_ball_rail_collision_on_table(
     let tangential_spin_scale = contact_x * tangent_y - contact_y * tangent_x;
     let tangential_contact_slip =
         tangent_component + state_ref.angular_velocity.z().as_f64() * tangential_spin_scale;
-    let tangential_delta = -(2.0 / 7.0) * tangential_contact_slip;
+    let no_slip_tangential_delta = -(2.0 / 7.0) * tangential_contact_slip;
+    let friction_limited_delta_magnitude =
+        tangential_friction_coefficient * (1.0 + normal_restitution) * (-normal_component).max(0.0);
+    let tangential_delta = no_slip_tangential_delta.signum()
+        * no_slip_tangential_delta
+            .abs()
+            .min(friction_limited_delta_magnitude);
     let tangential_after = tangent_component + tangential_delta;
     let velocity = rebuild_velocity_from_basis(
         -normal_restitution * normal_component,
@@ -2903,10 +2923,12 @@ fn spin_aware_ball_rail_collision_on_table(
     );
 
     // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Figure 6 and §7.1, describe the
-    // rail rebound in terms of the tangential cushion speed and the english carried into contact.
-    // Taking the cushion as an immovable body and using the adherence / no-slip limit of Eqs.
-    // (C11) and (C13), the tangential impulse drives the post-impact cushion-contact slip to zero.
-    // In this first slice only in-plane tangential slip is modeled, so the coupled spin update is
+    // rail rebound in terms of normal elasticity `N`, tangential friction `fi`, and the contact
+    // slip vector `WCa`. Taking the cushion as an immovable body, Eq. (C10) gives a friction-
+    // limited tangential speed change proportional to `fi (1 + N) |Wn|`, while Eqs. (C11) and
+    // (C13) provide the no-slip / adherence limit. This first-pass rail model uses the smaller of
+    // those two effects so low friction yields partial slip and high friction saturates at the
+    // no-slip limit. Only in-plane tangential slip is modeled so far, so the coupled spin update is
     // limited to z-spin (running / reverse english). Top / draw effects at the rail face remain a
     // later TODO.
     let delta_wz =
@@ -2934,7 +2956,7 @@ fn spin_aware_ball_rail_collision_on_table(
 /// and angular velocity unchanged.
 ///
 /// `RailModel::SpinAware` currently implements the smallest useful richer slice: the same
-/// configurable normal restitution plus a no-slip-limit tangential cushion response for the in-
+/// configurable normal restitution plus a tunable tangential cushion-friction response for the in-
 /// plane rail-contact slip, which lets running / reverse english (`ωz`) change the returned
 /// tangential speed and gain / lose z-spin at the cushion.
 pub fn collide_ball_rail_on_table_with_radius_and_config(
@@ -2965,6 +2987,7 @@ pub fn collide_ball_rail_on_table_with_radius_and_config(
             rail,
             ball_radius.as_f64(),
             validated_rail_normal_restitution(config),
+            validated_rail_tangential_friction_coefficient(config),
         ),
     }
 }

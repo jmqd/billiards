@@ -1,7 +1,9 @@
 use billiards::{
-    collide_ball_ball_on_table, compute_next_ball_ball_collision_on_table, Angle, AngularVelocity3,
-    BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, OnTableBallState,
-    Velocity2, TYPICAL_BALL_RADIUS,
+    collide_ball_ball_on_table, compute_next_ball_ball_collision_during_current_phases_on_table,
+    compute_next_ball_ball_collision_on_table, Angle, AngularVelocity3, BallSetPhysicsSpec,
+    BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecondSq, MotionPhaseConfig,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq,
+    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -10,6 +12,21 @@ fn assert_close(actual: f64, expected: f64) {
         delta < 1e-9,
         "expected {expected}, got {actual} (delta {delta})"
     );
+}
+
+fn motion_config() -> OnTableMotionConfig {
+    MotionTransitionConfig {
+        phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("5"),
+        },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(2.0),
+        },
+        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new("5"),
+        },
+    }
 }
 
 fn on_table(state: BallState) -> OnTableBallState {
@@ -172,4 +189,54 @@ fn an_oblique_predicted_impact_preserves_the_expected_line_of_centers_geometry()
         2.0 * radius,
     );
     assert_close(dot_product, 0.0);
+}
+
+#[test]
+fn the_phase_aware_predictor_uses_the_current_rolling_model_before_contact() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -(2.0 * radius + 7.5)),
+        velocity2(0.0, 10.0),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let predicted = compute_next_ball_ball_collision_during_current_phases_on_table(
+        &cue_ball,
+        &object_ball,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("the rolling ball should still reach contact before it stops");
+
+    assert_close(predicted.time_until_impact.as_f64(), 1.0);
+    assert_close(
+        predicted.a_at_impact.as_ball_state().position.y().as_f64(),
+        -2.0 * radius,
+    );
+    assert_close(
+        predicted.a_at_impact.as_ball_state().velocity.y().as_f64(),
+        5.0,
+    );
+}
+
+#[test]
+fn the_phase_aware_predictor_returns_none_when_the_ball_stops_before_contact() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -(2.0 * radius + 11.0)),
+        velocity2(0.0, 10.0),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    assert!(
+        compute_next_ball_ball_collision_during_current_phases_on_table(
+            &cue_ball,
+            &object_ball,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .is_none()
+    );
 }

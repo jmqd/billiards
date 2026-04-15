@@ -1585,6 +1585,83 @@ fn advance_on_table_with_constant_velocity(
     .expect("constant-velocity advance should preserve on-table invariants")
 }
 
+fn center_distance_squared(a: &OnTableBallState, b: &OnTableBallState) -> f64 {
+    let a = a.as_ball_state();
+    let b = b.as_ball_state();
+    let dx = b.position.x().as_f64() - a.position.x().as_f64();
+    let dy = b.position.y().as_f64() - a.position.y().as_f64();
+
+    dx * dx + dy * dy
+}
+
+fn advance_within_current_phase(
+    state: &OnTableBallState,
+    phase: MotionPhase,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> OnTableBallState {
+    advance_within_phase_on_table(state, phase, dt, ball, config)
+}
+
+fn ball_ball_collision_search_horizon(
+    state: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> f64 {
+    compute_next_transition_on_table(state, ball, config)
+        .map(|transition| transition.time_until_transition.as_f64())
+        .unwrap_or(f64::INFINITY)
+}
+
+fn collision_gap_during_current_phases(
+    a: &OnTableBallState,
+    a_phase: MotionPhase,
+    b: &OnTableBallState,
+    b_phase: MotionPhase,
+    t: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> f64 {
+    let a_at_t = advance_within_current_phase(a, a_phase, t, ball, config);
+    let b_at_t = advance_within_current_phase(b, b_phase, t, ball, config);
+    let contact_distance = 2.0 * ball.radius.as_f64();
+
+    center_distance_squared(&a_at_t, &b_at_t) - contact_distance * contact_distance
+}
+
+fn refine_ball_ball_collision_time_during_current_phases(
+    a: &OnTableBallState,
+    a_phase: MotionPhase,
+    b: &OnTableBallState,
+    b_phase: MotionPhase,
+    mut left: f64,
+    mut right: f64,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> Seconds {
+    for _ in 0..60 {
+        let midpoint = 0.5 * (left + right);
+        let gap = collision_gap_during_current_phases(
+            a,
+            a_phase.clone(),
+            b,
+            b_phase.clone(),
+            Seconds::new(midpoint),
+            ball,
+            config,
+        );
+
+        if gap <= 0.0 {
+            right = midpoint;
+        } else {
+            left = midpoint;
+        }
+    }
+
+    Seconds::new(right)
+}
+
 fn ideal_ball_ball_collision_velocities(
     a: &Velocity2,
     b: &Velocity2,
@@ -1614,6 +1691,10 @@ fn ideal_ball_ball_collision_velocities(
 
 /// Predict the next future ball-ball impact for two on-table balls under a constant-velocity
 /// pre-impact approximation.
+///
+/// This helper is retained as a simple compatibility approximation. For scheduler work that should
+/// stay consistent with the current on-table motion model, prefer
+/// `compute_next_ball_ball_collision_during_current_phases_on_table(...)`.
 ///
 /// The local references ground the collision geometry itself:
 ///
@@ -1667,6 +1748,87 @@ pub fn compute_next_ball_ball_collision_on_table(
     })
 }
 
+/// Predict the next future ball-ball impact that occurs before either ball leaves its current
+/// qualitative motion phase.
+///
+/// This helper combines the current whitepaper-backed on-table motion model with the standard
+/// ball-ball contact geometry:
+///
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3 and §7.5, provide the current
+///   within-phase sliding, rolling, and z-spin evolution used by `advance_within_phase_on_table(...)`.
+/// - `whitepapers/Physics Of Billiards.html` describes the ball-ball impact geometry through the
+///   line of centers, so first contact still occurs when the center distance reaches `2R`.
+///
+/// Rather than extrapolating with constant translational velocity, this predictor advances each ball
+/// with the current within-phase motion model and numerically locates the first contact time, if
+/// any, over the interval from `t = 0` up to the earliest upcoming single-ball motion transition.
+/// If no contact occurs before that phase boundary, the caller should let the earlier transition
+/// happen first and then recompute collision timing from the new states.
+pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> Option<PredictedBallBallCollision> {
+    let initial_gap = center_distance_squared(a, b) - (2.0 * ball.radius.as_f64()).powi(2);
+    if initial_gap <= 0.0 {
+        return None;
+    }
+
+    let a_phase = classify_motion_phase(a.as_ball_state(), ball, &config.phase);
+    let b_phase = classify_motion_phase(b.as_ball_state(), ball, &config.phase);
+    let horizon = ball_ball_collision_search_horizon(a, ball, config)
+        .min(ball_ball_collision_search_horizon(b, ball, config));
+    if !horizon.is_finite() || horizon <= f64::EPSILON {
+        return None;
+    }
+
+    const COLLISION_SCAN_STEPS: usize = 512;
+    let mut previous_t = 0.0;
+    let mut previous_gap = initial_gap;
+
+    for step in 1..=COLLISION_SCAN_STEPS {
+        let t = horizon * step as f64 / COLLISION_SCAN_STEPS as f64;
+        let gap = collision_gap_during_current_phases(
+            a,
+            a_phase.clone(),
+            b,
+            b_phase.clone(),
+            Seconds::new(t),
+            ball,
+            config,
+        );
+
+        if previous_gap > 0.0 && gap <= 0.0 {
+            let time_until_impact = refine_ball_ball_collision_time_during_current_phases(
+                a,
+                a_phase.clone(),
+                b,
+                b_phase.clone(),
+                previous_t,
+                t,
+                ball,
+                config,
+            );
+            let a_at_impact =
+                advance_within_current_phase(a, a_phase.clone(), time_until_impact, ball, config);
+            let b_at_impact =
+                advance_within_current_phase(b, b_phase.clone(), time_until_impact, ball, config);
+
+            return Some(PredictedBallBallCollision {
+                time_until_impact,
+                a_at_impact,
+                b_at_impact,
+            });
+        }
+
+        previous_t = t;
+        previous_gap = gap;
+    }
+
+    None
+}
+
 fn two_ball_event_time(event: &TwoBallOnTableEvent) -> Seconds {
     match event {
         TwoBallOnTableEvent::BallBallCollision(collision) => collision.time_until_impact,
@@ -1711,17 +1873,19 @@ fn earlier_two_ball_event(candidate: &TwoBallOnTableEvent, current: &TwoBallOnTa
 ///
 /// The motion-transition timing is provided by `compute_next_transition_on_table(...)`, which is
 /// grounded in the local motion references, while the collision timing is provided by
-/// `compute_next_ball_ball_collision_on_table(...)`, which currently uses a constant-velocity
-/// pre-impact approximation. This helper only chooses among those existing predictors; it does not
-/// yet merge simultaneous events or advance / resolve the whole system.
+/// `compute_next_ball_ball_collision_during_current_phases_on_table(...)`, which uses the current
+/// within-phase motion model up to the earliest upcoming phase boundary. This helper only chooses
+/// among those existing predictors; it does not yet merge simultaneous events or advance / resolve
+/// the whole system.
 pub fn compute_next_event_for_two_on_table_balls(
     a: &OnTableBallState,
     b: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
 ) -> Option<TwoBallOnTableEvent> {
-    let mut next = compute_next_ball_ball_collision_on_table(a, b, ball)
-        .map(TwoBallOnTableEvent::BallBallCollision);
+    let mut next =
+        compute_next_ball_ball_collision_during_current_phases_on_table(a, b, ball, config)
+            .map(TwoBallOnTableEvent::BallBallCollision);
 
     if let Some(transition) = compute_next_transition_on_table(a, ball, config) {
         let candidate = TwoBallOnTableEvent::MotionTransition {
@@ -1761,10 +1925,8 @@ pub fn compute_next_event_for_two_on_table_balls(
 /// - if the next event is a ball-ball collision, the stored impact states from the current
 ///   collision predictor are resolved through `collide_ball_ball_on_table(...)`.
 ///
-/// The collision path intentionally uses the predictor's stored impact states directly because the
-/// current ball-ball timing model is a constant-velocity pre-impact approximation. A later,
-/// tighter-integrated scheduler can replace that approximation without changing this high-level
-/// responsibility boundary.
+/// The collision path intentionally uses the predictor's stored impact states directly so that the
+/// same collision-geometry assumptions used during event scheduling are the ones resolved here.
 pub fn advance_to_next_event_for_two_on_table_balls(
     a: &OnTableBallState,
     b: &OnTableBallState,

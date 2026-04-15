@@ -41,9 +41,9 @@ fn inches2(x: f64, y: f64) -> Inches2 {
 fn the_scheduler_picks_a_ball_ball_collision_when_it_arrives_before_any_motion_transition() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let a = on_table(BallState::on_table(
-        inches2(0.0, -(2.0 * radius + 5.0)),
+        inches2(0.0, -(2.0 * radius + 7.5)),
         Velocity2::new("0", "10"),
-        AngularVelocity3::zero(),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
     ));
     let b = on_table(BallState::resting_at(inches2(0.0, 0.0)));
 
@@ -57,7 +57,7 @@ fn the_scheduler_picks_a_ball_ball_collision_when_it_arrives_before_any_motion_t
 
     match event {
         TwoBallOnTableEvent::BallBallCollision(collision) => {
-            assert_close(collision.time_until_impact.as_f64(), 0.5);
+            assert_close(collision.time_until_impact.as_f64(), 1.0);
         }
         other => panic!("expected ball-ball collision, got {other:?}"),
     }
@@ -119,6 +119,36 @@ fn the_scheduler_compares_the_two_balls_motion_transitions_and_returns_the_earli
             assert_eq!(transition.phase_before, MotionPhase::Spinning);
             assert_eq!(transition.phase_after, MotionPhase::Rest);
             assert_close(transition.time_until_transition.as_f64(), 0.5);
+        }
+        other => panic!("expected motion transition, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_scheduler_uses_phase_aware_collision_timing_and_picks_stop_when_a_rolling_ball_cannot_reach_contact(
+) {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let a = on_table(BallState::on_table(
+        inches2(0.0, -(2.0 * radius + 11.0)),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let b = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let event = compute_next_event_for_two_on_table_balls(
+        &a,
+        &b,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("an event should be predicted");
+
+    match event {
+        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
+            assert_eq!(ball, TwoBallEventBall::A);
+            assert_eq!(transition.phase_before, MotionPhase::Rolling);
+            assert_eq!(transition.phase_after, MotionPhase::Rest);
+            assert_close(transition.time_until_transition.as_f64(), 2.0);
         }
         other => panic!("expected motion transition, got {other:?}"),
     }

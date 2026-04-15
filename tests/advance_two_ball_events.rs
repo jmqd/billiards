@@ -112,15 +112,11 @@ fn advancing_to_a_motion_transition_advances_both_balls_to_that_time() {
 fn advancing_to_a_ball_ball_collision_resolves_the_immediate_post_collision_state() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let a = on_table(BallState::on_table(
-        inches2(0.0, -(2.0 * radius + 5.0)),
+        inches2(0.0, -(2.0 * radius + 7.5)),
         Velocity2::new("0", "10"),
-        AngularVelocity3::new(1.0, 2.0, 3.0),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
     ));
-    let b = on_table(BallState::on_table(
-        inches2(0.0, 0.0),
-        Velocity2::zero(),
-        AngularVelocity3::new(0.0, 0.0, 6.0),
-    ));
+    let b = on_table(BallState::resting_at(inches2(0.0, 0.0)));
 
     let advanced = advance_to_next_event_for_two_on_table_balls(
         &a,
@@ -136,27 +132,35 @@ fn advancing_to_a_ball_ball_collision_resolves_the_immediate_post_collision_stat
         .expect("an event should be reported")
     {
         TwoBallOnTableEvent::BallBallCollision(collision) => {
-            assert_close(collision.time_until_impact.as_f64(), 0.5);
+            assert_close(collision.time_until_impact.as_f64(), 1.0);
         }
         other => panic!("expected ball-ball collision, got {other:?}"),
     }
 
-    assert_close(advanced.elapsed.as_f64(), 0.5);
+    assert_close(advanced.elapsed.as_f64(), 1.0);
     assert_close(advanced.a.as_ball_state().position.x().as_f64(), 0.0);
     assert_close(
         advanced.a.as_ball_state().position.y().as_f64(),
         -2.0 * radius,
     );
     assert_close(advanced.a.as_ball_state().speed().as_f64(), 0.0);
-    assert_eq!(
-        advanced.a.as_ball_state().angular_velocity,
-        a.as_ball_state().angular_velocity
+    assert_close(
+        advanced.a.as_ball_state().angular_velocity.x().as_f64(),
+        -5.0 / radius,
+    );
+    assert_close(
+        advanced.a.as_ball_state().angular_velocity.y().as_f64(),
+        0.0,
+    );
+    assert_close(
+        advanced.a.as_ball_state().angular_velocity.z().as_f64(),
+        0.0,
     );
 
     assert_close(advanced.b.as_ball_state().position.x().as_f64(), 0.0);
     assert_close(advanced.b.as_ball_state().position.y().as_f64(), 0.0);
     assert_close(advanced.b.as_ball_state().velocity.x().as_f64(), 0.0);
-    assert_close(advanced.b.as_ball_state().velocity.y().as_f64(), 10.0);
+    assert_close(advanced.b.as_ball_state().velocity.y().as_f64(), 5.0);
     assert_eq!(
         advanced.b.as_ball_state().angular_velocity,
         b.as_ball_state().angular_velocity

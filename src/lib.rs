@@ -690,6 +690,14 @@ pub struct PredictedBallBallCollision {
     pub b_at_impact: OnTableBallState,
 }
 
+/// A predicted future impact between one on-table ball and a table rail.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PredictedBallRailImpact {
+    pub rail: Rail,
+    pub time_until_impact: Seconds,
+    pub state_at_impact: OnTableBallState,
+}
+
 /// Identifies one of the two balls in the current two-ball event scheduler helpers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TwoBallEventBall {
@@ -707,6 +715,10 @@ pub enum TwoBallEventBall {
 #[derive(Clone, Debug, PartialEq)]
 pub enum TwoBallOnTableEvent {
     BallBallCollision(PredictedBallBallCollision),
+    BallRailImpact {
+        ball: TwoBallEventBall,
+        impact: PredictedBallRailImpact,
+    },
     MotionTransition {
         ball: TwoBallEventBall,
         transition: NextTransition,
@@ -1895,9 +1907,168 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     None
 }
 
+fn rail_collision_plane_coordinate(
+    rail: Rail,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+) -> f64 {
+    match rail {
+        Rail::Top => table.diamond_to_inches(Diamond::eight()).as_f64() - ball.radius.as_f64(),
+        Rail::Bottom => ball.radius.as_f64(),
+        Rail::Left => ball.radius.as_f64(),
+        Rail::Right => table.diamond_to_inches(Diamond::four()).as_f64() - ball.radius.as_f64(),
+    }
+}
+
+fn rail_collision_gap_during_current_phase(
+    state: &OnTableBallState,
+    phase: MotionPhase,
+    rail: Rail,
+    t: Seconds,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> f64 {
+    let at_t = advance_within_current_phase(state, phase, t, ball, config);
+    let state_at_t = at_t.as_ball_state();
+    let plane = rail_collision_plane_coordinate(rail, ball, table);
+
+    match rail {
+        Rail::Top => plane - state_at_t.position.y().as_f64(),
+        Rail::Bottom => state_at_t.position.y().as_f64() - plane,
+        Rail::Left => state_at_t.position.x().as_f64() - plane,
+        Rail::Right => plane - state_at_t.position.x().as_f64(),
+    }
+}
+
+fn refine_ball_rail_collision_time_during_current_phase(
+    state: &OnTableBallState,
+    phase: MotionPhase,
+    rail: Rail,
+    mut left: f64,
+    mut right: f64,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Seconds {
+    for _ in 0..60 {
+        let midpoint = 0.5 * (left + right);
+        let gap = rail_collision_gap_during_current_phase(
+            state,
+            phase.clone(),
+            rail,
+            Seconds::new(midpoint),
+            ball,
+            table,
+            config,
+        );
+
+        if gap <= 0.0 {
+            right = midpoint;
+        } else {
+            left = midpoint;
+        }
+    }
+
+    Seconds::new(right)
+}
+
+/// Predict the next future rail impact for one on-table ball.
+///
+/// This helper uses the same within-phase on-table motion model as the current single-ball solver,
+/// but checks for first contact against the four ideal rail planes implied by the table geometry.
+/// The current implementation only searches until the ball's next motion transition, making this
+/// the rail analogue of `compute_next_ball_ball_collision_during_current_phases_on_table(...)`.
+pub fn compute_next_ball_rail_impact_on_table(
+    state: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Option<PredictedBallRailImpact> {
+    let phase = classify_motion_phase(state.as_ball_state(), ball, &config.phase);
+    let horizon = compute_next_transition_on_table(state, ball, config)
+        .map(|transition| transition.time_until_transition.as_f64())
+        .unwrap_or(f64::INFINITY);
+    if !horizon.is_finite() || horizon <= f64::EPSILON {
+        return None;
+    }
+
+    const RAIL_COLLISION_SCAN_STEPS: usize = 512;
+    let mut best: Option<PredictedBallRailImpact> = None;
+
+    for rail in [Rail::Top, Rail::Right, Rail::Bottom, Rail::Left] {
+        let initial_gap = rail_collision_gap_during_current_phase(
+            state,
+            phase.clone(),
+            rail,
+            Seconds::zero(),
+            ball,
+            table,
+            config,
+        );
+        if initial_gap <= 0.0 {
+            continue;
+        }
+
+        let mut previous_t = 0.0;
+        let mut previous_gap = initial_gap;
+
+        for step in 1..=RAIL_COLLISION_SCAN_STEPS {
+            let t = horizon * step as f64 / RAIL_COLLISION_SCAN_STEPS as f64;
+            let gap = rail_collision_gap_during_current_phase(
+                state,
+                phase.clone(),
+                rail,
+                Seconds::new(t),
+                ball,
+                table,
+                config,
+            );
+
+            if previous_gap > 0.0 && gap <= 0.0 {
+                let time_until_impact = refine_ball_rail_collision_time_during_current_phase(
+                    state,
+                    phase.clone(),
+                    rail,
+                    previous_t,
+                    t,
+                    ball,
+                    table,
+                    config,
+                );
+                let state_at_impact = advance_within_current_phase(
+                    state,
+                    phase.clone(),
+                    time_until_impact,
+                    ball,
+                    config,
+                );
+                let impact = PredictedBallRailImpact {
+                    rail,
+                    time_until_impact,
+                    state_at_impact,
+                };
+
+                if best.as_ref().is_none_or(|current| {
+                    impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
+                }) {
+                    best = Some(impact);
+                }
+                break;
+            }
+
+            previous_t = t;
+            previous_gap = gap;
+        }
+    }
+
+    best
+}
+
 fn two_ball_event_time(event: &TwoBallOnTableEvent) -> Seconds {
     match event {
         TwoBallOnTableEvent::BallBallCollision(collision) => collision.time_until_impact,
+        TwoBallOnTableEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
         TwoBallOnTableEvent::MotionTransition { transition, .. } => {
             transition.time_until_transition
         }
@@ -1907,14 +2078,22 @@ fn two_ball_event_time(event: &TwoBallOnTableEvent) -> Seconds {
 fn two_ball_event_priority(event: &TwoBallOnTableEvent) -> u8 {
     match event {
         TwoBallOnTableEvent::BallBallCollision(_) => 0,
-        TwoBallOnTableEvent::MotionTransition {
+        TwoBallOnTableEvent::BallRailImpact {
             ball: TwoBallEventBall::A,
             ..
         } => 1,
-        TwoBallOnTableEvent::MotionTransition {
+        TwoBallOnTableEvent::BallRailImpact {
             ball: TwoBallEventBall::B,
             ..
         } => 2,
+        TwoBallOnTableEvent::MotionTransition {
+            ball: TwoBallEventBall::A,
+            ..
+        } => 3,
+        TwoBallOnTableEvent::MotionTransition {
+            ball: TwoBallEventBall::B,
+            ..
+        } => 4,
     }
 }
 
@@ -1943,7 +2122,7 @@ fn earlier_two_ball_event(candidate: &TwoBallOnTableEvent, current: &TwoBallOnTa
 /// within-phase motion model up to the earliest upcoming phase boundary. This helper only chooses
 /// among those existing predictors; it does not yet merge simultaneous events or advance / resolve
 /// the whole system.
-pub fn compute_next_event_for_two_on_table_balls(
+pub fn compute_next_two_ball_event_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
@@ -1980,6 +2159,70 @@ pub fn compute_next_event_for_two_on_table_balls(
     }
 
     next
+}
+
+/// Compute the earliest supported future event for two on-table balls while also considering ideal
+/// rail impacts against the current table geometry.
+///
+/// This extends `compute_next_two_ball_event_on_table(...)` by comparing those existing motion and
+/// ball-ball candidates against each ball's next predicted rail impact.
+pub fn compute_next_two_ball_event_with_rails_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Option<TwoBallOnTableEvent> {
+    let mut next = compute_next_two_ball_event_on_table(a, b, ball, config);
+
+    if let Some(impact) = compute_next_ball_rail_impact_on_table(a, ball, table, config) {
+        let candidate = TwoBallOnTableEvent::BallRailImpact {
+            ball: TwoBallEventBall::A,
+            impact,
+        };
+        if next
+            .as_ref()
+            .is_none_or(|current| earlier_two_ball_event(&candidate, current))
+        {
+            next = Some(candidate);
+        }
+    }
+
+    if let Some(impact) = compute_next_ball_rail_impact_on_table(b, ball, table, config) {
+        let candidate = TwoBallOnTableEvent::BallRailImpact {
+            ball: TwoBallEventBall::B,
+            impact,
+        };
+        if next
+            .as_ref()
+            .is_none_or(|current| earlier_two_ball_event(&candidate, current))
+        {
+            next = Some(candidate);
+        }
+    }
+
+    next
+}
+
+/// Compatibility wrapper for the original two-ball event helper name.
+pub fn compute_next_event_for_two_on_table_balls(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    config: &OnTableMotionConfig,
+) -> Option<TwoBallOnTableEvent> {
+    compute_next_two_ball_event_on_table(a, b, ball, config)
+}
+
+/// Compatibility wrapper for the original rail-aware two-ball event helper name.
+pub fn compute_next_event_for_two_on_table_balls_with_rails(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Option<TwoBallOnTableEvent> {
+    compute_next_two_ball_event_with_rails_on_table(a, b, ball, table, config)
 }
 
 /// Advance two on-table balls to the next currently supported event and resolve that event.
@@ -2028,6 +2271,9 @@ pub fn advance_to_next_event_for_two_on_table_balls(
                 &collision.b_at_impact,
                 collision_model,
             ),
+            TwoBallOnTableEvent::BallRailImpact { .. } => {
+                unreachable!("rail impacts are only produced by the rail-aware scheduler")
+            }
         };
 
     TwoBallOnTableAdvance {
@@ -3164,7 +3410,7 @@ impl Default for CueballModifier {
 }
 
 /// The rails on a pool table.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rail {
     Top,
     Bottom,

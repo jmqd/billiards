@@ -1,6 +1,8 @@
 use billiards::{
-    collide_ball_rail_on_table, collide_ball_rail_on_table_with_radius, AngularVelocity3,
-    BallState, Inches, Inches2, OnTableBallState, Rail, RailModel, Velocity2, TYPICAL_BALL_RADIUS,
+    collide_ball_rail_on_table, collide_ball_rail_on_table_with_radius,
+    collide_ball_rail_on_table_with_radius_and_config, AngularVelocity3, BallState, Inches,
+    Inches2, OnTableBallState, Rail, RailCollisionConfig, RailModel, Scale, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -63,6 +65,34 @@ fn an_ideal_rail_collision_leaves_spin_unchanged() {
 
     assert_close(reflected.as_ball_state().velocity.x().as_f64(), 3.0);
     assert_close(reflected.as_ball_state().velocity.y().as_f64(), 7.0);
+    assert_eq!(
+        reflected.as_ball_state().angular_velocity,
+        state.as_ball_state().angular_velocity
+    );
+}
+
+#[test]
+fn a_restitution_only_rail_collision_reduces_the_outgoing_normal_speed() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::new(1.0, 2.0, 3.0),
+    ));
+    let config = RailCollisionConfig {
+        normal_restitution: Scale::from_f64(0.8),
+    };
+
+    let reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &state,
+        Rail::Top,
+        radius,
+        RailModel::RestitutionOnly,
+        &config,
+    );
+
+    assert_close(reflected.as_ball_state().velocity.x().as_f64(), 5.0);
+    assert_close(reflected.as_ball_state().velocity.y().as_f64(), -4.0);
     assert_eq!(
         reflected.as_ball_state().angular_velocity,
         state.as_ball_state().angular_velocity

@@ -656,6 +656,9 @@ pub enum CollisionModel {
 /// `Mirror` is the ideal no-friction, perfectly elastic limit: the velocity component normal to the
 /// rail reverses sign while the tangential component is preserved.
 ///
+/// `RestitutionOnly` keeps the tangential component unchanged but scales the rebound in the rail-
+/// normal direction by a configurable coefficient of restitution.
+///
 /// `SpinAware` currently adds the smallest useful frictional cushion slice: tangential rebound and
 /// z-spin (`ωz`, running / reverse english) are coupled through the in-plane rail-contact slip,
 /// while restitution loss and richer top / draw effects remain future work.
@@ -664,6 +667,26 @@ pub enum RailModel {
     Mirror,
     RestitutionOnly,
     SpinAware,
+}
+
+const DEFAULT_RAIL_NORMAL_RESTITUTION: f64 = 0.85;
+
+/// Configurable coefficients for the current ball-rail response helpers.
+///
+/// The default `normal_restitution` is a conservative first-pass placeholder intended to make the
+/// `RestitutionOnly` model usable without forcing coefficient plumbing through every caller yet.
+/// Callers that care about table-specific calibration should pass an explicit value instead.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RailCollisionConfig {
+    pub normal_restitution: Scale,
+}
+
+impl Default for RailCollisionConfig {
+    fn default() -> Self {
+        Self {
+            normal_restitution: Scale::from_f64(DEFAULT_RAIL_NORMAL_RESTITUTION),
+        }
+    }
 }
 
 /// Detailed output for a ball-ball collision response.
@@ -2257,7 +2280,7 @@ fn advance_to_next_two_ball_event_with_scheduler<FindNextEvent>(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-    rail_model: Option<RailModel>,
+    rail_response: Option<(RailModel, RailCollisionConfig)>,
     find_next_event: FindNextEvent,
 ) -> TwoBallOnTableAdvance
 where
@@ -2285,27 +2308,39 @@ where
         TwoBallOnTableEvent::BallRailImpact {
             ball: TwoBallEventBall::A,
             impact,
-        } => (
-            collide_ball_rail_on_table_with_radius(
-                &impact.state_at_impact,
-                impact.rail,
-                ball.radius.clone(),
-                rail_model.expect("rail impacts require a rail collision model"),
-            ),
-            advance_on_table_ball_without_event(b, elapsed, ball, motion),
-        ),
+        } => {
+            let (rail_model, rail_config) = rail_response
+                .as_ref()
+                .expect("rail impacts require a rail collision model");
+            (
+                collide_ball_rail_on_table_with_radius_and_config(
+                    &impact.state_at_impact,
+                    impact.rail,
+                    ball.radius.clone(),
+                    *rail_model,
+                    rail_config,
+                ),
+                advance_on_table_ball_without_event(b, elapsed, ball, motion),
+            )
+        }
         TwoBallOnTableEvent::BallRailImpact {
             ball: TwoBallEventBall::B,
             impact,
-        } => (
-            advance_on_table_ball_without_event(a, elapsed, ball, motion),
-            collide_ball_rail_on_table_with_radius(
-                &impact.state_at_impact,
-                impact.rail,
-                ball.radius.clone(),
-                rail_model.expect("rail impacts require a rail collision model"),
-            ),
-        ),
+        } => {
+            let (rail_model, rail_config) = rail_response
+                .as_ref()
+                .expect("rail impacts require a rail collision model");
+            (
+                advance_on_table_ball_without_event(a, elapsed, ball, motion),
+                collide_ball_rail_on_table_with_radius_and_config(
+                    &impact.state_at_impact,
+                    impact.rail,
+                    ball.radius.clone(),
+                    *rail_model,
+                    rail_config,
+                ),
+            )
+        }
     };
 
     TwoBallOnTableAdvance {
@@ -2337,8 +2372,37 @@ pub fn advance_to_next_two_ball_event_on_table(
     )
 }
 
-/// Advance two on-table balls to the next supported event while also resolving idealized rail
-/// impacts against the current table geometry.
+/// Advance two on-table balls to the next supported event while also resolving rail impacts using
+/// explicit rail-response coefficients.
+pub fn advance_to_next_two_ball_event_with_rail_config_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> TwoBallOnTableAdvance {
+    advance_to_next_two_ball_event_with_scheduler(
+        a,
+        b,
+        ball,
+        motion,
+        collision_model,
+        Some((rail_model, rail_config.clone())),
+        |a_state, b_state| {
+            compute_next_two_ball_event_with_rails_on_table(a_state, b_state, ball, table, motion)
+        },
+    )
+}
+
+/// Advance two on-table balls to the next supported event while also resolving rail impacts against
+/// the current table geometry.
+///
+/// This compatibility wrapper uses the default rail-response coefficients. Prefer
+/// `advance_to_next_two_ball_event_with_rail_config_on_table(...)` when restitution should be
+/// explicit.
 pub fn advance_to_next_two_ball_event_with_rails_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -2348,16 +2412,15 @@ pub fn advance_to_next_two_ball_event_with_rails_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
 ) -> TwoBallOnTableAdvance {
-    advance_to_next_two_ball_event_with_scheduler(
+    advance_to_next_two_ball_event_with_rail_config_on_table(
         a,
         b,
         ball,
+        table,
         motion,
         collision_model,
-        Some(rail_model),
-        |a_state, b_state| {
-            compute_next_two_ball_event_with_rails_on_table(a_state, b_state, ball, table, motion)
-        },
+        rail_model,
+        &RailCollisionConfig::default(),
     )
 }
 
@@ -2478,9 +2541,9 @@ pub fn simulate_two_balls_on_table(
     )
 }
 
-/// Simulate two on-table balls forward over a requested duration while also resolving idealized
-/// rail impacts against the current table geometry.
-pub fn simulate_two_balls_with_rails_on_table(
+/// Simulate two on-table balls forward over a requested duration while also resolving rail impacts
+/// using explicit rail-response coefficients.
+pub fn simulate_two_balls_with_rail_config_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
     dt: Seconds,
@@ -2489,6 +2552,7 @@ pub fn simulate_two_balls_with_rails_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
 ) -> TwoBallOnTableSimulation {
     simulate_two_ball_system_on_table(
         a,
@@ -2500,7 +2564,7 @@ pub fn simulate_two_balls_with_rails_on_table(
             compute_next_two_ball_event_with_rails_on_table(a_state, b_state, ball, table, motion)
         },
         |a_state, b_state| {
-            advance_to_next_two_ball_event_with_rails_on_table(
+            advance_to_next_two_ball_event_with_rail_config_on_table(
                 a_state,
                 b_state,
                 ball,
@@ -2508,8 +2572,37 @@ pub fn simulate_two_balls_with_rails_on_table(
                 motion,
                 collision_model,
                 rail_model,
+                rail_config,
             )
         },
+    )
+}
+
+/// Simulate two on-table balls forward over a requested duration while also resolving rail impacts
+/// against the current table geometry.
+///
+/// This compatibility wrapper uses the default rail-response coefficients. Prefer
+/// `simulate_two_balls_with_rail_config_on_table(...)` when restitution should be explicit.
+pub fn simulate_two_balls_with_rails_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+) -> TwoBallOnTableSimulation {
+    simulate_two_balls_with_rail_config_on_table(
+        a,
+        b,
+        dt,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionConfig::default(),
     )
 }
 
@@ -2746,19 +2839,36 @@ fn rebuild_velocity_from_basis(
     )
 }
 
-fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Velocity2 {
+fn validated_rail_normal_restitution(config: &RailCollisionConfig) -> f64 {
+    let restitution = config.normal_restitution.as_f64();
+    assert!(
+        (0.0..=1.0).contains(&restitution),
+        "rail normal restitution must lie in [0, 1]"
+    );
+    restitution
+}
+
+fn restitution_aware_ball_rail_collision_velocity(
+    velocity: &Velocity2,
+    rail: Rail,
+    normal_restitution: f64,
+) -> Velocity2 {
     let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
     let normal_component = project_velocity_on_basis(velocity, normal_x, normal_y);
     let tangent_component = project_velocity_on_basis(velocity, tangent_x, tangent_y);
 
     rebuild_velocity_from_basis(
-        -normal_component,
+        -normal_restitution * normal_component,
         tangent_component,
         normal_x,
         normal_y,
         tangent_x,
         tangent_y,
     )
+}
+
+fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Velocity2 {
+    restitution_aware_ball_rail_collision_velocity(velocity, rail, 1.0)
 }
 
 fn spin_aware_ball_rail_collision_on_table(
@@ -2810,7 +2920,7 @@ fn spin_aware_ball_rail_collision_on_table(
 }
 
 /// Resolve an instantaneous ball-rail collision for a validated on-table state using an explicit
-/// ball radius.
+/// ball radius and explicit rail-response coefficients.
 ///
 /// The local rail reference material decomposes the incoming velocity into components tangential and
 /// perpendicular to the cushion and discusses how elasticity and cushion friction modify those
@@ -2818,14 +2928,19 @@ fn spin_aware_ball_rail_collision_on_table(
 /// and §7.1. `RailModel::Mirror` is the simplest limiting case of that picture: perfectly elastic
 /// in the normal direction, no tangential loss, and no spin change.
 ///
+/// `RailModel::RestitutionOnly` uses `RailCollisionConfig::normal_restitution` as the whitepaper's
+/// coefficient of elasticity `N` in the cushion-normal direction while leaving the tangential speed
+/// and angular velocity unchanged.
+///
 /// `RailModel::SpinAware` currently implements the smallest useful richer slice: a no-slip-limit
 /// tangential cushion response for the in-plane rail-contact slip, which lets running / reverse
 /// english (`ωz`) change the returned tangential speed and gain / lose z-spin at the cushion.
-pub fn collide_ball_rail_on_table_with_radius(
+pub fn collide_ball_rail_on_table_with_radius_and_config(
     state: &OnTableBallState,
     rail: Rail,
     ball_radius: Inches,
     model: RailModel,
+    config: &RailCollisionConfig,
 ) -> OnTableBallState {
     let state_ref = state.as_ball_state();
     match model {
@@ -2834,19 +2949,46 @@ pub fn collide_ball_rail_on_table_with_radius(
             ideal_ball_rail_collision_velocity(&state_ref.velocity, rail),
             state_ref.angular_velocity.clone(),
         ),
-        RailModel::RestitutionOnly => {
-            todo!("restitution-aware rail collisions are not implemented yet")
-        }
+        RailModel::RestitutionOnly => build_on_table_ball_state(
+            state_ref.position.clone(),
+            restitution_aware_ball_rail_collision_velocity(
+                &state_ref.velocity,
+                rail,
+                validated_rail_normal_restitution(config),
+            ),
+            state_ref.angular_velocity.clone(),
+        ),
         RailModel::SpinAware => {
             spin_aware_ball_rail_collision_on_table(state, rail, ball_radius.as_f64())
         }
     }
 }
 
+/// Resolve an instantaneous ball-rail collision for a validated on-table state using an explicit
+/// ball radius.
+///
+/// This compatibility wrapper uses the default rail-response coefficients. Prefer
+/// `collide_ball_rail_on_table_with_radius_and_config(...)` when restitution should be explicit.
+pub fn collide_ball_rail_on_table_with_radius(
+    state: &OnTableBallState,
+    rail: Rail,
+    ball_radius: Inches,
+    model: RailModel,
+) -> OnTableBallState {
+    collide_ball_rail_on_table_with_radius_and_config(
+        state,
+        rail,
+        ball_radius,
+        model,
+        &RailCollisionConfig::default(),
+    )
+}
+
 /// Resolve an instantaneous ball-rail collision for a validated on-table state.
 ///
-/// This compatibility wrapper uses the default ball radius. Prefer
-/// `collide_ball_rail_on_table_with_radius(...)` when the active ball size should be explicit.
+/// This compatibility wrapper uses the default ball radius and default rail-response coefficients.
+/// Prefer `collide_ball_rail_on_table_with_radius_and_config(...)` when either one should be
+/// explicit.
 pub fn collide_ball_rail_on_table(
     state: &OnTableBallState,
     rail: Rail,

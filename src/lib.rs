@@ -1117,6 +1117,13 @@ pub enum OnTableStateError {
     },
 }
 
+/// Error returned when attempting to validate a resting on-table state.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RestingOnTableStateError {
+    NotOnTable(OnTableStateError),
+    NotResting,
+}
+
 /// The kinematic state of a billiard ball.
 ///
 /// The local references in `whitepapers/` consistently model each ball using center-of-mass
@@ -1318,6 +1325,129 @@ impl TryFrom<&BallState> for OnTableBallState {
 
 impl From<OnTableBallState> for BallState {
     fn from(state: OnTableBallState) -> Self {
+        state.into_ball_state()
+    }
+}
+
+fn exact_resting_thresholds() -> MotionPhaseThresholds {
+    MotionPhaseThresholds {
+        airborne_height: Inches::zero(),
+        airborne_vertical_speed: InchesPerSecond::zero(),
+        rest_linear_speed: InchesPerSecond::zero(),
+        rest_vertical_speed: InchesPerSecond::zero(),
+        rest_angular_speed: RadiansPerSecond::zero(),
+    }
+}
+
+fn validate_resting_on_table_state(
+    state: OnTableBallState,
+    thresholds: &MotionPhaseThresholds,
+) -> Result<RestingOnTableBallState, RestingOnTableStateError> {
+    let rest_config = MotionPhaseConfig {
+        thresholds: thresholds.clone(),
+        sliding_to_rolling: MotionPhaseConfig::default().sliding_to_rolling,
+    };
+    if classify_motion_phase(
+        state.as_ball_state(),
+        &BallSetPhysicsSpec::default(),
+        &rest_config,
+    ) != MotionPhase::Rest
+    {
+        return Err(RestingOnTableStateError::NotResting);
+    }
+
+    Ok(RestingOnTableBallState(
+        OnTableBallState::try_from(BallState::resting_at(
+            state.as_ball_state().position.clone(),
+        ))
+        .expect("resting-state normalization should preserve on-table invariants"),
+    ))
+}
+
+/// A `BallState` validated as exactly resting on the table plane.
+///
+/// This wrapper is the natural source state for operations like a cue strike that assume the ball
+/// starts from rest. Threshold-aware construction can accept tiny residual motion and normalize it
+/// to exact rest.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RestingOnTableBallState(OnTableBallState);
+
+impl RestingOnTableBallState {
+    pub fn try_new(state: BallState) -> Result<Self, RestingOnTableStateError> {
+        let thresholds = exact_resting_thresholds();
+        let on_table = OnTableBallState::try_new_with_thresholds(state, &thresholds)
+            .map_err(RestingOnTableStateError::NotOnTable)?;
+
+        validate_resting_on_table_state(on_table, &thresholds)
+    }
+
+    pub fn try_new_with_thresholds(
+        state: BallState,
+        thresholds: &MotionPhaseThresholds,
+    ) -> Result<Self, RestingOnTableStateError> {
+        let on_table = OnTableBallState::try_new_with_thresholds(state, thresholds)
+            .map_err(RestingOnTableStateError::NotOnTable)?;
+
+        validate_resting_on_table_state(on_table, thresholds)
+    }
+
+    pub fn as_on_table_ball_state(&self) -> &OnTableBallState {
+        &self.0
+    }
+
+    pub fn into_on_table_ball_state(self) -> OnTableBallState {
+        self.0
+    }
+
+    pub fn as_ball_state(&self) -> &BallState {
+        self.0.as_ball_state()
+    }
+
+    pub fn into_ball_state(self) -> BallState {
+        self.0.into_ball_state()
+    }
+}
+
+impl TryFrom<BallState> for RestingOnTableBallState {
+    type Error = RestingOnTableStateError;
+
+    fn try_from(state: BallState) -> Result<Self, Self::Error> {
+        Self::try_new(state)
+    }
+}
+
+impl TryFrom<&BallState> for RestingOnTableBallState {
+    type Error = RestingOnTableStateError;
+
+    fn try_from(state: &BallState) -> Result<Self, Self::Error> {
+        Self::try_new(state.clone())
+    }
+}
+
+impl TryFrom<OnTableBallState> for RestingOnTableBallState {
+    type Error = RestingOnTableStateError;
+
+    fn try_from(state: OnTableBallState) -> Result<Self, Self::Error> {
+        validate_resting_on_table_state(state, &exact_resting_thresholds())
+    }
+}
+
+impl TryFrom<&OnTableBallState> for RestingOnTableBallState {
+    type Error = RestingOnTableStateError;
+
+    fn try_from(state: &OnTableBallState) -> Result<Self, Self::Error> {
+        validate_resting_on_table_state(state.clone(), &exact_resting_thresholds())
+    }
+}
+
+impl From<RestingOnTableBallState> for OnTableBallState {
+    fn from(state: RestingOnTableBallState) -> Self {
+        state.into_on_table_ball_state()
+    }
+}
+
+impl From<RestingOnTableBallState> for BallState {
+    fn from(state: RestingOnTableBallState) -> Self {
         state.into_ball_state()
     }
 }

@@ -1,6 +1,6 @@
 use billiards::{
     AngularVelocity3, BallState, Inches2, MotionPhase, MotionPhaseThresholds, OnTableBallState,
-    Position, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    Position, RestingOnTableBallState, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -76,6 +76,73 @@ fn on_table_ball_state_rejects_nonzero_height_and_vertical_velocity() {
 
     assert!(by_height.is_err());
     assert!(by_vertical_velocity.is_err());
+}
+
+#[test]
+fn resting_on_table_ball_state_accepts_exact_resting_states() {
+    let resting =
+        RestingOnTableBallState::try_from(BallState::resting_at(Inches2::new("10", "20")))
+            .expect("exact resting states should validate");
+
+    assert_close(resting.as_ball_state().position.x().as_f64(), 10.0);
+    assert_close(resting.as_ball_state().position.y().as_f64(), 20.0);
+    assert_close(resting.as_ball_state().speed().as_f64(), 0.0);
+    assert_close(resting.as_ball_state().angular_velocity.x().as_f64(), 0.0);
+    assert_close(resting.as_ball_state().angular_velocity.y().as_f64(), 0.0);
+    assert_close(resting.as_ball_state().angular_velocity.z().as_f64(), 0.0);
+    assert_eq!(
+        resting
+            .as_on_table_ball_state()
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rest
+    );
+}
+
+#[test]
+fn resting_on_table_ball_state_rejects_on_table_motion() {
+    let rolling = RestingOnTableBallState::try_from(BallState::on_table(
+        Inches2::zero(),
+        Velocity2::new("6", "8"),
+        AngularVelocity3::new(
+            -8.0 / TYPICAL_BALL_RADIUS.as_f64(),
+            6.0 / TYPICAL_BALL_RADIUS.as_f64(),
+            0.0,
+        ),
+    ));
+    let spinning = RestingOnTableBallState::try_from(BallState::on_table(
+        Inches2::zero(),
+        Velocity2::zero(),
+        AngularVelocity3::new(0.0, 0.0, 3.0),
+    ));
+
+    assert!(rolling.is_err());
+    assert!(spinning.is_err());
+}
+
+#[test]
+fn resting_on_table_ball_state_threshold_validation_accepts_tiny_motion_and_normalizes_to_rest() {
+    let thresholds = MotionPhaseThresholds {
+        rest_linear_speed: Velocity2::new("0.000001", "0").speed(),
+        rest_angular_speed: 0.000001_f64.into(),
+        ..MotionPhaseThresholds::default()
+    };
+    let resting = RestingOnTableBallState::try_new_with_thresholds(
+        BallState::on_table(
+            Inches2::new("1", "2"),
+            Velocity2::new("0.0000005", "0"),
+            AngularVelocity3::new(0.0, 0.0, 0.0000005),
+        ),
+        &thresholds,
+    )
+    .expect("tiny residual motion within thresholds should validate as resting");
+
+    assert_close(resting.as_ball_state().position.x().as_f64(), 1.0);
+    assert_close(resting.as_ball_state().position.y().as_f64(), 2.0);
+    assert_close(resting.as_ball_state().speed().as_f64(), 0.0);
+    assert_close(resting.as_ball_state().angular_velocity.x().as_f64(), 0.0);
+    assert_close(resting.as_ball_state().angular_velocity.y().as_f64(), 0.0);
+    assert_close(resting.as_ball_state().angular_velocity.z().as_f64(), 0.0);
 }
 
 #[test]

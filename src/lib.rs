@@ -1469,6 +1469,11 @@ pub enum ShotError {
     CollisionEnergyLossOutOfRange {
         collision_energy_loss: Scale,
     },
+    CueBallDoesNotSeparateFromCue {
+        tip_contact: CueTipContact,
+        cue_mass_ratio: Scale,
+        collision_energy_loss: Scale,
+    },
 }
 
 /// A cue-tip contact point on the cue ball, expressed in cue-local ball-radius units.
@@ -1599,6 +1604,73 @@ impl CueStrikeConfig {
     pub fn collision_energy_loss(&self) -> &Scale {
         &self.collision_energy_loss
     }
+}
+
+/// Strike a resting on-table ball with a first-pass horizontal cue shot.
+///
+/// This models the instantaneous cue→ball transfer only; it returns the immediate post-strike
+/// on-table state that should then be fed into the existing motion / event simulation. The current
+/// implementation follows the horizontal cue-ball collision model in
+/// `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.2:
+///
+/// - cue movement is a translation in the shot heading,
+/// - the ball starts from rest,
+/// - cue-tip offset is specified by `CueTipContact` in cue-local ball-radius units, and
+/// - only the automatic cue-ball separation regime is supported.
+///
+/// This first pass intentionally excludes cue elevation, jump / masse launch, squirt / swerve, and
+/// tip-size / miscue refinements.
+pub fn strike_resting_ball_on_table(
+    ball: &RestingOnTableBallState,
+    shot: &Shot,
+    cue: &CueStrikeConfig,
+    ball_set: &BallSetPhysicsSpec,
+) -> Result<OnTableBallState, ShotError> {
+    let cue_mass_ratio = cue.cue_mass_ratio.as_f64();
+    let collision_energy_loss = cue.collision_energy_loss.as_f64();
+    let offset_radius = shot.tip_contact.offset_radius().as_f64();
+    let offset_radius_squared = offset_radius * offset_radius;
+    let automatic_split_limit_squared =
+        0.4 * (1.0 + 1.0 / cue_mass_ratio) * (1.0 - collision_energy_loss * (1.0 + cue_mass_ratio));
+    if automatic_split_limit_squared <= 0.0
+        || offset_radius_squared >= automatic_split_limit_squared
+    {
+        return Err(ShotError::CueBallDoesNotSeparateFromCue {
+            tip_contact: shot.tip_contact.clone(),
+            cue_mass_ratio: cue.cue_mass_ratio.clone(),
+            collision_energy_loss: cue.collision_energy_loss.clone(),
+        });
+    }
+
+    let k2 = 1.0 + 2.5 * offset_radius_squared;
+    let cue_speed = shot.cue_speed.as_f64();
+    let post_strike_speed = cue_speed
+        * (1.0
+            + (1.0 - collision_energy_loss - collision_energy_loss * k2 * cue_mass_ratio).sqrt())
+        / (k2 + 1.0 / cue_mass_ratio);
+    let velocity = Velocity2::from_polar(
+        InchesPerSecond::new(Inches::from_f64(post_strike_speed)),
+        shot.heading,
+    );
+
+    let heading_radians = shot.heading.as_degrees().to_radians();
+    let shot_x = heading_radians.sin();
+    let shot_y = heading_radians.cos();
+    let shot_right_x = shot_y;
+    let shot_right_y = -shot_x;
+    let spin_scale = 2.5 * post_strike_speed / ball_set.radius.as_f64();
+    let local_angular_right = -spin_scale * shot.tip_contact.height_offset.as_f64();
+    let angular_velocity = AngularVelocity3::new(
+        shot_right_x * local_angular_right,
+        shot_right_y * local_angular_right,
+        spin_scale * shot.tip_contact.side_offset.as_f64(),
+    );
+
+    Ok(build_on_table_ball_state(
+        ball.as_ball_state().position.clone(),
+        velocity,
+        angular_velocity,
+    ))
 }
 
 /// Return the planar table projection of a `BallState` in table-space coordinates.

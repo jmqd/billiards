@@ -56,6 +56,37 @@ fn a_center_ball_shot_seeds_forward_speed_without_spin() {
 }
 
 #[test]
+fn a_two_fifths_high_center_hit_seeds_natural_roll() {
+    let struck = strike_resting_ball_on_table(
+        &resting_ball(),
+        &Shot::new(
+            Angle::from_north(0.0, 1.0),
+            InchesPerSecond::new("10"),
+            CueTipContact::new(Scale::zero(), Scale::from_f64(0.4)).expect("tip contact"),
+        )
+        .expect("shot should validate"),
+        &cue_config(),
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("slightly high center strike should succeed");
+
+    assert_eq!(
+        struck
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rolling
+    );
+    assert_close(
+        struck
+            .as_ball_state()
+            .cloth_contact_speed(TYPICAL_BALL_RADIUS.clone())
+            .as_f64(),
+        0.0,
+    );
+    assert_close(struck.as_ball_state().angular_velocity.z().as_f64(), 0.0);
+}
+
+#[test]
 fn a_follow_shot_seeds_topspin_in_the_shot_frame() {
     let struck = strike_resting_ball_on_table(
         &resting_ball(),

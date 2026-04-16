@@ -54,6 +54,31 @@ fn impact_heading(from: &OnTableBallState, to: &OnTableBallState) -> Angle {
     )
 }
 
+fn expected_spin_seed_for_north_shot(
+    radius: f64,
+    phi_radians: f64,
+    speed: f64,
+    wx: f64,
+    wy: f64,
+    wz: f64,
+) -> (f64, f64, f64, f64) {
+    let mu_balls = 0.06;
+    let tangential_contact_slip = speed * phi_radians.sin() - radius * wz;
+    let vertical_contact_slip = radius * (wx * phi_radians.cos() + wy * phi_radians.sin());
+    let denominator = (tangential_contact_slip.powi(2) + vertical_contact_slip.powi(2)).sqrt();
+    let tangential_impulse_per_mass =
+        -mu_balls * speed * phi_radians.cos() * tangential_contact_slip / denominator;
+    let vertical_impulse_per_mass =
+        -mu_balls * speed * phi_radians.cos() * vertical_contact_slip / denominator;
+    let local_tangential_velocity = speed * phi_radians.sin() + tangential_impulse_per_mass;
+    let velocity_x = local_tangential_velocity * phi_radians.cos();
+    let velocity_y = local_tangential_velocity * phi_radians.sin();
+    let angular_x = wx + (5.0 / (2.0 * radius)) * phi_radians.cos() * vertical_impulse_per_mass;
+    let angular_y = wy + (5.0 / (2.0 * radius)) * phi_radians.sin() * vertical_impulse_per_mass;
+
+    (velocity_x, velocity_y, angular_x, angular_y)
+}
+
 #[test]
 fn throw_aware_head_on_collision_matches_ideal_and_reports_zero_throw() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
@@ -90,23 +115,10 @@ fn a_rolling_cut_shot_with_english_uses_the_tp_a8_style_cue_ball_post_impact_sta
 
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
-    let mu_balls = 0.06;
     let phi = (-45.0_f64).to_radians();
     let speed: f64 = 10.0;
-    let english: f64 = -6.0;
-    let tangential_contact_slip = speed * phi.sin() - radius * english;
-    let vertical_contact_slip = -speed * phi.cos();
-    let denominator = (tangential_contact_slip.powi(2) + vertical_contact_slip.powi(2)).sqrt();
-    let tangential_impulse_per_mass =
-        -mu_balls * speed * phi.cos() * tangential_contact_slip / denominator;
-    let vertical_impulse_per_mass =
-        -mu_balls * speed * phi.cos() * vertical_contact_slip / denominator;
-    let local_tangential_velocity = speed * phi.sin() + tangential_impulse_per_mass;
-    let expected_velocity_x = local_tangential_velocity * phi.cos();
-    let expected_velocity_y = local_tangential_velocity * phi.sin();
-    let expected_angular_x =
-        -speed / radius + (5.0 / (2.0 * radius)) * phi.cos() * vertical_impulse_per_mass;
-    let expected_angular_y = (5.0 / (2.0 * radius)) * phi.sin() * vertical_impulse_per_mass;
+    let (expected_velocity_x, expected_velocity_y, expected_angular_x, expected_angular_y) =
+        expected_spin_seed_for_north_shot(radius, phi, speed, -10.0 / radius, 0.0, -6.0);
 
     assert_close(
         outcome.a_after.as_ball_state().velocity.x().as_f64(),
@@ -155,18 +167,10 @@ fn a_sliding_cut_shot_with_english_uses_the_broader_post_impact_english_model() 
 
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
-    let mu_balls = 0.06;
     let phi = (-45.0_f64).to_radians();
     let speed: f64 = 10.0;
-    let english: f64 = -6.0;
-    let tangential_contact_slip = speed * phi.sin() - radius * english;
-    let vertical_contact_slip: f64 = 0.0;
-    let denominator = (tangential_contact_slip.powi(2) + vertical_contact_slip.powi(2)).sqrt();
-    let tangential_impulse_per_mass =
-        -mu_balls * speed * phi.cos() * tangential_contact_slip / denominator;
-    let local_tangential_velocity = speed * phi.sin() + tangential_impulse_per_mass;
-    let expected_velocity_x = local_tangential_velocity * phi.cos();
-    let expected_velocity_y = local_tangential_velocity * phi.sin();
+    let (expected_velocity_x, expected_velocity_y, _, _) =
+        expected_spin_seed_for_north_shot(radius, phi, speed, 0.0, 0.0, -6.0);
 
     assert_close(
         outcome.a_after.as_ball_state().velocity.x().as_f64(),
@@ -200,6 +204,96 @@ fn a_sliding_cut_shot_with_english_uses_the_broader_post_impact_english_model() 
             .as_ball_state()
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Sliding
+    );
+}
+
+#[test]
+fn a_follow_cut_shot_with_english_uses_the_broader_post_impact_spin_model() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-6.0, 0.0, -6.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let phi = (-45.0_f64).to_radians();
+    let speed: f64 = 10.0;
+    let (expected_velocity_x, expected_velocity_y, expected_angular_x, expected_angular_y) =
+        expected_spin_seed_for_north_shot(radius, phi, speed, -6.0, 0.0, -6.0);
+
+    assert_close(
+        outcome.a_after.as_ball_state().velocity.x().as_f64(),
+        expected_velocity_x,
+    );
+    assert_close(
+        outcome.a_after.as_ball_state().velocity.y().as_f64(),
+        expected_velocity_y,
+    );
+    assert_close(
+        outcome
+            .a_after
+            .as_ball_state()
+            .angular_velocity
+            .x()
+            .as_f64(),
+        expected_angular_x,
+    );
+    assert_close(
+        outcome
+            .a_after
+            .as_ball_state()
+            .angular_velocity
+            .y()
+            .as_f64(),
+        expected_angular_y,
+    );
+}
+
+#[test]
+fn a_draw_cut_shot_with_english_uses_the_broader_post_impact_spin_model() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(6.0, 0.0, -6.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let phi = (-45.0_f64).to_radians();
+    let speed: f64 = 10.0;
+    let (expected_velocity_x, expected_velocity_y, expected_angular_x, expected_angular_y) =
+        expected_spin_seed_for_north_shot(radius, phi, speed, 6.0, 0.0, -6.0);
+
+    assert_close(
+        outcome.a_after.as_ball_state().velocity.x().as_f64(),
+        expected_velocity_x,
+    );
+    assert_close(
+        outcome.a_after.as_ball_state().velocity.y().as_f64(),
+        expected_velocity_y,
+    );
+    assert_close(
+        outcome
+            .a_after
+            .as_ball_state()
+            .angular_velocity
+            .x()
+            .as_f64(),
+        expected_angular_x,
+    );
+    assert_close(
+        outcome
+            .a_after
+            .as_ball_state()
+            .angular_velocity
+            .y()
+            .as_f64(),
+        expected_angular_y,
     );
 }
 

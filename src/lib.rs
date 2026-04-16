@@ -2945,14 +2945,14 @@ fn transferred_spin_from_contact_slip(
     }
 }
 
-fn english_post_impact_cue_state_from_tp_a8(
+fn spin_post_impact_cue_state_from_tp_a8_a24(
     a: &OnTableBallState,
     b: &OnTableBallState,
     ball_radius: f64,
 ) -> Option<(Velocity2, f64, f64)> {
     let a_state = a.as_ball_state();
     let b_state = b.as_ball_state();
-    if ball_speed(b_state).as_f64() > 1e-9 || a_state.angular_velocity.z().as_f64().abs() <= 1e-9 {
+    if ball_speed(b_state).as_f64() > 1e-9 {
         return None;
     }
 
@@ -2987,14 +2987,20 @@ fn english_post_impact_cue_state_from_tp_a8(
     let cos_phi = signed_cut.cos();
     let sin_phi = signed_cut.sin();
 
-    // `whitepapers/tp_a_8_the_effects_of_english_on_the_30_degree_rule.pdf` derives the cue-ball
-    // contact-point slip in the shot-aligned basis for the rolling-with-english case. We reuse the
-    // same shot-basis construction here, but keep the current local pre-impact horizontal spin
-    // components instead of hard-coding the natural-roll values. That broadens the seed state while
-    // preserving the same local contact-slip geometry and impulse directions.
+    // `whitepapers/tp_a_8_the_effects_of_english_on_the_30_degree_rule.pdf` derives the shot-
+    // aligned contact-point slip geometry for cut shots with English, while
+    // `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` makes the
+    // same tangential / vertical slip decomposition explicit for combined follow/draw (`ωx`) and
+    // side spin (`ωz`). We therefore seed the common cut-shot cue-ball branch from those two slip
+    // components in the shot basis, using the current local horizontal spin components instead of
+    // assuming only natural roll.
     let tangential_contact_slip = shot_speed * sin_phi - ball_radius * english;
     let vertical_contact_slip =
         ball_radius * (local_pre_angular_x * cos_phi + local_pre_angular_y * sin_phi);
+    if tangential_contact_slip.abs() <= f64::EPSILON && vertical_contact_slip.abs() <= f64::EPSILON
+    {
+        return None;
+    }
     let contact_slip_denominator =
         (tangential_contact_slip.powi(2) + vertical_contact_slip.powi(2)).sqrt();
     if contact_slip_denominator <= f64::EPSILON {
@@ -3101,7 +3107,7 @@ fn throw_aware_collision_outcome_on_table(
         .as_ref()
         .map(|spin| spin.z().as_f64())
         .unwrap_or(0.0);
-    let tp_a8_cue_state = english_post_impact_cue_state_from_tp_a8(a, b, ball_radius);
+    let tp_a8_cue_state = spin_post_impact_cue_state_from_tp_a8_a24(a, b, ball_radius);
     let (a_velocity, a_angular_velocity) = match tp_a8_cue_state {
         Some((velocity, angular_x, angular_y)) => (
             velocity,
@@ -3157,8 +3163,8 @@ fn throw_aware_collision_outcome_on_table(
 /// This first slice keeps the ideal equal-mass line-of-centers speed transfer, maps the signed
 /// tangential contact slip to a bounded signed deflection angle, and adds a first-pass transferred
 /// z-spin increment for the stationary-object equal-ball case. For the common case of a cut shot
-/// into a stationary object ball with residual cue-ball side spin, the cue-ball branch also seeds
-/// its immediate post-impact velocity / horizontal spin state from a broader local TP A.8-style
+/// into a stationary object ball with residual cue-ball spin, the cue-ball branch also seeds its
+/// immediate post-impact velocity / horizontal spin state from a broader local TP A.8 / A.24-style
 /// shot-basis model before the on-cloth sliding solver takes over. Exact throw magnitudes and
 /// richer transferred-spin components remain future work.
 pub fn collide_ball_ball_detailed_on_table(

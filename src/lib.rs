@@ -2945,7 +2945,7 @@ fn transferred_spin_from_contact_slip(
     }
 }
 
-fn rolling_english_post_impact_cue_state_from_tp_a8(
+fn english_post_impact_cue_state_from_tp_a8(
     a: &OnTableBallState,
     b: &OnTableBallState,
     ball_radius: f64,
@@ -2953,13 +2953,6 @@ fn rolling_english_post_impact_cue_state_from_tp_a8(
     let a_state = a.as_ball_state();
     let b_state = b.as_ball_state();
     if ball_speed(b_state).as_f64() > 1e-9 || a_state.angular_velocity.z().as_f64().abs() <= 1e-9 {
-        return None;
-    }
-
-    let rolling_epsilon = 1e-6;
-    if cloth_contact_speed_on_table(a_state, Inches::from_f64(ball_radius)).as_f64()
-        > rolling_epsilon
-    {
         return None;
     }
 
@@ -2985,26 +2978,40 @@ fn rolling_english_post_impact_cue_state_from_tp_a8(
         return None;
     }
 
+    let local_pre_angular_x = shot_right_x * a_state.angular_velocity.x().as_f64()
+        + shot_right_y * a_state.angular_velocity.y().as_f64();
+    let local_pre_angular_y = shot_x * a_state.angular_velocity.x().as_f64()
+        + shot_y * a_state.angular_velocity.y().as_f64();
     let english = a_state.angular_velocity.z().as_f64();
     let mu_balls = AVERAGE_BALL_BALL_FRICTION_COEFFICIENT;
     let cos_phi = signed_cut.cos();
     let sin_phi = signed_cut.sin();
-    let english_term = ball_radius * english;
-    let contact_slip_denominator = (shot_speed.powi(2) - 2.0 * shot_speed * english_term * sin_phi
-        + english_term.powi(2))
-    .max(0.0)
-    .sqrt();
+
+    // `whitepapers/tp_a_8_the_effects_of_english_on_the_30_degree_rule.pdf` derives the cue-ball
+    // contact-point slip in the shot-aligned basis for the rolling-with-english case. We reuse the
+    // same shot-basis construction here, but keep the current local pre-impact horizontal spin
+    // components instead of hard-coding the natural-roll values. That broadens the seed state while
+    // preserving the same local contact-slip geometry and impulse directions.
+    let tangential_contact_slip = shot_speed * sin_phi - ball_radius * english;
+    let vertical_contact_slip =
+        ball_radius * (local_pre_angular_x * cos_phi + local_pre_angular_y * sin_phi);
+    let contact_slip_denominator =
+        (tangential_contact_slip.powi(2) + vertical_contact_slip.powi(2)).sqrt();
     if contact_slip_denominator <= f64::EPSILON {
         return None;
     }
 
-    let local_velocity_x = shot_speed * sin_phi * cos_phi * (1.0 - mu_balls * cos_phi);
-    let local_velocity_y = shot_speed * sin_phi.powi(2) * (1.0 - mu_balls * cos_phi);
-    let local_angular_x = -shot_speed / ball_radius
-        + (5.0 * mu_balls * shot_speed.powi(2) * cos_phi.powi(3))
-            / (2.0 * ball_radius * contact_slip_denominator);
-    let local_angular_y = (5.0 * mu_balls * shot_speed.powi(2) * sin_phi * cos_phi.powi(2))
-        / (2.0 * ball_radius * contact_slip_denominator);
+    let tangential_impulse_per_mass =
+        -mu_balls * shot_speed * cos_phi * tangential_contact_slip / contact_slip_denominator;
+    let vertical_impulse_per_mass =
+        -mu_balls * shot_speed * cos_phi * vertical_contact_slip / contact_slip_denominator;
+    let local_tangential_velocity = shot_speed * sin_phi + tangential_impulse_per_mass;
+    let local_velocity_x = local_tangential_velocity * cos_phi;
+    let local_velocity_y = local_tangential_velocity * sin_phi;
+    let local_angular_x =
+        local_pre_angular_x + (5.0 / (2.0 * ball_radius)) * cos_phi * vertical_impulse_per_mass;
+    let local_angular_y =
+        local_pre_angular_y + (5.0 / (2.0 * ball_radius)) * sin_phi * vertical_impulse_per_mass;
 
     let velocity = Velocity2::new(
         Inches::from_f64(shot_right_x * local_velocity_x + shot_x * local_velocity_y),
@@ -3094,7 +3101,7 @@ fn throw_aware_collision_outcome_on_table(
         .as_ref()
         .map(|spin| spin.z().as_f64())
         .unwrap_or(0.0);
-    let tp_a8_cue_state = rolling_english_post_impact_cue_state_from_tp_a8(a, b, ball_radius);
+    let tp_a8_cue_state = english_post_impact_cue_state_from_tp_a8(a, b, ball_radius);
     let (a_velocity, a_angular_velocity) = match tp_a8_cue_state {
         Some((velocity, angular_x, angular_y)) => (
             velocity,
@@ -3149,10 +3156,10 @@ fn throw_aware_collision_outcome_on_table(
 ///
 /// This first slice keeps the ideal equal-mass line-of-centers speed transfer, maps the signed
 /// tangential contact slip to a bounded signed deflection angle, and adds a first-pass transferred
-/// z-spin increment for the stationary-object equal-ball case. For the narrower common case of a
-/// rolling cue ball with residual side spin into a stationary object ball, the cue-ball branch also
-/// seeds its immediate post-impact velocity / horizontal spin state from the local TP A.8-style
-/// cut-shot equations before the on-cloth sliding solver takes over. Exact throw magnitudes and
+/// z-spin increment for the stationary-object equal-ball case. For the common case of a cut shot
+/// into a stationary object ball with residual cue-ball side spin, the cue-ball branch also seeds
+/// its immediate post-impact velocity / horizontal spin state from a broader local TP A.8-style
+/// shot-basis model before the on-cloth sliding solver takes over. Exact throw magnitudes and
 /// richer transferred-spin components remain future work.
 pub fn collide_ball_ball_detailed_on_table(
     a: &OnTableBallState,

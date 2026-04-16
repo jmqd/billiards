@@ -1,7 +1,8 @@
 use billiards::{
-    compute_next_ball_rail_impact_on_table, compute_next_two_ball_event_with_rails_on_table,
-    AngularVelocity3, BallSetPhysicsSpec, BallState, Diamond, Inches, Inches2, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
+    collide_ball_ball_detailed_on_table, compute_next_ball_rail_impact_on_table,
+    compute_next_two_ball_event_with_rails_on_table, AngularVelocity3, BallSetPhysicsSpec,
+    BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq, MotionPhase,
+    MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
     RadiansPerSecondSq, Rail, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
     TableSpec, TwoBallEventBall, TwoBallOnTableEvent, Velocity2, TYPICAL_BALL_RADIUS,
 };
@@ -89,6 +90,65 @@ fn a_rolling_ball_returns_none_when_it_stops_before_the_rail() {
         &motion_config(),
     )
     .is_none());
+}
+
+#[test]
+fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_during_sliding() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let object_ball = on_table(BallState::resting_at(inches2(4.2, 40.0)));
+    let outside_english = on_table(BallState::on_table(
+        inches2(
+            4.2 - radius * 2.0_f64.sqrt(),
+            40.0 - radius * 2.0_f64.sqrt(),
+        ),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, -6.0),
+    ));
+    let inside_english = on_table(BallState::on_table(
+        inches2(
+            4.2 - radius * 2.0_f64.sqrt(),
+            40.0 - radius * 2.0_f64.sqrt(),
+        ),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 6.0),
+    ));
+    let outside_outcome = collide_ball_ball_detailed_on_table(
+        &outside_english,
+        &object_ball,
+        CollisionModel::ThrowAware,
+    );
+    let inside_outcome = collide_ball_ball_detailed_on_table(
+        &inside_english,
+        &object_ball,
+        CollisionModel::ThrowAware,
+    );
+
+    let outside_impact = compute_next_ball_rail_impact_on_table(
+        &outside_outcome.a_after,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    );
+    let inside_impact = compute_next_ball_rail_impact_on_table(
+        &inside_outcome.a_after,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    );
+
+    let outside_impact = outside_impact.expect(
+        "outside english should curve the post-collision cue ball into the left rail during sliding",
+    );
+    assert_eq!(outside_impact.rail, Rail::Left);
+    assert_eq!(
+        outside_impact
+            .state_at_impact
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Sliding
+    );
+    assert!(inside_impact.is_none());
 }
 
 #[test]

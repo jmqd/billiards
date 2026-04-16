@@ -76,7 +76,7 @@ fn main() {
             spec: BallSpec::default(),
         }],
     );
-    game_state.add_dotted_polyline(&sampled_points, Rgba([0, 0, 0, 255]));
+    game_state.add_smooth_polyline(&sampled_points, Rgba([0, 0, 0, 255]));
 
     let output_path = Path::new("bank_path_demo.png");
     let image = game_state.draw_2d_diagram();

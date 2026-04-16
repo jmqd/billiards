@@ -1,9 +1,9 @@
 use bigdecimal::ToPrimitive;
 use billiards::dsl::{
-    CoordinateAxis, DslBuildError, DslError, DslParseError, RailSide, parse_dsl,
-    parse_dsl_to_game_state,
+    parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, CoordinateAxis, DslBuildError,
+    DslError, DslParseError, RailSide,
 };
-use billiards::BallType;
+use billiards::{BallSetPhysicsSpec, BallType, MotionPhase, TYPICAL_BALL_RADIUS};
 
 fn assert_parse_error(input: &str) {
     let err = parse_dsl_to_game_state(input).expect_err("expected parse failure");
@@ -32,7 +32,8 @@ fn parse_dsl_returns_a_crate_owned_error_with_a_byte_offset() {
 }
 
 #[test]
-fn given_comments_blank_lines_aliases_and_frozen_balls_when_building_then_positions_match_table_space() {
+fn given_comments_blank_lines_aliases_and_frozen_balls_when_building_then_positions_match_table_space(
+) {
     let state = parse_dsl_to_game_state(
         "# comment\n\n\
          pos hanger = (3.93, 7.93)\n\
@@ -94,8 +95,8 @@ fn rejects_coordinates_outside_the_table_bounds() {
 
 #[test]
 fn rejects_frozen_coordinates_past_the_end_of_a_rail() {
-    let err = parse_dsl_to_game_state("ball cue frozen top (4.01)")
-        .expect_err("expected build failure");
+    let err =
+        parse_dsl_to_game_state("ball cue frozen top (4.01)").expect_err("expected build failure");
 
     assert!(matches!(
         err,
@@ -105,5 +106,118 @@ fn rejects_frozen_coordinates_past_the_end_of_a_rail() {
             min: 0.0,
             max: 4.0,
         }) if (value - 4.01).abs() < f64::EPSILON
+    ));
+}
+
+#[test]
+fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default)\n\
+           .mass_ratio(1.0)\n\
+           .energy_loss(0.1)\n\
+         shot(cue)\n\
+           .heading(30deg)\n\
+           .speed(128ips)\n\
+           .tip(side: 0.0R, height: 0.4R)\n\
+           .using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+
+    let cue = scenario
+        .game_state
+        .select_ball(BallType::Cue)
+        .expect("cue ball placement");
+    let shot = scenario.shot.as_ref().expect("scenario shot");
+    let seeded = scenario
+        .strike_shot_on_table(&BallSetPhysicsSpec::default())
+        .expect("expected strike to succeed")
+        .expect("scenario should contain a shot");
+
+    assert_close(cue.position.x.magnitude.to_f64().expect("cue x"), 2.0);
+    assert_close(cue.position.y.magnitude.to_f64().expect("cue y"), 4.0);
+    assert_eq!(shot.ball, BallType::Cue);
+    assert_close(shot.shot.heading().as_degrees(), 30.0);
+    assert_close(shot.shot.cue_speed().as_f64(), 128.0);
+    assert_close(shot.shot.tip_contact().side_offset().as_f64(), 0.0);
+    assert_close(shot.shot.tip_contact().height_offset().as_f64(), 0.4);
+    assert_close(shot.cue_strike.cue_mass_ratio().as_f64(), 1.0);
+    assert_close(shot.cue_strike.collision_energy_loss().as_f64(), 0.1);
+    assert_eq!(
+        seeded
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rolling
+    );
+}
+
+#[test]
+fn shot_scenarios_still_build_plain_game_state_views() {
+    let state = parse_dsl_to_game_state(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).using(default)\n",
+    )
+    .expect("expected shot DSL to still build a game-state view");
+
+    assert!(state.select_ball(BallType::Cue).is_some());
+}
+
+#[test]
+fn rejects_a_shot_that_uses_an_unknown_cue_strike() {
+    let err = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).using(default)\n",
+    )
+    .expect_err("expected build failure");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::UnknownCueStrike(name)) if name == "default"
+    ));
+}
+
+#[test]
+fn rejects_a_non_cue_shot_target_in_v1() {
+    let err = parse_dsl_to_scenario(
+        "ball nine at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(nine).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).using(default)\n",
+    )
+    .expect_err("expected build failure");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::ShotTargetMustBeCueBall(_))
+    ));
+}
+
+#[test]
+fn rejects_missing_required_shot_methods() {
+    let err = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R)\n",
+    )
+    .expect_err("expected build failure");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::MissingShotMethod { method }) if method == "using"
+    ));
+}
+
+#[test]
+fn rejects_duplicate_shot_methods() {
+    let err = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).heading(45deg).speed(128ips).tip(side: 0.0R, height: 0.4R).using(default)\n",
+    )
+    .expect_err("expected build failure");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::DuplicateShotMethod { method }) if method == "heading"
     ));
 }

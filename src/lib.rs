@@ -898,6 +898,49 @@ pub struct TwoBallOnTableSimulation {
     pub events: Vec<TwoBallOnTableEvent>,
 }
 
+/// How long a traced single-ball rail path should continue.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BallPathStop {
+    Duration(Seconds),
+    UntilRest,
+    RailImpacts(usize),
+}
+
+/// One visible segment of a traced single-ball path.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BallPathSegment {
+    pub start: OnTableBallState,
+    pub end: OnTableBallState,
+}
+
+/// A first-pass traced single-ball path across the table.
+///
+/// This is currently an event-vertex path: it records visible straight segments between the traced
+/// state's start point, rail impacts, motion-transition vertices, and the final stop condition. It
+/// does not yet sample within-phase side-spin curvature inside a segment.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BallPath {
+    pub initial_state: OnTableBallState,
+    pub final_state: OnTableBallState,
+    pub elapsed: Seconds,
+    pub rail_impacts: usize,
+    pub segments: Vec<BallPathSegment>,
+}
+
+impl BallPath {
+    /// Project this traced path to drawable table-space points.
+    pub fn projected_points(&self, table_spec: &TableSpec) -> Vec<Position> {
+        let mut points = vec![self
+            .initial_state
+            .as_ball_state()
+            .projected_position(table_spec)];
+        for segment in &self.segments {
+            points.push(segment.end.as_ball_state().projected_position(table_spec));
+        }
+        points
+    }
+}
+
 /// Thresholds used when classifying the qualitative motion phase of a ball.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MotionPhaseThresholds {
@@ -2463,6 +2506,64 @@ pub fn compute_next_ball_rail_impact_on_table(
     best
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum SingleBallOnTableEvent {
+    RailImpact(PredictedBallRailImpact),
+    MotionTransition(NextTransition),
+}
+
+impl SingleBallOnTableEvent {
+    fn time(&self) -> Seconds {
+        match self {
+            SingleBallOnTableEvent::RailImpact(impact) => impact.time_until_impact,
+            SingleBallOnTableEvent::MotionTransition(transition) => {
+                transition.time_until_transition
+            }
+        }
+    }
+}
+
+fn single_ball_event_priority(event: &SingleBallOnTableEvent) -> u8 {
+    match event {
+        SingleBallOnTableEvent::RailImpact(_) => 0,
+        SingleBallOnTableEvent::MotionTransition(_) => 1,
+    }
+}
+
+fn earlier_single_ball_event(
+    candidate: &SingleBallOnTableEvent,
+    current: &SingleBallOnTableEvent,
+) -> bool {
+    let candidate_time = candidate.time().as_f64();
+    let current_time = current.time().as_f64();
+
+    candidate_time < current_time
+        || ((candidate_time - current_time).abs() <= 1e-12
+            && single_ball_event_priority(candidate) < single_ball_event_priority(current))
+}
+
+fn compute_next_single_ball_event_with_rails_on_table(
+    state: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Option<SingleBallOnTableEvent> {
+    let mut next = compute_next_ball_rail_impact_on_table(state, ball, table, config)
+        .map(SingleBallOnTableEvent::RailImpact);
+
+    if let Some(transition) = compute_next_transition_on_table(state, ball, config) {
+        let candidate = SingleBallOnTableEvent::MotionTransition(transition);
+        if next
+            .as_ref()
+            .is_none_or(|current| earlier_single_ball_event(&candidate, current))
+        {
+            next = Some(candidate);
+        }
+    }
+
+    next
+}
+
 fn two_ball_event_ball_from_index(ball_index: usize) -> TwoBallEventBall {
     match ball_index {
         TWO_BALL_A_INDEX => TwoBallEventBall::A,
@@ -3042,6 +3143,183 @@ pub fn simulate_two_on_table_balls(
     collision_model: CollisionModel,
 ) -> TwoBallOnTableSimulation {
     simulate_two_balls_on_table(a, b, dt, ball, motion, collision_model)
+}
+
+fn ball_path_segment_has_visible_displacement(
+    start: &OnTableBallState,
+    end: &OnTableBallState,
+) -> bool {
+    let dx =
+        end.as_ball_state().position.x().as_f64() - start.as_ball_state().position.x().as_f64();
+    let dy =
+        end.as_ball_state().position.y().as_f64() - start.as_ball_state().position.y().as_f64();
+
+    dx.abs() > 1e-12 || dy.abs() > 1e-12
+}
+
+fn push_visible_ball_path_segment(
+    segments: &mut Vec<BallPathSegment>,
+    start: &OnTableBallState,
+    end: &OnTableBallState,
+) {
+    if ball_path_segment_has_visible_displacement(start, end) {
+        segments.push(BallPathSegment {
+            start: start.clone(),
+            end: end.clone(),
+        });
+    }
+}
+
+/// Trace a single ball forward over the table while resolving rail impacts using explicit rail
+/// response coefficients.
+///
+/// This is currently a first-pass event-vertex trace: it records visible straight segments between
+/// the current state, any in-window motion-transition vertices, any in-window rail impacts, and the
+/// final requested stop condition. It does not yet sample within-phase side-spin curvature inside a
+/// segment.
+pub fn trace_ball_path_with_rail_config_on_table(
+    state: &OnTableBallState,
+    stop: BallPathStop,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> BallPath {
+    let mut current = state.clone();
+    let mut elapsed = Seconds::zero();
+    let mut rail_impacts = 0usize;
+    let mut segments = Vec::new();
+    let mut remaining_time = match stop {
+        BallPathStop::Duration(dt) => {
+            assert!(dt.as_f64() >= 0.0, "trace duration must be non-negative");
+            Some(dt.as_f64())
+        }
+        _ => None,
+    };
+    let mut remaining_rail_impacts = match stop {
+        BallPathStop::RailImpacts(count) => Some(count),
+        _ => None,
+    };
+
+    loop {
+        if remaining_time.is_some_and(|time| time <= f64::EPSILON)
+            || remaining_rail_impacts == Some(0)
+            || classify_motion_phase(current.as_ball_state(), ball, &motion.phase)
+                == MotionPhase::Rest
+        {
+            break;
+        }
+
+        let Some(next_event) =
+            compute_next_single_ball_event_with_rails_on_table(&current, ball, table, motion)
+        else {
+            if let Some(remaining) = remaining_time {
+                let end = advance_on_table_ball_without_event(
+                    &current,
+                    Seconds::new(remaining),
+                    ball,
+                    motion,
+                );
+                push_visible_ball_path_segment(&mut segments, &current, &end);
+                current = end;
+                elapsed = Seconds::new(elapsed.as_f64() + remaining);
+            }
+            break;
+        };
+
+        let step_time = next_event.time().as_f64();
+        if step_time <= f64::EPSILON {
+            break;
+        }
+
+        if let Some(remaining) = remaining_time {
+            if step_time > remaining {
+                let end = advance_on_table_ball_without_event(
+                    &current,
+                    Seconds::new(remaining),
+                    ball,
+                    motion,
+                );
+                push_visible_ball_path_segment(&mut segments, &current, &end);
+                current = end;
+                elapsed = Seconds::new(elapsed.as_f64() + remaining);
+                break;
+            }
+        }
+
+        match next_event {
+            SingleBallOnTableEvent::MotionTransition(transition) => {
+                let end = advance_on_table_ball_without_event(
+                    &current,
+                    transition.time_until_transition,
+                    ball,
+                    motion,
+                );
+                push_visible_ball_path_segment(&mut segments, &current, &end);
+                current = end;
+                elapsed = Seconds::new(elapsed.as_f64() + step_time);
+            }
+            SingleBallOnTableEvent::RailImpact(impact) => {
+                let impact_state = impact.state_at_impact;
+                push_visible_ball_path_segment(&mut segments, &current, &impact_state);
+                current = impact_state;
+                elapsed = Seconds::new(elapsed.as_f64() + step_time);
+                rail_impacts += 1;
+
+                if let Some(remaining) = remaining_rail_impacts.as_mut() {
+                    *remaining = remaining.saturating_sub(1);
+                    if *remaining == 0 {
+                        break;
+                    }
+                }
+
+                current = collide_ball_rail_on_table_with_radius_and_config(
+                    &current,
+                    impact.rail,
+                    ball.radius.clone(),
+                    rail_model,
+                    rail_config,
+                );
+            }
+        }
+
+        if let Some(remaining) = remaining_time.as_mut() {
+            *remaining = (*remaining - step_time).max(0.0);
+        }
+    }
+
+    BallPath {
+        initial_state: state.clone(),
+        final_state: current,
+        elapsed,
+        rail_impacts,
+        segments,
+    }
+}
+
+/// Trace a single ball forward over the table while resolving rail impacts against the current
+/// table geometry.
+///
+/// This compatibility wrapper uses the default rail-response coefficients. Prefer
+/// `trace_ball_path_with_rail_config_on_table(...)` when restitution should be explicit.
+pub fn trace_ball_path_with_rails_on_table(
+    state: &OnTableBallState,
+    stop: BallPathStop,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    rail_model: RailModel,
+) -> BallPath {
+    trace_ball_path_with_rail_config_on_table(
+        state,
+        stop,
+        ball,
+        table,
+        motion,
+        rail_model,
+        &RailCollisionConfig::default(),
+    )
 }
 
 fn ideal_collision_outcome_on_table(
@@ -4770,6 +5048,18 @@ impl GameState {
         to.resolve_shifts(&self.table_spec);
 
         self.lines_to_draw.push((from, to, color))
+    }
+
+    /// Add a dotted polyline by drawing dashed segments between each consecutive pair of points.
+    pub fn add_dotted_polyline(&mut self, points: &[Position], color: Rgba<u8>) {
+        for window in points.windows(2) {
+            self.add_dotted_line(&window[0], &window[1], color);
+        }
+    }
+
+    /// Add a dotted overlay for a traced ball path.
+    pub fn add_dotted_ball_path(&mut self, path: &BallPath, color: Rgba<u8>) {
+        self.add_dotted_polyline(&path.projected_points(&self.table_spec), color);
     }
 
     /// Add a dotted idealized aim line from `shooting_position` to the ghost-ball target that

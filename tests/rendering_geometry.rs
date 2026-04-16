@@ -1,5 +1,10 @@
 use billiards::{
-    Angle, Ball, BallSpec, BallType, GameState, Pocket, Position, TableSpec, TYPICAL_BALL_RADIUS,
+    trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, Ball, BallPathStop,
+    BallSetPhysicsSpec, BallSpec, BallState, BallType, Diamond, GameState, Inches, Inches2,
+    InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
+    OnTableBallState, OnTableMotionConfig, Pocket, Position, RadiansPerSecondSq, RailModel,
+    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, RgbaImage};
 
@@ -42,6 +47,53 @@ fn cue_ball_at(x: &str, y: &str) -> GameState {
             spec: BallSpec::default(),
         }],
     )
+}
+
+fn motion_config() -> OnTableMotionConfig {
+    MotionTransitionConfig {
+        phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("5"),
+        },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(2.0),
+        },
+        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new("5"),
+        },
+    }
+}
+
+fn on_table(state: BallState) -> OnTableBallState {
+    OnTableBallState::try_from(state).expect("test states should validate as on-table")
+}
+
+fn inches2(x: f64, y: f64) -> Inches2 {
+    Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
+}
+
+fn thirty_degree_top_rail_bank_state(table: &TableSpec) -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let heading = Angle::from_north(0.5, 0.8660254037844386);
+    let speed = InchesPerSecond::new("10");
+    let velocity = Velocity2::from_polar(speed, heading);
+    let impact_time = 0.5;
+    let along_path_distance_to_impact = 10.0 * impact_time - 0.5 * 5.0 * impact_time * impact_time;
+    let radians = heading.as_degrees().to_radians();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+
+    on_table(BallState::on_table(
+        inches2(
+            10.0,
+            top_plane - along_path_distance_to_impact * radians.cos(),
+        ),
+        velocity,
+        AngularVelocity3::new(
+            -10.0 * radians.cos() / radius,
+            10.0 * radians.sin() / radius,
+            0.0,
+        ),
+    ))
 }
 
 #[test]
@@ -126,12 +178,36 @@ fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_l
     manual.add_dotted_line(&resolved_shooting_position, &ghost_ball, color);
 
     let mut helper = GameState::new(table_spec);
-    helper.add_dotted_aim_line_to_pocket(
-        &object_ball,
-        Pocket::TopRight,
-        &shooting_position,
-        color,
+    helper.add_dotted_aim_line_to_pocket(&object_ball, Pocket::TopRight, &shooting_position, color);
+
+    assert_eq!(render(&helper), render(&manual));
+}
+
+#[test]
+fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
+    let table_spec = TableSpec::default();
+    let color = image::Rgba([0, 0, 0, 255]);
+    let path = trace_ball_path_with_rails_on_table(
+        &thirty_degree_top_rail_bank_state(&table_spec),
+        BallPathStop::Duration(billiards::Seconds::new(1.0)),
+        &BallSetPhysicsSpec::default(),
+        &table_spec,
+        &motion_config(),
+        RailModel::Mirror,
     );
+    let points = path.projected_points(&table_spec);
+    assert_eq!(
+        points.len(),
+        3,
+        "the traced bank path should yield a one-bank polyline"
+    );
+
+    let mut manual = GameState::new(table_spec.clone());
+    manual.add_dotted_line(&points[0], &points[1], color);
+    manual.add_dotted_line(&points[1], &points[2], color);
+
+    let mut helper = GameState::new(table_spec);
+    helper.add_dotted_ball_path(&path, color);
 
     assert_eq!(render(&helper), render(&manual));
 }

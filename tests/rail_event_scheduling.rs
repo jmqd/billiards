@@ -38,13 +38,6 @@ fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
 }
 
-fn post_contact_cue_ball_after_throw_aware(
-    cue_ball: OnTableBallState,
-    object_ball: OnTableBallState,
-) -> OnTableBallState {
-    collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware).a_after
-}
-
 #[test]
 fn a_rolling_ball_predicts_a_top_rail_impact_before_it_stops() {
     let table = TableSpec::default();
@@ -104,8 +97,8 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
     let table = TableSpec::default();
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let object_ball = on_table(BallState::resting_at(inches2(4.2, 40.0)));
-    let outside_after = post_contact_cue_ball_after_throw_aware(
-        on_table(BallState::on_table(
+    let outside_continuation = collide_ball_ball_detailed_on_table(
+        &on_table(BallState::on_table(
             inches2(
                 4.2 - radius * 2.0_f64.sqrt(),
                 40.0 - radius * 2.0_f64.sqrt(),
@@ -113,10 +106,12 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
             Velocity2::new("0", "10"),
             AngularVelocity3::new(-10.0 / radius, 0.0, -6.0),
         )),
-        object_ball.clone(),
-    );
-    let inside_after = post_contact_cue_ball_after_throw_aware(
-        on_table(BallState::on_table(
+        &object_ball.clone(),
+        CollisionModel::ThrowAware,
+    )
+    .into_cue_ball_continuation();
+    let inside_continuation = collide_ball_ball_detailed_on_table(
+        &on_table(BallState::on_table(
             inches2(
                 4.2 - radius * 2.0_f64.sqrt(),
                 40.0 - radius * 2.0_f64.sqrt(),
@@ -124,17 +119,17 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
             Velocity2::new("0", "10"),
             AngularVelocity3::new(-10.0 / radius, 0.0, 6.0),
         )),
-        object_ball,
-    );
+        &object_ball,
+        CollisionModel::ThrowAware,
+    )
+    .into_cue_ball_continuation();
 
-    let outside_impact = compute_next_ball_rail_impact_on_table(
-        &outside_after,
+    let outside_impact = outside_continuation.next_rail_impact(
         &BallSetPhysicsSpec::default(),
         &table,
         &motion_config(),
     );
-    let inside_impact = compute_next_ball_rail_impact_on_table(
-        &inside_after,
+    let inside_impact = inside_continuation.next_rail_impact(
         &BallSetPhysicsSpec::default(),
         &table,
         &motion_config(),
@@ -173,8 +168,8 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
     //   combined follow/draw + English slip decomposition.
     let object_ball_1 = on_table(BallState::resting_at(inches2(4.2, 40.0)));
     let passive_ball = on_table(BallState::resting_at(inches2(30.0, 30.0)));
-    let follow_outside_after = post_contact_cue_ball_after_throw_aware(
-        on_table(BallState::on_table(
+    let follow_outside_continuation = collide_ball_ball_detailed_on_table(
+        &on_table(BallState::on_table(
             inches2(
                 4.2 - radius * 2.0_f64.sqrt(),
                 40.0 - radius * 2.0_f64.sqrt(),
@@ -182,10 +177,12 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
             Velocity2::new("0", "10"),
             AngularVelocity3::new(-6.0, 0.0, -6.0),
         )),
-        object_ball_1.clone(),
-    );
-    let follow_inside_after = post_contact_cue_ball_after_throw_aware(
-        on_table(BallState::on_table(
+        &object_ball_1.clone(),
+        CollisionModel::ThrowAware,
+    )
+    .into_cue_ball_continuation();
+    let follow_inside_continuation = collide_ball_ball_detailed_on_table(
+        &on_table(BallState::on_table(
             inches2(
                 4.2 - radius * 2.0_f64.sqrt(),
                 40.0 - radius * 2.0_f64.sqrt(),
@@ -193,25 +190,27 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
             Velocity2::new("0", "10"),
             AngularVelocity3::new(-6.0, 0.0, 6.0),
         )),
-        object_ball_1,
-    );
+        &object_ball_1,
+        CollisionModel::ThrowAware,
+    )
+    .into_cue_ball_continuation();
 
-    let outside_event = compute_next_two_ball_event_with_rails_on_table(
-        &follow_outside_after,
-        &passive_ball,
-        &BallSetPhysicsSpec::default(),
-        &table,
-        &motion_config(),
-    )
-    .expect("outside english should produce a next event");
-    let inside_event = compute_next_two_ball_event_with_rails_on_table(
-        &follow_inside_after,
-        &passive_ball,
-        &BallSetPhysicsSpec::default(),
-        &table,
-        &motion_config(),
-    )
-    .expect("inside english should produce a next event");
+    let outside_event = follow_outside_continuation
+        .next_event_against_ball_with_rails(
+            &passive_ball,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .expect("outside english should produce a next event");
+    let inside_event = follow_inside_continuation
+        .next_event_against_ball_with_rails(
+            &passive_ball,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .expect("inside english should produce a next event");
 
     match outside_event {
         TwoBallOnTableEvent::BallRailImpact { ball, impact } => {

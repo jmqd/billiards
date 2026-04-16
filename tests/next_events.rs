@@ -155,6 +155,49 @@ fn the_scheduler_uses_phase_aware_collision_timing_and_picks_stop_when_a_rolling
 }
 
 #[test]
+fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_collision() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let object_ball_1 = on_table(BallState::resting_at(inches2(7.2, 40.0)));
+    let object_ball_2 = on_table(BallState::resting_at(inches2(4.0, 36.8)));
+    let follow_outside = on_table(BallState::on_table(
+        inches2(
+            7.2 - radius * 2.0_f64.sqrt(),
+            40.0 - radius * 2.0_f64.sqrt(),
+        ),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-6.0, 0.0, -6.0),
+    ));
+    let outcome = collide_ball_ball_detailed_on_table(
+        &follow_outside,
+        &object_ball_1,
+        CollisionModel::ThrowAware,
+    );
+    let continuation = outcome.cue_ball_continuation();
+
+    assert_eq!(continuation.source_contact(), &outcome);
+    assert_eq!(continuation.cue_ball(), &outcome.a_after);
+    assert_eq!(continuation.struck_ball(), &outcome.b_after);
+    assert_eq!(
+        continuation.clone().into_source_contact(),
+        outcome,
+        "continuations should round-trip their source collision outcome"
+    );
+
+    let collision = continuation
+        .next_collision_against_ball(&object_ball_2, &BallSetPhysicsSpec::default(), &motion_config())
+        .expect("outside english should leave a reachable second-ball collision during the current phase");
+
+    assert!(collision.time_until_impact.as_f64() < 0.25);
+    assert_eq!(
+        collision
+            .a_at_impact
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Sliding
+    );
+}
+
+#[test]
 fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_after_contact() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
 
@@ -186,33 +229,33 @@ fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_aft
         Velocity2::new("0", "10"),
         AngularVelocity3::new(-6.0, 0.0, 6.0),
     ));
-    let follow_outside_after = collide_ball_ball_detailed_on_table(
+    let follow_outside_continuation = collide_ball_ball_detailed_on_table(
         &follow_outside,
         &object_ball_1,
         CollisionModel::ThrowAware,
     )
-    .a_after;
-    let follow_inside_after = collide_ball_ball_detailed_on_table(
+    .into_cue_ball_continuation();
+    let follow_inside_continuation = collide_ball_ball_detailed_on_table(
         &follow_inside,
         &object_ball_1,
         CollisionModel::ThrowAware,
     )
-    .a_after;
+    .into_cue_ball_continuation();
 
-    let outside_event = compute_next_event_for_two_on_table_balls(
-        &follow_outside_after,
-        &object_ball_2,
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
-    )
-    .expect("outside english should produce a next event");
-    let inside_event = compute_next_event_for_two_on_table_balls(
-        &follow_inside_after,
-        &object_ball_2,
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
-    )
-    .expect("inside english should produce a next event");
+    let outside_event = follow_outside_continuation
+        .next_event_against_ball(
+            &object_ball_2,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .expect("outside english should produce a next event");
+    let inside_event = follow_inside_continuation
+        .next_event_against_ball(
+            &object_ball_2,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .expect("inside english should produce a next event");
 
     match outside_event {
         TwoBallOnTableEvent::BallBallCollision(collision) => {

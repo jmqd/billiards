@@ -59,11 +59,13 @@ fn advancing_to_a_motion_transition_advances_both_balls_to_that_time() {
         CollisionModel::Ideal,
     );
 
-    match advanced
+    let reported_event = advanced
         .event
         .as_ref()
-        .expect("an event should be reported")
-    {
+        .expect("an event should be reported");
+    assert_eq!(reported_event.primary_ball(), Some(TwoBallEventBall::A));
+    assert_close(reported_event.time().as_f64(), advanced.elapsed.as_f64());
+    match reported_event {
         TwoBallOnTableEvent::MotionTransition { ball, transition } => {
             assert_eq!(*ball, TwoBallEventBall::A);
             assert_eq!(transition.phase_before, MotionPhase::Sliding);
@@ -126,11 +128,13 @@ fn advancing_to_a_ball_ball_collision_resolves_the_immediate_post_collision_stat
         CollisionModel::Ideal,
     );
 
-    match advanced
+    let reported_event = advanced
         .event
         .as_ref()
-        .expect("an event should be reported")
-    {
+        .expect("an event should be reported");
+    assert_eq!(reported_event.primary_ball(), None);
+    assert_close(reported_event.time().as_f64(), advanced.elapsed.as_f64());
+    match reported_event {
         TwoBallOnTableEvent::BallBallCollision(collision) => {
             assert_close(collision.time_until_impact.as_f64(), 1.0);
         }

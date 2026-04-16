@@ -793,6 +793,31 @@ pub enum TwoBallOnTableEvent {
     },
 }
 
+impl TwoBallOnTableEvent {
+    /// Return the elapsed time until this predicted event occurs.
+    pub fn time(&self) -> Seconds {
+        match self {
+            TwoBallOnTableEvent::BallBallCollision(collision) => collision.time_until_impact,
+            TwoBallOnTableEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
+            TwoBallOnTableEvent::MotionTransition { transition, .. } => {
+                transition.time_until_transition
+            }
+        }
+    }
+
+    /// Return the single distinguished ball for this event when one exists.
+    ///
+    /// Ball-ball collisions involve both balls symmetrically, so they return `None`. Rail impacts
+    /// and motion transitions identify the affected ball and return `Some(...)`.
+    pub fn primary_ball(&self) -> Option<TwoBallEventBall> {
+        match self {
+            TwoBallOnTableEvent::BallBallCollision(_) => None,
+            TwoBallOnTableEvent::BallRailImpact { ball, .. }
+            | TwoBallOnTableEvent::MotionTransition { ball, .. } => Some(*ball),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TwoBallEventCandidateSource {
     BallBallCollision,
@@ -2409,16 +2434,6 @@ pub fn compute_next_ball_rail_impact_on_table(
     best
 }
 
-fn two_ball_event_time(event: &TwoBallOnTableEvent) -> Seconds {
-    match event {
-        TwoBallOnTableEvent::BallBallCollision(collision) => collision.time_until_impact,
-        TwoBallOnTableEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
-        TwoBallOnTableEvent::MotionTransition { transition, .. } => {
-            transition.time_until_transition
-        }
-    }
-}
-
 impl TwoBallEventCandidateSource {
     fn priority(self) -> u8 {
         match self {
@@ -2478,8 +2493,8 @@ fn earlier_two_ball_event_candidate(
     candidate: &TwoBallEventCandidate,
     current: &TwoBallEventCandidate,
 ) -> bool {
-    let candidate_time = two_ball_event_time(&candidate.event).as_f64();
-    let current_time = two_ball_event_time(&current.event).as_f64();
+    let candidate_time = candidate.event.time().as_f64();
+    let current_time = current.event.time().as_f64();
 
     candidate_time < current_time
         || ((candidate_time - current_time).abs() <= 1e-12
@@ -2636,7 +2651,7 @@ where
         };
     };
 
-    let elapsed = two_ball_event_time(&event);
+    let elapsed = event.time();
     let (a_after, b_after) = match &event {
         TwoBallOnTableEvent::MotionTransition { .. } => {
             advance_two_on_table_balls_without_event(a, b, elapsed, ball, motion)
@@ -2815,7 +2830,7 @@ where
             break;
         };
 
-        let event_time = two_ball_event_time(&next_event).as_f64();
+        let event_time = next_event.time().as_f64();
         if event_time > remaining {
             let (a_after, b_after) = advance_two_on_table_balls_without_event(
                 &a_state,

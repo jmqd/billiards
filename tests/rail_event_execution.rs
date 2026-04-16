@@ -67,11 +67,13 @@ fn advancing_to_a_ball_a_rail_impact_reflects_that_ball_and_advances_ball_b_too(
         CollisionModel::Ideal,
         RailModel::Mirror,
     );
-    match advanced
+    let reported_event = advanced
         .event
         .as_ref()
-        .expect("an event should be reported")
-    {
+        .expect("an event should be reported");
+    assert_eq!(reported_event.primary_ball(), Some(TwoBallEventBall::A));
+    assert_close(reported_event.time().as_f64(), advanced.elapsed.as_f64());
+    match reported_event {
         TwoBallOnTableEvent::BallRailImpact { ball, impact } => {
             assert_eq!(*ball, TwoBallEventBall::A);
             assert_eq!(impact.rail, Rail::Top);

@@ -818,31 +818,60 @@ impl TwoBallOnTableEvent {
     }
 }
 
+const TWO_BALL_A_INDEX: usize = 0;
+const TWO_BALL_B_INDEX: usize = 1;
+const TWO_BALL_SYSTEM_SIZE: usize = 2;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TwoBallEventCandidateSource {
-    BallBallCollision,
-    BallRailImpact(TwoBallEventBall),
-    MotionTransition(TwoBallEventBall),
+enum TwoBallSystemEventSource {
+    BallBallCollision {
+        first_ball_index: usize,
+        second_ball_index: usize,
+    },
+    BallRailImpact {
+        ball_index: usize,
+    },
+    MotionTransition {
+        ball_index: usize,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct TwoBallEventCandidate {
-    source: TwoBallEventCandidateSource,
+struct TwoBallSystemEventCandidate {
+    source: TwoBallSystemEventSource,
     event: TwoBallOnTableEvent,
 }
 
-const RAIL_FREE_TWO_BALL_EVENT_SOURCES: [TwoBallEventCandidateSource; 3] = [
-    TwoBallEventCandidateSource::BallBallCollision,
-    TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::A),
-    TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::B),
+const RAIL_FREE_TWO_BALL_EVENT_SOURCES: [TwoBallSystemEventSource; 3] = [
+    TwoBallSystemEventSource::BallBallCollision {
+        first_ball_index: TWO_BALL_A_INDEX,
+        second_ball_index: TWO_BALL_B_INDEX,
+    },
+    TwoBallSystemEventSource::MotionTransition {
+        ball_index: TWO_BALL_A_INDEX,
+    },
+    TwoBallSystemEventSource::MotionTransition {
+        ball_index: TWO_BALL_B_INDEX,
+    },
 ];
 
-const RAIL_AWARE_TWO_BALL_EVENT_SOURCES: [TwoBallEventCandidateSource; 5] = [
-    TwoBallEventCandidateSource::BallBallCollision,
-    TwoBallEventCandidateSource::BallRailImpact(TwoBallEventBall::A),
-    TwoBallEventCandidateSource::BallRailImpact(TwoBallEventBall::B),
-    TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::A),
-    TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::B),
+const RAIL_AWARE_TWO_BALL_EVENT_SOURCES: [TwoBallSystemEventSource; 5] = [
+    TwoBallSystemEventSource::BallBallCollision {
+        first_ball_index: TWO_BALL_A_INDEX,
+        second_ball_index: TWO_BALL_B_INDEX,
+    },
+    TwoBallSystemEventSource::BallRailImpact {
+        ball_index: TWO_BALL_A_INDEX,
+    },
+    TwoBallSystemEventSource::BallRailImpact {
+        ball_index: TWO_BALL_B_INDEX,
+    },
+    TwoBallSystemEventSource::MotionTransition {
+        ball_index: TWO_BALL_A_INDEX,
+    },
+    TwoBallSystemEventSource::MotionTransition {
+        ball_index: TWO_BALL_B_INDEX,
+    },
 ];
 
 /// The result of advancing two on-table balls to the next currently supported event.
@@ -2434,36 +2463,78 @@ pub fn compute_next_ball_rail_impact_on_table(
     best
 }
 
-impl TwoBallEventCandidateSource {
+fn two_ball_event_ball_from_index(ball_index: usize) -> TwoBallEventBall {
+    match ball_index {
+        TWO_BALL_A_INDEX => TwoBallEventBall::A,
+        TWO_BALL_B_INDEX => TwoBallEventBall::B,
+        _ => panic!("two-ball scheduler ball index must be 0 or 1, got {ball_index}"),
+    }
+}
+
+fn two_ball_state_at_index<'a>(
+    states: [&'a OnTableBallState; TWO_BALL_SYSTEM_SIZE],
+    ball_index: usize,
+) -> &'a OnTableBallState {
+    match ball_index {
+        TWO_BALL_A_INDEX => states[TWO_BALL_A_INDEX],
+        TWO_BALL_B_INDEX => states[TWO_BALL_B_INDEX],
+        _ => panic!("two-ball scheduler ball index must be 0 or 1, got {ball_index}"),
+    }
+}
+
+fn indexed_two_ball_collision_event(
+    first_ball_index: usize,
+    second_ball_index: usize,
+    collision: PredictedBallBallCollision,
+) -> TwoBallOnTableEvent {
+    match (first_ball_index, second_ball_index) {
+        (TWO_BALL_A_INDEX, TWO_BALL_B_INDEX) => TwoBallOnTableEvent::BallBallCollision(collision),
+        (TWO_BALL_B_INDEX, TWO_BALL_A_INDEX) => {
+            TwoBallOnTableEvent::BallBallCollision(PredictedBallBallCollision {
+                time_until_impact: collision.time_until_impact,
+                a_at_impact: collision.b_at_impact,
+                b_at_impact: collision.a_at_impact,
+            })
+        }
+        _ => panic!(
+            "two-ball collision source indices must be 0/1 or 1/0, got {first_ball_index}/{second_ball_index}"
+        ),
+    }
+}
+
+impl TwoBallSystemEventSource {
     fn priority(self) -> u8 {
         match self {
-            TwoBallEventCandidateSource::BallBallCollision => 0,
-            TwoBallEventCandidateSource::BallRailImpact(TwoBallEventBall::A) => 1,
-            TwoBallEventCandidateSource::BallRailImpact(TwoBallEventBall::B) => 2,
-            TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::A) => 3,
-            TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::B) => 4,
+            TwoBallSystemEventSource::BallBallCollision { .. } => 0,
+            TwoBallSystemEventSource::BallRailImpact { ball_index } => 1 + ball_index as u8,
+            TwoBallSystemEventSource::MotionTransition { ball_index } => 3 + ball_index as u8,
         }
     }
 
     fn predict(
         self,
-        a: &OnTableBallState,
-        b: &OnTableBallState,
+        states: [&OnTableBallState; TWO_BALL_SYSTEM_SIZE],
         ball: &BallSetPhysicsSpec,
         table: Option<&TableSpec>,
         config: &OnTableMotionConfig,
     ) -> Option<TwoBallOnTableEvent> {
         match self {
-            TwoBallEventCandidateSource::BallBallCollision => {
-                compute_next_ball_ball_collision_during_current_phases_on_table(a, b, ball, config)
-                    .map(TwoBallOnTableEvent::BallBallCollision)
-            }
-            TwoBallEventCandidateSource::BallRailImpact(event_ball) => {
+            TwoBallSystemEventSource::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+            } => compute_next_ball_ball_collision_during_current_phases_on_table(
+                two_ball_state_at_index(states, first_ball_index),
+                two_ball_state_at_index(states, second_ball_index),
+                ball,
+                config,
+            )
+            .map(|collision| {
+                indexed_two_ball_collision_event(first_ball_index, second_ball_index, collision)
+            }),
+            TwoBallSystemEventSource::BallRailImpact { ball_index } => {
                 let table = table?;
-                let state = match event_ball {
-                    TwoBallEventBall::A => a,
-                    TwoBallEventBall::B => b,
-                };
+                let state = two_ball_state_at_index(states, ball_index);
+                let event_ball = two_ball_event_ball_from_index(ball_index);
 
                 compute_next_ball_rail_impact_on_table(state, ball, table, config).map(|impact| {
                     TwoBallOnTableEvent::BallRailImpact {
@@ -2472,11 +2543,9 @@ impl TwoBallEventCandidateSource {
                     }
                 })
             }
-            TwoBallEventCandidateSource::MotionTransition(event_ball) => {
-                let state = match event_ball {
-                    TwoBallEventBall::A => a,
-                    TwoBallEventBall::B => b,
-                };
+            TwoBallSystemEventSource::MotionTransition { ball_index } => {
+                let state = two_ball_state_at_index(states, ball_index);
+                let event_ball = two_ball_event_ball_from_index(ball_index);
 
                 compute_next_transition_on_table(state, ball, config).map(|transition| {
                     TwoBallOnTableEvent::MotionTransition {
@@ -2490,8 +2559,8 @@ impl TwoBallEventCandidateSource {
 }
 
 fn earlier_two_ball_event_candidate(
-    candidate: &TwoBallEventCandidate,
-    current: &TwoBallEventCandidate,
+    candidate: &TwoBallSystemEventCandidate,
+    current: &TwoBallSystemEventCandidate,
 ) -> bool {
     let candidate_time = candidate.event.time().as_f64();
     let current_time = current.event.time().as_f64();
@@ -2502,20 +2571,21 @@ fn earlier_two_ball_event_candidate(
 }
 
 fn select_earliest_two_ball_event_from_sources(
-    sources: &[TwoBallEventCandidateSource],
+    sources: &[TwoBallSystemEventSource],
     a: &OnTableBallState,
     b: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
     table: Option<&TableSpec>,
     config: &OnTableMotionConfig,
 ) -> Option<TwoBallOnTableEvent> {
-    let mut next: Option<TwoBallEventCandidate> = None;
+    let states = [a, b];
+    let mut next: Option<TwoBallSystemEventCandidate> = None;
 
     for source in sources {
-        let Some(event) = source.predict(a, b, ball, table, config) else {
+        let Some(event) = source.predict(states, ball, table, config) else {
             continue;
         };
-        let candidate = TwoBallEventCandidate {
+        let candidate = TwoBallSystemEventCandidate {
             source: *source,
             event,
         };

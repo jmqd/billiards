@@ -1,10 +1,10 @@
 use bigdecimal::ToPrimitive;
 use billiards::{
-    trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, BallPathStop, BallSetPhysicsSpec,
+    trace_ball_path_with_rails_on_table, AngularVelocity3, BallPathStop, BallSetPhysicsSpec,
     BallState, Diamond, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail,
+    RailAngleReference, RailModel, RailTangentDirection, RollingResistanceModel,
+    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -44,7 +44,11 @@ fn diamond_value(diamond: &Diamond) -> f64 {
 
 fn thirty_degree_top_rail_bank_state(table: &TableSpec) -> OnTableBallState {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
-    let heading = Angle::from_north(0.5, 0.8660254037844386);
+    let heading = Rail::Top.bank_heading_toward(
+        30.0,
+        RailAngleReference::FromNormal,
+        RailTangentDirection::Positive,
+    );
     let speed = InchesPerSecond::new("10");
     let velocity = Velocity2::from_polar(speed, heading);
     let impact_time = 0.5;

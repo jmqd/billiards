@@ -4910,6 +4910,37 @@ impl Default for CueballModifier {
     }
 }
 
+/// How a bank / rail-approach angle is measured relative to a rail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailAngleReference {
+    /// Measure the angle away from the straight-into-the-rail heading.
+    FromNormal,
+    /// Measure the angle away from the rail face itself.
+    FromRailFace,
+}
+
+/// Which direction along the rail the bank heading should favor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailTangentDirection {
+    /// Use the positive along-rail tangent direction.
+    ///
+    /// This means:
+    /// - for `Rail::Top` and `Rail::Bottom`, toward increasing X / the right side of the table;
+    /// - for `Rail::Left` and `Rail::Right`, toward increasing Y / the top of the table.
+    Positive,
+    /// Use the negative along-rail tangent direction.
+    Negative,
+}
+
+impl RailTangentDirection {
+    fn sign(self) -> f64 {
+        match self {
+            RailTangentDirection::Positive => 1.0,
+            RailTangentDirection::Negative => -1.0,
+        }
+    }
+}
+
 /// The rails on a pool table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rail {
@@ -4951,6 +4982,65 @@ impl Rail {
 
     pub fn is_horizontal(&self) -> bool {
         matches!(*self, Rail::Top | Rail::Bottom)
+    }
+
+    fn approach_heading_components(&self) -> (f64, f64) {
+        match *self {
+            Rail::Top => (0.0, 1.0),
+            Rail::Bottom => (0.0, -1.0),
+            Rail::Left => (-1.0, 0.0),
+            Rail::Right => (1.0, 0.0),
+        }
+    }
+
+    fn positive_tangent_components(&self) -> (f64, f64) {
+        match *self {
+            Rail::Top | Rail::Bottom => (1.0, 0.0),
+            Rail::Left | Rail::Right => (0.0, 1.0),
+        }
+    }
+
+    /// Return an absolute table heading that would send a ball toward this rail at the requested
+    /// bank angle.
+    ///
+    /// `angle_degrees` may be specified either from the rail normal (`FromNormal`) or from the
+    /// rail face (`FromRailFace`). `tangent_direction` chooses which along-rail branch to use.
+    ///
+    /// Examples for `angle_degrees = 30` measured `FromNormal`:
+    /// - `Rail::Top` + `Positive` => `30°`
+    /// - `Rail::Top` + `Negative` => `330°`
+    /// - `Rail::Right` + `Positive` => `60°`
+    /// - `Rail::Right` + `Negative` => `120°`
+    ///
+    /// Angles must lie in `[0°, 90°]`. A `FromRailFace` angle of `0°` is parallel to the rail and
+    /// therefore does not itself guarantee eventual contact, but it is still accepted as a valid
+    /// absolute heading construction.
+    pub fn bank_heading_toward(
+        self,
+        angle_degrees: f64,
+        reference: RailAngleReference,
+        tangent_direction: RailTangentDirection,
+    ) -> Angle {
+        assert!(
+            (0.0..=90.0).contains(&angle_degrees),
+            "bank angle must be in [0°, 90°], got {angle_degrees}"
+        );
+
+        let angle_from_normal = match reference {
+            RailAngleReference::FromNormal => angle_degrees,
+            RailAngleReference::FromRailFace => 90.0 - angle_degrees,
+        }
+        .to_radians();
+        let (approach_x, approach_y) = self.approach_heading_components();
+        let (tangent_x, tangent_y) = self.positive_tangent_components();
+        let tangent_sign = tangent_direction.sign();
+
+        Angle::from_north(
+            approach_x * angle_from_normal.cos()
+                + tangent_sign * tangent_x * angle_from_normal.sin(),
+            approach_y * angle_from_normal.cos()
+                + tangent_sign * tangent_y * angle_from_normal.sin(),
+        )
     }
 }
 

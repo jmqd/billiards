@@ -1,9 +1,9 @@
 use billiards::{
-    compute_next_event_for_two_on_table_balls, AngularVelocity3, BallSetPhysicsSpec, BallState,
-    Inches, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
-    OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, RollingResistanceModel,
-    SlidingFrictionModel, SpinDecayModel, TwoBallEventBall, TwoBallOnTableEvent, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    collide_ball_ball_detailed_on_table, compute_next_event_for_two_on_table_balls,
+    AngularVelocity3, BallSetPhysicsSpec, BallState, CollisionModel, Inches, Inches2,
+    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
+    OnTableMotionConfig, RadiansPerSecondSq, RollingResistanceModel, SlidingFrictionModel,
+    SpinDecayModel, TwoBallEventBall, TwoBallOnTableEvent, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -151,6 +151,93 @@ fn the_scheduler_uses_phase_aware_collision_timing_and_picks_stop_when_a_rolling
             assert_close(transition.time_until_transition.as_f64(), 2.0);
         }
         other => panic!("expected motion transition, got {other:?}"),
+    }
+}
+
+#[test]
+fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_after_contact() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+
+    // This staged regression approximates a 3-ball pattern by first resolving CB->OB1 contact,
+    // then asking the existing 2-ball scheduler what happens next between the post-impact cue ball
+    // and OB2. The local references motivating this are:
+    //
+    // - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`
+    //   for the post-impact cue-ball path basis,
+    // - `whitepapers/tp_a_8_the_effects_of_english_on_the_30_degree_rule.pdf` for English on the
+    //   cue-ball departure, and
+    // - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` for the
+    //   combined follow/draw + English slip decomposition used by the current cue-ball seed model.
+    let object_ball_1 = on_table(BallState::resting_at(inches2(7.2, 40.0)));
+    let object_ball_2 = on_table(BallState::resting_at(inches2(4.0, 36.8)));
+    let follow_outside = on_table(BallState::on_table(
+        inches2(
+            7.2 - radius * 2.0_f64.sqrt(),
+            40.0 - radius * 2.0_f64.sqrt(),
+        ),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-6.0, 0.0, -6.0),
+    ));
+    let follow_inside = on_table(BallState::on_table(
+        inches2(
+            7.2 - radius * 2.0_f64.sqrt(),
+            40.0 - radius * 2.0_f64.sqrt(),
+        ),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-6.0, 0.0, 6.0),
+    ));
+    let follow_outside_after = collide_ball_ball_detailed_on_table(
+        &follow_outside,
+        &object_ball_1,
+        CollisionModel::ThrowAware,
+    )
+    .a_after;
+    let follow_inside_after = collide_ball_ball_detailed_on_table(
+        &follow_inside,
+        &object_ball_1,
+        CollisionModel::ThrowAware,
+    )
+    .a_after;
+
+    let outside_event = compute_next_event_for_two_on_table_balls(
+        &follow_outside_after,
+        &object_ball_2,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("outside english should produce a next event");
+    let inside_event = compute_next_event_for_two_on_table_balls(
+        &follow_inside_after,
+        &object_ball_2,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("inside english should produce a next event");
+
+    match outside_event {
+        TwoBallOnTableEvent::BallBallCollision(collision) => {
+            assert!(collision.time_until_impact.as_f64() < 0.25);
+            assert_eq!(
+                collision
+                    .a_at_impact
+                    .as_ball_state()
+                    .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+                MotionPhase::Sliding
+            );
+        }
+        other => panic!("expected second-ball collision, got {other:?}"),
+    }
+    match inside_event {
+        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
+            assert_eq!(ball, TwoBallEventBall::A);
+            assert_eq!(transition.phase_before, MotionPhase::Sliding);
+            assert_eq!(transition.phase_after, MotionPhase::Rolling);
+            assert_close(
+                transition.time_until_transition.as_f64(),
+                0.27520658498952827,
+            );
+        }
+        other => panic!("expected motion transition before second-ball contact, got {other:?}"),
     }
 }
 

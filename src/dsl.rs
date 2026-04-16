@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
-    strike_resting_ball_on_table, Angle, Ball, BallSetPhysicsSpec, BallSpec, BallState, BallType,
-    CueStrikeConfig, CueTipContact, Diamond, GameState, Inches, InchesPerSecond, OnTableBallState,
-    Position, Rail, RestingOnTableBallState, Scale, Shot, ShotError, TableSpec,
-    BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
-    CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
+    strike_resting_ball_on_table, trace_ball_path_with_rails_on_table, Angle, Ball, BallPath,
+    BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType, CueStrikeConfig,
+    CueTipContact, Diamond, GameState, Inches, InchesPerSecond, OnTableBallState,
+    OnTableMotionConfig, Position, Rail, RailModel, RestingOnTableBallState, Scale, Shot,
+    ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
+    CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use winnow::ascii::{float, line_ending, till_line_ending};
 use winnow::combinator::{alt, cut_err, delimited, eof, opt, peek, preceded, repeat, terminated};
@@ -55,6 +56,27 @@ impl DslScenario {
         strike_resting_ball_on_table(&resting, &shot.shot, &shot.cue_strike, ball_set)
             .map(Some)
             .map_err(DslBuildError::InvalidShot)
+    }
+
+    pub fn trace_shot_path_with_rails_on_table(
+        &self,
+        stop: BallPathStop,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        rail_model: RailModel,
+    ) -> Result<Option<BallPath>, DslBuildError> {
+        let Some(initial_state) = self.strike_shot_on_table(ball_set)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(trace_ball_path_with_rails_on_table(
+            &initial_state,
+            stop,
+            ball_set,
+            &self.game_state.table_spec,
+            motion,
+            rail_model,
+        )))
     }
 }
 

@@ -123,10 +123,11 @@ where `shot` is optional and, when present, is already constructed from validate
 
 ## Engine seam
 
-The first concrete engine seam is:
+The first concrete engine seams are:
 
 - `parse_dsl_to_scenario(...)`
 - `DslScenario::strike_shot_on_table(...)`
+- `DslScenario::trace_shot_path_with_rails_on_table(...)`
 
-This yields the immediate post-strike `OnTableBallState` that can then be fed into the existing
-motion, event, rail, and path-tracing APIs.
+These yield either the immediate post-strike `OnTableBallState` or a traced single-ball preview
+path that can be fed directly into the existing motion, rail, rendering, and path-sampling APIs.

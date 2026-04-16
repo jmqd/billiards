@@ -3,7 +3,26 @@ use billiards::dsl::{
     parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, CoordinateAxis, DslBuildError,
     DslError, DslParseError, RailSide,
 };
-use billiards::{BallSetPhysicsSpec, BallType, MotionPhase, TYPICAL_BALL_RADIUS};
+use billiards::{
+    BallPathStop, BallSetPhysicsSpec, BallType, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
+    MotionTransitionConfig, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
+    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
+};
+
+fn motion_config() -> OnTableMotionConfig {
+    MotionTransitionConfig {
+        phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("5"),
+        },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(2.0),
+        },
+        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new("5"),
+        },
+    }
+}
 
 fn assert_parse_error(input: &str) {
     let err = parse_dsl_to_game_state(input).expect_err("expected parse failure");
@@ -149,6 +168,29 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Rolling
     );
+}
+
+#[test]
+fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+
+    let path = scenario
+        .trace_shot_path_with_rails_on_table(
+            BallPathStop::Duration(billiards::Seconds::new(1.0)),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            RailModel::SpinAware,
+        )
+        .expect("expected shot path trace to succeed")
+        .expect("scenario should contain a shot");
+
+    assert!(!path.segments.is_empty(), "expected a visible preview path");
+    assert!(path.projected_points(&scenario.game_state.table_spec).len() >= 2);
 }
 
 #[test]

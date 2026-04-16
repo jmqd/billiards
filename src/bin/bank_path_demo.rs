@@ -24,10 +24,12 @@ fn thirty_degree_top_rail_bank_state(table: &TableSpec) -> OnTableBallState {
         RailAngleReference::FromNormal,
         RailTangentDirection::Positive,
     );
-    let speed = InchesPerSecond::new("10");
+    let speed = InchesPerSecond::new("128");
+    let speed_f64 = speed.as_f64();
     let velocity = Velocity2::from_polar(speed, heading);
     let impact_time = 0.5;
-    let along_path_distance_to_impact = 10.0 * impact_time - 0.5 * 5.0 * impact_time * impact_time;
+    let along_path_distance_to_impact =
+        speed_f64 * impact_time - 0.5 * 5.0 * impact_time * impact_time;
     let radians = heading.as_degrees().to_radians();
     let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
 
@@ -38,8 +40,8 @@ fn thirty_degree_top_rail_bank_state(table: &TableSpec) -> OnTableBallState {
         ),
         velocity,
         AngularVelocity3::new(
-            -10.0 * radians.cos() / radius,
-            10.0 * radians.sin() / radius,
+            -speed_f64 * radians.cos() / radius,
+            speed_f64 * radians.sin() / radius,
             0.0,
         ),
     ))
@@ -56,7 +58,7 @@ fn main() {
         &BallSetPhysicsSpec::default(),
         &table,
         &motion,
-        RailModel::Mirror,
+        RailModel::SpinAware,
     );
 
     let mut game_state = GameState::with_balls(
@@ -84,5 +86,6 @@ fn main() {
             )
             .as_degrees()
     );
+    println!("Rail model: {:?}", RailModel::SpinAware);
     println!("Traced {} visible segment(s)", path.segments.len());
 }

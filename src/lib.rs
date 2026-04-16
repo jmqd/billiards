@@ -1452,6 +1452,155 @@ impl From<RestingOnTableBallState> for BallState {
     }
 }
 
+/// Error returned when constructing a cue-shot input or strike configuration.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ShotError {
+    CueTipContactOutsideBall {
+        side_offset: Scale,
+        height_offset: Scale,
+        offset_radius: Scale,
+    },
+    NegativeCueSpeed {
+        cue_speed: InchesPerSecond,
+    },
+    NonPositiveCueMassRatio {
+        cue_mass_ratio: Scale,
+    },
+    CollisionEnergyLossOutOfRange {
+        collision_energy_loss: Scale,
+    },
+}
+
+/// A cue-tip contact point on the cue ball, expressed in cue-local ball-radius units.
+///
+/// `side_offset` is positive to the striker's right and negative to the striker's left, relative
+/// to the shot heading. `height_offset` is positive above ball center (follow / topspin) and
+/// negative below center (draw).
+///
+/// The constructor validates that the contact point lies on or within the cue-ball disc in the
+/// cue-local side/height plane: `side_offset^2 + height_offset^2 <= 1`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CueTipContact {
+    side_offset: Scale,
+    height_offset: Scale,
+}
+
+impl CueTipContact {
+    pub fn new(side_offset: Scale, height_offset: Scale) -> Result<Self, ShotError> {
+        let radius = side_offset.as_f64().hypot(height_offset.as_f64());
+        if radius > 1.0 + 1e-12 {
+            return Err(ShotError::CueTipContactOutsideBall {
+                side_offset,
+                height_offset,
+                offset_radius: Scale::from_f64(radius),
+            });
+        }
+
+        Ok(Self {
+            side_offset,
+            height_offset,
+        })
+    }
+
+    pub fn center() -> Self {
+        Self {
+            side_offset: Scale::zero(),
+            height_offset: Scale::zero(),
+        }
+    }
+
+    pub fn side_offset(&self) -> &Scale {
+        &self.side_offset
+    }
+
+    pub fn height_offset(&self) -> &Scale {
+        &self.height_offset
+    }
+
+    pub fn offset_radius(&self) -> Scale {
+        Scale::from_f64(self.side_offset.as_f64().hypot(self.height_offset.as_f64()))
+    }
+}
+
+/// A fully specified cue shot intent for striking a resting cue ball.
+///
+/// This is a pure input description: the absolute shot heading, the cue speed at impact, and the
+/// validated cue-tip contact point on the ball. Later strike-model helpers will map this input to
+/// an immediate post-strike ball state.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Shot {
+    heading: Angle,
+    cue_speed: InchesPerSecond,
+    tip_contact: CueTipContact,
+}
+
+impl Shot {
+    pub fn new(
+        heading: Angle,
+        cue_speed: InchesPerSecond,
+        tip_contact: CueTipContact,
+    ) -> Result<Self, ShotError> {
+        if cue_speed.as_f64() < 0.0 {
+            return Err(ShotError::NegativeCueSpeed { cue_speed });
+        }
+
+        Ok(Self {
+            heading,
+            cue_speed,
+            tip_contact,
+        })
+    }
+
+    pub fn heading(&self) -> Angle {
+        self.heading
+    }
+
+    pub fn cue_speed(&self) -> &InchesPerSecond {
+        &self.cue_speed
+    }
+
+    pub fn tip_contact(&self) -> &CueTipContact {
+        &self.tip_contact
+    }
+}
+
+/// Dimensionless parameters for the current cue-strike transfer model.
+///
+/// `cue_mass_ratio` is the effective cue-mass to ball-mass ratio `M'/M` in the current local
+/// whitepaper notation. `collision_energy_loss` is the energy-loss fraction `e` from the same
+/// cue-ball collision model.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CueStrikeConfig {
+    cue_mass_ratio: Scale,
+    collision_energy_loss: Scale,
+}
+
+impl CueStrikeConfig {
+    pub fn new(cue_mass_ratio: Scale, collision_energy_loss: Scale) -> Result<Self, ShotError> {
+        if cue_mass_ratio.as_f64() <= 0.0 {
+            return Err(ShotError::NonPositiveCueMassRatio { cue_mass_ratio });
+        }
+        if !(0.0..=1.0).contains(&collision_energy_loss.as_f64()) {
+            return Err(ShotError::CollisionEnergyLossOutOfRange {
+                collision_energy_loss,
+            });
+        }
+
+        Ok(Self {
+            cue_mass_ratio,
+            collision_energy_loss,
+        })
+    }
+
+    pub fn cue_mass_ratio(&self) -> &Scale {
+        &self.cue_mass_ratio
+    }
+
+    pub fn collision_energy_loss(&self) -> &Scale {
+        &self.collision_energy_loss
+    }
+}
+
 /// Return the planar table projection of a `BallState` in table-space coordinates.
 pub fn projected_position(state: &BallState, table_spec: &TableSpec) -> Position {
     Position::new(

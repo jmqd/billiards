@@ -79,6 +79,67 @@ fn throw_aware_head_on_collision_matches_ideal_and_reports_zero_throw() {
 }
 
 #[test]
+fn a_rolling_cut_shot_with_english_uses_the_tp_a8_style_cue_ball_post_impact_state() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, -6.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let mu_balls = 0.06;
+    let phi = (-45.0_f64).to_radians();
+    let speed: f64 = 10.0;
+    let english: f64 = -6.0;
+    let denominator = (speed.powi(2) - 2.0 * radius * speed * english * phi.sin()
+        + (radius * english).powi(2))
+    .sqrt();
+    let expected_velocity_x = speed * phi.sin() * phi.cos() * (1.0 - mu_balls * phi.cos());
+    let expected_velocity_y = speed * phi.sin().powi(2) * (1.0 - mu_balls * phi.cos());
+    let expected_angular_x = -speed / radius
+        + (5.0 * mu_balls * speed.powi(2) * phi.cos().powi(3)) / (2.0 * radius * denominator);
+    let expected_angular_y = (5.0 * mu_balls * speed.powi(2) * phi.sin() * phi.cos().powi(2))
+        / (2.0 * radius * denominator);
+
+    assert_close(
+        outcome.a_after.as_ball_state().velocity.x().as_f64(),
+        expected_velocity_x,
+    );
+    assert_close(
+        outcome.a_after.as_ball_state().velocity.y().as_f64(),
+        expected_velocity_y,
+    );
+    assert_close(
+        outcome
+            .a_after
+            .as_ball_state()
+            .angular_velocity
+            .x()
+            .as_f64(),
+        expected_angular_x,
+    );
+    assert_close(
+        outcome
+            .a_after
+            .as_ball_state()
+            .angular_velocity
+            .y()
+            .as_f64(),
+        expected_angular_y,
+    );
+    assert_eq!(
+        outcome
+            .a_after
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Sliding
+    );
+}
+
+#[test]
 fn head_on_backspin_transfers_forward_spin_to_the_object_ball() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

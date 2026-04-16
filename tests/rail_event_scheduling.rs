@@ -38,6 +38,13 @@ fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
 }
 
+fn post_contact_cue_ball_after_throw_aware(
+    cue_ball: OnTableBallState,
+    object_ball: OnTableBallState,
+) -> OnTableBallState {
+    collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware).a_after
+}
+
 #[test]
 fn a_rolling_ball_predicts_a_top_rail_impact_before_it_stops() {
     let table = TableSpec::default();
@@ -97,41 +104,37 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
     let table = TableSpec::default();
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let object_ball = on_table(BallState::resting_at(inches2(4.2, 40.0)));
-    let outside_english = on_table(BallState::on_table(
-        inches2(
-            4.2 - radius * 2.0_f64.sqrt(),
-            40.0 - radius * 2.0_f64.sqrt(),
-        ),
-        Velocity2::new("0", "10"),
-        AngularVelocity3::new(-10.0 / radius, 0.0, -6.0),
-    ));
-    let inside_english = on_table(BallState::on_table(
-        inches2(
-            4.2 - radius * 2.0_f64.sqrt(),
-            40.0 - radius * 2.0_f64.sqrt(),
-        ),
-        Velocity2::new("0", "10"),
-        AngularVelocity3::new(-10.0 / radius, 0.0, 6.0),
-    ));
-    let outside_outcome = collide_ball_ball_detailed_on_table(
-        &outside_english,
-        &object_ball,
-        CollisionModel::ThrowAware,
+    let outside_after = post_contact_cue_ball_after_throw_aware(
+        on_table(BallState::on_table(
+            inches2(
+                4.2 - radius * 2.0_f64.sqrt(),
+                40.0 - radius * 2.0_f64.sqrt(),
+            ),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-10.0 / radius, 0.0, -6.0),
+        )),
+        object_ball.clone(),
     );
-    let inside_outcome = collide_ball_ball_detailed_on_table(
-        &inside_english,
-        &object_ball,
-        CollisionModel::ThrowAware,
+    let inside_after = post_contact_cue_ball_after_throw_aware(
+        on_table(BallState::on_table(
+            inches2(
+                4.2 - radius * 2.0_f64.sqrt(),
+                40.0 - radius * 2.0_f64.sqrt(),
+            ),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-10.0 / radius, 0.0, 6.0),
+        )),
+        object_ball,
     );
 
     let outside_impact = compute_next_ball_rail_impact_on_table(
-        &outside_outcome.a_after,
+        &outside_after,
         &BallSetPhysicsSpec::default(),
         &table,
         &motion_config(),
     );
     let inside_impact = compute_next_ball_rail_impact_on_table(
-        &inside_outcome.a_after,
+        &inside_after,
         &BallSetPhysicsSpec::default(),
         &table,
         &motion_config(),
@@ -149,6 +152,94 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
         MotionPhase::Sliding
     );
     assert!(inside_impact.is_none());
+}
+
+#[test]
+fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+
+    // Like the staged second-ball regression, this approximates a 3-ball pattern by first
+    // resolving CB->OB1 contact and then asking the existing rail-aware two-ball scheduler what
+    // happens next between the post-impact cue ball and a passive distant ball. The rail-aware
+    // decision is motivated by the same local references used by the current post-impact cue-ball
+    // model:
+    //
+    // - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`
+    //   for the post-impact cue-ball path basis,
+    // - `whitepapers/tp_a_8_the_effects_of_english_on_the_30_degree_rule.pdf` for English on the
+    //   cue-ball departure, and
+    // - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` for the
+    //   combined follow/draw + English slip decomposition.
+    let object_ball_1 = on_table(BallState::resting_at(inches2(4.2, 40.0)));
+    let passive_ball = on_table(BallState::resting_at(inches2(30.0, 30.0)));
+    let follow_outside_after = post_contact_cue_ball_after_throw_aware(
+        on_table(BallState::on_table(
+            inches2(
+                4.2 - radius * 2.0_f64.sqrt(),
+                40.0 - radius * 2.0_f64.sqrt(),
+            ),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-6.0, 0.0, -6.0),
+        )),
+        object_ball_1.clone(),
+    );
+    let follow_inside_after = post_contact_cue_ball_after_throw_aware(
+        on_table(BallState::on_table(
+            inches2(
+                4.2 - radius * 2.0_f64.sqrt(),
+                40.0 - radius * 2.0_f64.sqrt(),
+            ),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-6.0, 0.0, 6.0),
+        )),
+        object_ball_1,
+    );
+
+    let outside_event = compute_next_two_ball_event_with_rails_on_table(
+        &follow_outside_after,
+        &passive_ball,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect("outside english should produce a next event");
+    let inside_event = compute_next_two_ball_event_with_rails_on_table(
+        &follow_inside_after,
+        &passive_ball,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect("inside english should produce a next event");
+
+    match outside_event {
+        TwoBallOnTableEvent::BallRailImpact { ball, impact } => {
+            assert_eq!(ball, TwoBallEventBall::A);
+            assert_eq!(impact.rail, Rail::Left);
+            assert!(impact.time_until_impact.as_f64() < 0.25);
+            assert_eq!(
+                impact
+                    .state_at_impact
+                    .as_ball_state()
+                    .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+                MotionPhase::Sliding
+            );
+        }
+        other => panic!("expected rail impact before transition, got {other:?}"),
+    }
+    match inside_event {
+        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
+            assert_eq!(ball, TwoBallEventBall::A);
+            assert_eq!(transition.phase_before, MotionPhase::Sliding);
+            assert_eq!(transition.phase_after, MotionPhase::Rolling);
+            assert_close(
+                transition.time_until_transition.as_f64(),
+                0.27520658498952827,
+            );
+        }
+        other => panic!("expected motion transition before rail impact, got {other:?}"),
+    }
 }
 
 #[test]

@@ -210,8 +210,29 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
     manual.add_dotted_line(&points[0], &points[1], color);
     manual.add_dotted_line(&points[1], &points[2], color);
 
-    let mut helper = GameState::new(table_spec);
+    let mut helper = GameState::new(table_spec.clone());
     helper.add_dotted_ball_path(&path, color);
 
     assert_eq!(render(&helper), render(&manual));
+
+    let sampled = path.sampled_points(
+        billiards::Seconds::new(0.02),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        &table_spec,
+    );
+    let empty = render(&GameState::new(table_spec.clone()));
+
+    let mut dotted = GameState::new(table_spec.clone());
+    dotted.add_dotted_polyline(&sampled, color);
+
+    let mut smooth = GameState::new(table_spec);
+    smooth.add_smooth_polyline(&sampled, color);
+
+    let dotted_image = render(&dotted);
+    let smooth_image = render(&smooth);
+
+    assert_ne!(smooth_image, dotted_image);
+    assert!(diff_bbox(&empty, &dotted_image).is_some());
+    assert!(diff_bbox(&empty, &smooth_image).is_some());
 }

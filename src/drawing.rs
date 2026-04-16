@@ -1,5 +1,9 @@
 use image::{Rgba, RgbaImage};
-use imageproc::{drawing::draw_polygon_mut, point::Point};
+use imageproc::{
+    drawing::{draw_antialiased_line_segment_mut, draw_polygon_mut},
+    pixelops::interpolate,
+    point::Point,
+};
 
 use crate::Position;
 
@@ -60,6 +64,62 @@ pub fn draw_dashed_line_thick_mut(
     }
 }
 
+fn draw_antialiased_thick_line_segment_mut(
+    img: &mut RgbaImage,
+    start: (i32, i32),
+    end: (i32, i32),
+    width_px: f32,
+    color: Rgba<u8>,
+) {
+    let dx = end.0 as f32 - start.0 as f32;
+    let dy = end.1 as f32 - start.1 as f32;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len == 0.0 {
+        return;
+    }
+
+    let ux = dx / len;
+    let uy = dy / len;
+    let (nx, ny) = normal(ux, uy);
+    let half_w = width_px * 0.5;
+    let radius = half_w.ceil() as i32;
+
+    for offset in -radius..=radius {
+        let offset_f = offset as f32;
+        let coverage = (half_w + 0.5 - offset_f.abs()).clamp(0.0, 1.0);
+        if coverage <= 0.0 {
+            continue;
+        }
+
+        let sx = (start.0 as f32 + nx * offset_f).round() as i32;
+        let sy = (start.1 as f32 + ny * offset_f).round() as i32;
+        let ex = (end.0 as f32 + nx * offset_f).round() as i32;
+        let ey = (end.1 as f32 + ny * offset_f).round() as i32;
+        let alpha = ((color[3] as f32) * coverage).round().clamp(0.0, 255.0) as u8;
+        let stroke = Rgba([color[0], color[1], color[2], alpha]);
+
+        draw_antialiased_line_segment_mut(img, (sx, sy), (ex, ey), stroke, interpolate);
+    }
+}
+
+/// Draw a smooth anti-aliased polyline with a first-pass configurable width.
+pub fn draw_smooth_polyline_mut(
+    img: &mut RgbaImage,
+    points: &[Position],
+    width_px: f32,
+    color: Rgba<u8>,
+) {
+    if points.len() < 2 {
+        return;
+    }
+
+    for window in points.windows(2) {
+        let start = crate::assets::diamond_to_pixel(&window[0]);
+        let end = crate::assets::diamond_to_pixel(&window[1]);
+        draw_antialiased_thick_line_segment_mut(img, start, end, width_px, color);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +165,34 @@ mod tests {
         );
 
         assert!(changed_pixel_count(&image) > 0);
+    }
+
+    #[test]
+    fn given_a_smooth_polyline_with_two_points_when_drawing_then_some_pixels_are_colored() {
+        let mut image = RgbaImage::new(1089, 1938);
+
+        draw_smooth_polyline_mut(
+            &mut image,
+            &[Position::new(1u8, 4u8), Position::new(3u8, 4u8)],
+            4.0,
+            Rgba([0, 255, 0, 255]),
+        );
+
+        assert!(changed_pixel_count(&image) > 0);
+    }
+
+    #[test]
+    fn given_a_smooth_polyline_with_fewer_than_two_points_when_drawing_then_no_pixels_are_changed()
+    {
+        let mut image = RgbaImage::new(1089, 1938);
+
+        draw_smooth_polyline_mut(
+            &mut image,
+            &[Position::new(2u8, 4u8)],
+            4.0,
+            Rgba([255, 0, 0, 255]),
+        );
+
+        assert_eq!(changed_pixel_count(&image), 0);
     }
 }

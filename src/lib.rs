@@ -5116,6 +5116,20 @@ impl Rail {
 }
 
 #[derive(Clone, Debug)]
+enum Overlay {
+    DashedLine {
+        start: Position,
+        end: Position,
+        color: Rgba<u8>,
+    },
+    SmoothPolyline {
+        points: Vec<Position>,
+        width_px: f32,
+        color: Rgba<u8>,
+    },
+}
+
+#[derive(Clone, Debug)]
 /// The full and complete data structure describing the state of a game.
 #[derive(Default)]
 pub struct GameState {
@@ -5124,8 +5138,7 @@ pub struct GameState {
     pub ty: GameType,
     pub cueball_modifier: CueballModifier,
 
-    // TODO: Replace this with a more general overlay concept.
-    lines_to_draw: Vec<(Position, Position, Rgba<u8>)>,
+    lines_to_draw: Vec<Overlay>,
 }
 
 impl GameState {
@@ -5208,7 +5221,11 @@ impl GameState {
         let mut to = to.clone();
         to.resolve_shifts(&self.table_spec);
 
-        self.lines_to_draw.push((from, to, color))
+        self.lines_to_draw.push(Overlay::DashedLine {
+            start: from,
+            end: to,
+            color,
+        })
     }
 
     /// Add a dotted polyline by drawing dashed segments between each consecutive pair of points.
@@ -5216,6 +5233,32 @@ impl GameState {
         for window in points.windows(2) {
             self.add_dotted_line(&window[0], &window[1], color);
         }
+    }
+
+    /// Add a smooth anti-aliased polyline overlay.
+    pub fn add_smooth_polyline(&mut self, points: &[Position], color: Rgba<u8>) {
+        self.add_smooth_polyline_with_width(points, 4.0, color);
+    }
+
+    /// Add a smooth anti-aliased polyline overlay with an explicit width.
+    pub fn add_smooth_polyline_with_width(
+        &mut self,
+        points: &[Position],
+        width_px: f32,
+        color: Rgba<u8>,
+    ) {
+        let mut resolved = Vec::with_capacity(points.len());
+        for point in points {
+            let mut point = point.clone();
+            point.resolve_shifts(&self.table_spec);
+            resolved.push(point);
+        }
+
+        self.lines_to_draw.push(Overlay::SmoothPolyline {
+            points: resolved,
+            width_px,
+            color,
+        });
     }
 
     /// Add a dotted overlay for a traced ball path.
@@ -5271,8 +5314,21 @@ impl GameState {
 
         let (tw, th) = table.dimensions();
 
-        for (start, end, color) in resolved.lines_to_draw.iter() {
-            drawing::draw_dashed_line_thick_mut(&mut table, start, end, 3., 12., 2., *color);
+        for overlay in resolved.lines_to_draw.iter() {
+            match overlay {
+                Overlay::DashedLine { start, end, color } => {
+                    drawing::draw_dashed_line_thick_mut(
+                        &mut table, start, end, 3., 12., 2., *color,
+                    );
+                }
+                Overlay::SmoothPolyline {
+                    points,
+                    width_px,
+                    color,
+                } => {
+                    drawing::draw_smooth_polyline_mut(&mut table, points, *width_px, *color);
+                }
+            }
         }
 
         for ball in &resolved.ball_positions {

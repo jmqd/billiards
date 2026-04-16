@@ -69,6 +69,14 @@ fn sliding_stun_state() -> BallState {
     )
 }
 
+fn sliding_with_vertical_spin_state() -> BallState {
+    BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(0.0, 0.0, 6.0),
+    )
+}
+
 fn spinning_state() -> BallState {
     BallState::on_table(
         Inches2::new("10", "20"),
@@ -148,9 +156,11 @@ fn advancing_spin_on_table_depends_on_ball_state_and_total_spin() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     );
+    let curve_angle_radians: f64 = 9.0 / 26.0;
+    let base_x = -25.0 / (7.0 * radius.as_f64());
 
-    assert_close(angular.x().as_f64(), -25.0 / (7.0 * radius.as_f64()));
-    assert_close(angular.y().as_f64(), 0.0);
+    assert_close(angular.x().as_f64(), base_x * curve_angle_radians.cos());
+    assert_close(angular.y().as_f64(), -base_x * curve_angle_radians.sin());
     assert_close(angular.z().as_f64(), 38.0 / 7.0);
 }
 
@@ -174,6 +184,54 @@ fn advancing_a_sliding_stun_ball_halfway_matches_the_section_7_3_linear_velocity
     assert_close(advanced.angular_velocity.y().as_f64(), 0.0);
     assert_close(advanced.angular_velocity.z().as_f64(), 0.0);
     assert_eq!(advanced.motion_phase(radius), MotionPhase::Sliding);
+}
+
+#[test]
+fn advancing_a_sliding_ball_with_vertical_spin_curves_during_the_sliding_phase() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = sliding_with_vertical_spin_state();
+    let dt = Seconds::new(2.0 / 7.0);
+
+    let advanced = advance_ball_state(&state, dt, &BallSetPhysicsSpec::default(), &motion_config());
+
+    assert!(advanced.position.x().as_f64() > 10.0);
+    assert!(advanced.velocity.x().as_f64() > 0.0);
+    assert_close(advanced.angular_velocity.z().as_f64(), 38.0 / 7.0);
+    assert_eq!(advanced.motion_phase(radius), MotionPhase::Sliding);
+}
+
+#[test]
+fn the_curve_estimate_starts_immediately_for_a_sliding_state_with_vertical_spin() {
+    let state = on_table(sliding_with_vertical_spin_state());
+    let config = motion_config();
+    let transition_time =
+        compute_next_transition_on_table(&state, &BallSetPhysicsSpec::default(), &config)
+            .expect("sliding balls should predict a rolling transition")
+            .time_until_transition;
+    let curve = estimate_post_contact_cue_ball_curve_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &config,
+    )
+    .expect("sliding state with residual sidespin should have an immediate curve estimate");
+    let advanced = advance_motion_on_table(
+        &state,
+        curve.time_until_curve_completes,
+        &BallSetPhysicsSpec::default(),
+        &config,
+    );
+    let heading = advanced
+        .state
+        .velocity
+        .angle_from_north()
+        .expect("curve completion should still leave translational speed");
+
+    assert_close(curve.time_until_curve_starts.as_f64(), 0.0);
+    assert_close(
+        curve.time_until_curve_completes.as_f64(),
+        transition_time.as_f64(),
+    );
+    assert_close(heading.as_degrees(), curve.heading_after_curve.as_degrees());
 }
 
 #[test]

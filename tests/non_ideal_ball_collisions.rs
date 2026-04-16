@@ -323,6 +323,14 @@ fn side_spin_produces_a_signed_post_contact_curve_estimate() {
         .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
         .expect("sidespin should produce a post-contact curve estimate");
 
+    assert_eq!(
+        outcome
+            .a_after
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Sliding
+    );
+    assert_close(curve.time_until_curve_starts.as_f64(), 0.0);
     assert!(curve.time_until_curve_completes.as_f64() > curve.time_until_curve_starts.as_f64());
     assert!(curve.curve_angle_degrees.abs() > 1e-9);
     assert_eq!(

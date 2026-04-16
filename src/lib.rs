@@ -793,6 +793,33 @@ pub enum TwoBallOnTableEvent {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TwoBallEventCandidateSource {
+    BallBallCollision,
+    BallRailImpact(TwoBallEventBall),
+    MotionTransition(TwoBallEventBall),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TwoBallEventCandidate {
+    source: TwoBallEventCandidateSource,
+    event: TwoBallOnTableEvent,
+}
+
+const RAIL_FREE_TWO_BALL_EVENT_SOURCES: [TwoBallEventCandidateSource; 3] = [
+    TwoBallEventCandidateSource::BallBallCollision,
+    TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::A),
+    TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::B),
+];
+
+const RAIL_AWARE_TWO_BALL_EVENT_SOURCES: [TwoBallEventCandidateSource; 5] = [
+    TwoBallEventCandidateSource::BallBallCollision,
+    TwoBallEventCandidateSource::BallRailImpact(TwoBallEventBall::A),
+    TwoBallEventCandidateSource::BallRailImpact(TwoBallEventBall::B),
+    TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::A),
+    TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::B),
+];
+
 /// The result of advancing two on-table balls to the next currently supported event.
 ///
 /// `event` records the chosen primary event, if any. Because the current scheduler intentionally
@@ -2392,44 +2419,111 @@ fn two_ball_event_time(event: &TwoBallOnTableEvent) -> Seconds {
     }
 }
 
-fn two_ball_event_priority(event: &TwoBallOnTableEvent) -> u8 {
-    match event {
-        TwoBallOnTableEvent::BallBallCollision(_) => 0,
-        TwoBallOnTableEvent::BallRailImpact {
-            ball: TwoBallEventBall::A,
-            ..
-        } => 1,
-        TwoBallOnTableEvent::BallRailImpact {
-            ball: TwoBallEventBall::B,
-            ..
-        } => 2,
-        TwoBallOnTableEvent::MotionTransition {
-            ball: TwoBallEventBall::A,
-            ..
-        } => 3,
-        TwoBallOnTableEvent::MotionTransition {
-            ball: TwoBallEventBall::B,
-            ..
-        } => 4,
+impl TwoBallEventCandidateSource {
+    fn priority(self) -> u8 {
+        match self {
+            TwoBallEventCandidateSource::BallBallCollision => 0,
+            TwoBallEventCandidateSource::BallRailImpact(TwoBallEventBall::A) => 1,
+            TwoBallEventCandidateSource::BallRailImpact(TwoBallEventBall::B) => 2,
+            TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::A) => 3,
+            TwoBallEventCandidateSource::MotionTransition(TwoBallEventBall::B) => 4,
+        }
+    }
+
+    fn predict(
+        self,
+        a: &OnTableBallState,
+        b: &OnTableBallState,
+        ball: &BallSetPhysicsSpec,
+        table: Option<&TableSpec>,
+        config: &OnTableMotionConfig,
+    ) -> Option<TwoBallOnTableEvent> {
+        match self {
+            TwoBallEventCandidateSource::BallBallCollision => {
+                compute_next_ball_ball_collision_during_current_phases_on_table(a, b, ball, config)
+                    .map(TwoBallOnTableEvent::BallBallCollision)
+            }
+            TwoBallEventCandidateSource::BallRailImpact(event_ball) => {
+                let table = table?;
+                let state = match event_ball {
+                    TwoBallEventBall::A => a,
+                    TwoBallEventBall::B => b,
+                };
+
+                compute_next_ball_rail_impact_on_table(state, ball, table, config).map(|impact| {
+                    TwoBallOnTableEvent::BallRailImpact {
+                        ball: event_ball,
+                        impact,
+                    }
+                })
+            }
+            TwoBallEventCandidateSource::MotionTransition(event_ball) => {
+                let state = match event_ball {
+                    TwoBallEventBall::A => a,
+                    TwoBallEventBall::B => b,
+                };
+
+                compute_next_transition_on_table(state, ball, config).map(|transition| {
+                    TwoBallOnTableEvent::MotionTransition {
+                        ball: event_ball,
+                        transition,
+                    }
+                })
+            }
+        }
     }
 }
 
-fn earlier_two_ball_event(candidate: &TwoBallOnTableEvent, current: &TwoBallOnTableEvent) -> bool {
-    let candidate_time = two_ball_event_time(candidate).as_f64();
-    let current_time = two_ball_event_time(current).as_f64();
+fn earlier_two_ball_event_candidate(
+    candidate: &TwoBallEventCandidate,
+    current: &TwoBallEventCandidate,
+) -> bool {
+    let candidate_time = two_ball_event_time(&candidate.event).as_f64();
+    let current_time = two_ball_event_time(&current.event).as_f64();
 
     candidate_time < current_time
         || ((candidate_time - current_time).abs() <= 1e-12
-            && two_ball_event_priority(candidate) < two_ball_event_priority(current))
+            && candidate.source.priority() < current.source.priority())
+}
+
+fn select_earliest_two_ball_event_from_sources(
+    sources: &[TwoBallEventCandidateSource],
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: Option<&TableSpec>,
+    config: &OnTableMotionConfig,
+) -> Option<TwoBallOnTableEvent> {
+    let mut next: Option<TwoBallEventCandidate> = None;
+
+    for source in sources {
+        let Some(event) = source.predict(a, b, ball, table, config) else {
+            continue;
+        };
+        let candidate = TwoBallEventCandidate {
+            source: *source,
+            event,
+        };
+
+        if next
+            .as_ref()
+            .is_none_or(|current| earlier_two_ball_event_candidate(&candidate, current))
+        {
+            next = Some(candidate);
+        }
+    }
+
+    next.map(|candidate| candidate.event)
 }
 
 /// Compute the earliest currently supported future event for two on-table balls.
 ///
-/// This helper is the first scheduler layer for an event-driven simulation loop. It compares:
+/// This helper is the first scheduler layer for an event-driven simulation loop. It evaluates the
+/// current rail-free candidate sources:
 ///
-/// - ball A's next on-table motion transition,
-/// - ball B's next on-table motion transition, and
 /// - the pair's next predicted ball-ball collision,
+/// - ball A's next on-table motion transition, and
+/// - ball B's next on-table motion transition,
 ///
 /// then returns the earliest event among those candidates.
 ///
@@ -2445,44 +2539,21 @@ pub fn compute_next_two_ball_event_on_table(
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
 ) -> Option<TwoBallOnTableEvent> {
-    let mut next =
-        compute_next_ball_ball_collision_during_current_phases_on_table(a, b, ball, config)
-            .map(TwoBallOnTableEvent::BallBallCollision);
-
-    if let Some(transition) = compute_next_transition_on_table(a, ball, config) {
-        let candidate = TwoBallOnTableEvent::MotionTransition {
-            ball: TwoBallEventBall::A,
-            transition,
-        };
-        if next
-            .as_ref()
-            .is_none_or(|current| earlier_two_ball_event(&candidate, current))
-        {
-            next = Some(candidate);
-        }
-    }
-
-    if let Some(transition) = compute_next_transition_on_table(b, ball, config) {
-        let candidate = TwoBallOnTableEvent::MotionTransition {
-            ball: TwoBallEventBall::B,
-            transition,
-        };
-        if next
-            .as_ref()
-            .is_none_or(|current| earlier_two_ball_event(&candidate, current))
-        {
-            next = Some(candidate);
-        }
-    }
-
-    next
+    select_earliest_two_ball_event_from_sources(
+        &RAIL_FREE_TWO_BALL_EVENT_SOURCES,
+        a,
+        b,
+        ball,
+        None,
+        config,
+    )
 }
 
 /// Compute the earliest supported future event for two on-table balls while also considering ideal
 /// rail impacts against the current table geometry.
 ///
-/// This extends `compute_next_two_ball_event_on_table(...)` by comparing those existing motion and
-/// ball-ball candidates against each ball's next predicted rail impact.
+/// This extends `compute_next_two_ball_event_on_table(...)` by adding each ball's next predicted
+/// rail impact as an additional candidate source.
 pub fn compute_next_two_ball_event_with_rails_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -2490,35 +2561,14 @@ pub fn compute_next_two_ball_event_with_rails_on_table(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<TwoBallOnTableEvent> {
-    let mut next = compute_next_two_ball_event_on_table(a, b, ball, config);
-
-    if let Some(impact) = compute_next_ball_rail_impact_on_table(a, ball, table, config) {
-        let candidate = TwoBallOnTableEvent::BallRailImpact {
-            ball: TwoBallEventBall::A,
-            impact,
-        };
-        if next
-            .as_ref()
-            .is_none_or(|current| earlier_two_ball_event(&candidate, current))
-        {
-            next = Some(candidate);
-        }
-    }
-
-    if let Some(impact) = compute_next_ball_rail_impact_on_table(b, ball, table, config) {
-        let candidate = TwoBallOnTableEvent::BallRailImpact {
-            ball: TwoBallEventBall::B,
-            impact,
-        };
-        if next
-            .as_ref()
-            .is_none_or(|current| earlier_two_ball_event(&candidate, current))
-        {
-            next = Some(candidate);
-        }
-    }
-
-    next
+    select_earliest_two_ball_event_from_sources(
+        &RAIL_AWARE_TWO_BALL_EVENT_SOURCES,
+        a,
+        b,
+        ball,
+        Some(table),
+        config,
+    )
 }
 
 /// Compatibility wrapper for the original two-ball event helper name.

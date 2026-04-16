@@ -108,6 +108,86 @@ fn tracing_a_thirty_degree_mirror_bank_produces_a_two_segment_path() {
 }
 
 #[test]
+fn sampling_with_a_large_time_step_matches_the_event_vertex_path() {
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let path = trace_ball_path_with_rails_on_table(
+        &thirty_degree_top_rail_bank_state(&table),
+        BallPathStop::Duration(billiards::Seconds::new(1.0)),
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion,
+        RailModel::Mirror,
+    );
+
+    assert_eq!(
+        path.sampled_points(
+            billiards::Seconds::new(10.0),
+            &BallSetPhysicsSpec::default(),
+            &motion,
+            &table,
+        ),
+        path.projected_points(&table)
+    );
+}
+
+#[test]
+fn sampling_with_a_small_time_step_inserts_intermediate_points() {
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let path = trace_ball_path_with_rails_on_table(
+        &thirty_degree_top_rail_bank_state(&table),
+        BallPathStop::Duration(billiards::Seconds::new(1.0)),
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion,
+        RailModel::SpinAware,
+    );
+
+    let coarse = path.projected_points(&table);
+    let sampled = path.sampled_points(
+        billiards::Seconds::new(0.05),
+        &BallSetPhysicsSpec::default(),
+        &motion,
+        &table,
+    );
+
+    assert!(sampled.len() > coarse.len());
+    assert_close(
+        table
+            .diamond_to_inches(sampled.first().unwrap().x.clone())
+            .as_f64(),
+        table
+            .diamond_to_inches(coarse.first().unwrap().x.clone())
+            .as_f64(),
+    );
+    assert_close(
+        table
+            .diamond_to_inches(sampled.first().unwrap().y.clone())
+            .as_f64(),
+        table
+            .diamond_to_inches(coarse.first().unwrap().y.clone())
+            .as_f64(),
+    );
+    assert_close(
+        table
+            .diamond_to_inches(sampled.last().unwrap().x.clone())
+            .as_f64(),
+        table
+            .diamond_to_inches(coarse.last().unwrap().x.clone())
+            .as_f64(),
+    );
+    assert_close(
+        table
+            .diamond_to_inches(sampled.last().unwrap().y.clone())
+            .as_f64(),
+        table
+            .diamond_to_inches(coarse.last().unwrap().y.clone())
+            .as_f64(),
+    );
+}
+
+#[test]
 fn tracing_until_one_rail_impact_stops_at_the_bank_point() {
     let table = TableSpec::default();
     let top_plane =

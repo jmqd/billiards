@@ -911,6 +911,7 @@ pub enum BallPathStop {
 pub struct BallPathSegment {
     pub start: OnTableBallState,
     pub end: OnTableBallState,
+    pub duration: Seconds,
 }
 
 /// A first-pass traced single-ball path across the table.
@@ -928,7 +929,7 @@ pub struct BallPath {
 }
 
 impl BallPath {
-    /// Project this traced path to drawable table-space points.
+    /// Project this traced path to drawable table-space points using only its event vertices.
     pub fn projected_points(&self, table_spec: &TableSpec) -> Vec<Position> {
         let mut points = vec![self
             .initial_state
@@ -936,6 +937,52 @@ impl BallPath {
             .projected_position(table_spec)];
         for segment in &self.segments {
             points.push(segment.end.as_ball_state().projected_position(table_spec));
+        }
+        points
+    }
+
+    /// Sample additional drawable points within each traced segment using the current motion
+    /// solver.
+    ///
+    /// This densifies the coarse event-vertex path by advancing from each segment's start state in
+    /// time steps no larger than `max_time_step`. Because each stored segment is currently bounded
+    /// by the earliest upcoming rail impact, motion transition, or requested trace horizon, these
+    /// sub-advances remain within the same traced segment contract.
+    pub fn sampled_points(
+        &self,
+        max_time_step: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        table_spec: &TableSpec,
+    ) -> Vec<Position> {
+        let max_time_step = max_time_step.as_f64();
+        assert!(
+            max_time_step.is_finite() && max_time_step > 0.0,
+            "sampled path max_time_step must be positive and finite"
+        );
+
+        let mut points = vec![self
+            .initial_state
+            .as_ball_state()
+            .projected_position(table_spec)];
+        for segment in &self.segments {
+            let duration = segment.duration.as_f64();
+            let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
+
+            for step in 1..=sample_count {
+                if step == sample_count {
+                    points.push(segment.end.as_ball_state().projected_position(table_spec));
+                } else {
+                    let t = duration * step as f64 / sample_count as f64;
+                    let sampled = advance_on_table_ball_without_event(
+                        &segment.start,
+                        Seconds::new(t),
+                        ball,
+                        motion,
+                    );
+                    points.push(sampled.as_ball_state().projected_position(table_spec));
+                }
+            }
         }
         points
     }
@@ -3161,11 +3208,13 @@ fn push_visible_ball_path_segment(
     segments: &mut Vec<BallPathSegment>,
     start: &OnTableBallState,
     end: &OnTableBallState,
+    duration: Seconds,
 ) {
     if ball_path_segment_has_visible_displacement(start, end) {
         segments.push(BallPathSegment {
             start: start.clone(),
             end: end.clone(),
+            duration,
         });
     }
 }
@@ -3221,7 +3270,12 @@ pub fn trace_ball_path_with_rail_config_on_table(
                     ball,
                     motion,
                 );
-                push_visible_ball_path_segment(&mut segments, &current, &end);
+                push_visible_ball_path_segment(
+                    &mut segments,
+                    &current,
+                    &end,
+                    Seconds::new(remaining),
+                );
                 current = end;
                 elapsed = Seconds::new(elapsed.as_f64() + remaining);
             }
@@ -3241,7 +3295,12 @@ pub fn trace_ball_path_with_rail_config_on_table(
                     ball,
                     motion,
                 );
-                push_visible_ball_path_segment(&mut segments, &current, &end);
+                push_visible_ball_path_segment(
+                    &mut segments,
+                    &current,
+                    &end,
+                    Seconds::new(remaining),
+                );
                 current = end;
                 elapsed = Seconds::new(elapsed.as_f64() + remaining);
                 break;
@@ -3256,13 +3315,25 @@ pub fn trace_ball_path_with_rail_config_on_table(
                     ball,
                     motion,
                 );
-                push_visible_ball_path_segment(&mut segments, &current, &end);
+                push_visible_ball_path_segment(
+                    &mut segments,
+                    &current,
+                    &end,
+                    transition.time_until_transition,
+                );
                 current = end;
                 elapsed = Seconds::new(elapsed.as_f64() + step_time);
             }
             SingleBallOnTableEvent::RailImpact(impact) => {
+                let rail = impact.rail;
+                let impact_duration = impact.time_until_impact;
                 let impact_state = impact.state_at_impact;
-                push_visible_ball_path_segment(&mut segments, &current, &impact_state);
+                push_visible_ball_path_segment(
+                    &mut segments,
+                    &current,
+                    &impact_state,
+                    impact_duration,
+                );
                 current = impact_state;
                 elapsed = Seconds::new(elapsed.as_f64() + step_time);
                 rail_impacts += 1;
@@ -3276,7 +3347,7 @@ pub fn trace_ball_path_with_rail_config_on_table(
 
                 current = collide_ball_rail_on_table_with_radius_and_config(
                     &current,
-                    impact.rail,
+                    rail,
                     ball.radius.clone(),
                     rail_model,
                     rail_config,

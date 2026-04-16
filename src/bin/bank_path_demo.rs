@@ -61,6 +61,13 @@ fn main() {
         RailModel::SpinAware,
     );
 
+    let sampled_points = path.sampled_points(
+        Seconds::new(0.02),
+        &BallSetPhysicsSpec::default(),
+        &motion,
+        &table,
+    );
+
     let mut game_state = GameState::with_balls(
         table.clone(),
         [Ball {
@@ -69,7 +76,7 @@ fn main() {
             spec: BallSpec::default(),
         }],
     );
-    game_state.add_dotted_ball_path(&path, Rgba([0, 0, 0, 255]));
+    game_state.add_dotted_polyline(&sampled_points, Rgba([0, 0, 0, 255]));
 
     let output_path = Path::new("bank_path_demo.png");
     let image = game_state.draw_2d_diagram();
@@ -88,4 +95,5 @@ fn main() {
     );
     println!("Rail model: {:?}", RailModel::SpinAware);
     println!("Traced {} visible segment(s)", path.segments.len());
+    println!("Drew {} sampled point(s)", sampled_points.len());
 }

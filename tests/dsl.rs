@@ -4,9 +4,9 @@ use billiards::dsl::{
     DslError, DslParseError, RailSide,
 };
 use billiards::{
-    BallSetPhysicsSpec, BallType, CollisionModel, InchesPerSecondSq, MotionPhase,
-    MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemState,
-    OnTableMotionConfig, RadiansPerSecondSq, RailModel, RollingResistanceModel,
+    BallSetPhysicsSpec, BallType, CollisionModel, HumanShotSpeedBand, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemState,
+    OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailModel, RollingResistanceModel,
     SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
 };
 
@@ -172,6 +172,25 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
 }
 
 #[test]
+fn shot_scenarios_can_report_human_speed_validation() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+
+    let validation = scenario
+        .validate_shot_human_speed()
+        .expect("human speed validation should succeed")
+        .expect("scenario should contain a shot");
+
+    assert_eq!(validation.cue_speed_band, HumanShotSpeedBand::MediumFast);
+    assert_eq!(validation.cue_ball_speed_band, HumanShotSpeedBand::Medium);
+    assert!(validation.is_typical_table_shot());
+}
+
+#[test]
 fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at center\n\
@@ -237,16 +256,55 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
     assert_eq!(trace.ball_traces.len(), 2);
     assert!(!trace.ball_traces[0].segments.is_empty());
     assert!(trace.ball_traces[1].segments.is_empty());
-    assert!(
-        trace.ball_traces[0]
-            .sampled_points(
-                billiards::Seconds::new(0.02),
-                &BallSetPhysicsSpec::default(),
-                &motion_config(),
-                &scenario.game_state.table_spec,
-            )
-            .len()
-            >= 2
+    let projected = trace.ball_traces[0].projected_points(&scenario.game_state.table_spec);
+    let sampled = trace.ball_traces[0].sampled_points(
+        billiards::Seconds::new(0.02),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        &scenario.game_state.table_spec,
+    );
+    let pocket_center = Pocket::CenterRight.aiming_center();
+    assert!(projected.len() >= 3);
+    assert!(sampled.len() >= 3);
+    assert_close(
+        projected
+            .last()
+            .expect("projected points should not be empty")
+            .x
+            .magnitude
+            .to_f64()
+            .expect("projected x"),
+        pocket_center.x.magnitude.to_f64().expect("pocket x"),
+    );
+    assert_close(
+        projected
+            .last()
+            .expect("projected points should not be empty")
+            .y
+            .magnitude
+            .to_f64()
+            .expect("projected y"),
+        pocket_center.y.magnitude.to_f64().expect("pocket y"),
+    );
+    assert_close(
+        sampled
+            .last()
+            .expect("sampled points should not be empty")
+            .x
+            .magnitude
+            .to_f64()
+            .expect("sampled x"),
+        pocket_center.x.magnitude.to_f64().expect("pocket x"),
+    );
+    assert_close(
+        sampled
+            .last()
+            .expect("sampled points should not be empty")
+            .y
+            .magnitude
+            .to_f64()
+            .expect("sampled y"),
+        pocket_center.y.magnitude.to_f64().expect("pocket y"),
     );
     assert!(trace.simulation.events.iter().any(|event| matches!(
         event,

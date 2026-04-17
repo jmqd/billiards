@@ -5,11 +5,12 @@ use crate::{
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
     trace_ball_path_with_rails_on_table, Angle, Ball, BallPath, BallPathSegment, BallPathStop,
     BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
-    CueTipContact, Diamond, GameState, Inches, InchesPerSecond, MotionPhase, NBallSystemEvent,
-    NBallSystemSimulation, NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket,
-    Position, Rail, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError, TableSpec,
-    BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
-    CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
+    CueTipContact, Diamond, GameState, HumanShotSpeedValidation, Inches, InchesPerSecond,
+    MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
+    OnTableMotionConfig, Pocket, Position, Rail, RailModel, RestingOnTableBallState, Scale,
+    Seconds, Shot, ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND,
+    CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND,
+    TOP_RIGHT_DIAMOND,
 };
 use image::Rgba;
 use winnow::ascii::{float, line_ending, till_line_ending};
@@ -40,6 +41,19 @@ pub struct DslScenario {
 }
 
 impl DslScenario {
+    pub fn validate_shot_human_speed(
+        &self,
+    ) -> Result<Option<HumanShotSpeedValidation>, DslBuildError> {
+        let Some(shot) = &self.shot else {
+            return Ok(None);
+        };
+
+        shot.shot
+            .human_speed_validation(&shot.cue_strike)
+            .map(Some)
+            .map_err(DslBuildError::InvalidShot)
+    }
+
     pub fn strike_shot_on_table(
         &self,
         ball_set: &BallSetPhysicsSpec,
@@ -407,6 +421,13 @@ pub struct ScenarioBallTrace {
 }
 
 impl ScenarioBallTrace {
+    fn pocket_terminal_point(&self) -> Option<Position> {
+        match &self.final_state {
+            NBallSystemState::Pocketed { pocket, .. } => Some(pocket.aiming_center()),
+            NBallSystemState::OnTable(_) => None,
+        }
+    }
+
     pub fn projected_points(&self, table_spec: &TableSpec) -> Vec<Position> {
         let mut points = vec![self
             .initial_state
@@ -414,6 +435,11 @@ impl ScenarioBallTrace {
             .projected_position(table_spec)];
         for segment in &self.segments {
             points.push(segment.end.as_ball_state().projected_position(table_spec));
+        }
+        if let Some(pocket_terminal) = self.pocket_terminal_point() {
+            if points.last() != Some(&pocket_terminal) {
+                points.push(pocket_terminal);
+            }
         }
         points
     }
@@ -451,6 +477,11 @@ impl ScenarioBallTrace {
                     .expect("sampled trace sub-advance should preserve on-table invariants");
                     points.push(sampled.as_ball_state().projected_position(table_spec));
                 }
+            }
+        }
+        if let Some(pocket_terminal) = self.pocket_terminal_point() {
+            if points.last() != Some(&pocket_terminal) {
+                points.push(pocket_terminal);
             }
         }
         points

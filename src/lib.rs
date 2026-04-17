@@ -1630,6 +1630,13 @@ pub enum ShotError {
     CollisionEnergyLossOutOfRange {
         collision_energy_loss: Scale,
     },
+    MiscueOffsetLimitOutOfRange {
+        miscue_offset_limit: Scale,
+    },
+    Miscue {
+        tip_contact: CueTipContact,
+        miscue_offset_limit: Scale,
+    },
     CueBallDoesNotSeparateFromCue {
         tip_contact: CueTipContact,
         cue_mass_ratio: Scale,
@@ -1734,15 +1741,34 @@ impl Shot {
 ///
 /// `cue_mass_ratio` is the effective cue-mass to ball-mass ratio `M'/M` in the current local
 /// whitepaper notation. `collision_energy_loss` is the energy-loss fraction `e` from the same
-/// cue-ball collision model.
+/// cue-ball collision model. `miscue_offset_limit` is a first-pass hard tip-offset bound, in
+/// cue-ball-radius units, beyond which the strike is treated as a miscue instead of a clean grip.
+///
+/// The default `miscue_offset_limit` is `0.5R`, matching the common local literature guidance that
+/// the maximum recommended cue-tip offset for strong english is about half a ball radius; see the
+/// local `TP A.22` / `TP A.25` notes and the `TP A.30` corpus summary in
+/// `agent_knowledge/whitepapers_formula_candidates.txt`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CueStrikeConfig {
     cue_mass_ratio: Scale,
     collision_energy_loss: Scale,
+    miscue_offset_limit: Scale,
 }
 
 impl CueStrikeConfig {
     pub fn new(cue_mass_ratio: Scale, collision_energy_loss: Scale) -> Result<Self, ShotError> {
+        Self::new_with_miscue_offset_limit(
+            cue_mass_ratio,
+            collision_energy_loss,
+            Scale::from_f64(0.5),
+        )
+    }
+
+    pub fn new_with_miscue_offset_limit(
+        cue_mass_ratio: Scale,
+        collision_energy_loss: Scale,
+        miscue_offset_limit: Scale,
+    ) -> Result<Self, ShotError> {
         if cue_mass_ratio.as_f64() <= 0.0 {
             return Err(ShotError::NonPositiveCueMassRatio { cue_mass_ratio });
         }
@@ -1751,10 +1777,16 @@ impl CueStrikeConfig {
                 collision_energy_loss,
             });
         }
+        if miscue_offset_limit.as_f64() <= 0.0 || miscue_offset_limit.as_f64() > 1.0 {
+            return Err(ShotError::MiscueOffsetLimitOutOfRange {
+                miscue_offset_limit,
+            });
+        }
 
         Ok(Self {
             cue_mass_ratio,
             collision_energy_loss,
+            miscue_offset_limit,
         })
     }
 
@@ -1764,6 +1796,10 @@ impl CueStrikeConfig {
 
     pub fn collision_energy_loss(&self) -> &Scale {
         &self.collision_energy_loss
+    }
+
+    pub fn miscue_offset_limit(&self) -> &Scale {
+        &self.miscue_offset_limit
     }
 }
 
@@ -1780,7 +1816,8 @@ impl CueStrikeConfig {
 /// - only the automatic cue-ball separation regime is supported.
 ///
 /// This first pass intentionally excludes cue elevation, jump / masse launch, squirt / swerve, and
-/// tip-size / miscue refinements.
+/// detailed tip-size / miscue probability refinements. It does, however, enforce a first-pass hard
+/// miscue limit on cue-tip offset via `CueStrikeConfig`.
 pub fn strike_resting_ball_on_table(
     ball: &RestingOnTableBallState,
     shot: &Shot,
@@ -1791,6 +1828,13 @@ pub fn strike_resting_ball_on_table(
     let collision_energy_loss = cue.collision_energy_loss.as_f64();
     let offset_radius = shot.tip_contact.offset_radius().as_f64();
     let offset_radius_squared = offset_radius * offset_radius;
+    if offset_radius > cue.miscue_offset_limit.as_f64() + 1e-12 {
+        return Err(ShotError::Miscue {
+            tip_contact: shot.tip_contact.clone(),
+            miscue_offset_limit: cue.miscue_offset_limit.clone(),
+        });
+    }
+
     let automatic_split_limit_squared =
         0.4 * (1.0 + 1.0 / cue_mass_ratio) * (1.0 - collision_energy_loss * (1.0 + cue_mass_ratio));
     if automatic_split_limit_squared <= 0.0

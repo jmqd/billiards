@@ -169,7 +169,7 @@ fn shot_heading_rotates_velocity_and_horizontal_spin_into_table_coordinates() {
 }
 
 #[test]
-fn unsupported_large_tip_offset_reports_that_the_cue_ball_would_not_separate_cleanly() {
+fn excessive_tip_offset_reports_a_miscue_before_other_strike_failures() {
     let error = strike_resting_ball_on_table(
         &resting_ball(),
         &Shot::new(
@@ -181,7 +181,31 @@ fn unsupported_large_tip_offset_reports_that_the_cue_ball_would_not_separate_cle
         &cue_config(),
         &BallSetPhysicsSpec::default(),
     )
-    .expect_err("large offsets should leave the model's supported automatic-separation regime");
+    .expect_err("offsets beyond the configured miscue limit should miscue");
+
+    assert!(matches!(error, ShotError::Miscue { .. }));
+}
+
+#[test]
+fn unsupported_large_tip_offset_can_still_report_no_separation_with_a_relaxed_miscue_limit() {
+    let relaxed_miscue_limit = CueStrikeConfig::new_with_miscue_offset_limit(
+        Scale::from_f64(1.0),
+        Scale::from_f64(0.1),
+        Scale::from_f64(0.95),
+    )
+    .expect("relaxed miscue limit should validate");
+    let error = strike_resting_ball_on_table(
+        &resting_ball(),
+        &Shot::new(
+            Angle::from_north(0.0, 1.0),
+            InchesPerSecond::new("10"),
+            CueTipContact::new(Scale::from_f64(0.9), Scale::zero()).expect("tip contact"),
+        )
+        .expect("shot should validate"),
+        &relaxed_miscue_limit,
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect_err("within the relaxed miscue limit, the no-separation guard should still apply");
 
     assert!(matches!(
         error,

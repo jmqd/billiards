@@ -77,15 +77,28 @@ fn shot_rejects_negative_cue_speed() {
 fn cue_strike_config_accepts_positive_mass_ratio_and_unit_interval_energy_loss() {
     let config = CueStrikeConfig::new(Scale::from_f64(3.0), Scale::from_f64(0.2))
         .expect("physically meaningful strike config should validate");
+    let custom = CueStrikeConfig::new_with_miscue_offset_limit(
+        Scale::from_f64(3.0),
+        Scale::from_f64(0.2),
+        Scale::from_f64(0.4),
+    )
+    .expect("a custom in-range miscue limit should validate");
 
     assert_close(config.cue_mass_ratio().as_f64(), 3.0);
     assert_close(config.collision_energy_loss().as_f64(), 0.2);
+    assert_close(config.miscue_offset_limit().as_f64(), 0.5);
+    assert_close(custom.miscue_offset_limit().as_f64(), 0.4);
 }
 
 #[test]
-fn cue_strike_config_rejects_nonpositive_mass_ratio_and_out_of_range_energy_loss() {
+fn cue_strike_config_rejects_nonpositive_mass_ratio_and_out_of_range_energy_loss_or_miscue_limit() {
     let by_mass_ratio = CueStrikeConfig::new(Scale::zero(), Scale::from_f64(0.2));
     let by_energy_loss = CueStrikeConfig::new(Scale::from_f64(3.0), Scale::from_f64(1.5));
+    let by_miscue_limit = CueStrikeConfig::new_with_miscue_offset_limit(
+        Scale::from_f64(3.0),
+        Scale::from_f64(0.2),
+        Scale::from_f64(1.5),
+    );
 
     assert!(matches!(
         by_mass_ratio,
@@ -94,5 +107,9 @@ fn cue_strike_config_rejects_nonpositive_mass_ratio_and_out_of_range_energy_loss
     assert!(matches!(
         by_energy_loss,
         Err(ShotError::CollisionEnergyLossOutOfRange { .. })
+    ));
+    assert!(matches!(
+        by_miscue_limit,
+        Err(ShotError::MiscueOffsetLimitOutOfRange { .. })
     ));
 }

@@ -928,6 +928,17 @@ pub struct TwoBallOnTableSimulation {
     pub events: Vec<TwoBallOnTableEvent>,
 }
 
+/// The result of simulating any number of on-table balls until no further supported event remains.
+///
+/// `events` records the ordered sequence of indexed primary events resolved while consuming
+/// `elapsed`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NBallOnTableSimulation {
+    pub states: Vec<OnTableBallState>,
+    pub elapsed: Seconds,
+    pub events: Vec<NBallOnTableEvent>,
+}
+
 /// How long a traced single-ball rail path should continue.
 #[derive(Clone, Debug, PartialEq)]
 pub enum BallPathStop {
@@ -3637,6 +3648,113 @@ pub fn simulate_two_on_table_balls(
     collision_model: CollisionModel,
 ) -> TwoBallOnTableSimulation {
     simulate_two_balls_on_table(a, b, dt, ball, motion, collision_model)
+}
+
+fn simulate_n_ball_system_on_table_until_rest<AdvanceNextEvent>(
+    states: &[OnTableBallState],
+    advance_next_event: AdvanceNextEvent,
+) -> NBallOnTableSimulation
+where
+    AdvanceNextEvent: Fn(&[OnTableBallState]) -> NBallOnTableAdvance,
+{
+    let mut states = states.to_vec();
+    let mut elapsed = Seconds::zero();
+    let mut events = Vec::new();
+
+    loop {
+        let advanced = advance_next_event(&states);
+        let step_elapsed = advanced.elapsed.as_f64();
+
+        let Some(event) = advanced.event else {
+            assert!(
+                step_elapsed.abs() <= f64::EPSILON,
+                "n-ball until-rest simulation should not consume time without an event"
+            );
+            states = advanced.states;
+            break;
+        };
+
+        assert!(
+            step_elapsed > f64::EPSILON,
+            "next n-ball event must advance simulation time"
+        );
+
+        states = advanced.states;
+        elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
+        events.push(event);
+    }
+
+    NBallOnTableSimulation {
+        states,
+        elapsed,
+        events,
+    }
+}
+
+/// Simulate any number of on-table balls until the current scheduler finds no further supported
+/// event.
+///
+/// Under the current on-table, no-pocket, no-airborne slice, this is the natural "until rest"
+/// simulation entry point: it repeatedly chooses the earliest indexed event, advances / resolves
+/// it, and stops when all remaining balls are resting and separated.
+pub fn simulate_n_balls_on_table_until_rest(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+) -> NBallOnTableSimulation {
+    simulate_n_ball_system_on_table_until_rest(states, |current| {
+        advance_to_next_n_ball_event_on_table(current, ball, motion, collision_model)
+    })
+}
+
+/// Simulate any number of on-table balls until rest while also resolving rail impacts using
+/// explicit rail-response coefficients.
+pub fn simulate_n_balls_with_rail_config_on_table_until_rest(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> NBallOnTableSimulation {
+    simulate_n_ball_system_on_table_until_rest(states, |current| {
+        advance_to_next_n_ball_event_with_rail_config_on_table(
+            current,
+            ball,
+            table,
+            motion,
+            collision_model,
+            rail_model,
+            rail_config,
+        )
+    })
+}
+
+/// Simulate any number of on-table balls until rest while also resolving rail impacts against the
+/// current table geometry.
+///
+/// This compatibility wrapper uses the default rail-response coefficients. Prefer
+/// `simulate_n_balls_with_rail_config_on_table_until_rest(...)` when restitution should be
+/// explicit.
+pub fn simulate_n_balls_with_rails_on_table_until_rest(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+) -> NBallOnTableSimulation {
+    simulate_n_balls_with_rail_config_on_table_until_rest(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionConfig::default(),
+    )
 }
 
 fn ball_path_segment_has_visible_displacement(

@@ -161,6 +161,15 @@ fn draw_filled_circle_alpha_mut(
     }
 }
 
+pub fn draw_filled_circle_marker_mut(
+    img: &mut RgbaImage,
+    center: &Position,
+    radius_px: f32,
+    color: Rgba<u8>,
+) {
+    draw_filled_circle_alpha_mut(img, crate::assets::diamond_to_pixel(center), radius_px, color);
+}
+
 /// Draw a translucent ghost-ball marker with a dotted outline at a table position.
 pub fn draw_ghost_ball_mut(
     img: &mut RgbaImage,
@@ -286,6 +295,20 @@ mod tests {
             39,
             Rgba([255, 255, 255, 64]),
             Rgba([0, 0, 0, 96]),
+        );
+
+        assert!(changed_pixel_count(&image) > 0);
+    }
+
+    #[test]
+    fn given_a_circle_marker_overlay_when_drawing_then_some_pixels_are_colored() {
+        let mut image = RgbaImage::new(1089, 1938);
+
+        draw_filled_circle_marker_mut(
+            &mut image,
+            &Position::new(2u8, 4u8),
+            5.0,
+            Rgba([255, 0, 0, 192]),
         );
 
         assert!(changed_pixel_count(&image) > 0);

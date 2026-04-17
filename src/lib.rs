@@ -5,7 +5,8 @@ pub mod visualization;
 
 use crate::assets::diamond_to_pixel;
 use crate::visualization::{
-    AimOverlayStyle, BallPathStyle, DashedLineStyle, GhostBallStyle, SmoothPolylineStyle,
+    AimOverlayStyle, BallPathStyle, DashedLineStyle, EventMarkerStyle, GhostBallStyle,
+    SmoothPolylineStyle,
 };
 use assets::ideal_ball_size_px;
 use core::fmt;
@@ -7043,6 +7044,10 @@ enum Overlay {
         center: Position,
         style: GhostBallStyle,
     },
+    CircleMarker {
+        center: Position,
+        style: EventMarkerStyle,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -7308,6 +7313,16 @@ impl GameState {
         });
     }
 
+    pub fn add_event_marker_styled(&mut self, position: &Position, style: EventMarkerStyle) {
+        let mut position = position.clone();
+        position.resolve_shifts(&self.table_spec);
+
+        self.lines_to_draw.push(Overlay::CircleMarker {
+            center: position,
+            style,
+        });
+    }
+
     /// Add a dotted overlay for a traced ball path.
     pub fn add_dotted_ball_path(&mut self, path: &BallPath, color: Rgba<u8>) {
         self.add_dotted_ball_path_styled(path, &BallPathStyle::new(color));
@@ -7334,6 +7349,12 @@ impl GameState {
                 None => (window[0].clone(), window[1].clone()),
             };
             self.add_dotted_line_styled(&start, &end, style.line.clone());
+        }
+
+        if style.event_markers.enabled {
+            for point in points.iter().skip(1) {
+                self.add_event_marker_styled(point, style.event_markers.clone());
+            }
         }
     }
 
@@ -7474,6 +7495,14 @@ impl GameState {
                             ball_diameter_px,
                             style.fill_color,
                             style.outline_color,
+                        );
+                    }
+                    Overlay::CircleMarker { center, style } if style.layer == layer => {
+                        drawing::draw_filled_circle_marker_mut(
+                            table,
+                            center,
+                            style.radius_px,
+                            style.color,
                         );
                     }
                     _ => {}

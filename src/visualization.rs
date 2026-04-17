@@ -116,6 +116,16 @@ impl Default for EventMarkerStyle {
     }
 }
 
+impl EventMarkerStyle {
+    pub fn enabled(color: Rgba<u8>) -> Self {
+        Self {
+            enabled: true,
+            color,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AimOverlayStyle {
     pub line: DashedLineStyle,
@@ -167,6 +177,11 @@ impl BallPathStyle {
 
     pub fn without_endpoint_clipping(mut self) -> Self {
         self.clip_endpoints_to_ball_radius = None;
+        self
+    }
+
+    pub fn with_event_markers(mut self, event_markers: EventMarkerStyle) -> Self {
+        self.event_markers = event_markers;
         self
     }
 }

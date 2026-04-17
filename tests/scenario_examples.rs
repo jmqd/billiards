@@ -111,9 +111,6 @@ fn straight_draw_side_pocket_example_runs_end_to_end() {
         .expect("example should simulate")
         .expect("example contains a shot");
     let lines = trace.event_lines();
-    let cue = cue_trace(&trace);
-    let initial_x = cue.initial_state.as_ball_state().position.x().as_f64();
-    let final_x = on_table_x(&cue.final_state);
 
     assert!(lines
         .iter()
@@ -121,9 +118,12 @@ fn straight_draw_side_pocket_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("one pocketed in center-right")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue rail impact: left")));
     assert!(
-        final_x < initial_x,
-        "draw should bring the cue back toward the starting end"
+        !lines.iter().any(|line| line.contains("cue rail impact: right")),
+        "the toned-down draw anchor should pull back instead of following through"
     );
 }
 

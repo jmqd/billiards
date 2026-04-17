@@ -40,7 +40,7 @@ A straight pot with draw.
 Expected flavor:
 - cue -> one collision
 - one pocketed in center-right
-- cue draws back toward the starting end instead of following through
+- cue draws back toward the starting end and reaches the left rail instead of following through
 
 ### `spot_shot_bottom_right.billiards`
 Object ball on the rack / spot region, cut toward the bottom-right corner pocket.

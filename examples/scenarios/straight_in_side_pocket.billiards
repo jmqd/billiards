@@ -1,0 +1,5 @@
+# Clean straight-in object-ball pot to the right side pocket.
+ball cue at center
+ball one at (3.0, 4.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)

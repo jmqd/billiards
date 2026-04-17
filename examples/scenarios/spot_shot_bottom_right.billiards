@@ -1,0 +1,5 @@
+# Object ball on the spot / rack region, cut to the bottom-right corner.
+ball cue at (1.0, 4.5)
+ball one at rack
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(160deg).speed(96ips).tip(side: 0.0R, height: 0.0R).using(default)

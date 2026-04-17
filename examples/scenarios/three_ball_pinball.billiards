@@ -1,0 +1,6 @@
+# Busy three-ball chain reaction with multiple later rail contacts and a delayed pocket.
+ball cue at (1.0, 4.0)
+ball one at (2.0, 4.0)
+ball two at (3.6, 4.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)

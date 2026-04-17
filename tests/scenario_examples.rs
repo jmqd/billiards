@@ -234,3 +234,38 @@ fn three_ball_pinball_example_runs_end_to_end() {
         "the cue ball should settle on the table in the corrected example"
     );
 }
+
+#[test]
+fn named_physics_pinball_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/named_physics_pinball.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_simulation_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            "human_pinball",
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> one collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one -> two collision")));
+    assert!(
+        lines.len() >= 5,
+        "expected the named-physics example to produce a multi-event chain"
+    );
+    assert_eq!(
+        scenario
+            .simulation_named("human_pinball")
+            .expect("named simulation")
+            .ball_ball_name,
+        "human"
+    );
+}

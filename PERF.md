@@ -127,6 +127,14 @@ target/criterion/
 
 That directory contains per-benchmark reports and historical comparison data for repeated local runs.
 
+To open the top-level Criterion HTML report after a run:
+
+```bash
+just perf-open
+```
+
+This tries `open` first, then `xdg-open`, and otherwise prints the report path.
+
 ---
 
 ## Recommended workflow

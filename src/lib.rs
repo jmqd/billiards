@@ -7152,10 +7152,22 @@ impl GameState {
         let mut resolved_to = to.clone();
         resolved_to.resolve_shifts(&self.table_spec);
 
-        let from_x = self.table_spec.diamond_to_inches(resolved_from.x.clone()).as_f64();
-        let from_y = self.table_spec.diamond_to_inches(resolved_from.y.clone()).as_f64();
-        let to_x = self.table_spec.diamond_to_inches(resolved_to.x.clone()).as_f64();
-        let to_y = self.table_spec.diamond_to_inches(resolved_to.y.clone()).as_f64();
+        let from_x = self
+            .table_spec
+            .diamond_to_inches(resolved_from.x.clone())
+            .as_f64();
+        let from_y = self
+            .table_spec
+            .diamond_to_inches(resolved_from.y.clone())
+            .as_f64();
+        let to_x = self
+            .table_spec
+            .diamond_to_inches(resolved_to.x.clone())
+            .as_f64();
+        let to_y = self
+            .table_spec
+            .diamond_to_inches(resolved_to.y.clone())
+            .as_f64();
         let distance = (to_x - from_x).hypot(to_y - from_y);
         if distance <= from_radius.as_f64() + to_radius.as_f64() + 1e-9 {
             return (resolved_from, resolved_to);
@@ -7168,6 +7180,50 @@ impl GameState {
         clipped_to.resolve_shifts(&self.table_spec);
 
         (clipped_from, clipped_to)
+    }
+
+    fn path_segment_color(
+        &self,
+        base_color: Rgba<u8>,
+        mode: visualization::PathColorMode,
+        segment: &BallPathSegment,
+        elapsed_before_segment: Seconds,
+        total_elapsed: Seconds,
+    ) -> Rgba<u8> {
+        match mode {
+            visualization::PathColorMode::Solid => base_color,
+            visualization::PathColorMode::FadeByTime => {
+                let total_elapsed = total_elapsed.as_f64();
+                if total_elapsed <= 0.0 {
+                    return base_color;
+                }
+
+                let midpoint_fraction = (elapsed_before_segment.as_f64()
+                    + 0.5 * segment.duration.as_f64())
+                    / total_elapsed;
+                let alpha_scale = (1.0 - 0.7 * midpoint_fraction).clamp(0.2, 1.0);
+                Rgba([
+                    base_color[0],
+                    base_color[1],
+                    base_color[2],
+                    ((base_color[3] as f32) * alpha_scale as f32).round() as u8,
+                ])
+            }
+            visualization::PathColorMode::MotionPhase => {
+                let alpha = base_color[3];
+                match segment
+                    .start
+                    .as_ball_state()
+                    .motion_phase(TYPICAL_BALL_RADIUS.clone())
+                {
+                    MotionPhase::Airborne => Rgba([255, 0, 255, alpha]),
+                    MotionPhase::Sliding => Rgba([255, 140, 0, alpha]),
+                    MotionPhase::Rolling => Rgba([0, 102, 255, alpha]),
+                    MotionPhase::Spinning => Rgba([128, 0, 160, alpha]),
+                    MotionPhase::Rest => Rgba([96, 96, 96, alpha]),
+                }
+            }
+        }
     }
 
     pub fn add_dotted_line(&mut self, from: &Position, to: &Position, color: Rgba<u8>) {
@@ -7328,7 +7384,12 @@ impl GameState {
         });
     }
 
-    pub fn add_text_label_styled(&mut self, anchor: &Position, text: impl Into<String>, style: LabelOverlayStyle) {
+    pub fn add_text_label_styled(
+        &mut self,
+        anchor: &Position,
+        text: impl Into<String>,
+        style: LabelOverlayStyle,
+    ) {
         let mut anchor = anchor.clone();
         anchor.resolve_shifts(&self.table_spec);
 
@@ -7353,30 +7414,44 @@ impl GameState {
             self.add_ghost_ball_styled(&start, ghost_style.clone());
         }
 
-        let points = path.projected_points(&self.table_spec);
-        for window in points.windows(2) {
-            let (start, end) = match &style.clip_endpoints_to_ball_radius {
+        let mut elapsed_before_segment = Seconds::zero();
+        for (index, segment) in path.segments.iter().enumerate() {
+            let projected_start = segment.start.as_ball_state().projected_position(&self.table_spec);
+            let projected_end = segment.end.as_ball_state().projected_position(&self.table_spec);
+            let (line_start, line_end) = match &style.clip_endpoints_to_ball_radius {
                 Some(radius) => self.clip_line_to_ball_edges(
-                    &window[0],
-                    &window[1],
+                    &projected_start,
+                    &projected_end,
                     radius.clone(),
                     radius.clone(),
                 ),
-                None => (window[0].clone(), window[1].clone()),
+                None => (projected_start.clone(), projected_end.clone()),
             };
-            self.add_dotted_line_styled(&start, &end, style.line.clone());
-        }
 
-        if style.event_markers.enabled {
-            for point in points.iter().skip(1) {
-                self.add_event_marker_styled(point, style.event_markers.clone());
-            }
-        }
+            let mut segment_style = style.line.clone();
+            segment_style.color = self.path_segment_color(
+                segment_style.color,
+                style.color_mode,
+                segment,
+                elapsed_before_segment,
+                path.elapsed,
+            );
+            self.add_dotted_line_styled(&line_start, &line_end, segment_style);
 
-        if style.labels.enabled {
-            for (index, point) in points.iter().enumerate().skip(1) {
-                self.add_text_label_styled(point, index.to_string(), style.labels.clone());
+            if style.event_markers.enabled {
+                self.add_event_marker_styled(&projected_end, style.event_markers.clone());
             }
+            if style.labels.enabled {
+                self.add_text_label_styled(
+                    &projected_end,
+                    (index + 1).to_string(),
+                    style.labels.clone(),
+                );
+            }
+
+            elapsed_before_segment = Seconds::new(
+                elapsed_before_segment.as_f64() + segment.duration.as_f64(),
+            );
         }
     }
 
@@ -7527,7 +7602,11 @@ impl GameState {
                             style.color,
                         );
                     }
-                    Overlay::TextLabel { anchor, text, style } if style.layer == layer => {
+                    Overlay::TextLabel {
+                        anchor,
+                        text,
+                        style,
+                    } if style.layer == layer => {
                         drawing::draw_text_label_mut(
                             table,
                             anchor,

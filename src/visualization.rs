@@ -205,4 +205,9 @@ impl BallPathStyle {
         self.labels = labels;
         self
     }
+
+    pub fn with_color_mode(mut self, color_mode: PathColorMode) -> Self {
+        self.color_mode = color_mode;
+        self
+    }
 }

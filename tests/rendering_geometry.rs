@@ -3,12 +3,12 @@ use billiards::{
     visualization::{
         AimOverlayStyle, BallPathStyle, EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
     },
-    Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState,
-    BallType, Diamond, GameState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq,
-    MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
-    OverlayLayer, Pocket, Position, RadiansPerSecondSq, Rail, RailAngleReference, RailModel,
-    RailTangentDirection, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
-    TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
+    Diamond, GameState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, OverlayLayer, Pocket, Position,
+    RadiansPerSecondSq, Rail, RailAngleReference, RailModel, RailTangentDirection,
+    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, RgbaImage};
 
@@ -369,6 +369,45 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
     );
 
     assert_eq!(render(&helper_with_markers), render(&manual_with_markers));
+
+    let mut solid = GameState::new(table_spec.clone());
+    solid.add_dotted_ball_path_styled(
+        &path,
+        &BallPathStyle::new(color).with_start_ghost(GhostBallStyle {
+            fill_color: ghost_fill_color(),
+            outline_color: ghost_outline_color(),
+            ..Default::default()
+        }),
+    );
+    let solid_image = render(&solid);
+
+    let mut faded = GameState::new(table_spec.clone());
+    faded.add_dotted_ball_path_styled(
+        &path,
+        &BallPathStyle::new(color)
+            .with_start_ghost(GhostBallStyle {
+                fill_color: ghost_fill_color(),
+                outline_color: ghost_outline_color(),
+                ..Default::default()
+            })
+            .with_color_mode(billiards::visualization::PathColorMode::FadeByTime),
+    );
+    let faded_image = render(&faded);
+    assert_ne!(faded_image, solid_image);
+
+    let mut phase_colored = GameState::new(table_spec.clone());
+    phase_colored.add_dotted_ball_path_styled(
+        &path,
+        &BallPathStyle::new(color)
+            .with_start_ghost(GhostBallStyle {
+                fill_color: ghost_fill_color(),
+                outline_color: ghost_outline_color(),
+                ..Default::default()
+            })
+            .with_color_mode(billiards::visualization::PathColorMode::MotionPhase),
+    );
+    let phase_colored_image = render(&phase_colored);
+    assert_ne!(phase_colored_image, solid_image);
 
     let sampled = path.sampled_points(
         billiards::Seconds::new(0.02),

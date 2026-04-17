@@ -4613,9 +4613,26 @@ fn transferred_spin_from_contact_slip(
     tangent_y: f64,
     tangential_contact_slip: f64,
     vertical_contact_slip: f64,
+    normal_relative_speed: f64,
     ball_radius: f64,
 ) -> Option<AngularVelocity3> {
-    let spin_gain_scale = 5.0 / (14.0 * ball_radius);
+    // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C10), (C11), and (C13),
+    // support the same qualitative structure we already use for spin-aware rails: the no-slip
+    // spin-change limit is proportional to the contact-slip vector, but the realized change is
+    // capped by a friction-limited impulse scale. The earlier helper applied only the no-slip
+    // limit, which substantially over-seeded cue-ball `ωz` for ordinary no-English cut shots.
+    // Here we therefore scale that same limit by a first-pass friction cap based on the current
+    // ball-ball friction coefficient and the closing normal speed.
+    let contact_slip_norm = tangential_contact_slip.hypot(vertical_contact_slip);
+    if contact_slip_norm <= f64::EPSILON || normal_relative_speed <= f64::EPSILON {
+        return None;
+    }
+
+    let no_slip_delta_scale = 5.0 / (14.0 * ball_radius);
+    let friction_limited_scale = (AVERAGE_BALL_BALL_FRICTION_COEFFICIENT * normal_relative_speed
+        / contact_slip_norm)
+        .clamp(0.0, 1.0);
+    let spin_gain_scale = no_slip_delta_scale * friction_limited_scale;
     let delta_x = -spin_gain_scale * vertical_contact_slip * tangent_x;
     let delta_y = -spin_gain_scale * vertical_contact_slip * tangent_y;
     let delta_z = spin_gain_scale * tangential_contact_slip;
@@ -4730,6 +4747,9 @@ fn throw_aware_collision_outcome_on_table(
     let tangential_relative_speed =
         project_velocity_on_basis(&a_state.velocity, tangent_x, tangent_y)
             - project_velocity_on_basis(&b_state.velocity, tangent_x, tangent_y);
+    let normal_relative_speed = (project_velocity_on_basis(&a_state.velocity, normal_x, normal_y)
+        - project_velocity_on_basis(&b_state.velocity, normal_x, normal_y))
+    .max(0.0);
     let tangential_contact_slip = tangential_relative_speed
         - ball_radius
             * (a_state.angular_velocity.z().as_f64() + b_state.angular_velocity.z().as_f64());
@@ -4775,6 +4795,7 @@ fn throw_aware_collision_outcome_on_table(
         tangent_y,
         tangential_contact_slip,
         vertical_contact_slip,
+        normal_relative_speed,
         ball_radius,
     );
     let spin_delta_x = transferred_spin

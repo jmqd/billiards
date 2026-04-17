@@ -70,7 +70,7 @@ fn spot_shot_bottom_right_example_runs_end_to_end() {
         .any(|line| line.contains("one pocketed in bottom-right")));
     assert!(lines
         .iter()
-        .any(|line| line.contains("cue rail impact: left")));
+        .any(|line| line.contains("cue pocketed in bottom-left")));
 }
 
 #[test]
@@ -126,6 +126,10 @@ fn three_ball_pinball_example_runs_end_to_end() {
         .any(|line| line.contains("one -> two collision")));
     assert!(lines
         .iter()
-        .any(|line| line.contains("one pocketed in top-left")));
+        .any(|line| line.contains("two rail impact: right")));
     assert!(lines.len() > 8, "expected a busy multi-event example");
+    assert!(
+        !lines.iter().any(|line| line.contains("pocketed")),
+        "the current tuned model keeps this example on the table"
+    );
 }

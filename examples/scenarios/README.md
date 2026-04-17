@@ -32,7 +32,7 @@ Object ball on the rack / spot region, cut toward the bottom-right corner pocket
 Expected flavor:
 - cue -> one collision
 - one pocketed in bottom-right
-- cue takes a couple of post-contact rails before settling
+- cue scratches later in bottom-left
 
 ### `two_rail_bank_scratch.billiards`
 Cue-only multi-rail bank path that eventually scratches in the opposite side pocket.
@@ -49,5 +49,5 @@ Expected flavor:
 - cue -> one collision
 - one -> two collision
 - several later rail impacts
-- one ball pockets later in the sequence
-- the remaining balls eventually stop on the table
+- no pocketing in the current tuned model
+- all three balls eventually stop on the table

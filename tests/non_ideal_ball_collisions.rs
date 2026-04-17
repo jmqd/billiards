@@ -389,6 +389,36 @@ fn a_cut_shot_without_side_spin_produces_cut_induced_throw_and_transferred_spin(
 }
 
 #[test]
+fn a_cut_shot_without_initial_english_does_not_seed_exaggerated_cue_ball_side_spin() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball_heading = Angle::from_north(0.0, 10.0);
+    let line_of_centers = Angle::from_north(radius * 2.0_f64.sqrt(), radius * 2.0_f64.sqrt());
+    let cut_angle = CutAngle::from_headings(cue_ball_heading, line_of_centers);
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::zero(),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let cue_side_spin = outcome
+        .a_after
+        .as_ball_state()
+        .angular_velocity
+        .z()
+        .as_f64()
+        .abs();
+    let gearing_limit = gearing_english(cut_angle, Velocity2::new("0", "10").speed()).as_f64();
+
+    assert!(
+        cue_side_spin < 0.5 * gearing_limit,
+        "ordinary no-English cut shots should not seed cue-ball side spin near the gearing-english scale; got {cue_side_spin} vs gearing {gearing_limit}"
+    );
+}
+
+#[test]
 fn gearing_english_cancels_throw_for_a_stationary_object_ball_cut() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let shot_speed = Velocity2::new("0", "10").speed();

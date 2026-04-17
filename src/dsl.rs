@@ -8,8 +8,8 @@ use crate::{
     CollisionModel, CueStrikeConfig, CueTipContact, Diamond, GameState, HumanShotSpeedValidation,
     Inches, InchesPerSecond, MotionPhase, NBallSystemEvent, NBallSystemSimulation,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, Position, Rail,
-    RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError,
-    TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
+    RailCollisionConfig, RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds,
+    Shot, ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
     CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use image::Rgba;
@@ -32,6 +32,8 @@ pub enum DslEntry {
     Ball(BallPlacement),
     CueStrike(CueStrikeDef),
     BallBall(BallBallDef),
+    RailResponse(RailResponseDef),
+    Rails(RailsDef),
     Shot(ShotDef),
 }
 
@@ -40,6 +42,8 @@ pub struct DslScenario {
     pub game_state: GameState,
     pub shot: Option<ScenarioShot>,
     pub ball_ball_configs: HashMap<String, BallBallCollisionConfig>,
+    pub rail_responses: HashMap<String, RailCollisionConfig>,
+    pub rail_profiles: HashMap<String, RailCollisionProfile>,
 }
 
 impl DslScenario {
@@ -50,6 +54,18 @@ impl DslScenario {
         self.ball_ball_configs
             .get(name)
             .ok_or_else(|| DslBuildError::UnknownBallBallConfig(name.to_string()))
+    }
+
+    pub fn rail_response_named(&self, name: &str) -> Result<&RailCollisionConfig, DslBuildError> {
+        self.rail_responses
+            .get(name)
+            .ok_or_else(|| DslBuildError::UnknownRailResponse(name.to_string()))
+    }
+
+    pub fn rail_profile_named(&self, name: &str) -> Result<&RailCollisionProfile, DslBuildError> {
+        self.rail_profiles
+            .get(name)
+            .ok_or_else(|| DslBuildError::UnknownRailProfile(name.to_string()))
     }
 
     pub fn validate_shot_human_speed(
@@ -742,6 +758,33 @@ pub enum BallBallMethodExpr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RailResponseDef {
+    pub name: String,
+    pub methods: Vec<RailResponseMethodExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RailResponseMethodExpr {
+    NormalRestitution(f64),
+    TangentialFriction(f64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RailsDef {
+    pub name: String,
+    pub methods: Vec<RailsMethodExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RailsMethodExpr {
+    Default(String),
+    Top(String),
+    Right(String),
+    Bottom(String),
+    Left(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShotDef {
     pub ball: BallRef,
     pub methods: Vec<ShotMethodExpr>,
@@ -866,6 +909,24 @@ pub enum DslBuildError {
         name: String,
         method: String,
     },
+    DuplicateRailResponse(String),
+    DuplicateRailResponseMethod {
+        name: String,
+        method: String,
+    },
+    MissingRailResponseMethod {
+        name: String,
+        method: String,
+    },
+    DuplicateRails(String),
+    DuplicateRailsMethod {
+        name: String,
+        method: String,
+    },
+    MissingRailsMethod {
+        name: String,
+        method: String,
+    },
     InvalidPhysicsConfigValue {
         kind: PhysicsConfigKind,
         name: String,
@@ -881,6 +942,8 @@ pub enum DslBuildError {
     },
     UnknownCueStrike(String),
     UnknownBallBallConfig(String),
+    UnknownRailResponse(String),
+    UnknownRailProfile(String),
     MultipleShotsNotSupported {
         count: usize,
     },
@@ -935,6 +998,23 @@ impl std::fmt::Display for DslBuildError {
             Self::MissingBallBallMethod { name, method } => {
                 write!(f, "ball_ball '{name}' is missing .{method}(...)")
             }
+            Self::DuplicateRailResponse(name) => {
+                write!(f, "rail_response '{name}' was defined more than once")
+            }
+            Self::DuplicateRailResponseMethod { name, method } => write!(
+                f,
+                "rail_response '{name}' specified .{method}(...) more than once"
+            ),
+            Self::MissingRailResponseMethod { name, method } => {
+                write!(f, "rail_response '{name}' is missing .{method}(...)")
+            }
+            Self::DuplicateRails(name) => write!(f, "rails '{name}' was defined more than once"),
+            Self::DuplicateRailsMethod { name, method } => {
+                write!(f, "rails '{name}' specified .{method}(...) more than once")
+            }
+            Self::MissingRailsMethod { name, method } => {
+                write!(f, "rails '{name}' is missing .{method}(...)")
+            }
             Self::InvalidPhysicsConfigValue {
                 kind,
                 name,
@@ -953,6 +1033,8 @@ impl std::fmt::Display for DslBuildError {
             }
             Self::UnknownCueStrike(name) => write!(f, "unknown cue_strike '{name}'"),
             Self::UnknownBallBallConfig(name) => write!(f, "unknown ball_ball '{name}'"),
+            Self::UnknownRailResponse(name) => write!(f, "unknown rail_response '{name}'"),
+            Self::UnknownRailProfile(name) => write!(f, "unknown rails '{name}'"),
             Self::MultipleShotsNotSupported { count } => write!(
                 f,
                 "the current DSL supports at most one shot statement, but found {count}"
@@ -1029,6 +1111,8 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
     let mut aliases = HashMap::new();
     let mut cue_strikes = HashMap::new();
     let mut ball_ball_defs = Vec::new();
+    let mut rail_response_defs = Vec::new();
+    let mut rails_defs = Vec::new();
     let mut shots = Vec::new();
 
     for entry in &doc.entries {
@@ -1068,11 +1152,15 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
                 }
             }
             DslEntry::BallBall(def) => ball_ball_defs.push(def.clone()),
+            DslEntry::RailResponse(def) => rail_response_defs.push(def.clone()),
+            DslEntry::Rails(def) => rails_defs.push(def.clone()),
             DslEntry::Shot(def) => shots.push(def.clone()),
         }
     }
 
     let ball_ball_configs = build_ball_ball_configs(&ball_ball_defs)?;
+    let rail_responses = build_rail_responses(&rail_response_defs)?;
+    let rail_profiles = build_rail_profiles(&rails_defs, &rail_responses)?;
     let shot = match shots.as_slice() {
         [] => None,
         [shot] => Some(build_shot(shot, &cue_strikes, &game_state)?),
@@ -1085,6 +1173,8 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
         game_state,
         shot,
         ball_ball_configs,
+        rail_responses,
+        rail_profiles,
     })
 }
 
@@ -1218,6 +1308,178 @@ fn build_ball_ball_config(def: &BallBallDef) -> Result<BallBallCollisionConfig, 
             tangential_friction,
         )?,
     })
+}
+
+fn build_rail_responses(
+    defs: &[RailResponseDef],
+) -> Result<HashMap<String, RailCollisionConfig>, DslBuildError> {
+    let mut responses = HashMap::new();
+
+    for def in defs {
+        let name = def.name.clone();
+        let response = build_rail_response(def)?;
+        if responses.insert(name.clone(), response).is_some() {
+            return Err(DslBuildError::DuplicateRailResponse(name));
+        }
+    }
+
+    Ok(responses)
+}
+
+fn build_rail_response(def: &RailResponseDef) -> Result<RailCollisionConfig, DslBuildError> {
+    let mut normal_restitution = None;
+    let mut tangential_friction = None;
+
+    for method in &def.methods {
+        match method {
+            RailResponseMethodExpr::NormalRestitution(value) => {
+                set_once(&mut normal_restitution, *value, || {
+                    DslBuildError::DuplicateRailResponseMethod {
+                        name: def.name.clone(),
+                        method: "normal_restitution".to_string(),
+                    }
+                })?;
+            }
+            RailResponseMethodExpr::TangentialFriction(value) => {
+                set_once(&mut tangential_friction, *value, || {
+                    DslBuildError::DuplicateRailResponseMethod {
+                        name: def.name.clone(),
+                        method: "tangential_friction".to_string(),
+                    }
+                })?;
+            }
+        }
+    }
+
+    let normal_restitution =
+        normal_restitution.ok_or_else(|| DslBuildError::MissingRailResponseMethod {
+            name: def.name.clone(),
+            method: "normal_restitution".to_string(),
+        })?;
+    let tangential_friction =
+        tangential_friction.ok_or_else(|| DslBuildError::MissingRailResponseMethod {
+            name: def.name.clone(),
+            method: "tangential_friction".to_string(),
+        })?;
+
+    Ok(RailCollisionConfig {
+        normal_restitution: validate_unit_interval_physics_value(
+            PhysicsConfigKind::RailResponse,
+            &def.name,
+            "normal_restitution",
+            normal_restitution,
+        )?,
+        tangential_friction_coefficient: validate_non_negative_physics_value(
+            PhysicsConfigKind::RailResponse,
+            &def.name,
+            "tangential_friction",
+            tangential_friction,
+        )?,
+    })
+}
+
+fn build_rail_profiles(
+    defs: &[RailsDef],
+    responses: &HashMap<String, RailCollisionConfig>,
+) -> Result<HashMap<String, RailCollisionProfile>, DslBuildError> {
+    let mut profiles = HashMap::new();
+
+    for def in defs {
+        let name = def.name.clone();
+        let profile = build_rail_profile(def, responses)?;
+        if profiles.insert(name.clone(), profile).is_some() {
+            return Err(DslBuildError::DuplicateRails(name));
+        }
+    }
+
+    Ok(profiles)
+}
+
+fn build_rail_profile(
+    def: &RailsDef,
+    responses: &HashMap<String, RailCollisionConfig>,
+) -> Result<RailCollisionProfile, DslBuildError> {
+    let mut default_response = None;
+    let mut top = None;
+    let mut right = None;
+    let mut bottom = None;
+    let mut left = None;
+
+    for method in &def.methods {
+        match method {
+            RailsMethodExpr::Default(name) => {
+                set_once(&mut default_response, name.clone(), || {
+                    DslBuildError::DuplicateRailsMethod {
+                        name: def.name.clone(),
+                        method: "default".to_string(),
+                    }
+                })?;
+            }
+            RailsMethodExpr::Top(name) => {
+                set_once(&mut top, name.clone(), || {
+                    DslBuildError::DuplicateRailsMethod {
+                        name: def.name.clone(),
+                        method: "top".to_string(),
+                    }
+                })?;
+            }
+            RailsMethodExpr::Right(name) => {
+                set_once(&mut right, name.clone(), || {
+                    DslBuildError::DuplicateRailsMethod {
+                        name: def.name.clone(),
+                        method: "right".to_string(),
+                    }
+                })?;
+            }
+            RailsMethodExpr::Bottom(name) => {
+                set_once(&mut bottom, name.clone(), || {
+                    DslBuildError::DuplicateRailsMethod {
+                        name: def.name.clone(),
+                        method: "bottom".to_string(),
+                    }
+                })?;
+            }
+            RailsMethodExpr::Left(name) => {
+                set_once(&mut left, name.clone(), || {
+                    DslBuildError::DuplicateRailsMethod {
+                        name: def.name.clone(),
+                        method: "left".to_string(),
+                    }
+                })?;
+            }
+        }
+    }
+
+    let default_response = default_response.ok_or_else(|| DslBuildError::MissingRailsMethod {
+        name: def.name.clone(),
+        method: "default".to_string(),
+    })?;
+    let mut profile =
+        RailCollisionProfile::uniform(lookup_rail_response(responses, &default_response)?.clone());
+
+    if let Some(name) = top {
+        profile.top = lookup_rail_response(responses, &name)?.clone();
+    }
+    if let Some(name) = right {
+        profile.right = lookup_rail_response(responses, &name)?.clone();
+    }
+    if let Some(name) = bottom {
+        profile.bottom = lookup_rail_response(responses, &name)?.clone();
+    }
+    if let Some(name) = left {
+        profile.left = lookup_rail_response(responses, &name)?.clone();
+    }
+
+    Ok(profile)
+}
+
+fn lookup_rail_response<'a>(
+    responses: &'a HashMap<String, RailCollisionConfig>,
+    name: &str,
+) -> Result<&'a RailCollisionConfig, DslBuildError> {
+    responses
+        .get(name)
+        .ok_or_else(|| DslBuildError::UnknownRailResponse(name.to_string()))
 }
 
 fn build_shot(
@@ -1422,6 +1684,10 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
                     DslStatement::Ball(placement) => doc.entries.push(DslEntry::Ball(placement)),
                     DslStatement::CueStrike(def) => doc.entries.push(DslEntry::CueStrike(def)),
                     DslStatement::BallBall(def) => doc.entries.push(DslEntry::BallBall(def)),
+                    DslStatement::RailResponse(def) => {
+                        doc.entries.push(DslEntry::RailResponse(def))
+                    }
+                    DslStatement::Rails(def) => doc.entries.push(DslEntry::Rails(def)),
                     DslStatement::Shot(def) => doc.entries.push(DslEntry::Shot(def)),
                     DslStatement::Empty => {}
                 }
@@ -1442,6 +1708,8 @@ enum DslStatement {
     Ball(BallPlacement),
     CueStrike(CueStrikeDef),
     BallBall(BallBallDef),
+    RailResponse(RailResponseDef),
+    Rails(RailsDef),
     Shot(ShotDef),
     Empty,
 }
@@ -1453,6 +1721,8 @@ fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
         blank_line,
         preceded(peek("table"), cut_err(table_stmt)),
         preceded(peek("pos"), cut_err(alias_stmt)),
+        preceded(peek("rail_response"), cut_err(rail_response_stmt)),
+        preceded(peek("rails"), cut_err(rails_stmt)),
         preceded(peek("ball_ball"), cut_err(ball_ball_stmt)),
         preceded(peek("ball"), cut_err(ball_stmt)),
         preceded(peek("cue_strike"), cut_err(cue_strike_stmt)),
@@ -1522,6 +1792,26 @@ fn ball_ball_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
     let methods = repeat(0.., ball_ball_method_segment).parse_next(input)?;
     Ok(DslStatement::BallBall(BallBallDef {
+        name: name.to_string(),
+        methods,
+    }))
+}
+
+fn rail_response_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
+    let _ = "rail_response".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    let methods = repeat(0.., rail_response_method_segment).parse_next(input)?;
+    Ok(DslStatement::RailResponse(RailResponseDef {
+        name: name.to_string(),
+        methods,
+    }))
+}
+
+fn rails_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
+    let _ = "rails".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    let methods = repeat(0.., rails_method_segment).parse_next(input)?;
+    Ok(DslStatement::Rails(RailsDef {
         name: name.to_string(),
         methods,
     }))
@@ -1634,6 +1924,91 @@ fn ball_ball_tangential_friction_method<'a>(
     let _ = "tangential_friction".parse_next(input)?;
     let value = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
     Ok(BallBallMethodExpr::TangentialFriction(value))
+}
+
+fn rail_response_method_segment<'a>(
+    input: &mut Stream<'a>,
+) -> ParseResult<'a, RailResponseMethodExpr> {
+    let _ = preceded(peek(preceded(chain_ws0, '.')), chain_ws0).parse_next(input)?;
+    let _ = '.'.parse_next(input)?;
+    rail_response_method.parse_next(input)
+}
+
+fn rail_response_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailResponseMethodExpr> {
+    alt((
+        preceded(
+            peek("normal_restitution"),
+            cut_err(rail_response_normal_restitution_method),
+        ),
+        preceded(
+            peek("tangential_friction"),
+            cut_err(rail_response_tangential_friction_method),
+        ),
+    ))
+    .parse_next(input)
+}
+
+fn rail_response_normal_restitution_method<'a>(
+    input: &mut Stream<'a>,
+) -> ParseResult<'a, RailResponseMethodExpr> {
+    let _ = "normal_restitution".parse_next(input)?;
+    let value = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
+    Ok(RailResponseMethodExpr::NormalRestitution(value))
+}
+
+fn rail_response_tangential_friction_method<'a>(
+    input: &mut Stream<'a>,
+) -> ParseResult<'a, RailResponseMethodExpr> {
+    let _ = "tangential_friction".parse_next(input)?;
+    let value = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
+    Ok(RailResponseMethodExpr::TangentialFriction(value))
+}
+
+fn rails_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailsMethodExpr> {
+    let _ = preceded(peek(preceded(chain_ws0, '.')), chain_ws0).parse_next(input)?;
+    let _ = '.'.parse_next(input)?;
+    rails_method.parse_next(input)
+}
+
+fn rails_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailsMethodExpr> {
+    alt((
+        preceded(peek("default"), cut_err(rails_default_method)),
+        preceded(peek("top"), cut_err(rails_top_method)),
+        preceded(peek("right"), cut_err(rails_right_method)),
+        preceded(peek("bottom"), cut_err(rails_bottom_method)),
+        preceded(peek("left"), cut_err(rails_left_method)),
+    ))
+    .parse_next(input)
+}
+
+fn rails_default_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailsMethodExpr> {
+    let _ = "default".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    Ok(RailsMethodExpr::Default(name.to_string()))
+}
+
+fn rails_top_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailsMethodExpr> {
+    let _ = "top".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    Ok(RailsMethodExpr::Top(name.to_string()))
+}
+
+fn rails_right_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailsMethodExpr> {
+    let _ = "right".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    Ok(RailsMethodExpr::Right(name.to_string()))
+}
+
+fn rails_bottom_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailsMethodExpr> {
+    let _ = "bottom".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    Ok(RailsMethodExpr::Bottom(name.to_string()))
+}
+
+fn rails_left_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailsMethodExpr> {
+    let _ = "left".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    Ok(RailsMethodExpr::Left(name.to_string()))
 }
 
 fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -1932,6 +2307,27 @@ mod tests {
                 .normal_restitution
                 .as_f64(),
             0.95
+        );
+    }
+
+    #[test]
+    fn parse_rail_profile() {
+        let scenario = parse_dsl_to_scenario(
+            "rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)\n\
+             rail_response(dead).normal_restitution(0.6).tangential_friction(1.0)\n\
+             rails(bank).default(clean).top(dead)",
+        )
+        .expect("build scenario");
+
+        assert_eq!(scenario.rail_profiles.len(), 1);
+        assert_eq!(
+            scenario
+                .rail_profile_named("bank")
+                .expect("named rail profile")
+                .top
+                .normal_restitution
+                .as_f64(),
+            0.6
         );
     }
 

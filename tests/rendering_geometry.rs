@@ -172,7 +172,7 @@ fn drawing_resolves_pending_inches_shifts_before_rendering() {
 }
 
 #[test]
-fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_line() {
+fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_overlay() {
     let table_spec = TableSpec::default();
     let object_ball = Ball {
         ty: BallType::Eight,
@@ -187,6 +187,7 @@ fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_l
     let mut resolved_shooting_position = shooting_position.clone();
     resolved_shooting_position.resolve_shifts(&table_spec);
     let ghost_ball = object_ball.ghost_ball_to_pocket(Pocket::TopRight, &table_spec);
+    manual.add_ghost_ball(&ghost_ball, ghost_fill_color(), ghost_outline_color());
     manual.add_dotted_line(&resolved_shooting_position, &ghost_ball, color);
 
     let mut helper = GameState::new(table_spec);

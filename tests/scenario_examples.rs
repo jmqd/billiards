@@ -1,8 +1,8 @@
 use billiards::dsl::parse_dsl_to_scenario;
 use billiards::{
     BallSetPhysicsSpec, BallType, CollisionModel, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, NBallSystemState, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
+    MotionTransitionConfig, NBallSystemState, OnTableMotionConfig, Pocket, RadiansPerSecondSq,
+    RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
 };
 
 fn motion_config() -> OnTableMotionConfig {
@@ -28,13 +28,6 @@ fn cue_trace(trace: &billiards::dsl::ScenarioShotTrace) -> &billiards::dsl::Scen
         .expect("examples should include a cue-ball trace")
 }
 
-fn on_table_x(state: &NBallSystemState) -> f64 {
-    match state {
-        NBallSystemState::OnTable(state) => state.as_ball_state().position.x().as_f64(),
-        NBallSystemState::Pocketed { .. } => panic!("expected an on-table cue ball"),
-    }
-}
-
 #[test]
 fn straight_in_side_pocket_example_runs_end_to_end() {
     let scenario = parse_dsl_to_scenario(include_str!(
@@ -51,6 +44,16 @@ fn straight_in_side_pocket_example_runs_end_to_end() {
         .expect("example should simulate")
         .expect("example contains a shot");
     let lines = trace.event_lines();
+    let object = trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == BallType::One)
+        .expect("example should include an object-ball trace");
+    let pocket_center_y = scenario
+        .game_state
+        .table_spec
+        .diamond_to_inches(Pocket::CenterRight.aiming_center().y.clone())
+        .as_f64();
 
     assert!(lines
         .iter()
@@ -58,6 +61,20 @@ fn straight_in_side_pocket_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("one pocketed in center-right")));
+    match &object.final_state {
+        NBallSystemState::Pocketed {
+            pocket,
+            state_at_capture,
+        } => {
+            assert_eq!(*pocket, Pocket::CenterRight);
+            assert!(
+                (state_at_capture.as_ball_state().position.y().as_f64() - pocket_center_y).abs()
+                    < 1e-9,
+                "the straight side-pocket example should enter the pocket centered in y"
+            );
+        }
+        other => panic!("expected object ball to be pocketed, got {other:?}"),
+    }
 }
 
 #[test]
@@ -77,8 +94,6 @@ fn straight_follow_side_pocket_example_runs_end_to_end() {
         .expect("example contains a shot");
     let lines = trace.event_lines();
     let cue = cue_trace(&trace);
-    let initial_x = cue.initial_state.as_ball_state().position.x().as_f64();
-    let final_x = on_table_x(&cue.final_state);
 
     assert!(lines
         .iter()
@@ -88,11 +103,11 @@ fn straight_follow_side_pocket_example_runs_end_to_end() {
         .any(|line| line.contains("one pocketed in center-right")));
     assert!(lines
         .iter()
-        .any(|line| line.contains("cue rail impact: right")));
-    assert!(
-        final_x > initial_x,
-        "follow should carry the cue farther down-table after contact"
-    );
+        .any(|line| line.contains("cue pocketed in center-right")));
+    match &cue.final_state {
+        NBallSystemState::Pocketed { pocket, .. } => assert_eq!(*pocket, Pocket::CenterRight),
+        other => panic!("expected cue ball to scratch in the shooting-side pocket, got {other:?}"),
+    }
 }
 
 #[test]
@@ -112,6 +127,8 @@ fn straight_draw_side_pocket_example_runs_end_to_end() {
         .expect("example contains a shot");
     let lines = trace.event_lines();
 
+    let cue = cue_trace(&trace);
+
     assert!(lines
         .iter()
         .any(|line| line.contains("cue -> one collision")));
@@ -120,11 +137,11 @@ fn straight_draw_side_pocket_example_runs_end_to_end() {
         .any(|line| line.contains("one pocketed in center-right")));
     assert!(lines
         .iter()
-        .any(|line| line.contains("cue rail impact: left")));
-    assert!(
-        !lines.iter().any(|line| line.contains("cue rail impact: right")),
-        "the toned-down draw anchor should pull back instead of following through"
-    );
+        .any(|line| line.contains("cue pocketed in center-left")));
+    match &cue.final_state {
+        NBallSystemState::Pocketed { pocket, .. } => assert_eq!(*pocket, Pocket::CenterLeft),
+        other => panic!("expected draw cue ball to scratch opposite-side, got {other:?}"),
+    }
 }
 
 #[test]
@@ -208,10 +225,12 @@ fn three_ball_pinball_example_runs_end_to_end() {
         .any(|line| line.contains("one -> two collision")));
     assert!(lines
         .iter()
-        .any(|line| line.contains("two rail impact: right")));
-    assert!(lines.len() > 8, "expected a busy multi-event example");
+        .any(|line| line.contains("two pocketed in center-right")));
+    assert!(lines.len() >= 7, "expected a multi-event chain example");
     assert!(
-        !lines.iter().any(|line| line.contains("pocketed")),
-        "the current tuned model keeps this example on the table"
+        lines
+            .iter()
+            .any(|line| line.contains("cue Rolling -> Rest")),
+        "the cue ball should settle on the table in the corrected example"
     );
 }

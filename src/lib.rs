@@ -2582,6 +2582,7 @@ fn refine_ball_ball_collision_time_during_current_phases(
 }
 
 const THROW_AWARE_MAX_ANGLE_DEGREES: f64 = 5.0;
+const THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO: f64 = 1e-12;
 const AVERAGE_BALL_BALL_FRICTION_COEFFICIENT: f64 = 0.06;
 
 fn collision_contact_basis(a: &OnTableBallState, b: &OnTableBallState) -> (f64, f64, f64, f64) {
@@ -4806,7 +4807,9 @@ fn throw_aware_collision_outcome_on_table(
         + ball_radius
             * (a_state.angular_velocity.z().as_f64().abs()
                 + b_state.angular_velocity.z().as_f64().abs());
-    let throw_angle_degrees = if slip_scale <= f64::EPSILON {
+    let numerical_zero_slip =
+        THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO * normal_relative_speed.max(1.0);
+    let throw_angle_degrees = if slip_scale <= numerical_zero_slip {
         0.0
     } else {
         THROW_AWARE_MAX_ANGLE_DEGREES * (tangential_contact_slip / slip_scale).clamp(-1.0, 1.0)
@@ -6567,7 +6570,10 @@ impl GameState {
         ghost_fill_color: Rgba<u8>,
         ghost_outline_color: Rgba<u8>,
     ) {
-        let start = path.initial_state.as_ball_state().projected_position(&self.table_spec);
+        let start = path
+            .initial_state
+            .as_ball_state()
+            .projected_position(&self.table_spec);
         self.add_ghost_ball(&start, ghost_fill_color, ghost_outline_color);
         self.add_dotted_ball_path(path, path_color);
     }

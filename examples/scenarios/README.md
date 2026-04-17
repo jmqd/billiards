@@ -32,7 +32,7 @@ A straight pot with topspin / follow.
 Expected flavor:
 - cue -> one collision
 - one pocketed in center-right
-- cue follows on toward the right rail
+- cue follows through and scratches in center-right
 
 ### `straight_draw_side_pocket.billiards`
 A straight pot with draw.
@@ -40,7 +40,7 @@ A straight pot with draw.
 Expected flavor:
 - cue -> one collision
 - one pocketed in center-right
-- cue draws back toward the starting end and reaches the left rail instead of following through
+- cue draws back and scratches in center-left
 
 ### `spot_shot_bottom_right.billiards`
 Object ball on the rack / spot region, cut toward the bottom-right corner pocket.
@@ -64,6 +64,5 @@ A deliberately busy three-ball chain-reaction layout.
 Expected flavor:
 - cue -> one collision
 - one -> two collision
-- several later rail impacts
-- no pocketing in the current tuned model
-- all three balls eventually stop on the table
+- two pockets in center-right
+- cue and one both stop on the table shortly after

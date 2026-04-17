@@ -104,6 +104,33 @@ fn throw_aware_head_on_collision_matches_ideal_and_reports_zero_throw() {
 }
 
 #[test]
+fn a_nearly_head_on_rolling_collision_does_not_pick_up_throw_from_tiny_tangent_noise() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-2.0 * radius, 0.0),
+        Velocity2::new("120", "0.00000000000001"),
+        AngularVelocity3::new(0.0, 120.0 / radius, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let ideal = collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+
+    assert_close(
+        outcome
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle"),
+        0.0,
+    );
+    assert_close(
+        outcome.b_after.as_ball_state().velocity.x().as_f64(),
+        ideal.1.as_ball_state().velocity.x().as_f64(),
+    );
+    assert_close(outcome.b_after.as_ball_state().velocity.y().as_f64(), 0.0);
+}
+
+#[test]
 fn a_rolling_cut_shot_with_english_uses_the_tp_a8_style_cue_ball_post_impact_state() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

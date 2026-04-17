@@ -31,6 +31,7 @@ pub enum DslEntry {
     Alias(AliasDef),
     Ball(BallPlacement),
     CueStrike(CueStrikeDef),
+    BallBall(BallBallDef),
     Shot(ShotDef),
 }
 
@@ -38,9 +39,19 @@ pub enum DslEntry {
 pub struct DslScenario {
     pub game_state: GameState,
     pub shot: Option<ScenarioShot>,
+    pub ball_ball_configs: HashMap<String, BallBallCollisionConfig>,
 }
 
 impl DslScenario {
+    pub fn ball_ball_config_named(
+        &self,
+        name: &str,
+    ) -> Result<&BallBallCollisionConfig, DslBuildError> {
+        self.ball_ball_configs
+            .get(name)
+            .ok_or_else(|| DslBuildError::UnknownBallBallConfig(name.to_string()))
+    }
+
     pub fn validate_shot_human_speed(
         &self,
     ) -> Result<Option<HumanShotSpeedValidation>, DslBuildError> {
@@ -719,6 +730,18 @@ pub enum CueStrikeMethodExpr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct BallBallDef {
+    pub name: String,
+    pub methods: Vec<BallBallMethodExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BallBallMethodExpr {
+    NormalRestitution(f64),
+    TangentialFriction(f64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShotDef {
     pub ball: BallRef,
     pub methods: Vec<ShotMethodExpr>,
@@ -804,6 +827,12 @@ impl std::fmt::Display for DslParseError {
 
 impl std::error::Error for DslParseError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhysicsConfigKind {
+    BallBall,
+    RailResponse,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DslBuildError {
     UnknownAlias(String),
@@ -828,6 +857,22 @@ pub enum DslBuildError {
         name: String,
         method: String,
     },
+    DuplicateBallBall(String),
+    DuplicateBallBallMethod {
+        name: String,
+        method: String,
+    },
+    MissingBallBallMethod {
+        name: String,
+        method: String,
+    },
+    InvalidPhysicsConfigValue {
+        kind: PhysicsConfigKind,
+        name: String,
+        method: String,
+        value: f64,
+        expected: String,
+    },
     DuplicateShotMethod {
         method: String,
     },
@@ -835,6 +880,7 @@ pub enum DslBuildError {
         method: String,
     },
     UnknownCueStrike(String),
+    UnknownBallBallConfig(String),
     MultipleShotsNotSupported {
         count: usize,
     },
@@ -879,6 +925,26 @@ impl std::fmt::Display for DslBuildError {
             Self::MissingCueStrikeMethod { name, method } => {
                 write!(f, "cue_strike '{name}' is missing .{method}(...)")
             }
+            Self::DuplicateBallBall(name) => {
+                write!(f, "ball_ball '{name}' was defined more than once")
+            }
+            Self::DuplicateBallBallMethod { name, method } => write!(
+                f,
+                "ball_ball '{name}' specified .{method}(...) more than once"
+            ),
+            Self::MissingBallBallMethod { name, method } => {
+                write!(f, "ball_ball '{name}' is missing .{method}(...)")
+            }
+            Self::InvalidPhysicsConfigValue {
+                kind,
+                name,
+                method,
+                value,
+                expected,
+            } => write!(
+                f,
+                "{kind:?} '{name}' has invalid .{method}({value}); expected {expected}"
+            ),
             Self::DuplicateShotMethod { method } => {
                 write!(f, "shot specified .{method}(...) more than once")
             }
@@ -886,6 +952,7 @@ impl std::fmt::Display for DslBuildError {
                 write!(f, "shot is missing .{method}(...)")
             }
             Self::UnknownCueStrike(name) => write!(f, "unknown cue_strike '{name}'"),
+            Self::UnknownBallBallConfig(name) => write!(f, "unknown ball_ball '{name}'"),
             Self::MultipleShotsNotSupported { count } => write!(
                 f,
                 "the current DSL supports at most one shot statement, but found {count}"
@@ -961,6 +1028,7 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
     let mut game_state = GameState::new(table_spec);
     let mut aliases = HashMap::new();
     let mut cue_strikes = HashMap::new();
+    let mut ball_ball_defs = Vec::new();
     let mut shots = Vec::new();
 
     for entry in &doc.entries {
@@ -999,10 +1067,12 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
                     return Err(DslBuildError::DuplicateCueStrike(name));
                 }
             }
+            DslEntry::BallBall(def) => ball_ball_defs.push(def.clone()),
             DslEntry::Shot(def) => shots.push(def.clone()),
         }
     }
 
+    let ball_ball_configs = build_ball_ball_configs(&ball_ball_defs)?;
     let shot = match shots.as_slice() {
         [] => None,
         [shot] => Some(build_shot(shot, &cue_strikes, &game_state)?),
@@ -1011,7 +1081,11 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
         }
     };
 
-    Ok(DslScenario { game_state, shot })
+    Ok(DslScenario {
+        game_state,
+        shot,
+        ball_ball_configs,
+    })
 }
 
 fn resolve_position_expr(
@@ -1075,6 +1149,74 @@ fn build_cue_strike(def: &CueStrikeDef) -> Result<CueStrikeConfig, DslBuildError
             name: def.name.clone(),
             error,
         }
+    })
+}
+
+fn build_ball_ball_configs(
+    defs: &[BallBallDef],
+) -> Result<HashMap<String, BallBallCollisionConfig>, DslBuildError> {
+    let mut configs = HashMap::new();
+
+    for def in defs {
+        let name = def.name.clone();
+        let config = build_ball_ball_config(def)?;
+        if configs.insert(name.clone(), config).is_some() {
+            return Err(DslBuildError::DuplicateBallBall(name));
+        }
+    }
+
+    Ok(configs)
+}
+
+fn build_ball_ball_config(def: &BallBallDef) -> Result<BallBallCollisionConfig, DslBuildError> {
+    let mut normal_restitution = None;
+    let mut tangential_friction = None;
+
+    for method in &def.methods {
+        match method {
+            BallBallMethodExpr::NormalRestitution(value) => {
+                set_once(&mut normal_restitution, *value, || {
+                    DslBuildError::DuplicateBallBallMethod {
+                        name: def.name.clone(),
+                        method: "normal_restitution".to_string(),
+                    }
+                })?;
+            }
+            BallBallMethodExpr::TangentialFriction(value) => {
+                set_once(&mut tangential_friction, *value, || {
+                    DslBuildError::DuplicateBallBallMethod {
+                        name: def.name.clone(),
+                        method: "tangential_friction".to_string(),
+                    }
+                })?;
+            }
+        }
+    }
+
+    let normal_restitution =
+        normal_restitution.ok_or_else(|| DslBuildError::MissingBallBallMethod {
+            name: def.name.clone(),
+            method: "normal_restitution".to_string(),
+        })?;
+    let tangential_friction =
+        tangential_friction.ok_or_else(|| DslBuildError::MissingBallBallMethod {
+            name: def.name.clone(),
+            method: "tangential_friction".to_string(),
+        })?;
+
+    Ok(BallBallCollisionConfig {
+        normal_restitution: validate_unit_interval_physics_value(
+            PhysicsConfigKind::BallBall,
+            &def.name,
+            "normal_restitution",
+            normal_restitution,
+        )?,
+        tangential_friction_coefficient: validate_non_negative_physics_value(
+            PhysicsConfigKind::BallBall,
+            &def.name,
+            "tangential_friction",
+            tangential_friction,
+        )?,
     })
 }
 
@@ -1165,6 +1307,44 @@ fn build_shot(
     })
 }
 
+fn validate_unit_interval_physics_value(
+    kind: PhysicsConfigKind,
+    name: &str,
+    method: &str,
+    value: f64,
+) -> Result<Scale, DslBuildError> {
+    if (0.0..=1.0).contains(&value) {
+        Ok(Scale::from_f64(value))
+    } else {
+        Err(DslBuildError::InvalidPhysicsConfigValue {
+            kind,
+            name: name.to_string(),
+            method: method.to_string(),
+            value,
+            expected: "a value in [0, 1]".to_string(),
+        })
+    }
+}
+
+fn validate_non_negative_physics_value(
+    kind: PhysicsConfigKind,
+    name: &str,
+    method: &str,
+    value: f64,
+) -> Result<Scale, DslBuildError> {
+    if value >= 0.0 {
+        Ok(Scale::from_f64(value))
+    } else {
+        Err(DslBuildError::InvalidPhysicsConfigValue {
+            kind,
+            name: name.to_string(),
+            method: method.to_string(),
+            value,
+            expected: "a non-negative value".to_string(),
+        })
+    }
+}
+
 fn set_once<T>(
     slot: &mut Option<T>,
     value: T,
@@ -1241,6 +1421,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
                     DslStatement::Alias(alias) => doc.entries.push(DslEntry::Alias(alias)),
                     DslStatement::Ball(placement) => doc.entries.push(DslEntry::Ball(placement)),
                     DslStatement::CueStrike(def) => doc.entries.push(DslEntry::CueStrike(def)),
+                    DslStatement::BallBall(def) => doc.entries.push(DslEntry::BallBall(def)),
                     DslStatement::Shot(def) => doc.entries.push(DslEntry::Shot(def)),
                     DslStatement::Empty => {}
                 }
@@ -1260,6 +1441,7 @@ enum DslStatement {
     Alias(AliasDef),
     Ball(BallPlacement),
     CueStrike(CueStrikeDef),
+    BallBall(BallBallDef),
     Shot(ShotDef),
     Empty,
 }
@@ -1271,6 +1453,7 @@ fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
         blank_line,
         preceded(peek("table"), cut_err(table_stmt)),
         preceded(peek("pos"), cut_err(alias_stmt)),
+        preceded(peek("ball_ball"), cut_err(ball_ball_stmt)),
         preceded(peek("ball"), cut_err(ball_stmt)),
         preceded(peek("cue_strike"), cut_err(cue_strike_stmt)),
         preceded(peek("shot"), cut_err(shot_stmt)),
@@ -1329,6 +1512,16 @@ fn cue_strike_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> 
     let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
     let methods = repeat(0.., cue_strike_method_segment).parse_next(input)?;
     Ok(DslStatement::CueStrike(CueStrikeDef {
+        name: name.to_string(),
+        methods,
+    }))
+}
+
+fn ball_ball_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
+    let _ = "ball_ball".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    let methods = repeat(0.., ball_ball_method_segment).parse_next(input)?;
+    Ok(DslStatement::BallBall(BallBallDef {
         name: name.to_string(),
         methods,
     }))
@@ -1405,6 +1598,42 @@ fn cue_strike_energy_loss_method<'a>(
     let _ = "energy_loss".parse_next(input)?;
     let value = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
     Ok(CueStrikeMethodExpr::EnergyLoss(value))
+}
+
+fn ball_ball_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, BallBallMethodExpr> {
+    let _ = preceded(peek(preceded(chain_ws0, '.')), chain_ws0).parse_next(input)?;
+    let _ = '.'.parse_next(input)?;
+    ball_ball_method.parse_next(input)
+}
+
+fn ball_ball_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, BallBallMethodExpr> {
+    alt((
+        preceded(
+            peek("normal_restitution"),
+            cut_err(ball_ball_normal_restitution_method),
+        ),
+        preceded(
+            peek("tangential_friction"),
+            cut_err(ball_ball_tangential_friction_method),
+        ),
+    ))
+    .parse_next(input)
+}
+
+fn ball_ball_normal_restitution_method<'a>(
+    input: &mut Stream<'a>,
+) -> ParseResult<'a, BallBallMethodExpr> {
+    let _ = "normal_restitution".parse_next(input)?;
+    let value = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
+    Ok(BallBallMethodExpr::NormalRestitution(value))
+}
+
+fn ball_ball_tangential_friction_method<'a>(
+    input: &mut Stream<'a>,
+) -> ParseResult<'a, BallBallMethodExpr> {
+    let _ = "tangential_friction".parse_next(input)?;
+    let value = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
+    Ok(BallBallMethodExpr::TangentialFriction(value))
 }
 
 fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -1685,6 +1914,24 @@ mod tests {
                 .as_ball_state()
                 .motion_phase(TYPICAL_BALL_RADIUS.clone()),
             MotionPhase::Rolling
+        );
+    }
+
+    #[test]
+    fn parse_ball_ball_config() {
+        let scenario = parse_dsl_to_scenario(
+            "ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)",
+        )
+        .expect("build scenario");
+
+        assert_eq!(scenario.ball_ball_configs.len(), 1);
+        assert_eq!(
+            scenario
+                .ball_ball_config_named("human")
+                .expect("named config")
+                .normal_restitution
+                .as_f64(),
+            0.95
         );
     }
 

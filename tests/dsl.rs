@@ -4,11 +4,11 @@ use billiards::dsl::{
     DslError, DslParseError, RailSide,
 };
 use billiards::{
-    BallBallCollisionConfig, BallSetPhysicsSpec, BallType, CollisionModel, HumanShotSpeedBand,
-    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
-    NBallSystemState, OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailCollisionConfig,
-    RailCollisionProfile, RailModel, RollingResistanceModel, Scale, SlidingFrictionModel,
-    SpinDecayModel, TYPICAL_BALL_RADIUS,
+    BallSetPhysicsSpec, BallType, CollisionModel, HumanShotSpeedBand, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemState,
+    OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailCollisionConfig, RailCollisionProfile,
+    RailModel, RollingResistanceModel, Scale, SlidingFrictionModel, SpinDecayModel,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn motion_config() -> OnTableMotionConfig {
@@ -220,11 +220,13 @@ fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
 }
 
 #[test]
-fn shot_scenarios_can_use_custom_physics_for_multi_ball_simulation() {
+fn shot_scenarios_can_use_named_ball_ball_configs_defined_in_dsl() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at (2.0, 3.0)\n\
          ball one at (2.0, 4.0)\n\
          cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(ideal).normal_restitution(1.0).tangential_friction(0.06)\n\
+         ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
          shot(cue).heading(0deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
     )
     .expect("expected shot DSL to build");
@@ -233,7 +235,9 @@ fn shot_scenarios_can_use_custom_physics_for_multi_ball_simulation() {
             &BallSetPhysicsSpec::default(),
             &motion_config(),
             CollisionModel::Ideal,
-            &BallBallCollisionConfig::ideal(),
+            scenario
+                .ball_ball_config_named("ideal")
+                .expect("ideal ball-ball config should exist"),
             RailModel::SpinAware,
             &RailCollisionProfile::default(),
         )
@@ -244,7 +248,9 @@ fn shot_scenarios_can_use_custom_physics_for_multi_ball_simulation() {
             &BallSetPhysicsSpec::default(),
             &motion_config(),
             CollisionModel::Ideal,
-            &BallBallCollisionConfig::human_tuned(),
+            scenario
+                .ball_ball_config_named("human")
+                .expect("human ball-ball config should exist"),
             RailModel::SpinAware,
             &RailCollisionProfile::default(),
         )
@@ -264,6 +270,26 @@ fn shot_scenarios_can_use_custom_physics_for_multi_ball_simulation() {
         damped_object_y < ideal_object_y,
         "lower ball-ball restitution should shorten the struck ball's final travel"
     );
+}
+
+#[test]
+fn rejects_out_of_range_ball_ball_restitution() {
+    let err = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(human).normal_restitution(1.1).tangential_friction(0.06)\n\
+         shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect_err("expected build failure");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::InvalidPhysicsConfigValue {
+            name,
+            method,
+            ..
+        }) if name == "human" && method == "normal_restitution"
+    ));
 }
 
 #[test]

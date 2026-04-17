@@ -2,8 +2,8 @@ use billiards::{
     trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, Ball, BallPathStop,
     BallSetPhysicsSpec, BallSpec, BallState, BallType, Diamond, GameState, Inches, Inches2,
     InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
-    OnTableBallState, OnTableMotionConfig, Pocket, Position, RadiansPerSecondSq, Rail,
-    RailAngleReference, RailModel, RailTangentDirection, RollingResistanceModel,
+    OnTableBallState, OnTableMotionConfig, OverlayLayer, Pocket, Position, RadiansPerSecondSq,
+    Rail, RailAngleReference, RailModel, RailTangentDirection, RollingResistanceModel,
     SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, RgbaImage};
@@ -213,6 +213,33 @@ fn adding_a_ghost_ball_renders_a_ball_sized_overlay_centered_on_the_requested_po
     assert_eq!(max_y - min_y + 1, 39);
     assert_eq!((min_x + max_x) / 2, 539);
     assert_eq!((min_y + max_y) / 2, 969);
+}
+
+#[test]
+fn overlays_can_be_drawn_above_balls_when_requested() {
+    let baseline = cue_ball_at("2", "4");
+
+    let mut below = cue_ball_at("2", "4");
+    below.add_ghost_ball(
+        &Position::new(2u8, 4u8),
+        ghost_fill_color(),
+        ghost_outline_color(),
+    );
+
+    let mut above = cue_ball_at("2", "4");
+    above.add_ghost_ball_on_layer(
+        &Position::new(2u8, 4u8),
+        ghost_fill_color(),
+        ghost_outline_color(),
+        OverlayLayer::AboveBalls,
+    );
+
+    let baseline_image = render(&baseline);
+    let below_image = render(&below);
+    let above_image = render(&above);
+
+    assert!(diff_bbox(&baseline_image, &above_image).is_some());
+    assert!(diff_bbox(&below_image, &above_image).is_some());
 }
 
 #[test]

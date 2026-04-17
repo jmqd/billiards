@@ -7029,6 +7029,27 @@ pub enum OverlayLayer {
     AboveBalls,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagramBackground {
+    Table,
+    Transparent,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DiagramRenderOptions {
+    pub scale_factor: u32,
+    pub background: DiagramBackground,
+}
+
+impl Default for DiagramRenderOptions {
+    fn default() -> Self {
+        Self {
+            scale_factor: 1,
+            background: DiagramBackground::Table,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 enum Overlay {
     DashedLine {
@@ -7416,8 +7437,14 @@ impl GameState {
 
         let mut elapsed_before_segment = Seconds::zero();
         for (index, segment) in path.segments.iter().enumerate() {
-            let projected_start = segment.start.as_ball_state().projected_position(&self.table_spec);
-            let projected_end = segment.end.as_ball_state().projected_position(&self.table_spec);
+            let projected_start = segment
+                .start
+                .as_ball_state()
+                .projected_position(&self.table_spec);
+            let projected_end = segment
+                .end
+                .as_ball_state()
+                .projected_position(&self.table_spec);
             let (line_start, line_end) = match &style.clip_endpoints_to_ball_radius {
                 Some(radius) => self.clip_line_to_ball_edges(
                     &projected_start,
@@ -7449,9 +7476,8 @@ impl GameState {
                 );
             }
 
-            elapsed_before_segment = Seconds::new(
-                elapsed_before_segment.as_f64() + segment.duration.as_f64(),
-            );
+            elapsed_before_segment =
+                Seconds::new(elapsed_before_segment.as_f64() + segment.duration.as_f64());
         }
     }
 
@@ -7548,6 +7574,10 @@ impl GameState {
 
     /// Draws a 2D diagram of the current `GameState` and returns encoded PNG bytes.
     pub fn draw_2d_diagram(&self) -> Vec<u8> {
+        self.draw_2d_diagram_with_options(&DiagramRenderOptions::default())
+    }
+
+    pub fn draw_2d_diagram_with_options(&self, options: &DiagramRenderOptions) -> Vec<u8> {
         use image::codecs::png::PngEncoder;
         use image::imageops::overlay;
         use image::{ImageEncoder, ImageFormat, RgbaImage};
@@ -7556,12 +7586,15 @@ impl GameState {
         let mut resolved = self.clone();
         resolved.resolve_positions();
 
-        let mut table: RgbaImage =
+        let table_asset: RgbaImage =
             image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
                 .expect("broken table asset")
                 .into_rgba8();
-
-        let (tw, th) = table.dimensions();
+        let (tw, th) = table_asset.dimensions();
+        let mut table = match options.background {
+            DiagramBackground::Table => table_asset,
+            DiagramBackground::Transparent => RgbaImage::new(tw, th),
+        };
 
         let draw_overlays_for_layer = |layer: OverlayLayer, table: &mut RgbaImage| {
             for overlay in resolved.lines_to_draw.iter() {
@@ -7657,9 +7690,22 @@ impl GameState {
 
         draw_overlays_for_layer(OverlayLayer::AboveBalls, &mut table);
 
+        let scale_factor = options.scale_factor.max(1);
+        let output = if scale_factor == 1 {
+            table
+        } else {
+            resize(
+                &table,
+                tw * scale_factor,
+                th * scale_factor,
+                FilterType::CatmullRom,
+            )
+        };
+        let (ow, oh) = output.dimensions();
+
         let mut buf = Vec::new();
         PngEncoder::new(&mut buf)
-            .write_image(&table, tw, th, image::ColorType::Rgba8.into())
+            .write_image(&output, ow, oh, image::ColorType::Rgba8.into())
             .expect("PNG encode failed");
         buf
     }

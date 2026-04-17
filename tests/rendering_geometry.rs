@@ -3,9 +3,10 @@ use billiards::{
     visualization::{
         AimOverlayStyle, BallPathStyle, EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
     },
-    Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
-    Diamond, GameState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, OverlayLayer, Pocket, Position,
+    Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState,
+    BallType, DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2,
+    InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
+    OnTableBallState, OnTableMotionConfig, OverlayLayer, Pocket, Position,
     RadiansPerSecondSq, Rail, RailAngleReference, RailModel, RailTangentDirection,
     RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
     TYPICAL_BALL_RADIUS,
@@ -14,6 +15,12 @@ use image::{load_from_memory, RgbaImage};
 
 fn render(state: &GameState) -> RgbaImage {
     load_from_memory(&state.draw_2d_diagram())
+        .expect("png decode")
+        .into_rgba8()
+}
+
+fn render_with_options(state: &GameState, options: &DiagramRenderOptions) -> RgbaImage {
+    load_from_memory(&state.draw_2d_diagram_with_options(options))
         .expect("png decode")
         .into_rgba8()
 }
@@ -201,6 +208,48 @@ fn drawing_resolves_pending_inches_shifts_before_rendering() {
     resolved.resolve_positions();
 
     assert_eq!(render(&unresolved), render(&resolved));
+}
+
+#[test]
+fn drawing_with_scale_factor_two_doubles_the_output_dimensions() {
+    let state = cue_ball_at("2", "4");
+    let baseline = render(&state);
+    let scaled = render_with_options(
+        &state,
+        &DiagramRenderOptions {
+            scale_factor: 2,
+            ..DiagramRenderOptions::default()
+        },
+    );
+
+    assert_eq!(scaled.width(), baseline.width() * 2);
+    assert_eq!(scaled.height(), baseline.height() * 2);
+}
+
+#[test]
+fn drawing_with_a_transparent_background_leaves_an_empty_table_fully_transparent() {
+    let rendered = render_with_options(
+        &GameState::default(),
+        &DiagramRenderOptions {
+            background: DiagramBackground::Transparent,
+            ..DiagramRenderOptions::default()
+        },
+    );
+
+    assert!(rendered.pixels().all(|pixel| pixel[3] == 0));
+}
+
+#[test]
+fn drawing_with_a_transparent_background_still_renders_visible_balls() {
+    let rendered = render_with_options(
+        &cue_ball_at("2", "4"),
+        &DiagramRenderOptions {
+            background: DiagramBackground::Transparent,
+            ..DiagramRenderOptions::default()
+        },
+    );
+
+    assert!(rendered.pixels().any(|pixel| pixel[3] > 0));
 }
 
 #[test]

@@ -1,0 +1,5 @@
+# Straight follow shot: object goes in the right side pocket, cue follows down-table to the right rail.
+ball cue at (1.0, 4.0)
+ball one at (3.0, 4.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(90deg).speed(64ips).tip(side: 0.0R, height: 0.4R).using(default)

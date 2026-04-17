@@ -26,6 +26,22 @@ Expected flavor:
 - one pocketed in center-right
 - cue continues and comes to rest
 
+### `straight_follow_side_pocket.billiards`
+A straight pot with topspin / follow.
+
+Expected flavor:
+- cue -> one collision
+- one pocketed in center-right
+- cue follows on toward the right rail
+
+### `straight_draw_side_pocket.billiards`
+A straight pot with draw.
+
+Expected flavor:
+- cue -> one collision
+- one pocketed in center-right
+- cue draws back toward the starting end instead of following through
+
 ### `spot_shot_bottom_right.billiards`
 Object ball on the rack / spot region, cut toward the bottom-right corner pocket.
 

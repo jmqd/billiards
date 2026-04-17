@@ -82,6 +82,12 @@ These are the fastest useful runs.
 ### Compile-only bench sanity check
 
 ```bash
+just perf-build
+```
+
+Equivalent explicit commands:
+
+```bash
 cargo bench --bench physics --no-run
 cargo bench --bench throughput --no-run
 ```

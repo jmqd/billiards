@@ -905,6 +905,18 @@ pub struct TwoBallOnTableAdvance {
     pub event: Option<TwoBallOnTableEvent>,
 }
 
+/// The result of advancing any number of on-table balls to the next currently supported event.
+///
+/// `event` records the chosen indexed primary event, if any. Because the current scheduler still
+/// breaks ties deterministically instead of merging simultaneous contacts, the returned states can
+/// land exactly on additional event boundaries that are not separately represented here.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NBallOnTableAdvance {
+    pub states: Vec<OnTableBallState>,
+    pub elapsed: Seconds,
+    pub event: Option<NBallOnTableEvent>,
+}
+
 /// The result of simulating two on-table balls forward over a requested duration.
 ///
 /// `events` records the ordered sequence of primary events resolved while consuming `elapsed`.
@@ -3207,86 +3219,145 @@ fn advance_two_on_table_balls_without_event(
     )
 }
 
-fn advance_to_next_two_ball_event_with_scheduler<FindNextEvent>(
-    a: &OnTableBallState,
-    b: &OnTableBallState,
+fn advance_n_on_table_balls_without_event(
+    states: &[OnTableBallState],
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> Vec<OnTableBallState> {
+    states
+        .iter()
+        .map(|state| advance_on_table_ball_without_event(state, dt, ball, motion))
+        .collect()
+}
+
+fn advance_to_next_n_ball_event_with_scheduler<FindNextEvent>(
+    states: &[OnTableBallState],
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_response: Option<(RailModel, RailCollisionConfig)>,
     find_next_event: FindNextEvent,
-) -> TwoBallOnTableAdvance
+) -> NBallOnTableAdvance
 where
-    FindNextEvent: Fn(&OnTableBallState, &OnTableBallState) -> Option<TwoBallOnTableEvent>,
+    FindNextEvent: Fn(&[&OnTableBallState]) -> Option<NBallOnTableEvent>,
 {
-    let Some(event) = find_next_event(a, b) else {
-        return TwoBallOnTableAdvance {
-            a: a.clone(),
-            b: b.clone(),
+    let state_refs = states.iter().collect::<Vec<_>>();
+    let Some(event) = find_next_event(&state_refs) else {
+        return NBallOnTableAdvance {
+            states: states.to_vec(),
             elapsed: Seconds::zero(),
             event: None,
         };
     };
 
     let elapsed = event.time();
-    let (a_after, b_after) = match &event {
-        TwoBallOnTableEvent::MotionTransition { .. } => {
-            advance_two_on_table_balls_without_event(a, b, elapsed, ball, motion)
-        }
-        TwoBallOnTableEvent::BallBallCollision(collision) => collide_ball_ball_on_table(
-            &collision.a_at_impact,
-            &collision.b_at_impact,
-            collision_model,
-        ),
-        TwoBallOnTableEvent::BallRailImpact {
-            ball: TwoBallEventBall::A,
-            impact,
+    let mut states_after = advance_n_on_table_balls_without_event(states, elapsed, ball, motion);
+    match &event {
+        NBallOnTableEvent::MotionTransition { .. } => {}
+        NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
         } => {
+            let (first_after, second_after) = collide_ball_ball_on_table(
+                &collision.a_at_impact,
+                &collision.b_at_impact,
+                collision_model,
+            );
+            states_after[*first_ball_index] = first_after;
+            states_after[*second_ball_index] = second_after;
+        }
+        NBallOnTableEvent::BallRailImpact { ball_index, impact } => {
             let (rail_model, rail_config) = rail_response
                 .as_ref()
                 .expect("rail impacts require a rail collision model");
-            (
-                collide_ball_rail_on_table_with_radius_and_config(
-                    &impact.state_at_impact,
-                    impact.rail,
-                    ball.radius.clone(),
-                    *rail_model,
-                    rail_config,
-                ),
-                advance_on_table_ball_without_event(b, elapsed, ball, motion),
-            )
+            states_after[*ball_index] = collide_ball_rail_on_table_with_radius_and_config(
+                &impact.state_at_impact,
+                impact.rail,
+                ball.radius.clone(),
+                *rail_model,
+                rail_config,
+            );
         }
-        TwoBallOnTableEvent::BallRailImpact {
-            ball: TwoBallEventBall::B,
-            impact,
-        } => {
-            let (rail_model, rail_config) = rail_response
-                .as_ref()
-                .expect("rail impacts require a rail collision model");
-            (
-                advance_on_table_ball_without_event(a, elapsed, ball, motion),
-                collide_ball_rail_on_table_with_radius_and_config(
-                    &impact.state_at_impact,
-                    impact.rail,
-                    ball.radius.clone(),
-                    *rail_model,
-                    rail_config,
-                ),
-            )
-        }
-    };
+    }
 
-    TwoBallOnTableAdvance {
-        a: a_after,
-        b: b_after,
+    NBallOnTableAdvance {
+        states: states_after,
         elapsed,
         event: Some(event),
     }
 }
 
+/// Advance any number of on-table balls to the next supported event and resolve it.
+///
+/// This is the indexed / N-ball execution step built on top of `compute_next_n_ball_event_on_table(...)`.
+pub fn advance_to_next_n_ball_event_on_table(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+) -> NBallOnTableAdvance {
+    advance_to_next_n_ball_event_with_scheduler(
+        states,
+        ball,
+        motion,
+        collision_model,
+        None,
+        |state_refs| compute_next_n_ball_event_on_table(state_refs, ball, motion),
+    )
+}
+
+/// Advance any number of on-table balls to the next supported event while also resolving rail
+/// impacts using explicit rail-response coefficients.
+pub fn advance_to_next_n_ball_event_with_rail_config_on_table(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> NBallOnTableAdvance {
+    advance_to_next_n_ball_event_with_scheduler(
+        states,
+        ball,
+        motion,
+        collision_model,
+        Some((rail_model, rail_config.clone())),
+        |state_refs| compute_next_n_ball_event_with_rails_on_table(state_refs, ball, table, motion),
+    )
+}
+
+/// Advance any number of on-table balls to the next supported event while also resolving rail
+/// impacts against the current table geometry.
+///
+/// This compatibility wrapper uses the default rail-response coefficients. Prefer
+/// `advance_to_next_n_ball_event_with_rail_config_on_table(...)` when restitution should be
+/// explicit.
+pub fn advance_to_next_n_ball_event_with_rails_on_table(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+) -> NBallOnTableAdvance {
+    advance_to_next_n_ball_event_with_rail_config_on_table(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionConfig::default(),
+    )
+}
+
 /// Advance two on-table balls to the next supported event and resolve it.
 ///
-/// This is the execution step built on top of `compute_next_two_ball_event_on_table(...)`.
+/// This compatibility helper preserves the older two-ball public shape while delegating the actual
+/// execution to `advance_to_next_n_ball_event_on_table(...)`.
 pub fn advance_to_next_two_ball_event_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -3294,15 +3365,23 @@ pub fn advance_to_next_two_ball_event_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
 ) -> TwoBallOnTableAdvance {
-    advance_to_next_two_ball_event_with_scheduler(
-        a,
-        b,
+    let advanced = advance_to_next_n_ball_event_on_table(
+        &[a.clone(), b.clone()],
         ball,
         motion,
         collision_model,
-        None,
-        |a_state, b_state| compute_next_two_ball_event_on_table(a_state, b_state, ball, motion),
-    )
+    );
+    let [a_after, b_after]: [OnTableBallState; 2] = advanced
+        .states
+        .try_into()
+        .expect("two-ball advance should return exactly two states");
+
+    TwoBallOnTableAdvance {
+        a: a_after,
+        b: b_after,
+        elapsed: advanced.elapsed,
+        event: advanced.event.map(two_ball_event_from_n_ball_event),
+    }
 }
 
 /// Advance two on-table balls to the next supported event while also resolving rail impacts using
@@ -3317,17 +3396,26 @@ pub fn advance_to_next_two_ball_event_with_rail_config_on_table(
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
 ) -> TwoBallOnTableAdvance {
-    advance_to_next_two_ball_event_with_scheduler(
-        a,
-        b,
+    let advanced = advance_to_next_n_ball_event_with_rail_config_on_table(
+        &[a.clone(), b.clone()],
         ball,
+        table,
         motion,
         collision_model,
-        Some((rail_model, rail_config.clone())),
-        |a_state, b_state| {
-            compute_next_two_ball_event_with_rails_on_table(a_state, b_state, ball, table, motion)
-        },
-    )
+        rail_model,
+        rail_config,
+    );
+    let [a_after, b_after]: [OnTableBallState; 2] = advanced
+        .states
+        .try_into()
+        .expect("two-ball advance should return exactly two states");
+
+    TwoBallOnTableAdvance {
+        a: a_after,
+        b: b_after,
+        elapsed: advanced.elapsed,
+        event: advanced.event.map(two_ball_event_from_n_ball_event),
+    }
 }
 
 /// Advance two on-table balls to the next supported event while also resolving rail impacts against

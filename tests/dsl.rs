@@ -4,7 +4,7 @@ use billiards::dsl::{
     DslError, DslParseError, RailSide,
 };
 use billiards::{
-    BallPathStop, BallSetPhysicsSpec, BallType, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
+    BallSetPhysicsSpec, BallType, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
     MotionTransitionConfig, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
     RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
 };
@@ -180,8 +180,7 @@ fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
     .expect("expected shot DSL to build");
 
     let path = scenario
-        .trace_shot_path_with_rails_on_table(
-            BallPathStop::Duration(billiards::Seconds::new(1.0)),
+        .trace_shot_path_until_rest_with_rails_on_table(
             &BallSetPhysicsSpec::default(),
             &motion_config(),
             RailModel::SpinAware,
@@ -191,6 +190,12 @@ fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
 
     assert!(!path.segments.is_empty(), "expected a visible preview path");
     assert!(path.projected_points(&scenario.game_state.table_spec).len() >= 2);
+    assert_eq!(
+        path.final_state
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rest
+    );
 }
 
 #[test]

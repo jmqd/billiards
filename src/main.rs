@@ -1,6 +1,6 @@
 use billiards::dsl::parse_dsl_to_scenario;
 use billiards::{
-    write_png_to_file, BallPathStop, BallSetPhysicsSpec, InchesPerSecondSq, MotionPhaseConfig,
+    write_png_to_file, BallSetPhysicsSpec, InchesPerSecondSq, MotionPhaseConfig,
     MotionTransitionConfig, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
     RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
 };
@@ -52,8 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ball_set = BallSetPhysicsSpec::default();
     let motion = shot_preview_motion_config();
-    if let Some(path) = scenario.trace_shot_path_with_rails_on_table(
-        BallPathStop::Duration(Seconds::new(1.0)),
+    if let Some(path) = scenario.trace_shot_path_until_rest_with_rails_on_table(
         &ball_set,
         &motion,
         RailModel::SpinAware,

@@ -78,6 +78,20 @@ impl DslScenario {
             rail_model,
         )))
     }
+
+    pub fn trace_shot_path_until_rest_with_rails_on_table(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        rail_model: RailModel,
+    ) -> Result<Option<BallPath>, DslBuildError> {
+        self.trace_shot_path_with_rails_on_table(
+            BallPathStop::UntilRest,
+            ball_set,
+            motion,
+            rail_model,
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -767,6 +767,14 @@ pub struct PredictedBallRailImpact {
     pub state_at_impact: OnTableBallState,
 }
 
+/// A predicted future capture of one on-table ball by a pocket.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PredictedBallPocketCapture {
+    pub pocket: Pocket,
+    pub time_until_capture: Seconds,
+    pub state_at_capture: OnTableBallState,
+}
+
 /// Identifies one of the two balls in the current two-ball event scheduler helpers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TwoBallEventBall {
@@ -892,6 +900,29 @@ struct NBallSystemEventCandidate {
     event: NBallOnTableEvent,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum NBallPocketAwareSystemEventSource {
+    BallBallCollision {
+        first_ball_index: usize,
+        second_ball_index: usize,
+    },
+    BallPocketCapture {
+        ball_index: usize,
+    },
+    BallRailImpact {
+        ball_index: usize,
+    },
+    MotionTransition {
+        ball_index: usize,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct NBallPocketAwareSystemEventCandidate {
+    source: NBallPocketAwareSystemEventSource,
+    event: NBallSystemEvent,
+}
+
 /// The result of advancing two on-table balls to the next currently supported event.
 ///
 /// `event` records the chosen primary event, if any. Because the current scheduler intentionally
@@ -937,6 +968,95 @@ pub struct NBallOnTableSimulation {
     pub states: Vec<OnTableBallState>,
     pub elapsed: Seconds,
     pub events: Vec<NBallOnTableEvent>,
+}
+
+/// A ball state inside the richer indexed N-ball system simulation.
+///
+/// The current pocket-aware system simulation starts from on-table states and can remove balls into
+/// a terminal pocketed state. Airborne / leaves-table handling is intentionally deferred.
+#[derive(Clone, Debug, PartialEq)]
+pub enum NBallSystemState {
+    OnTable(OnTableBallState),
+    Pocketed {
+        pocket: Pocket,
+        state_at_capture: OnTableBallState,
+    },
+}
+
+impl From<OnTableBallState> for NBallSystemState {
+    fn from(state: OnTableBallState) -> Self {
+        Self::OnTable(state)
+    }
+}
+
+impl NBallSystemState {
+    pub fn as_on_table(&self) -> Option<&OnTableBallState> {
+        match self {
+            NBallSystemState::OnTable(state) => Some(state),
+            NBallSystemState::Pocketed { .. } => None,
+        }
+    }
+}
+
+/// The next predicted event among an indexed set of balls in the richer system simulation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum NBallSystemEvent {
+    BallBallCollision {
+        first_ball_index: usize,
+        second_ball_index: usize,
+        collision: PredictedBallBallCollision,
+    },
+    BallPocketCapture {
+        ball_index: usize,
+        capture: PredictedBallPocketCapture,
+    },
+    BallRailImpact {
+        ball_index: usize,
+        impact: PredictedBallRailImpact,
+    },
+    MotionTransition {
+        ball_index: usize,
+        transition: NextTransition,
+    },
+}
+
+impl NBallSystemEvent {
+    pub fn time(&self) -> Seconds {
+        match self {
+            NBallSystemEvent::BallBallCollision { collision, .. } => collision.time_until_impact,
+            NBallSystemEvent::BallPocketCapture { capture, .. } => capture.time_until_capture,
+            NBallSystemEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
+            NBallSystemEvent::MotionTransition { transition, .. } => {
+                transition.time_until_transition
+            }
+        }
+    }
+
+    pub fn primary_ball(&self) -> Option<usize> {
+        match self {
+            NBallSystemEvent::BallBallCollision { .. } => None,
+            NBallSystemEvent::BallPocketCapture { ball_index, .. }
+            | NBallSystemEvent::BallRailImpact { ball_index, .. }
+            | NBallSystemEvent::MotionTransition { ball_index, .. } => Some(*ball_index),
+        }
+    }
+}
+
+/// The result of advancing the richer indexed N-ball system to the next supported event.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NBallSystemAdvance {
+    pub states: Vec<NBallSystemState>,
+    pub elapsed: Seconds,
+    pub event: Option<NBallSystemEvent>,
+}
+
+/// The result of simulating the richer indexed N-ball system until no further supported event
+/// remains.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NBallSystemSimulation {
+    pub states: Vec<NBallSystemState>,
+    pub elapsed: Seconds,
+    pub events: Vec<NBallSystemEvent>,
 }
 
 /// How long a traced single-ball rail path should continue.
@@ -2945,6 +3065,162 @@ pub fn compute_next_ball_rail_impact_on_table(
     best
 }
 
+fn pocket_center_in_inches(pocket: Pocket, table: &TableSpec) -> (f64, f64) {
+    let center = pocket.aiming_center();
+    (
+        table.diamond_to_inches(center.x).as_f64(),
+        table.diamond_to_inches(center.y).as_f64(),
+    )
+}
+
+fn pocket_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
+    0.5 * table
+        .diamond_to_inches(table.pockets[pocket.index()].width.clone())
+        .as_f64()
+}
+
+fn pocket_capture_gap_during_current_phase(
+    state: &OnTableBallState,
+    phase: MotionPhase,
+    pocket: Pocket,
+    t: Seconds,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> f64 {
+    let at_t = advance_within_current_phase(state, phase, t, ball, config);
+    let state_at_t = at_t.as_ball_state();
+    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+    let dx = state_at_t.position.x().as_f64() - pocket_x;
+    let dy = state_at_t.position.y().as_f64() - pocket_y;
+
+    dx.hypot(dy) - pocket_capture_radius_in_inches(pocket, table)
+}
+
+fn refine_ball_pocket_capture_time_during_current_phase(
+    state: &OnTableBallState,
+    phase: MotionPhase,
+    pocket: Pocket,
+    mut left: f64,
+    mut right: f64,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Seconds {
+    for _ in 0..60 {
+        let midpoint = 0.5 * (left + right);
+        let gap = pocket_capture_gap_during_current_phase(
+            state,
+            phase.clone(),
+            pocket,
+            Seconds::new(midpoint),
+            ball,
+            table,
+            config,
+        );
+
+        if gap <= 0.0 {
+            right = midpoint;
+        } else {
+            left = midpoint;
+        }
+    }
+
+    Seconds::new(right)
+}
+
+/// Predict the next future pocket capture for one on-table ball.
+///
+/// This is the pocket analogue of `compute_next_ball_rail_impact_on_table(...)`: it advances the
+/// current within-phase motion model up to the ball's next motion transition and checks for first
+/// entry into a conservative first-pass pocket capture region around each pocket's current aiming
+/// center.
+pub fn compute_next_ball_pocket_capture_on_table(
+    state: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Option<PredictedBallPocketCapture> {
+    let phase = classify_motion_phase(state.as_ball_state(), ball, &config.phase);
+    let horizon = compute_next_transition_on_table(state, ball, config)
+        .map(|transition| transition.time_until_transition.as_f64())
+        .unwrap_or(f64::INFINITY);
+    if !horizon.is_finite() || horizon <= f64::EPSILON {
+        return None;
+    }
+
+    const POCKET_CAPTURE_SCAN_STEPS: usize = 512;
+    let mut best: Option<PredictedBallPocketCapture> = None;
+
+    for pocket in Pocket::ALL {
+        let initial_gap = pocket_capture_gap_during_current_phase(
+            state,
+            phase.clone(),
+            pocket,
+            Seconds::zero(),
+            ball,
+            table,
+            config,
+        );
+        if initial_gap <= 0.0 {
+            continue;
+        }
+
+        let mut previous_t = 0.0;
+        let mut previous_gap = initial_gap;
+
+        for step in 1..=POCKET_CAPTURE_SCAN_STEPS {
+            let t = horizon * step as f64 / POCKET_CAPTURE_SCAN_STEPS as f64;
+            let gap = pocket_capture_gap_during_current_phase(
+                state,
+                phase.clone(),
+                pocket,
+                Seconds::new(t),
+                ball,
+                table,
+                config,
+            );
+
+            if previous_gap > 0.0 && gap <= 0.0 {
+                let time_until_capture = refine_ball_pocket_capture_time_during_current_phase(
+                    state,
+                    phase.clone(),
+                    pocket,
+                    previous_t,
+                    t,
+                    ball,
+                    table,
+                    config,
+                );
+                let state_at_capture = advance_within_current_phase(
+                    state,
+                    phase.clone(),
+                    time_until_capture,
+                    ball,
+                    config,
+                );
+                let capture = PredictedBallPocketCapture {
+                    pocket,
+                    time_until_capture,
+                    state_at_capture,
+                };
+
+                if best.as_ref().is_none_or(|current| {
+                    capture.time_until_capture.as_f64() < current.time_until_capture.as_f64()
+                }) {
+                    best = Some(capture);
+                }
+                break;
+            }
+
+            previous_t = t;
+            previous_gap = gap;
+        }
+    }
+
+    best
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum SingleBallOnTableEvent {
     RailImpact(PredictedBallRailImpact),
@@ -3754,6 +4030,350 @@ pub fn simulate_n_balls_with_rails_on_table_until_rest(
         collision_model,
         rail_model,
         &RailCollisionConfig::default(),
+    )
+}
+
+fn advance_n_ball_system_without_event(
+    states: &[NBallSystemState],
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> Vec<NBallSystemState> {
+    states
+        .iter()
+        .map(|state| match state {
+            NBallSystemState::OnTable(on_table) => NBallSystemState::OnTable(
+                advance_on_table_ball_without_event(on_table, dt, ball, motion),
+            ),
+            NBallSystemState::Pocketed {
+                pocket,
+                state_at_capture,
+            } => NBallSystemState::Pocketed {
+                pocket: *pocket,
+                state_at_capture: state_at_capture.clone(),
+            },
+        })
+        .collect()
+}
+
+fn earlier_n_ball_pocket_aware_event_candidate(
+    candidate: &NBallPocketAwareSystemEventCandidate,
+    current: &NBallPocketAwareSystemEventCandidate,
+) -> bool {
+    let candidate_time = candidate.event.time().as_f64();
+    let current_time = current.event.time().as_f64();
+
+    candidate_time < current_time
+        || ((candidate_time - current_time).abs() <= 1e-12 && candidate.source < current.source)
+}
+
+/// Compute the earliest supported future event for the richer indexed N-ball system while also
+/// considering rail impacts and pocket captures against the current table geometry.
+///
+/// Pocketed balls are inert and excluded from future prediction. Airborne / leaves-table handling
+/// remains intentionally unsupported in this first-pass system layer.
+pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Option<NBallSystemEvent> {
+    let mut next: Option<NBallPocketAwareSystemEventCandidate> = None;
+
+    for first_ball_index in 0..states.len() {
+        let Some(first_state) = states[first_ball_index].as_on_table() else {
+            continue;
+        };
+
+        for second_ball_index in first_ball_index + 1..states.len() {
+            let Some(second_state) = states[second_ball_index].as_on_table() else {
+                continue;
+            };
+            let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
+                first_state,
+                second_state,
+                ball,
+                config,
+            ) else {
+                continue;
+            };
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::BallBallCollision {
+                    first_ball_index,
+                    second_ball_index,
+                },
+                event: NBallSystemEvent::BallBallCollision {
+                    first_ball_index,
+                    second_ball_index,
+                    collision,
+                },
+            };
+
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
+        if let Some(capture) =
+            compute_next_ball_pocket_capture_on_table(first_state, ball, table, config)
+        {
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::BallPocketCapture {
+                    ball_index: first_ball_index,
+                },
+                event: NBallSystemEvent::BallPocketCapture {
+                    ball_index: first_ball_index,
+                    capture,
+                },
+            };
+
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
+        if let Some(impact) =
+            compute_next_ball_rail_impact_on_table(first_state, ball, table, config)
+        {
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::BallRailImpact {
+                    ball_index: first_ball_index,
+                },
+                event: NBallSystemEvent::BallRailImpact {
+                    ball_index: first_ball_index,
+                    impact,
+                },
+            };
+
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
+        if let Some(transition) = compute_next_transition_on_table(first_state, ball, config) {
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::MotionTransition {
+                    ball_index: first_ball_index,
+                },
+                event: NBallSystemEvent::MotionTransition {
+                    ball_index: first_ball_index,
+                    transition,
+                },
+            };
+
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+    }
+
+    next.map(|candidate| candidate.event)
+}
+
+/// Advance the richer indexed N-ball system to the next supported event while also resolving rail
+/// impacts using explicit rail-response coefficients and pocket captures against the current table
+/// geometry.
+pub fn advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> NBallSystemAdvance {
+    let Some(event) = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        states, ball, table, motion,
+    ) else {
+        return NBallSystemAdvance {
+            states: states.to_vec(),
+            elapsed: Seconds::zero(),
+            event: None,
+        };
+    };
+
+    let elapsed = event.time();
+    let mut states_after = advance_n_ball_system_without_event(states, elapsed, ball, motion);
+    match &event {
+        NBallSystemEvent::MotionTransition { .. } => {}
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            let (first_after, second_after) = collide_ball_ball_on_table(
+                &collision.a_at_impact,
+                &collision.b_at_impact,
+                collision_model,
+            );
+            states_after[*first_ball_index] = NBallSystemState::OnTable(first_after);
+            states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
+        }
+        NBallSystemEvent::BallPocketCapture {
+            ball_index,
+            capture,
+        } => {
+            states_after[*ball_index] = NBallSystemState::Pocketed {
+                pocket: capture.pocket,
+                state_at_capture: capture.state_at_capture.clone(),
+            };
+        }
+        NBallSystemEvent::BallRailImpact { ball_index, impact } => {
+            states_after[*ball_index] =
+                NBallSystemState::OnTable(collide_ball_rail_on_table_with_radius_and_config(
+                    &impact.state_at_impact,
+                    impact.rail,
+                    ball.radius.clone(),
+                    rail_model,
+                    rail_config,
+                ));
+        }
+    }
+
+    NBallSystemAdvance {
+        states: states_after,
+        elapsed,
+        event: Some(event),
+    }
+}
+
+/// Advance the richer indexed N-ball system to the next supported event while also resolving rail
+/// impacts against the current table geometry and using default rail-response coefficients.
+pub fn advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+) -> NBallSystemAdvance {
+    advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionConfig::default(),
+    )
+}
+
+fn simulate_n_ball_system_with_pockets_until_rest<AdvanceNextEvent>(
+    states: &[NBallSystemState],
+    advance_next_event: AdvanceNextEvent,
+) -> NBallSystemSimulation
+where
+    AdvanceNextEvent: Fn(&[NBallSystemState]) -> NBallSystemAdvance,
+{
+    let mut states = states.to_vec();
+    let mut elapsed = Seconds::zero();
+    let mut events = Vec::new();
+
+    loop {
+        let advanced = advance_next_event(&states);
+        let step_elapsed = advanced.elapsed.as_f64();
+
+        let Some(event) = advanced.event else {
+            assert!(
+                step_elapsed.abs() <= f64::EPSILON,
+                "pocket-aware n-ball until-rest simulation should not consume time without an event"
+            );
+            states = advanced.states;
+            break;
+        };
+
+        assert!(
+            step_elapsed > f64::EPSILON,
+            "next pocket-aware n-ball event must advance simulation time"
+        );
+
+        states = advanced.states;
+        elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
+        events.push(event);
+    }
+
+    NBallSystemSimulation {
+        states,
+        elapsed,
+        events,
+    }
+}
+
+/// Simulate the richer indexed N-ball system until rest while also resolving rail impacts using
+/// explicit rail-response coefficients and pocket captures.
+pub fn simulate_n_ball_system_with_rail_config_and_pockets_on_table_until_rest(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> NBallSystemSimulation {
+    simulate_n_ball_system_with_pockets_until_rest(states, |current| {
+        advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table(
+            current,
+            ball,
+            table,
+            motion,
+            collision_model,
+            rail_model,
+            rail_config,
+        )
+    })
+}
+
+/// Simulate the richer indexed N-ball system until rest while also resolving rail impacts and
+/// pocket captures against the current table geometry.
+pub fn simulate_n_ball_system_with_rails_and_pockets_on_table_until_rest(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+) -> NBallSystemSimulation {
+    simulate_n_ball_system_with_rail_config_and_pockets_on_table_until_rest(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionConfig::default(),
+    )
+}
+
+/// Simulate any number of initially on-table balls until rest while also resolving rail impacts and
+/// pocket captures against the current table geometry.
+pub fn simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+) -> NBallSystemSimulation {
+    let system_states = states
+        .iter()
+        .cloned()
+        .map(NBallSystemState::from)
+        .collect::<Vec<_>>();
+    simulate_n_ball_system_with_rails_and_pockets_on_table_until_rest(
+        &system_states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
     )
 }
 
@@ -5278,6 +5898,7 @@ impl From<&str> for Diamond {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pocket {
     TopRight,
     CenterRight,
@@ -5288,6 +5909,26 @@ pub enum Pocket {
 }
 
 impl Pocket {
+    const ALL: [Pocket; 6] = [
+        Pocket::TopRight,
+        Pocket::CenterRight,
+        Pocket::BottomRight,
+        Pocket::BottomLeft,
+        Pocket::CenterLeft,
+        Pocket::TopLeft,
+    ];
+
+    fn index(self) -> usize {
+        match self {
+            Pocket::TopRight => 0,
+            Pocket::CenterRight => 1,
+            Pocket::BottomRight => 2,
+            Pocket::BottomLeft => 3,
+            Pocket::CenterLeft => 4,
+            Pocket::TopLeft => 5,
+        }
+    }
+
     /// Gives the natural "aiming center" of the pocket. This is currently
     /// relatively unsophisticated; for example, the aiming center may in fact
     /// have to be a function of the position of the cue ball in the future.

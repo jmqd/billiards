@@ -49,6 +49,14 @@ fn cue_ball_at(x: &str, y: &str) -> GameState {
     )
 }
 
+fn ghost_fill_color() -> image::Rgba<u8> {
+    image::Rgba([255, 255, 255, 64])
+}
+
+fn ghost_outline_color() -> image::Rgba<u8> {
+    image::Rgba([0, 0, 0, 96])
+}
+
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
@@ -188,6 +196,25 @@ fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_l
 }
 
 #[test]
+fn adding_a_ghost_ball_renders_a_ball_sized_overlay_centered_on_the_requested_position() {
+    let empty = render(&GameState::default());
+    let mut ghosted = GameState::new(TableSpec::default());
+    ghosted.add_ghost_ball(
+        &Position::new(2u8, 4u8),
+        ghost_fill_color(),
+        ghost_outline_color(),
+    );
+
+    let (min_x, min_y, max_x, max_y) =
+        diff_bbox(&empty, &render(&ghosted)).expect("ghost ball diff bbox");
+
+    assert_eq!(max_x - min_x + 1, 39);
+    assert_eq!(max_y - min_y + 1, 39);
+    assert_eq!((min_x + max_x) / 2, 539);
+    assert_eq!((min_y + max_y) / 2, 969);
+}
+
+#[test]
 fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
     let table_spec = TableSpec::default();
     let color = image::Rgba([0, 0, 0, 255]);
@@ -214,6 +241,23 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
     helper.add_dotted_ball_path(&path, color);
 
     assert_eq!(render(&helper), render(&manual));
+
+    let start = path.initial_state.as_ball_state().projected_position(&table_spec);
+
+    let mut manual_with_ghost = GameState::new(table_spec.clone());
+    manual_with_ghost.add_ghost_ball(&start, ghost_fill_color(), ghost_outline_color());
+    manual_with_ghost.add_dotted_line(&points[0], &points[1], color);
+    manual_with_ghost.add_dotted_line(&points[1], &points[2], color);
+
+    let mut helper_with_ghost = GameState::new(table_spec.clone());
+    helper_with_ghost.add_dotted_ball_path_with_start_ghost(
+        &path,
+        color,
+        ghost_fill_color(),
+        ghost_outline_color(),
+    );
+
+    assert_eq!(render(&helper_with_ghost), render(&manual_with_ghost));
 
     let sampled = path.sampled_points(
         billiards::Seconds::new(0.02),

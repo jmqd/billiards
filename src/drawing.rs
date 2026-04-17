@@ -1,4 +1,4 @@
-use image::{Rgba, RgbaImage};
+use image::{Pixel, Rgba, RgbaImage};
 use imageproc::{
     drawing::{draw_antialiased_line_segment_mut, draw_polygon_mut},
     pixelops::interpolate,
@@ -120,6 +120,86 @@ pub fn draw_smooth_polyline_mut(
     }
 }
 
+fn blend_pixel(img: &mut RgbaImage, x: i32, y: i32, color: Rgba<u8>) {
+    if x < 0 || y < 0 {
+        return;
+    }
+
+    let x = x as u32;
+    let y = y as u32;
+    if x >= img.width() || y >= img.height() {
+        return;
+    }
+
+    img.get_pixel_mut(x, y).blend(&color);
+}
+
+fn draw_filled_circle_alpha_mut(
+    img: &mut RgbaImage,
+    center: (i32, i32),
+    radius_px: f32,
+    color: Rgba<u8>,
+) {
+    if radius_px <= 0.0 || color[3] == 0 {
+        return;
+    }
+
+    let radius_sq = radius_px * radius_px;
+    let min_x = (center.0 as f32 - radius_px).floor() as i32;
+    let max_x = (center.0 as f32 + radius_px).ceil() as i32;
+    let min_y = (center.1 as f32 - radius_px).floor() as i32;
+    let max_y = (center.1 as f32 + radius_px).ceil() as i32;
+
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            let dx = (x - center.0) as f32;
+            let dy = (y - center.1) as f32;
+            if dx * dx + dy * dy <= radius_sq {
+                blend_pixel(img, x, y, color);
+            }
+        }
+    }
+}
+
+/// Draw a translucent ghost-ball marker with a dotted outline at a table position.
+pub fn draw_ghost_ball_mut(
+    img: &mut RgbaImage,
+    center: &Position,
+    diameter_px: u32,
+    fill_color: Rgba<u8>,
+    outline_color: Rgba<u8>,
+) {
+    if diameter_px == 0 {
+        return;
+    }
+
+    let center = crate::assets::diamond_to_pixel(center);
+    let radius_px = diameter_px as f32 * 0.5;
+    draw_filled_circle_alpha_mut(img, center, radius_px, fill_color);
+
+    if outline_color[3] == 0 {
+        return;
+    }
+
+    let dot_radius_px = (radius_px * 0.1).max(1.0);
+    let orbit_radius_px = (radius_px - dot_radius_px).max(0.0);
+    let circumference_px = 2.0 * std::f32::consts::PI * orbit_radius_px.max(1.0);
+    let dot_spacing_px = (dot_radius_px * 3.5).max(6.0);
+    let dot_count = ((circumference_px / dot_spacing_px).round() as usize).max(12);
+
+    for dot in 0..dot_count {
+        let theta = 2.0 * std::f32::consts::PI * dot as f32 / dot_count as f32;
+        let x = center.0 as f32 + orbit_radius_px * theta.cos();
+        let y = center.1 as f32 + orbit_radius_px * theta.sin();
+        draw_filled_circle_alpha_mut(
+            img,
+            (x.round() as i32, y.round() as i32),
+            dot_radius_px,
+            outline_color,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +274,20 @@ mod tests {
         );
 
         assert_eq!(changed_pixel_count(&image), 0);
+    }
+
+    #[test]
+    fn given_a_ghost_ball_overlay_when_drawing_then_some_pixels_are_colored() {
+        let mut image = RgbaImage::new(1089, 1938);
+
+        draw_ghost_ball_mut(
+            &mut image,
+            &Position::new(2u8, 4u8),
+            39,
+            Rgba([255, 255, 255, 64]),
+            Rgba([0, 0, 0, 96]),
+        );
+
+        assert!(changed_pixel_count(&image) > 0);
     }
 }

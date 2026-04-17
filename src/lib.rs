@@ -6398,6 +6398,11 @@ enum Overlay {
         width_px: f32,
         color: Rgba<u8>,
     },
+    GhostBall {
+        center: Position,
+        fill_color: Rgba<u8>,
+        outline_color: Rgba<u8>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -6532,9 +6537,39 @@ impl GameState {
         });
     }
 
+    /// Add a translucent ghost-ball marker at `position`.
+    pub fn add_ghost_ball(
+        &mut self,
+        position: &Position,
+        fill_color: Rgba<u8>,
+        outline_color: Rgba<u8>,
+    ) {
+        let mut position = position.clone();
+        position.resolve_shifts(&self.table_spec);
+
+        self.lines_to_draw.push(Overlay::GhostBall {
+            center: position,
+            fill_color,
+            outline_color,
+        });
+    }
+
     /// Add a dotted overlay for a traced ball path.
     pub fn add_dotted_ball_path(&mut self, path: &BallPath, color: Rgba<u8>) {
         self.add_dotted_polyline(&path.projected_points(&self.table_spec), color);
+    }
+
+    /// Add a dotted overlay for a traced ball path and include a ghost ball at the start.
+    pub fn add_dotted_ball_path_with_start_ghost(
+        &mut self,
+        path: &BallPath,
+        path_color: Rgba<u8>,
+        ghost_fill_color: Rgba<u8>,
+        ghost_outline_color: Rgba<u8>,
+    ) {
+        let start = path.initial_state.as_ball_state().projected_position(&self.table_spec);
+        self.add_ghost_ball(&start, ghost_fill_color, ghost_outline_color);
+        self.add_dotted_ball_path(path, path_color);
     }
 
     /// Add a dotted idealized aim line from `shooting_position` to the ghost-ball target that
@@ -6598,6 +6633,19 @@ impl GameState {
                     color,
                 } => {
                     drawing::draw_smooth_polyline_mut(&mut table, points, *width_px, *color);
+                }
+                Overlay::GhostBall {
+                    center,
+                    fill_color,
+                    outline_color,
+                } => {
+                    drawing::draw_ghost_ball_mut(
+                        &mut table,
+                        center,
+                        ball_diameter_px,
+                        *fill_color,
+                        *outline_color,
+                    );
                 }
             }
         }

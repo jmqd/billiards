@@ -84,9 +84,14 @@ fn main() {
         table.clone(),
         [Ball {
             ty: BallType::Cue,
-            position: state.as_ball_state().projected_position(&table),
+            position: path.final_state.as_ball_state().projected_position(&table),
             spec: BallSpec::default(),
         }],
+    );
+    game_state.add_ghost_ball(
+        &path.initial_state.as_ball_state().projected_position(&table),
+        Rgba([255, 255, 255, 64]),
+        Rgba([0, 0, 0, 96]),
     );
     game_state.add_smooth_polyline(&sampled_points, Rgba([0, 0, 0, 255]));
 

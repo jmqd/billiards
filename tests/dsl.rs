@@ -4,10 +4,11 @@ use billiards::dsl::{
     DslError, DslParseError, RailSide,
 };
 use billiards::{
-    BallSetPhysicsSpec, BallType, CollisionModel, HumanShotSpeedBand, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemState,
-    OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailModel, RollingResistanceModel,
-    SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
+    BallBallCollisionConfig, BallSetPhysicsSpec, BallType, CollisionModel, HumanShotSpeedBand,
+    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
+    NBallSystemState, OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailCollisionConfig,
+    RailCollisionProfile, RailModel, RollingResistanceModel, Scale, SlidingFrictionModel,
+    SpinDecayModel, TYPICAL_BALL_RADIUS,
 };
 
 fn motion_config() -> OnTableMotionConfig {
@@ -215,6 +216,100 @@ fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
             .as_ball_state()
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Rest
+    );
+}
+
+#[test]
+fn shot_scenarios_can_use_custom_physics_for_multi_ball_simulation() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.0, 4.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(0deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+    let ideal = scenario
+        .simulate_shot_system_with_physics_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::Ideal,
+            &BallBallCollisionConfig::ideal(),
+            RailModel::SpinAware,
+            &RailCollisionProfile::default(),
+        )
+        .expect("expected ideal simulation to succeed")
+        .expect("scenario should contain a shot");
+    let damped = scenario
+        .simulate_shot_system_with_physics_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::Ideal,
+            &BallBallCollisionConfig::human_tuned(),
+            RailModel::SpinAware,
+            &RailCollisionProfile::default(),
+        )
+        .expect("expected damped simulation to succeed")
+        .expect("scenario should contain a shot");
+
+    let ideal_object_y = match &ideal.states[1] {
+        NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
+        other => panic!("expected object ball to remain on-table, got {other:?}"),
+    };
+    let damped_object_y = match &damped.states[1] {
+        NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
+        other => panic!("expected object ball to remain on-table, got {other:?}"),
+    };
+
+    assert!(
+        damped_object_y < ideal_object_y,
+        "lower ball-ball restitution should shorten the struck ball's final travel"
+    );
+}
+
+#[test]
+fn shot_scenarios_can_use_custom_rail_profiles_for_preview_paths() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/two_rail_bank_scratch.billiards"
+    ))
+    .expect("expected shot DSL to build");
+    let default_path = scenario
+        .trace_shot_path_with_rail_profile_on_table(
+            billiards::BallPathStop::Duration(billiards::Seconds::new(1.0)),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            RailModel::SpinAware,
+            &RailCollisionProfile::default(),
+        )
+        .expect("default profile trace should succeed")
+        .expect("scenario should contain a shot");
+    let dead_profile = RailCollisionProfile::human_tuned()
+        .with_right(RailCollisionConfig {
+            normal_restitution: Scale::from_f64(0.6),
+            tangential_friction_coefficient: Scale::from_f64(1.0),
+        })
+        .with_top(RailCollisionConfig {
+            normal_restitution: Scale::from_f64(0.6),
+            tangential_friction_coefficient: Scale::from_f64(1.0),
+        });
+    let dead_path = scenario
+        .trace_shot_path_with_rail_profile_on_table(
+            billiards::BallPathStop::Duration(billiards::Seconds::new(1.0)),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            RailModel::SpinAware,
+            &dead_profile,
+        )
+        .expect("dead profile trace should succeed")
+        .expect("scenario should contain a shot");
+
+    assert!(
+        dead_path.final_state.as_ball_state().speed().as_f64()
+            < default_path.final_state.as_ball_state().speed().as_f64(),
+        "deader rails should leave the cue ball carrying less rebound speed"
+    );
+    assert!(
+        dead_path.rail_impacts <= default_path.rail_impacts,
+        "deader rails should not create more rail contacts within the same preview horizon"
     );
 }
 

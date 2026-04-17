@@ -4600,12 +4600,13 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
 /// Advance the richer indexed N-ball system to the next supported event while also resolving rail
 /// impacts using explicit rail-response coefficients and pocket captures against the current table
 /// geometry.
-pub fn advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
+pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
     states: &[NBallSystemState],
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
 ) -> NBallSystemAdvance {
@@ -4628,10 +4629,11 @@ pub fn advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_tabl
             second_ball_index,
             collision,
         } => {
-            let (first_after, second_after) = collide_ball_ball_on_table(
+            let (first_after, second_after) = collide_ball_ball_on_table_with_config(
                 &collision.a_at_impact,
                 &collision.b_at_impact,
                 collision_model,
+                collision_config,
             );
             states_after[*first_ball_index] = NBallSystemState::OnTable(first_after);
             states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
@@ -4662,6 +4664,27 @@ pub fn advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_tabl
         elapsed,
         event: Some(event),
     }
+}
+
+pub fn advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallSystemAdvance {
+    advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        &BallBallCollisionConfig::ideal(),
+        rail_model,
+        rail_profile,
+    )
 }
 
 /// Advance the richer indexed N-ball system to the next supported event while also resolving rail
@@ -4751,6 +4774,30 @@ where
 
 /// Simulate the richer indexed N-ball system until rest while also resolving rail impacts using
 /// explicit rail-response coefficients and pocket captures.
+pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallSystemSimulation {
+    simulate_n_ball_system_with_pockets_until_rest(states, |current| {
+        advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+            current,
+            ball,
+            table,
+            motion,
+            collision_model,
+            collision_config,
+            rail_model,
+            rail_profile,
+        )
+    })
+}
+
 pub fn simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
     states: &[NBallSystemState],
     ball: &BallSetPhysicsSpec,
@@ -4760,17 +4807,16 @@ pub fn simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
 ) -> NBallSystemSimulation {
-    simulate_n_ball_system_with_pockets_until_rest(states, |current| {
-        advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
-            current,
-            ball,
-            table,
-            motion,
-            collision_model,
-            rail_model,
-            rail_profile,
-        )
-    })
+    simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        &BallBallCollisionConfig::ideal(),
+        rail_model,
+        rail_profile,
+    )
 }
 
 /// Simulate the richer indexed N-ball system until rest while also resolving rail impacts using
@@ -4818,6 +4864,33 @@ pub fn simulate_n_ball_system_with_rails_and_pockets_on_table_until_rest(
 
 /// Simulate any number of initially on-table balls until rest while also resolving rail impacts and
 /// pocket captures against the current table geometry.
+pub fn simulate_n_balls_with_physics_and_pockets_on_table_until_rest(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallSystemSimulation {
+    let system_states = states
+        .iter()
+        .cloned()
+        .map(NBallSystemState::from)
+        .collect::<Vec<_>>();
+    simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
+        &system_states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        collision_config,
+        rail_model,
+        rail_profile,
+    )
+}
+
 pub fn simulate_n_balls_with_rail_profile_and_pockets_on_table_until_rest(
     states: &[OnTableBallState],
     ball: &BallSetPhysicsSpec,
@@ -4827,17 +4900,13 @@ pub fn simulate_n_balls_with_rail_profile_and_pockets_on_table_until_rest(
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
 ) -> NBallSystemSimulation {
-    let system_states = states
-        .iter()
-        .cloned()
-        .map(NBallSystemState::from)
-        .collect::<Vec<_>>();
-    simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
-        &system_states,
+    simulate_n_balls_with_physics_and_pockets_on_table_until_rest(
+        states,
         ball,
         table,
         motion,
         collision_model,
+        &BallBallCollisionConfig::ideal(),
         rail_model,
         rail_profile,
     )
@@ -7061,6 +7130,36 @@ impl GameState {
         self.add_ball(ball);
     }
 
+    fn clip_line_to_ball_edges(
+        &self,
+        from: &Position,
+        to: &Position,
+        from_radius: Inches,
+        to_radius: Inches,
+    ) -> (Position, Position) {
+        let mut resolved_from = from.clone();
+        resolved_from.resolve_shifts(&self.table_spec);
+        let mut resolved_to = to.clone();
+        resolved_to.resolve_shifts(&self.table_spec);
+
+        let from_x = self.table_spec.diamond_to_inches(resolved_from.x.clone()).as_f64();
+        let from_y = self.table_spec.diamond_to_inches(resolved_from.y.clone()).as_f64();
+        let to_x = self.table_spec.diamond_to_inches(resolved_to.x.clone()).as_f64();
+        let to_y = self.table_spec.diamond_to_inches(resolved_to.y.clone()).as_f64();
+        let distance = (to_x - from_x).hypot(to_y - from_y);
+        if distance <= from_radius.as_f64() + to_radius.as_f64() + 1e-9 {
+            return (resolved_from, resolved_to);
+        }
+
+        let angle = resolved_from.angle_to(&resolved_to);
+        let mut clipped_from = resolved_from.translate_inches(from_radius, angle);
+        clipped_from.resolve_shifts(&self.table_spec);
+        let mut clipped_to = resolved_to.translate_inches(to_radius, angle.flipped());
+        clipped_to.resolve_shifts(&self.table_spec);
+
+        (clipped_from, clipped_to)
+    }
+
     pub fn add_dotted_line(&mut self, from: &Position, to: &Position, color: Rgba<u8>) {
         self.add_dotted_line_styled(from, to, DashedLineStyle::new(color));
     }
@@ -7151,11 +7250,7 @@ impl GameState {
         );
     }
 
-    pub fn add_smooth_polyline_styled(
-        &mut self,
-        points: &[Position],
-        style: SmoothPolylineStyle,
-    ) {
+    pub fn add_smooth_polyline_styled(&mut self, points: &[Position], style: SmoothPolylineStyle) {
         let mut resolved = Vec::with_capacity(points.len());
         for point in points {
             let mut point = point.clone();
@@ -7227,7 +7322,19 @@ impl GameState {
             self.add_ghost_ball_styled(&start, ghost_style.clone());
         }
 
-        self.add_dotted_polyline_styled(&path.projected_points(&self.table_spec), style.line.clone());
+        let points = path.projected_points(&self.table_spec);
+        for window in points.windows(2) {
+            let (start, end) = match &style.clip_endpoints_to_ball_radius {
+                Some(radius) => self.clip_line_to_ball_edges(
+                    &window[0],
+                    &window[1],
+                    radius.clone(),
+                    radius.clone(),
+                ),
+                None => (window[0].clone(), window[1].clone()),
+            };
+            self.add_dotted_line_styled(&start, &end, style.line.clone());
+        }
     }
 
     /// Add a dotted overlay for a traced ball path and include a ghost ball at the start.
@@ -7276,7 +7383,16 @@ impl GameState {
         if let Some(ghost_style) = &style.ghost_ball {
             self.add_ghost_ball_styled(&ghost_ball, ghost_style.clone());
         }
-        self.add_dotted_line_styled(shooting_position, &ghost_ball, style.line.clone());
+        let (line_start, line_end) = match &style.clip_endpoints_to_ball_radius {
+            Some(radius) => self.clip_line_to_ball_edges(
+                shooting_position,
+                &ghost_ball,
+                radius.clone(),
+                radius.clone(),
+            ),
+            None => (shooting_position.clone(), ghost_ball.clone()),
+        };
+        self.add_dotted_line_styled(&line_start, &line_end, style.line.clone());
         ghost_ball
     }
 
@@ -7344,7 +7460,12 @@ impl GameState {
                         );
                     }
                     Overlay::SmoothPolyline { points, style } if style.layer == layer => {
-                        drawing::draw_smooth_polyline_mut(table, points, style.width_px, style.color);
+                        drawing::draw_smooth_polyline_mut(
+                            table,
+                            points,
+                            style.width_px,
+                            style.color,
+                        );
                     }
                     Overlay::GhostBall { center, style } if style.layer == layer => {
                         drawing::draw_ghost_ball_mut(

@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
 use crate::{
-    advance_motion_on_table, advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
-    simulate_n_balls_with_rails_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
-    trace_ball_path_with_rails_on_table, Angle, Ball, BallPath, BallPathSegment, BallPathStop,
-    BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
-    CueTipContact, Diamond, GameState, HumanShotSpeedValidation, Inches, InchesPerSecond,
-    MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
-    OnTableMotionConfig, Pocket, Position, Rail, RailModel, RestingOnTableBallState, Scale,
-    Seconds, Shot, ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND,
-    CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND,
-    TOP_RIGHT_DIAMOND,
+    advance_motion_on_table, advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
+    simulate_n_balls_with_physics_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
+    trace_ball_path_with_rail_profile_on_table, Angle, Ball, BallBallCollisionConfig, BallPath,
+    BallPathSegment, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
+    CollisionModel, CueStrikeConfig, CueTipContact, Diamond, GameState, HumanShotSpeedValidation,
+    Inches, InchesPerSecond, MotionPhase, NBallSystemEvent, NBallSystemSimulation,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, Position, Rail,
+    RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError,
+    TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
+    CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use image::Rgba;
 use winnow::ascii::{float, line_ending, till_line_ending};
@@ -111,6 +111,33 @@ impl DslScenario {
         Ok(Some(states))
     }
 
+    pub fn simulate_shot_system_with_physics_on_table_until_rest(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        collision_config: &BallBallCollisionConfig,
+        rail_model: RailModel,
+        rail_profile: &RailCollisionProfile,
+    ) -> Result<Option<NBallSystemSimulation>, DslBuildError> {
+        let Some(states) = self.initial_shot_system_states_on_table(ball_set)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            simulate_n_balls_with_physics_and_pockets_on_table_until_rest(
+                &states,
+                ball_set,
+                &self.game_state.table_spec,
+                motion,
+                collision_model,
+                collision_config,
+                rail_model,
+                rail_profile,
+            ),
+        ))
+    }
+
     pub fn simulate_shot_system_with_rails_and_pockets_on_table_until_rest(
         &self,
         ball_set: &BallSetPhysicsSpec,
@@ -118,39 +145,37 @@ impl DslScenario {
         collision_model: CollisionModel,
         rail_model: RailModel,
     ) -> Result<Option<NBallSystemSimulation>, DslBuildError> {
-        let Some(states) = self.initial_shot_system_states_on_table(ball_set)? else {
-            return Ok(None);
-        };
-
-        Ok(Some(
-            simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
-                &states,
-                ball_set,
-                &self.game_state.table_spec,
-                motion,
-                collision_model,
-                rail_model,
-            ),
-        ))
+        self.simulate_shot_system_with_physics_on_table_until_rest(
+            ball_set,
+            motion,
+            collision_model,
+            &BallBallCollisionConfig::ideal(),
+            rail_model,
+            &RailCollisionProfile::default(),
+        )
     }
 
-    pub fn simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+    pub fn simulate_shot_trace_with_physics_on_table_until_rest(
         &self,
         ball_set: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
         collision_model: CollisionModel,
+        collision_config: &BallBallCollisionConfig,
         rail_model: RailModel,
+        rail_profile: &RailCollisionProfile,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
         let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
             return Ok(None);
         };
-        let simulation = simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+        let simulation = simulate_n_balls_with_physics_and_pockets_on_table_until_rest(
             &initial_states,
             ball_set,
             &self.game_state.table_spec,
             motion,
             collision_model,
+            collision_config,
             rail_model,
+            rail_profile,
         );
         let initial_system_states = initial_states
             .iter()
@@ -164,7 +189,9 @@ impl DslScenario {
             ball_set,
             motion,
             collision_model,
+            collision_config,
             rail_model,
+            rail_profile,
         );
 
         Ok(Some(ScenarioShotTrace {
@@ -172,6 +199,23 @@ impl DslScenario {
             event_log,
             ball_traces,
         }))
+    }
+
+    pub fn simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        rail_model: RailModel,
+    ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        self.simulate_shot_trace_with_physics_on_table_until_rest(
+            ball_set,
+            motion,
+            collision_model,
+            &BallBallCollisionConfig::ideal(),
+            rail_model,
+            &RailCollisionProfile::default(),
+        )
     }
 
     pub fn game_state_for_system_states(&self, states: &[NBallSystemState]) -> GameState {
@@ -210,7 +254,9 @@ impl DslScenario {
         ball_set: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
         collision_model: CollisionModel,
+        collision_config: &BallBallCollisionConfig,
         rail_model: RailModel,
+        rail_profile: &RailCollisionProfile,
     ) -> Vec<ScenarioBallTrace> {
         let mut current_states = initial_states.to_vec();
         let mut traces = self
@@ -242,13 +288,15 @@ impl DslScenario {
                 push_visible_trace_segment(&mut trace.segments, start, &end, step_time);
             }
 
-            let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+            let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
                 &current_states,
                 ball_set,
                 &self.game_state.table_spec,
                 motion,
                 collision_model,
+                collision_config,
                 rail_model,
+                rail_profile,
             );
             current_states = advanced.states;
         }
@@ -260,6 +308,29 @@ impl DslScenario {
         traces
     }
 
+    pub fn trace_shot_path_with_rail_profile_on_table(
+        &self,
+        stop: BallPathStop,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        rail_model: RailModel,
+        rail_profile: &RailCollisionProfile,
+    ) -> Result<Option<BallPath>, DslBuildError> {
+        let Some(initial_state) = self.strike_shot_on_table(ball_set)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(trace_ball_path_with_rail_profile_on_table(
+            &initial_state,
+            stop,
+            ball_set,
+            &self.game_state.table_spec,
+            motion,
+            rail_model,
+            rail_profile,
+        )))
+    }
+
     pub fn trace_shot_path_with_rails_on_table(
         &self,
         stop: BallPathStop,
@@ -267,18 +338,13 @@ impl DslScenario {
         motion: &OnTableMotionConfig,
         rail_model: RailModel,
     ) -> Result<Option<BallPath>, DslBuildError> {
-        let Some(initial_state) = self.strike_shot_on_table(ball_set)? else {
-            return Ok(None);
-        };
-
-        Ok(Some(trace_ball_path_with_rails_on_table(
-            &initial_state,
+        self.trace_shot_path_with_rail_profile_on_table(
             stop,
             ball_set,
-            &self.game_state.table_spec,
             motion,
             rail_model,
-        )))
+            &RailCollisionProfile::default(),
+        )
     }
 
     pub fn trace_shot_path_until_rest_with_rails_on_table(

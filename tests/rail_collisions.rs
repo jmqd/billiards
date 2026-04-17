@@ -1,7 +1,8 @@
 use billiards::{
-    collide_ball_rail_on_table, collide_ball_rail_on_table_with_radius_and_config,
-    AngularVelocity3, BallState, Inches, Inches2, OnTableBallState, Rail, RailCollisionConfig,
-    RailModel, Scale, Velocity2, TYPICAL_BALL_RADIUS,
+    cloth_contact_velocity_on_table, collide_ball_rail_on_table,
+    collide_ball_rail_on_table_with_radius_and_config, AngularVelocity3, BallState, Inches,
+    Inches2, MotionPhase, OnTableBallState, Rail, RailCollisionConfig, RailModel, Scale, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -201,6 +202,40 @@ fn a_spin_aware_rail_collision_with_topspin_reduces_vertical_plane_spin() {
         reflected.as_ball_state().angular_velocity.x().as_f64()
             < state.as_ball_state().angular_velocity.x().as_f64(),
         "rail-face friction should reduce the carried topspin"
+    );
+}
+
+#[test]
+fn a_rolling_ball_rebounding_from_a_rail_carries_draw_like_spin_relative_to_its_new_direction() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let rolling = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("0", "5"),
+        AngularVelocity3::new(-5.0 / radius_value, 0.0, 0.0),
+    ));
+
+    assert_eq!(
+        rolling.as_ball_state().motion_phase(radius.clone()),
+        MotionPhase::Rolling
+    );
+
+    let reflected = collide_ball_rail_on_table(&rolling, Rail::Top, RailModel::Mirror);
+    let slip = cloth_contact_velocity_on_table(reflected.as_ball_state(), radius.clone());
+
+    assert_eq!(
+        reflected.as_ball_state().motion_phase(radius.clone()),
+        MotionPhase::Sliding,
+        "a rail rebound should generally break the no-slip rolling condition"
+    );
+    assert_close(reflected.as_ball_state().velocity.y().as_f64(), -5.0);
+    assert_close(
+        reflected.as_ball_state().angular_velocity.x().as_f64(),
+        -5.0 / radius_value,
+    );
+    assert!(
+        slip.y().as_f64().signum() == reflected.as_ball_state().velocity.y().as_f64().signum(),
+        "the carried pre-impact rolling spin should act like draw against the new travel direction"
     );
 }
 

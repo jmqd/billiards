@@ -353,12 +353,20 @@ impl InchesPerSecond {
         Self::new(Inches::zero())
     }
 
+    pub fn from_mph(mph: f64) -> Self {
+        Self::new(Inches::from_f64(mph * 17.6))
+    }
+
     pub fn as_inches(&self) -> &Inches {
         &self.inches
     }
 
     pub fn as_f64(&self) -> f64 {
         self.inches.as_f64()
+    }
+
+    pub fn as_mph(&self) -> f64 {
+        self.as_f64() / 17.6
     }
 }
 
@@ -671,13 +679,13 @@ pub enum RailModel {
     SpinAware,
 }
 
-const DEFAULT_RAIL_NORMAL_RESTITUTION: f64 = 0.85;
+const DEFAULT_RAIL_NORMAL_RESTITUTION: f64 = 0.80;
 
 /// Configurable coefficients for the current ball-rail response helpers.
 ///
-/// The default `normal_restitution` is a conservative first-pass placeholder intended to make the
-/// restitution-aware rail models usable without forcing coefficient plumbing through every caller
-/// yet. `tangential_friction_coefficient` is the current first-pass coefficient `fi` from
+/// `human_tuned()` is the current default: it keeps the cushion a little less lively than the
+/// earlier placeholder default so multi-rail rebounds feel closer to ordinary table play. The
+/// `tangential_friction_coefficient` is still the current first-pass coefficient `fi` from
 /// `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.1.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RailCollisionConfig {
@@ -685,12 +693,18 @@ pub struct RailCollisionConfig {
     pub tangential_friction_coefficient: Scale,
 }
 
-impl Default for RailCollisionConfig {
-    fn default() -> Self {
+impl RailCollisionConfig {
+    pub fn human_tuned() -> Self {
         Self {
             normal_restitution: Scale::from_f64(DEFAULT_RAIL_NORMAL_RESTITUTION),
             tangential_friction_coefficient: Scale::from_f64(1.0),
         }
+    }
+}
+
+impl Default for RailCollisionConfig {
+    fn default() -> Self {
+        Self::human_tuned()
     }
 }
 
@@ -1735,6 +1749,120 @@ impl Shot {
     pub fn tip_contact(&self) -> &CueTipContact {
         &self.tip_contact
     }
+
+    pub fn human_speed_validation(
+        &self,
+        cue: &CueStrikeConfig,
+    ) -> Result<HumanShotSpeedValidation, ShotError> {
+        validate_shot_human_speed(self, cue)
+    }
+}
+
+/// Human-facing speed bands for classifying shot pace.
+///
+/// The ordinary shot-speed ladder follows the local Dr. Dave speed-control references (`TP B.5`
+/// / `TP B.6`):
+///
+/// - `Touch` ≈ 1.5 mph
+/// - `Slow` ≈ 3 mph
+/// - `MediumSoft` ≈ 5 mph
+/// - `Medium` ≈ 7 mph
+/// - `MediumFast` ≈ 8 mph
+/// - `Fast` ≈ 12 mph
+/// - `Power` ≈ 20 mph
+///
+/// The break-speed bands follow the local break-speed notes in the corpus:
+///
+/// - very good power breaks are typically about 25–30 mph, and
+/// - the best power breakers can approach 35 mph, which is unusual and hard to control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HumanShotSpeedBand {
+    Touch,
+    Slow,
+    MediumSoft,
+    Medium,
+    MediumFast,
+    Fast,
+    Power,
+    TypicalPowerBreak,
+    ExceptionalPowerBreak,
+    BeyondExceptionalPowerBreak,
+}
+
+impl HumanShotSpeedBand {
+    pub fn from_speed(speed: &InchesPerSecond) -> Self {
+        let mph = speed.as_mph();
+
+        if mph <= 1.5 {
+            Self::Touch
+        } else if mph <= 3.0 {
+            Self::Slow
+        } else if mph <= 5.0 {
+            Self::MediumSoft
+        } else if mph <= 7.0 {
+            Self::Medium
+        } else if mph <= 8.0 {
+            Self::MediumFast
+        } else if mph <= 12.0 {
+            Self::Fast
+        } else if mph <= 20.0 {
+            Self::Power
+        } else if mph <= 30.0 {
+            Self::TypicalPowerBreak
+        } else if mph <= 35.0 {
+            Self::ExceptionalPowerBreak
+        } else {
+            Self::BeyondExceptionalPowerBreak
+        }
+    }
+}
+
+/// A human-facing speed report for a shot intent under the current cue-strike model.
+///
+/// `cue_speed_at_impact` is the raw `Shot` input. `estimated_cue_ball_speed_after_impact` is the
+/// immediate post-strike cue-ball launch speed implied by the current cue/ball transfer model.
+///
+/// This lets callers compare both the abstract stroke input and the resulting cue-ball launch speed
+/// against ordinary human-play speed bands.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HumanShotSpeedValidation {
+    pub cue_speed_at_impact: InchesPerSecond,
+    pub cue_speed_band: HumanShotSpeedBand,
+    pub estimated_cue_ball_speed_after_impact: InchesPerSecond,
+    pub cue_ball_speed_band: HumanShotSpeedBand,
+}
+
+impl HumanShotSpeedValidation {
+    pub fn is_typical_table_shot(&self) -> bool {
+        matches!(
+            self.cue_ball_speed_band,
+            HumanShotSpeedBand::Touch
+                | HumanShotSpeedBand::Slow
+                | HumanShotSpeedBand::MediumSoft
+                | HumanShotSpeedBand::Medium
+                | HumanShotSpeedBand::MediumFast
+                | HumanShotSpeedBand::Fast
+        )
+    }
+
+    pub fn requires_power_shot(&self) -> bool {
+        !self.is_typical_table_shot()
+    }
+
+    pub fn exceeds_typical_human_power_break(&self) -> bool {
+        matches!(
+            self.cue_ball_speed_band,
+            HumanShotSpeedBand::ExceptionalPowerBreak
+                | HumanShotSpeedBand::BeyondExceptionalPowerBreak
+        )
+    }
+
+    pub fn exceeds_exceptional_human_shot_speed(&self) -> bool {
+        matches!(
+            self.cue_ball_speed_band,
+            HumanShotSpeedBand::BeyondExceptionalPowerBreak
+        )
+    }
 }
 
 /// Dimensionless parameters for the current cue-strike transfer model.
@@ -1803,27 +1931,7 @@ impl CueStrikeConfig {
     }
 }
 
-/// Strike a resting on-table ball with a first-pass horizontal cue shot.
-///
-/// This models the instantaneous cue→ball transfer only; it returns the immediate post-strike
-/// on-table state that should then be fed into the existing motion / event simulation. The current
-/// implementation follows the horizontal cue-ball collision model in
-/// `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.2:
-///
-/// - cue movement is a translation in the shot heading,
-/// - the ball starts from rest,
-/// - cue-tip offset is specified by `CueTipContact` in cue-local ball-radius units, and
-/// - only the automatic cue-ball separation regime is supported.
-///
-/// This first pass intentionally excludes cue elevation, jump / masse launch, squirt / swerve, and
-/// detailed tip-size / miscue probability refinements. It does, however, enforce a first-pass hard
-/// miscue limit on cue-tip offset via `CueStrikeConfig`.
-pub fn strike_resting_ball_on_table(
-    ball: &RestingOnTableBallState,
-    shot: &Shot,
-    cue: &CueStrikeConfig,
-    ball_set: &BallSetPhysicsSpec,
-) -> Result<OnTableBallState, ShotError> {
+fn validate_shot_and_cue_for_strike(shot: &Shot, cue: &CueStrikeConfig) -> Result<(), ShotError> {
     let cue_mass_ratio = cue.cue_mass_ratio.as_f64();
     let collision_energy_loss = cue.collision_energy_loss.as_f64();
     let offset_radius = shot.tip_contact.offset_radius().as_f64();
@@ -1847,12 +1955,69 @@ pub fn strike_resting_ball_on_table(
         });
     }
 
+    Ok(())
+}
+
+fn compute_post_strike_speed(
+    shot: &Shot,
+    cue: &CueStrikeConfig,
+) -> Result<InchesPerSecond, ShotError> {
+    validate_shot_and_cue_for_strike(shot, cue)?;
+
+    let cue_mass_ratio = cue.cue_mass_ratio.as_f64();
+    let collision_energy_loss = cue.collision_energy_loss.as_f64();
+    let offset_radius_squared = shot.tip_contact.offset_radius().as_f64().powi(2);
     let k2 = 1.0 + 2.5 * offset_radius_squared;
     let cue_speed = shot.cue_speed.as_f64();
     let post_strike_speed = cue_speed
         * (1.0
             + (1.0 - collision_energy_loss - collision_energy_loss * k2 * cue_mass_ratio).sqrt())
         / (k2 + 1.0 / cue_mass_ratio);
+
+    Ok(InchesPerSecond::new(Inches::from_f64(post_strike_speed)))
+}
+
+/// Validate a shot's raw cue speed and estimated cue-ball launch speed against human-play ranges.
+///
+/// The returned report keeps both numbers because the current public `Shot` input stores cue speed
+/// at impact, while most human-facing literature and practical intuition talk about cue-ball speed.
+pub fn validate_shot_human_speed(
+    shot: &Shot,
+    cue: &CueStrikeConfig,
+) -> Result<HumanShotSpeedValidation, ShotError> {
+    let estimated_cue_ball_speed_after_impact = compute_post_strike_speed(shot, cue)?;
+    let cue_speed_at_impact = shot.cue_speed.clone();
+
+    Ok(HumanShotSpeedValidation {
+        cue_speed_band: HumanShotSpeedBand::from_speed(&cue_speed_at_impact),
+        cue_ball_speed_band: HumanShotSpeedBand::from_speed(&estimated_cue_ball_speed_after_impact),
+        cue_speed_at_impact,
+        estimated_cue_ball_speed_after_impact,
+    })
+}
+
+/// Strike a resting on-table ball with a first-pass horizontal cue shot.
+///
+/// This models the instantaneous cue→ball transfer only; it returns the immediate post-strike
+/// on-table state that should then be fed into the existing motion / event simulation. The current
+/// implementation follows the horizontal cue-ball collision model in
+/// `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.2:
+///
+/// - cue movement is a translation in the shot heading,
+/// - the ball starts from rest,
+/// - cue-tip offset is specified by `CueTipContact` in cue-local ball-radius units, and
+/// - only the automatic cue-ball separation regime is supported.
+///
+/// This first pass intentionally excludes cue elevation, jump / masse launch, squirt / swerve, and
+/// detailed tip-size / miscue probability refinements. It does, however, enforce a first-pass hard
+/// miscue limit on cue-tip offset via `CueStrikeConfig`.
+pub fn strike_resting_ball_on_table(
+    ball: &RestingOnTableBallState,
+    shot: &Shot,
+    cue: &CueStrikeConfig,
+    ball_set: &BallSetPhysicsSpec,
+) -> Result<OnTableBallState, ShotError> {
+    let post_strike_speed = compute_post_strike_speed(shot, cue)?.as_f64();
     let velocity = Velocity2::from_polar(
         InchesPerSecond::new(Inches::from_f64(post_strike_speed)),
         shot.heading,
@@ -5390,6 +5555,12 @@ fn spin_aware_ball_rail_collision_on_table(
 /// contact-slip vector. Running / reverse english (`ωz`) changes the returned tangential speed and
 /// z-spin, while top / draw (`ωx`, `ωy`) changes the vertical slip component and therefore the
 /// horizontal spin carried away from the cushion.
+///
+/// A rolling ball that rebounds from a rail will generally leave the cushion in a `Sliding` phase,
+/// not `Rolling`: the pre-impact rolling spin is still present after the bounce, but the reversed
+/// normal component of translational velocity changes the no-slip condition. In that sense, carried
+/// rolling spin can act like draw relative to the post-rail travel direction until cloth friction
+/// re-establishes rolling.
 pub fn collide_ball_rail_on_table_with_radius_and_config(
     state: &OnTableBallState,
     rail: Rail,
@@ -6588,6 +6759,11 @@ impl GameState {
         color: Rgba<u8>,
     ) -> Position {
         let ghost_ball = object_ball.ghost_ball(destination, &self.table_spec);
+        self.add_ghost_ball(
+            &ghost_ball,
+            Rgba([255, 255, 255, 64]),
+            Rgba([0, 0, 0, 96]),
+        );
         self.add_dotted_line(shooting_position, &ghost_ball, color);
         ghost_ball
     }

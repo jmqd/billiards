@@ -1,4 +1,6 @@
-use billiards::{CueStrikeConfig, CueTipContact, InchesPerSecond, Scale, Shot, ShotError};
+use billiards::{
+    CueStrikeConfig, CueTipContact, HumanShotSpeedBand, InchesPerSecond, Scale, Shot, ShotError,
+};
 
 fn assert_close(actual: f64, expected: f64) {
     let delta = (actual - expected).abs();
@@ -112,4 +114,54 @@ fn cue_strike_config_rejects_nonpositive_mass_ratio_and_out_of_range_energy_loss
         by_miscue_limit,
         Err(ShotError::MiscueOffsetLimitOutOfRange { .. })
     ));
+}
+
+#[test]
+fn human_speed_validation_reports_a_128_ips_center_ball_hit_as_an_ordinary_table_shot() {
+    let shot = Shot::new(
+        billiards::Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("128"),
+        CueTipContact::center(),
+    )
+    .expect("shot should validate");
+    let validation = shot
+        .human_speed_validation(
+            &CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.1))
+                .expect("cue config should validate"),
+        )
+        .expect("human speed validation should succeed");
+
+    assert_close(validation.cue_speed_at_impact.as_mph(), 128.0 / 17.6);
+    assert_close(
+        validation.estimated_cue_ball_speed_after_impact.as_mph(),
+        128.0 * (1.0 + (0.8_f64).sqrt()) / 2.0 / 17.6,
+    );
+    assert_eq!(validation.cue_speed_band, HumanShotSpeedBand::MediumFast);
+    assert_eq!(validation.cue_ball_speed_band, HumanShotSpeedBand::Medium);
+    assert!(validation.is_typical_table_shot());
+    assert!(!validation.requires_power_shot());
+}
+
+#[test]
+fn human_speed_validation_flags_speeds_beyond_exceptional_human_break_range() {
+    let shot = Shot::new(
+        billiards::Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("700"),
+        CueTipContact::center(),
+    )
+    .expect("shot should validate");
+    let validation = shot
+        .human_speed_validation(
+            &CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.1))
+                .expect("cue config should validate"),
+        )
+        .expect("human speed validation should succeed");
+
+    assert_eq!(
+        validation.cue_ball_speed_band,
+        HumanShotSpeedBand::BeyondExceptionalPowerBreak
+    );
+    assert!(validation.requires_power_shot());
+    assert!(validation.exceeds_typical_human_power_break());
+    assert!(validation.exceeds_exceptional_human_shot_speed());
 }

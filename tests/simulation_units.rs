@@ -38,7 +38,10 @@ fn velocity2_round_trips_between_cartesian_and_polar_forms() {
     assert_close(velocity.y().as_f64(), 8.0);
     assert_close(velocity.speed().as_f64(), 10.0);
     assert_close(
-        velocity.angle_from_north().expect("velocity heading").as_degrees(),
+        velocity
+            .angle_from_north()
+            .expect("velocity heading")
+            .as_degrees(),
         angle.as_degrees(),
     );
 }
@@ -72,4 +75,12 @@ fn angular_velocity3_exposes_named_components() {
     assert_close(spin.x().as_f64(), 1.0);
     assert_close(spin.y().as_f64(), -2.0);
     assert_close(spin.z().as_f64(), 3.0);
+}
+
+#[test]
+fn inches_per_second_round_trips_with_miles_per_hour() {
+    let speed = InchesPerSecond::from_mph(12.5);
+
+    assert_close(speed.as_f64(), 220.0);
+    assert_close(speed.as_mph(), 12.5);
 }

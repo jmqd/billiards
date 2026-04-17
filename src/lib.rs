@@ -1,8 +1,12 @@
 mod assets;
 mod drawing;
 pub mod dsl;
+pub mod visualization;
 
 use crate::assets::diamond_to_pixel;
+use crate::visualization::{
+    AimOverlayStyle, BallPathStyle, DashedLineStyle, GhostBallStyle, SmoothPolylineStyle,
+};
 use assets::ideal_ball_size_px;
 use core::fmt;
 use image::imageops::{resize, FilterType};
@@ -6960,20 +6964,15 @@ enum Overlay {
     DashedLine {
         start: Position,
         end: Position,
-        color: Rgba<u8>,
-        layer: OverlayLayer,
+        style: DashedLineStyle,
     },
     SmoothPolyline {
         points: Vec<Position>,
-        width_px: f32,
-        color: Rgba<u8>,
-        layer: OverlayLayer,
+        style: SmoothPolylineStyle,
     },
     GhostBall {
         center: Position,
-        fill_color: Rgba<u8>,
-        outline_color: Rgba<u8>,
-        layer: OverlayLayer,
+        style: GhostBallStyle,
     },
 }
 
@@ -7063,7 +7062,7 @@ impl GameState {
     }
 
     pub fn add_dotted_line(&mut self, from: &Position, to: &Position, color: Rgba<u8>) {
-        self.add_dotted_line_on_layer(from, to, color, OverlayLayer::BelowBalls);
+        self.add_dotted_line_styled(from, to, DashedLineStyle::new(color));
     }
 
     pub fn add_dotted_line_on_layer(
@@ -7072,6 +7071,15 @@ impl GameState {
         to: &Position,
         color: Rgba<u8>,
         layer: OverlayLayer,
+    ) {
+        self.add_dotted_line_styled(from, to, DashedLineStyle::new(color).on_layer(layer));
+    }
+
+    pub fn add_dotted_line_styled(
+        &mut self,
+        from: &Position,
+        to: &Position,
+        style: DashedLineStyle,
     ) {
         let mut from = from.clone();
         from.resolve_shifts(&self.table_spec);
@@ -7082,14 +7090,13 @@ impl GameState {
         self.lines_to_draw.push(Overlay::DashedLine {
             start: from,
             end: to,
-            color,
-            layer,
+            style,
         })
     }
 
     /// Add a dotted polyline by drawing dashed segments between each consecutive pair of points.
     pub fn add_dotted_polyline(&mut self, points: &[Position], color: Rgba<u8>) {
-        self.add_dotted_polyline_on_layer(points, color, OverlayLayer::BelowBalls);
+        self.add_dotted_polyline_styled(points, DashedLineStyle::new(color));
     }
 
     pub fn add_dotted_polyline_on_layer(
@@ -7098,14 +7105,18 @@ impl GameState {
         color: Rgba<u8>,
         layer: OverlayLayer,
     ) {
+        self.add_dotted_polyline_styled(points, DashedLineStyle::new(color).on_layer(layer));
+    }
+
+    pub fn add_dotted_polyline_styled(&mut self, points: &[Position], style: DashedLineStyle) {
         for window in points.windows(2) {
-            self.add_dotted_line_on_layer(&window[0], &window[1], color, layer);
+            self.add_dotted_line_styled(&window[0], &window[1], style.clone());
         }
     }
 
     /// Add a smooth anti-aliased polyline overlay.
     pub fn add_smooth_polyline(&mut self, points: &[Position], color: Rgba<u8>) {
-        self.add_smooth_polyline_with_width_on_layer(points, 4.0, color, OverlayLayer::BelowBalls);
+        self.add_smooth_polyline_styled(points, SmoothPolylineStyle::new(color));
     }
 
     /// Add a smooth anti-aliased polyline overlay with an explicit width.
@@ -7115,11 +7126,12 @@ impl GameState {
         width_px: f32,
         color: Rgba<u8>,
     ) {
-        self.add_smooth_polyline_with_width_on_layer(
+        self.add_smooth_polyline_styled(
             points,
-            width_px,
-            color,
-            OverlayLayer::BelowBalls,
+            SmoothPolylineStyle {
+                width_px,
+                ..SmoothPolylineStyle::new(color)
+            },
         );
     }
 
@@ -7130,6 +7142,20 @@ impl GameState {
         color: Rgba<u8>,
         layer: OverlayLayer,
     ) {
+        self.add_smooth_polyline_styled(
+            points,
+            SmoothPolylineStyle {
+                width_px,
+                ..SmoothPolylineStyle::new(color).on_layer(layer)
+            },
+        );
+    }
+
+    pub fn add_smooth_polyline_styled(
+        &mut self,
+        points: &[Position],
+        style: SmoothPolylineStyle,
+    ) {
         let mut resolved = Vec::with_capacity(points.len());
         for point in points {
             let mut point = point.clone();
@@ -7139,9 +7165,7 @@ impl GameState {
 
         self.lines_to_draw.push(Overlay::SmoothPolyline {
             points: resolved,
-            width_px,
-            color,
-            layer,
+            style,
         });
     }
 
@@ -7152,11 +7176,13 @@ impl GameState {
         fill_color: Rgba<u8>,
         outline_color: Rgba<u8>,
     ) {
-        self.add_ghost_ball_on_layer(
+        self.add_ghost_ball_styled(
             position,
-            fill_color,
-            outline_color,
-            OverlayLayer::BelowBalls,
+            GhostBallStyle {
+                fill_color,
+                outline_color,
+                ..GhostBallStyle::default()
+            },
         );
     }
 
@@ -7167,20 +7193,41 @@ impl GameState {
         outline_color: Rgba<u8>,
         layer: OverlayLayer,
     ) {
+        self.add_ghost_ball_styled(
+            position,
+            GhostBallStyle {
+                fill_color,
+                outline_color,
+                layer,
+            },
+        );
+    }
+
+    pub fn add_ghost_ball_styled(&mut self, position: &Position, style: GhostBallStyle) {
         let mut position = position.clone();
         position.resolve_shifts(&self.table_spec);
 
         self.lines_to_draw.push(Overlay::GhostBall {
             center: position,
-            fill_color,
-            outline_color,
-            layer,
+            style,
         });
     }
 
     /// Add a dotted overlay for a traced ball path.
     pub fn add_dotted_ball_path(&mut self, path: &BallPath, color: Rgba<u8>) {
-        self.add_dotted_polyline(&path.projected_points(&self.table_spec), color);
+        self.add_dotted_ball_path_styled(path, &BallPathStyle::new(color));
+    }
+
+    pub fn add_dotted_ball_path_styled(&mut self, path: &BallPath, style: &BallPathStyle) {
+        if let Some(ghost_style) = &style.start_ghost_ball {
+            let start = path
+                .initial_state
+                .as_ball_state()
+                .projected_position(&self.table_spec);
+            self.add_ghost_ball_styled(&start, ghost_style.clone());
+        }
+
+        self.add_dotted_polyline_styled(&path.projected_points(&self.table_spec), style.line.clone());
     }
 
     /// Add a dotted overlay for a traced ball path and include a ghost ball at the start.
@@ -7191,12 +7238,14 @@ impl GameState {
         ghost_fill_color: Rgba<u8>,
         ghost_outline_color: Rgba<u8>,
     ) {
-        let start = path
-            .initial_state
-            .as_ball_state()
-            .projected_position(&self.table_spec);
-        self.add_ghost_ball(&start, ghost_fill_color, ghost_outline_color);
-        self.add_dotted_ball_path(path, path_color);
+        self.add_dotted_ball_path_styled(
+            path,
+            &BallPathStyle::new(path_color).with_start_ghost(GhostBallStyle {
+                fill_color: ghost_fill_color,
+                outline_color: ghost_outline_color,
+                ..GhostBallStyle::default()
+            }),
+        );
     }
 
     /// Add a dotted idealized aim line from `shooting_position` to the ghost-ball target that
@@ -7208,9 +7257,26 @@ impl GameState {
         shooting_position: &Position,
         color: Rgba<u8>,
     ) -> Position {
+        self.add_dotted_aim_line_styled(
+            object_ball,
+            destination,
+            shooting_position,
+            &AimOverlayStyle::new(color),
+        )
+    }
+
+    pub fn add_dotted_aim_line_styled(
+        &mut self,
+        object_ball: &Ball,
+        destination: &Position,
+        shooting_position: &Position,
+        style: &AimOverlayStyle,
+    ) -> Position {
         let ghost_ball = object_ball.ghost_ball(destination, &self.table_spec);
-        self.add_ghost_ball(&ghost_ball, Rgba([255, 255, 255, 64]), Rgba([0, 0, 0, 96]));
-        self.add_dotted_line(shooting_position, &ghost_ball, color);
+        if let Some(ghost_style) = &style.ghost_ball {
+            self.add_ghost_ball_styled(&ghost_ball, ghost_style.clone());
+        }
+        self.add_dotted_line_styled(shooting_position, &ghost_ball, style.line.clone());
         ghost_ball
     }
 
@@ -7223,11 +7289,26 @@ impl GameState {
         shooting_position: &Position,
         color: Rgba<u8>,
     ) -> Position {
-        self.add_dotted_aim_line(
+        self.add_dotted_aim_line_to_pocket_styled(
+            object_ball,
+            pocket,
+            shooting_position,
+            &AimOverlayStyle::new(color),
+        )
+    }
+
+    pub fn add_dotted_aim_line_to_pocket_styled(
+        &mut self,
+        object_ball: &Ball,
+        pocket: Pocket,
+        shooting_position: &Position,
+        style: &AimOverlayStyle,
+    ) -> Position {
+        self.add_dotted_aim_line_styled(
             object_ball,
             &pocket.aiming_center(),
             shooting_position,
-            color,
+            style,
         )
     }
 
@@ -7251,34 +7332,27 @@ impl GameState {
         let draw_overlays_for_layer = |layer: OverlayLayer, table: &mut RgbaImage| {
             for overlay in resolved.lines_to_draw.iter() {
                 match overlay {
-                    Overlay::DashedLine {
-                        start,
-                        end,
-                        color,
-                        layer: overlay_layer,
-                    } if *overlay_layer == layer => {
-                        drawing::draw_dashed_line_thick_mut(table, start, end, 3., 12., 2., *color);
+                    Overlay::DashedLine { start, end, style } if style.layer == layer => {
+                        drawing::draw_dashed_line_thick_mut(
+                            table,
+                            start,
+                            end,
+                            style.dash_px,
+                            style.gap_px,
+                            style.width_px,
+                            style.color,
+                        );
                     }
-                    Overlay::SmoothPolyline {
-                        points,
-                        width_px,
-                        color,
-                        layer: overlay_layer,
-                    } if *overlay_layer == layer => {
-                        drawing::draw_smooth_polyline_mut(table, points, *width_px, *color);
+                    Overlay::SmoothPolyline { points, style } if style.layer == layer => {
+                        drawing::draw_smooth_polyline_mut(table, points, style.width_px, style.color);
                     }
-                    Overlay::GhostBall {
-                        center,
-                        fill_color,
-                        outline_color,
-                        layer: overlay_layer,
-                    } if *overlay_layer == layer => {
+                    Overlay::GhostBall { center, style } if style.layer == layer => {
                         drawing::draw_ghost_ball_mut(
                             table,
                             center,
                             ball_diameter_px,
-                            *fill_color,
-                            *outline_color,
+                            style.fill_color,
+                            style.outline_color,
                         );
                     }
                     _ => {}

@@ -1,10 +1,11 @@
 use billiards::{
-    trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, Ball, BallPathStop,
-    BallSetPhysicsSpec, BallSpec, BallState, BallType, Diamond, GameState, Inches, Inches2,
-    InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
-    OnTableBallState, OnTableMotionConfig, OverlayLayer, Pocket, Position, RadiansPerSecondSq,
-    Rail, RailAngleReference, RailModel, RailTangentDirection, RollingResistanceModel,
-    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    trace_ball_path_with_rails_on_table, visualization::AimOverlayStyle, Angle,
+    AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
+    Diamond, GameState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq,
+    MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
+    OverlayLayer, Pocket, Position, RadiansPerSecondSq, Rail, RailAngleReference, RailModel,
+    RailTangentDirection, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
+    TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, RgbaImage};
 
@@ -190,10 +191,19 @@ fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_o
     manual.add_ghost_ball(&ghost_ball, ghost_fill_color(), ghost_outline_color());
     manual.add_dotted_line(&resolved_shooting_position, &ghost_ball, color);
 
-    let mut helper = GameState::new(table_spec);
+    let mut helper = GameState::new(table_spec.clone());
     helper.add_dotted_aim_line_to_pocket(&object_ball, Pocket::TopRight, &shooting_position, color);
 
+    let mut styled = GameState::new(table_spec);
+    styled.add_dotted_aim_line_to_pocket_styled(
+        &object_ball,
+        Pocket::TopRight,
+        &shooting_position,
+        &AimOverlayStyle::new(color),
+    );
+
     assert_eq!(render(&helper), render(&manual));
+    assert_eq!(render(&styled), render(&manual));
 }
 
 #[test]

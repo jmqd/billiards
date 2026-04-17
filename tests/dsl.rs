@@ -200,7 +200,7 @@ fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
 }
 
 #[test]
-fn shot_scenarios_can_run_the_full_table_simulation_and_render_the_final_layout() {
+fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_traces() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at center\n\
          ball one at rack\n\
@@ -209,31 +209,59 @@ fn shot_scenarios_can_run_the_full_table_simulation_and_render_the_final_layout(
     )
     .expect("expected shot DSL to build");
 
-    let simulated = scenario
-        .simulate_shot_system_with_rails_and_pockets_on_table_until_rest(
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
             &BallSetPhysicsSpec::default(),
             &motion_config(),
             CollisionModel::ThrowAware,
             RailModel::SpinAware,
         )
-        .expect("expected full system simulation to succeed")
+        .expect("expected full traced system simulation to succeed")
         .expect("scenario should contain a shot");
-    let rendered = scenario.game_state_for_system_states(&simulated.states);
+    let rendered = trace.rendered_final_layout_with_traces(
+        &scenario,
+        billiards::Seconds::new(0.02),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
 
-    assert!(simulated.events.iter().any(|event| matches!(
+    assert!(matches!(
+        trace.event_log.as_slice(),
+        [billiards::dsl::ScenarioShotTraceEvent {
+            kind: billiards::dsl::ScenarioShotTraceEventKind::BallPocketCapture { ball, pocket },
+            ..
+        }] if *ball == BallType::Cue && *pocket == billiards::Pocket::CenterRight
+    ));
+    assert_eq!(trace.event_lines().len(), 1);
+    assert!(trace.event_lines()[0].contains("cue pocketed in center-right"));
+    assert_eq!(trace.ball_traces.len(), 2);
+    assert!(!trace.ball_traces[0].segments.is_empty());
+    assert!(trace.ball_traces[1].segments.is_empty());
+    assert!(
+        trace.ball_traces[0]
+            .sampled_points(
+                billiards::Seconds::new(0.02),
+                &BallSetPhysicsSpec::default(),
+                &motion_config(),
+                &scenario.game_state.table_spec,
+            )
+            .len()
+            >= 2
+    );
+    assert!(trace.simulation.events.iter().any(|event| matches!(
         event,
         NBallSystemEvent::BallPocketCapture {
             ball_index: 0,
             capture,
         } if capture.pocket == billiards::Pocket::CenterRight
     )));
-    match &simulated.states[0] {
+    match &trace.simulation.states[0] {
         NBallSystemState::Pocketed { pocket, .. } => {
             assert_eq!(*pocket, billiards::Pocket::CenterRight)
         }
         other => panic!("expected cue ball to be pocketed, got {other:?}"),
     }
-    match &simulated.states[1] {
+    match &trace.simulation.states[1] {
         NBallSystemState::OnTable(state) => assert_eq!(
             state
                 .as_ball_state()

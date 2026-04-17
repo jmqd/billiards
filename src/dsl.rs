@@ -1,14 +1,17 @@
 use std::collections::HashMap;
 
 use crate::{
+    advance_motion_on_table, advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
-    trace_ball_path_with_rails_on_table, Angle, Ball, BallPath, BallPathStop, BallSetPhysicsSpec,
-    BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact, Diamond,
-    GameState, Inches, InchesPerSecond, NBallSystemSimulation, NBallSystemState, OnTableBallState,
-    OnTableMotionConfig, Position, Rail, RailModel, RestingOnTableBallState, Scale, Shot,
-    ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
-    CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
+    trace_ball_path_with_rails_on_table, Angle, Ball, BallPath, BallPathSegment, BallPathStop,
+    BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
+    CueTipContact, Diamond, GameState, Inches, InchesPerSecond, MotionPhase, NBallSystemEvent,
+    NBallSystemSimulation, NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket,
+    Position, Rail, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError, TableSpec,
+    BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
+    CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
+use image::Rgba;
 use winnow::ascii::{float, line_ending, till_line_ending};
 use winnow::combinator::{alt, cut_err, delimited, eof, opt, peek, preceded, repeat, terminated};
 use winnow::error::{ErrMode, InputError};
@@ -117,6 +120,46 @@ impl DslScenario {
         ))
     }
 
+    pub fn simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        rail_model: RailModel,
+    ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
+            return Ok(None);
+        };
+        let simulation = simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+            &initial_states,
+            ball_set,
+            &self.game_state.table_spec,
+            motion,
+            collision_model,
+            rail_model,
+        );
+        let initial_system_states = initial_states
+            .iter()
+            .cloned()
+            .map(NBallSystemState::from)
+            .collect::<Vec<_>>();
+        let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
+        let ball_traces = self.ball_traces_from_simulation(
+            &initial_system_states,
+            &simulation,
+            ball_set,
+            motion,
+            collision_model,
+            rail_model,
+        );
+
+        Ok(Some(ScenarioShotTrace {
+            simulation,
+            event_log,
+            ball_traces,
+        }))
+    }
+
     pub fn game_state_for_system_states(&self, states: &[NBallSystemState]) -> GameState {
         assert_eq!(
             states.len(),
@@ -144,6 +187,63 @@ impl DslScenario {
         game_state.ty = self.game_state.ty.clone();
         game_state.cueball_modifier = self.game_state.cueball_modifier.clone();
         game_state
+    }
+
+    fn ball_traces_from_simulation(
+        &self,
+        initial_states: &[NBallSystemState],
+        simulation: &NBallSystemSimulation,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        rail_model: RailModel,
+    ) -> Vec<ScenarioBallTrace> {
+        let mut current_states = initial_states.to_vec();
+        let mut traces = self
+            .game_state
+            .balls()
+            .iter()
+            .zip(initial_states)
+            .map(|(ball, state)| ScenarioBallTrace {
+                ball: ball.ty.clone(),
+                initial_state: state
+                    .as_on_table()
+                    .expect("initial shot trace states should be on-table")
+                    .clone(),
+                final_state: state.clone(),
+                segments: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+
+        for event in &simulation.events {
+            let step_time = event.time();
+            for (trace, state) in traces.iter_mut().zip(&current_states) {
+                let Some(start) = state.as_on_table() else {
+                    continue;
+                };
+                let end = OnTableBallState::try_from(
+                    advance_motion_on_table(start, step_time, ball_set, motion).state,
+                )
+                .expect("shot trace sub-advance should preserve on-table invariants");
+                push_visible_trace_segment(&mut trace.segments, start, &end, step_time);
+            }
+
+            let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+                &current_states,
+                ball_set,
+                &self.game_state.table_spec,
+                motion,
+                collision_model,
+                rail_model,
+            );
+            current_states = advanced.states;
+        }
+
+        for (trace, final_state) in traces.iter_mut().zip(&simulation.states) {
+            trace.final_state = final_state.clone();
+        }
+
+        traces
     }
 
     pub fn trace_shot_path_with_rails_on_table(
@@ -188,6 +288,306 @@ pub struct ScenarioShot {
     pub ball: BallType,
     pub shot: Shot,
     pub cue_strike: CueStrikeConfig,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioShotTrace {
+    pub simulation: NBallSystemSimulation,
+    pub event_log: Vec<ScenarioShotTraceEvent>,
+    pub ball_traces: Vec<ScenarioBallTrace>,
+}
+
+impl ScenarioShotTrace {
+    pub fn event_lines(&self) -> Vec<String> {
+        self.event_log
+            .iter()
+            .map(ScenarioShotTraceEvent::format_human)
+            .collect()
+    }
+
+    pub fn rendered_final_layout_with_traces(
+        &self,
+        scenario: &DslScenario,
+        max_time_step: Seconds,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> GameState {
+        let mut game_state = scenario.game_state_for_system_states(&self.simulation.states);
+        for ball_trace in &self.ball_traces {
+            let points = ball_trace.sampled_points(
+                max_time_step,
+                ball_set,
+                motion,
+                &scenario.game_state.table_spec,
+            );
+            if points.len() >= 2 {
+                game_state.add_smooth_polyline_with_width(
+                    &points,
+                    3.0,
+                    ball_trace_color(&ball_trace.ball),
+                );
+            }
+        }
+        game_state
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioShotTraceEvent {
+    pub time: Seconds,
+    pub kind: ScenarioShotTraceEventKind,
+}
+
+impl ScenarioShotTraceEvent {
+    pub fn format_human(&self) -> String {
+        format!("t={:.3}  {}", self.time.as_f64(), self.kind.format_human())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScenarioShotTraceEventKind {
+    BallBallCollision {
+        first_ball: BallType,
+        second_ball: BallType,
+    },
+    BallPocketCapture {
+        ball: BallType,
+        pocket: Pocket,
+    },
+    BallRailImpact {
+        ball: BallType,
+        rail: Rail,
+    },
+    MotionTransition {
+        ball: BallType,
+        phase_before: MotionPhase,
+        phase_after: MotionPhase,
+    },
+}
+
+impl ScenarioShotTraceEventKind {
+    pub fn format_human(&self) -> String {
+        match self {
+            ScenarioShotTraceEventKind::BallBallCollision {
+                first_ball,
+                second_ball,
+            } => format!(
+                "{} -> {} collision",
+                ball_type_name(first_ball),
+                ball_type_name(second_ball)
+            ),
+            ScenarioShotTraceEventKind::BallPocketCapture { ball, pocket } => format!(
+                "{} pocketed in {}",
+                ball_type_name(ball),
+                pocket_name(*pocket)
+            ),
+            ScenarioShotTraceEventKind::BallRailImpact { ball, rail } => {
+                format!("{} rail impact: {}", ball_type_name(ball), rail_name(*rail))
+            }
+            ScenarioShotTraceEventKind::MotionTransition {
+                ball,
+                phase_before,
+                phase_after,
+            } => format!(
+                "{} {:?} -> {:?}",
+                ball_type_name(ball),
+                phase_before,
+                phase_after
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioBallTrace {
+    pub ball: BallType,
+    pub initial_state: OnTableBallState,
+    pub final_state: NBallSystemState,
+    pub segments: Vec<BallPathSegment>,
+}
+
+impl ScenarioBallTrace {
+    pub fn projected_points(&self, table_spec: &TableSpec) -> Vec<Position> {
+        let mut points = vec![self
+            .initial_state
+            .as_ball_state()
+            .projected_position(table_spec)];
+        for segment in &self.segments {
+            points.push(segment.end.as_ball_state().projected_position(table_spec));
+        }
+        points
+    }
+
+    pub fn sampled_points(
+        &self,
+        max_time_step: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        table_spec: &TableSpec,
+    ) -> Vec<Position> {
+        let max_time_step = max_time_step.as_f64();
+        assert!(
+            max_time_step.is_finite() && max_time_step > 0.0,
+            "sampled trace max_time_step must be positive and finite"
+        );
+
+        let mut points = vec![self
+            .initial_state
+            .as_ball_state()
+            .projected_position(table_spec)];
+        for segment in &self.segments {
+            let duration = segment.duration.as_f64();
+            let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
+
+            for step in 1..=sample_count {
+                if step == sample_count {
+                    points.push(segment.end.as_ball_state().projected_position(table_spec));
+                } else {
+                    let t = duration * step as f64 / sample_count as f64;
+                    let sampled = OnTableBallState::try_from(
+                        advance_motion_on_table(&segment.start, Seconds::new(t), ball, motion)
+                            .state,
+                    )
+                    .expect("sampled trace sub-advance should preserve on-table invariants");
+                    points.push(sampled.as_ball_state().projected_position(table_spec));
+                }
+            }
+        }
+        points
+    }
+}
+
+fn trace_segment_has_visible_displacement(
+    start: &OnTableBallState,
+    end: &OnTableBallState,
+) -> bool {
+    let dx =
+        end.as_ball_state().position.x().as_f64() - start.as_ball_state().position.x().as_f64();
+    let dy =
+        end.as_ball_state().position.y().as_f64() - start.as_ball_state().position.y().as_f64();
+
+    dx.abs() > 1e-12 || dy.abs() > 1e-12
+}
+
+fn push_visible_trace_segment(
+    segments: &mut Vec<BallPathSegment>,
+    start: &OnTableBallState,
+    end: &OnTableBallState,
+    duration: Seconds,
+) {
+    if trace_segment_has_visible_displacement(start, end) {
+        segments.push(BallPathSegment {
+            start: start.clone(),
+            end: end.clone(),
+            duration,
+        });
+    }
+}
+
+fn scenario_event_log_from_simulation(
+    simulation: &NBallSystemSimulation,
+    balls: &[Ball],
+) -> Vec<ScenarioShotTraceEvent> {
+    let mut elapsed = Seconds::zero();
+
+    simulation
+        .events
+        .iter()
+        .map(|event| {
+            elapsed = Seconds::new(elapsed.as_f64() + event.time().as_f64());
+            ScenarioShotTraceEvent {
+                time: elapsed,
+                kind: scenario_event_kind_from_system_event(event, balls),
+            }
+        })
+        .collect()
+}
+
+fn scenario_event_kind_from_system_event(
+    event: &NBallSystemEvent,
+    balls: &[Ball],
+) -> ScenarioShotTraceEventKind {
+    match event {
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            ..
+        } => ScenarioShotTraceEventKind::BallBallCollision {
+            first_ball: balls[*first_ball_index].ty.clone(),
+            second_ball: balls[*second_ball_index].ty.clone(),
+        },
+        NBallSystemEvent::BallPocketCapture {
+            ball_index,
+            capture,
+        } => ScenarioShotTraceEventKind::BallPocketCapture {
+            ball: balls[*ball_index].ty.clone(),
+            pocket: capture.pocket,
+        },
+        NBallSystemEvent::BallRailImpact { ball_index, impact } => {
+            ScenarioShotTraceEventKind::BallRailImpact {
+                ball: balls[*ball_index].ty.clone(),
+                rail: impact.rail,
+            }
+        }
+        NBallSystemEvent::MotionTransition {
+            ball_index,
+            transition,
+        } => ScenarioShotTraceEventKind::MotionTransition {
+            ball: balls[*ball_index].ty.clone(),
+            phase_before: transition.phase_before.clone(),
+            phase_after: transition.phase_after.clone(),
+        },
+    }
+}
+
+fn ball_type_name(ball: &BallType) -> &'static str {
+    match ball {
+        BallType::Cue => "cue",
+        BallType::One => "one",
+        BallType::Two => "two",
+        BallType::Three => "three",
+        BallType::Four => "four",
+        BallType::Five => "five",
+        BallType::Six => "six",
+        BallType::Seven => "seven",
+        BallType::Eight => "eight",
+        BallType::Nine => "nine",
+    }
+}
+
+fn pocket_name(pocket: Pocket) -> &'static str {
+    match pocket {
+        Pocket::TopRight => "top-right",
+        Pocket::CenterRight => "center-right",
+        Pocket::BottomRight => "bottom-right",
+        Pocket::BottomLeft => "bottom-left",
+        Pocket::CenterLeft => "center-left",
+        Pocket::TopLeft => "top-left",
+    }
+}
+
+fn rail_name(rail: Rail) -> &'static str {
+    match rail {
+        Rail::Top => "top",
+        Rail::Right => "right",
+        Rail::Bottom => "bottom",
+        Rail::Left => "left",
+    }
+}
+
+fn ball_trace_color(ball: &BallType) -> Rgba<u8> {
+    match ball {
+        BallType::Cue => Rgba([225, 225, 225, 255]),
+        BallType::One => Rgba([255, 215, 0, 255]),
+        BallType::Two => Rgba([65, 105, 225, 255]),
+        BallType::Three => Rgba([220, 20, 60, 255]),
+        BallType::Four => Rgba([138, 43, 226, 255]),
+        BallType::Five => Rgba([255, 140, 0, 255]),
+        BallType::Six => Rgba([34, 139, 34, 255]),
+        BallType::Seven => Rgba([128, 0, 0, 255]),
+        BallType::Eight => Rgba([32, 32, 32, 255]),
+        BallType::Nine => Rgba([255, 215, 0, 255]),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

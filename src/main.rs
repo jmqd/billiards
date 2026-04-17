@@ -1,8 +1,8 @@
 use billiards::dsl::parse_dsl_to_scenario;
 use billiards::{
     write_png_to_file, BallSetPhysicsSpec, CollisionModel, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, NBallSystemState, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
+    MotionTransitionConfig, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
+    RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
 };
 use clap::Parser;
 use std::fs;
@@ -51,30 +51,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ball_set = BallSetPhysicsSpec::default();
     let motion = shot_preview_motion_config();
-    let render_state = if let Some(simulated) = scenario
-        .simulate_shot_system_with_rails_and_pockets_on_table_until_rest(
+    let render_state = if let Some(trace) = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
             &ball_set,
             &motion,
             CollisionModel::ThrowAware,
             RailModel::SpinAware,
         )? {
-        let pocketed = simulated
+        for line in trace.event_lines() {
+            println!("{line}");
+        }
+        let pocketed = trace
+            .simulation
             .states
             .iter()
-            .filter(|state| matches!(state, NBallSystemState::Pocketed { .. }))
+            .filter(|state| matches!(state, billiards::NBallSystemState::Pocketed { .. }))
             .count();
-        let remaining = simulated
+        let remaining = trace
+            .simulation
             .states
             .iter()
-            .filter(|state| matches!(state, NBallSystemState::OnTable(_)))
+            .filter(|state| matches!(state, billiards::NBallSystemState::OnTable(_)))
             .count();
         println!(
             "Simulated shot to rest: {} event(s), {} pocketed, {} on-table remaining",
-            simulated.events.len(),
+            trace.simulation.events.len(),
             pocketed,
             remaining
         );
-        scenario.game_state_for_system_states(&simulated.states)
+        trace.rendered_final_layout_with_traces(&scenario, Seconds::new(0.02), &ball_set, &motion)
     } else {
         scenario.game_state
     };

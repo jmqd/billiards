@@ -4,9 +4,10 @@ use billiards::dsl::{
     DslError, DslParseError, RailSide,
 };
 use billiards::{
-    BallSetPhysicsSpec, BallType, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
+    BallSetPhysicsSpec, BallType, CollisionModel, InchesPerSecondSq, MotionPhase,
+    MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemState,
+    OnTableMotionConfig, RadiansPerSecondSq, RailModel, RollingResistanceModel,
+    SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
 };
 
 fn motion_config() -> OnTableMotionConfig {
@@ -196,6 +197,57 @@ fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Rest
     );
+}
+
+#[test]
+fn shot_scenarios_can_run_the_full_table_simulation_and_render_the_final_layout() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball one at rack\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+
+    let simulated = scenario
+        .simulate_shot_system_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("expected full system simulation to succeed")
+        .expect("scenario should contain a shot");
+    let rendered = scenario.game_state_for_system_states(&simulated.states);
+
+    assert!(simulated.events.iter().any(|event| matches!(
+        event,
+        NBallSystemEvent::BallPocketCapture {
+            ball_index: 0,
+            capture,
+        } if capture.pocket == billiards::Pocket::CenterRight
+    )));
+    match &simulated.states[0] {
+        NBallSystemState::Pocketed { pocket, .. } => {
+            assert_eq!(*pocket, billiards::Pocket::CenterRight)
+        }
+        other => panic!("expected cue ball to be pocketed, got {other:?}"),
+    }
+    match &simulated.states[1] {
+        NBallSystemState::OnTable(state) => assert_eq!(
+            state
+                .as_ball_state()
+                .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+            MotionPhase::Rest
+        ),
+        other => panic!("expected the object ball to remain on the table, got {other:?}"),
+    }
+    assert!(
+        rendered.select_ball(BallType::Cue).is_none(),
+        "pocketed balls should not appear in the rendered final layout"
+    );
+    assert!(rendered.select_ball(BallType::One).is_some());
+    assert_eq!(rendered.balls().len(), 1);
 }
 
 #[test]

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    strike_resting_ball_on_table, trace_ball_path_with_rails_on_table, Angle, Ball, BallPath,
-    BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType, CueStrikeConfig,
-    CueTipContact, Diamond, GameState, Inches, InchesPerSecond, OnTableBallState,
+    simulate_n_balls_with_rails_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
+    trace_ball_path_with_rails_on_table, Angle, Ball, BallPath, BallPathStop, BallSetPhysicsSpec,
+    BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact, Diamond,
+    GameState, Inches, InchesPerSecond, NBallSystemSimulation, NBallSystemState, OnTableBallState,
     OnTableMotionConfig, Position, Rail, RailModel, RestingOnTableBallState, Scale, Shot,
     ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
     CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
@@ -56,6 +57,93 @@ impl DslScenario {
         strike_resting_ball_on_table(&resting, &shot.shot, &shot.cue_strike, ball_set)
             .map(Some)
             .map_err(DslBuildError::InvalidShot)
+    }
+
+    pub fn initial_shot_system_states_on_table(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+    ) -> Result<Option<Vec<OnTableBallState>>, DslBuildError> {
+        let Some(shot) = &self.shot else {
+            return Ok(None);
+        };
+        let shot_target_index = self
+            .game_state
+            .balls()
+            .iter()
+            .position(|ball| ball.ty == shot.ball)
+            .ok_or(DslBuildError::ShotTargetBallNotPlaced(shot.ball_ref))?;
+        let mut states = Vec::with_capacity(self.game_state.balls().len());
+
+        for (ball_index, game_ball) in self.game_state.balls().iter().enumerate() {
+            let resting = RestingOnTableBallState::try_from(BallState::from_position(
+                &game_ball.position,
+                &self.game_state.table_spec,
+            ))
+            .expect(
+                "game-state ball placements should always correspond to resting on-table states",
+            );
+            let state = if ball_index == shot_target_index {
+                strike_resting_ball_on_table(&resting, &shot.shot, &shot.cue_strike, ball_set)
+                    .map_err(DslBuildError::InvalidShot)?
+            } else {
+                resting.into_on_table_ball_state()
+            };
+            states.push(state);
+        }
+
+        Ok(Some(states))
+    }
+
+    pub fn simulate_shot_system_with_rails_and_pockets_on_table_until_rest(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        rail_model: RailModel,
+    ) -> Result<Option<NBallSystemSimulation>, DslBuildError> {
+        let Some(states) = self.initial_shot_system_states_on_table(ball_set)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+                &states,
+                ball_set,
+                &self.game_state.table_spec,
+                motion,
+                collision_model,
+                rail_model,
+            ),
+        ))
+    }
+
+    pub fn game_state_for_system_states(&self, states: &[NBallSystemState]) -> GameState {
+        assert_eq!(
+            states.len(),
+            self.game_state.balls().len(),
+            "rendering system states requires one state per original ball"
+        );
+
+        let balls = self
+            .game_state
+            .balls()
+            .iter()
+            .zip(states)
+            .filter_map(|(ball, state)| match state {
+                NBallSystemState::OnTable(on_table) => Some(Ball {
+                    ty: ball.ty.clone(),
+                    position: on_table
+                        .as_ball_state()
+                        .projected_position(&self.game_state.table_spec),
+                    spec: ball.spec.clone(),
+                }),
+                NBallSystemState::Pocketed { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        let mut game_state = GameState::with_balls(self.game_state.table_spec.clone(), balls);
+        game_state.ty = self.game_state.ty.clone();
+        game_state.cueball_modifier = self.game_state.cueball_modifier.clone();
+        game_state
     }
 
     pub fn trace_shot_path_with_rails_on_table(

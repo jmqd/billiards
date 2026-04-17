@@ -1,11 +1,10 @@
 use billiards::dsl::parse_dsl_to_scenario;
 use billiards::{
-    write_png_to_file, BallSetPhysicsSpec, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
-    RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
+    write_png_to_file, BallSetPhysicsSpec, CollisionModel, InchesPerSecondSq, MotionPhaseConfig,
+    MotionTransitionConfig, NBallSystemState, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
+    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
 };
 use clap::Parser;
-use image::Rgba;
 use std::fs;
 use std::path::PathBuf;
 
@@ -52,28 +51,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ball_set = BallSetPhysicsSpec::default();
     let motion = shot_preview_motion_config();
-    if let Some(path) = scenario.trace_shot_path_until_rest_with_rails_on_table(
-        &ball_set,
-        &motion,
-        RailModel::SpinAware,
-    )? {
-        let sampled_points = path.sampled_points(
-            Seconds::new(0.02),
+    let render_state = if let Some(simulated) = scenario
+        .simulate_shot_system_with_rails_and_pockets_on_table_until_rest(
             &ball_set,
             &motion,
-            &scenario.game_state.table_spec,
-        );
-        scenario
-            .game_state
-            .add_smooth_polyline(&sampled_points, Rgba([0, 0, 0, 255]));
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )? {
+        let pocketed = simulated
+            .states
+            .iter()
+            .filter(|state| matches!(state, NBallSystemState::Pocketed { .. }))
+            .count();
+        let remaining = simulated
+            .states
+            .iter()
+            .filter(|state| matches!(state, NBallSystemState::OnTable(_)))
+            .count();
         println!(
-            "Added shot preview overlay: {} segment(s), {} sampled point(s)",
-            path.segments.len(),
-            sampled_points.len()
+            "Simulated shot to rest: {} event(s), {} pocketed, {} on-table remaining",
+            simulated.events.len(),
+            pocketed,
+            remaining
         );
-    }
+        scenario.game_state_for_system_states(&simulated.states)
+    } else {
+        scenario.game_state
+    };
 
-    let img = scenario.game_state.draw_2d_diagram();
+    let img = render_state.draw_2d_diagram();
 
     let output_path = match args.output {
         Some(path) => path,

@@ -170,6 +170,66 @@ pub fn draw_filled_circle_marker_mut(
     draw_filled_circle_alpha_mut(img, crate::assets::diamond_to_pixel(center), radius_px, color);
 }
 
+fn digit_bitmap(ch: char) -> Option<[u8; 7]> {
+    Some(match ch {
+        '0' => [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110],
+        '1' => [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+        '2' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
+        '3' => [0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110],
+        '4' => [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
+        '5' => [0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110],
+        '6' => [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
+        '7' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
+        '8' => [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
+        '9' => [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b11100],
+        _ => return None,
+    })
+}
+
+pub fn draw_text_label_mut(
+    img: &mut RgbaImage,
+    anchor: &Position,
+    text: &str,
+    offset_x_px: i32,
+    offset_y_px: i32,
+    scale_px: u32,
+    color: Rgba<u8>,
+) {
+    if scale_px == 0 || color[3] == 0 {
+        return;
+    }
+
+    let (anchor_x, anchor_y) = crate::assets::diamond_to_pixel(anchor);
+    let glyph_advance = 6 * scale_px as i32;
+
+    for (index, ch) in text.chars().enumerate() {
+        let Some(bitmap) = digit_bitmap(ch) else {
+            continue;
+        };
+
+        let glyph_x = anchor_x + offset_x_px + index as i32 * glyph_advance;
+        let glyph_y = anchor_y + offset_y_px;
+
+        for (row, bits) in bitmap.iter().enumerate() {
+            for col in 0..5 {
+                if bits & (1 << (4 - col)) == 0 {
+                    continue;
+                }
+                for dy in 0..scale_px as i32 {
+                    for dx in 0..scale_px as i32 {
+                        blend_pixel(
+                            img,
+                            glyph_x + col * scale_px as i32 + dx,
+                            glyph_y + row as i32 * scale_px as i32 + dy,
+                            color,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Draw a translucent ghost-ball marker with a dotted outline at a table position.
 pub fn draw_ghost_ball_mut(
     img: &mut RgbaImage,
@@ -309,6 +369,23 @@ mod tests {
             &Position::new(2u8, 4u8),
             5.0,
             Rgba([255, 0, 0, 192]),
+        );
+
+        assert!(changed_pixel_count(&image) > 0);
+    }
+
+    #[test]
+    fn given_a_numeric_text_label_when_drawing_then_some_pixels_are_colored() {
+        let mut image = RgbaImage::new(1089, 1938);
+
+        draw_text_label_mut(
+            &mut image,
+            &Position::new(2u8, 4u8),
+            "12",
+            8,
+            -8,
+            2,
+            Rgba([0, 0, 0, 255]),
         );
 
         assert!(changed_pixel_count(&image) > 0);

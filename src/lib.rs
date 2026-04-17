@@ -6,7 +6,7 @@ pub mod visualization;
 use crate::assets::diamond_to_pixel;
 use crate::visualization::{
     AimOverlayStyle, BallPathStyle, DashedLineStyle, EventMarkerStyle, GhostBallStyle,
-    SmoothPolylineStyle,
+    LabelOverlayStyle, SmoothPolylineStyle,
 };
 use assets::ideal_ball_size_px;
 use core::fmt;
@@ -7048,6 +7048,11 @@ enum Overlay {
         center: Position,
         style: EventMarkerStyle,
     },
+    TextLabel {
+        anchor: Position,
+        text: String,
+        style: LabelOverlayStyle,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -7323,6 +7328,17 @@ impl GameState {
         });
     }
 
+    pub fn add_text_label_styled(&mut self, anchor: &Position, text: impl Into<String>, style: LabelOverlayStyle) {
+        let mut anchor = anchor.clone();
+        anchor.resolve_shifts(&self.table_spec);
+
+        self.lines_to_draw.push(Overlay::TextLabel {
+            anchor,
+            text: text.into(),
+            style,
+        });
+    }
+
     /// Add a dotted overlay for a traced ball path.
     pub fn add_dotted_ball_path(&mut self, path: &BallPath, color: Rgba<u8>) {
         self.add_dotted_ball_path_styled(path, &BallPathStyle::new(color));
@@ -7354,6 +7370,12 @@ impl GameState {
         if style.event_markers.enabled {
             for point in points.iter().skip(1) {
                 self.add_event_marker_styled(point, style.event_markers.clone());
+            }
+        }
+
+        if style.labels.enabled {
+            for (index, point) in points.iter().enumerate().skip(1) {
+                self.add_text_label_styled(point, index.to_string(), style.labels.clone());
             }
         }
     }
@@ -7502,6 +7524,17 @@ impl GameState {
                             table,
                             center,
                             style.radius_px,
+                            style.color,
+                        );
+                    }
+                    Overlay::TextLabel { anchor, text, style } if style.layer == layer => {
+                        drawing::draw_text_label_mut(
+                            table,
+                            anchor,
+                            text,
+                            style.offset_x_px,
+                            style.offset_y_px,
+                            style.scale_px,
                             style.color,
                         );
                     }

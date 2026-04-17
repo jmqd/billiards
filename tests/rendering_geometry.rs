@@ -1,6 +1,8 @@
 use billiards::{
     trace_ball_path_with_rails_on_table,
-    visualization::{AimOverlayStyle, BallPathStyle, EventMarkerStyle, GhostBallStyle},
+    visualization::{
+        AimOverlayStyle, BallPathStyle, EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
+    },
     Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState,
     BallType, Diamond, GameState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq,
     MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
@@ -343,12 +345,15 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
     assert_eq!(render(&helper_with_ghost), render(&manual_with_ghost));
 
     let marker_style = EventMarkerStyle::enabled(image::Rgba([255, 0, 0, 192]));
+    let label_style = LabelOverlayStyle::enabled(image::Rgba([0, 0, 0, 255]));
     let mut manual_with_markers = GameState::new(table_spec.clone());
     manual_with_markers.add_ghost_ball(&start, ghost_fill_color(), ghost_outline_color());
     manual_with_markers.add_dotted_line(&first_start, &first_end, color);
     manual_with_markers.add_dotted_line(&second_start, &second_end, color);
     manual_with_markers.add_event_marker_styled(&points[1], marker_style.clone());
     manual_with_markers.add_event_marker_styled(&points[2], marker_style.clone());
+    manual_with_markers.add_text_label_styled(&points[1], "1", label_style.clone());
+    manual_with_markers.add_text_label_styled(&points[2], "2", label_style.clone());
 
     let mut helper_with_markers = GameState::new(table_spec.clone());
     helper_with_markers.add_dotted_ball_path_styled(
@@ -359,7 +364,8 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
                 outline_color: ghost_outline_color(),
                 ..Default::default()
             })
-            .with_event_markers(marker_style.clone()),
+            .with_event_markers(marker_style.clone())
+            .with_labels(label_style.clone()),
     );
 
     assert_eq!(render(&helper_with_markers), render(&manual_with_markers));

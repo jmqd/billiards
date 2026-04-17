@@ -85,6 +85,9 @@ pub struct LabelOverlayStyle {
     pub enabled: bool,
     pub color: Rgba<u8>,
     pub layer: OverlayLayer,
+    pub offset_x_px: i32,
+    pub offset_y_px: i32,
+    pub scale_px: u32,
 }
 
 impl Default for LabelOverlayStyle {
@@ -93,6 +96,19 @@ impl Default for LabelOverlayStyle {
             enabled: false,
             color: Rgba([0, 0, 0, 255]),
             layer: OverlayLayer::AboveBalls,
+            offset_x_px: 8,
+            offset_y_px: -8,
+            scale_px: 2,
+        }
+    }
+}
+
+impl LabelOverlayStyle {
+    pub fn enabled(color: Rgba<u8>) -> Self {
+        Self {
+            enabled: true,
+            color,
+            ..Self::default()
         }
     }
 }
@@ -182,6 +198,11 @@ impl BallPathStyle {
 
     pub fn with_event_markers(mut self, event_markers: EventMarkerStyle) -> Self {
         self.event_markers = event_markers;
+        self
+    }
+
+    pub fn with_labels(mut self, labels: LabelOverlayStyle) -> Self {
+        self.labels = labels;
         self
     }
 }

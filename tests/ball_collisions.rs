@@ -1,6 +1,7 @@
 use billiards::{
-    collide_ball_ball_on_table, Angle, AngularVelocity3, BallState, CollisionModel, CutAngle,
-    Inches, Inches2, OnTableBallState, Velocity2, TYPICAL_BALL_RADIUS,
+    collide_ball_ball_on_table, collide_ball_ball_on_table_with_config, Angle, AngularVelocity3,
+    BallBallCollisionConfig, BallState, CollisionModel, CutAngle, Inches, Inches2,
+    OnTableBallState, Scale, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -120,4 +121,33 @@ fn an_ideal_cut_collision_sends_the_object_ball_along_the_line_of_centers_and_th
     assert_close(cue_after.velocity.x().as_f64(), -5.0);
     assert_close(cue_after.velocity.y().as_f64(), 5.0);
     assert_close(dot_product, 0.0);
+}
+
+#[test]
+fn a_restitution_tuned_head_on_collision_is_less_lively_than_the_ideal_limit() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        velocity2(0.0, 10.0),
+        AngularVelocity3::zero(),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let human_tuned = BallBallCollisionConfig {
+        normal_restitution: Scale::from_f64(0.8),
+        tangential_friction_coefficient: Scale::from_f64(0.06),
+    };
+
+    let (cue_after, object_after) = collide_ball_ball_on_table_with_config(
+        &cue_ball,
+        &object_ball,
+        CollisionModel::Ideal,
+        &human_tuned,
+    );
+
+    assert_close(cue_after.as_ball_state().velocity.y().as_f64(), 1.0);
+    assert_close(object_after.as_ball_state().velocity.y().as_f64(), 9.0);
+    assert!(
+        object_after.as_ball_state().speed().as_f64() < 10.0,
+        "restitution below 1 should reduce the struck ball's outgoing speed"
+    );
 }

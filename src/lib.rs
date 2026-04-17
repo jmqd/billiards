@@ -771,6 +771,47 @@ impl Default for RailCollisionProfile {
     }
 }
 
+const IDEAL_BALL_BALL_NORMAL_RESTITUTION: f64 = 1.0;
+const HUMAN_TUNED_BALL_BALL_NORMAL_RESTITUTION: f64 = 0.95;
+const DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.06;
+
+/// Configurable coefficients for the current ball-ball response helpers.
+///
+/// `ideal()` preserves the existing equal-mass perfectly elastic limit. `human_tuned()` is a first
+/// pragmatic step toward less pinball-like contacts by reducing the normal restitution while
+/// keeping the current first-pass tangential friction coefficient.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BallBallCollisionConfig {
+    pub normal_restitution: Scale,
+    pub tangential_friction_coefficient: Scale,
+}
+
+impl BallBallCollisionConfig {
+    pub fn ideal() -> Self {
+        Self {
+            normal_restitution: Scale::from_f64(IDEAL_BALL_BALL_NORMAL_RESTITUTION),
+            tangential_friction_coefficient: Scale::from_f64(
+                DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT,
+            ),
+        }
+    }
+
+    pub fn human_tuned() -> Self {
+        Self {
+            normal_restitution: Scale::from_f64(HUMAN_TUNED_BALL_BALL_NORMAL_RESTITUTION),
+            tangential_friction_coefficient: Scale::from_f64(
+                DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT,
+            ),
+        }
+    }
+}
+
+impl Default for BallBallCollisionConfig {
+    fn default() -> Self {
+        Self::ideal()
+    }
+}
+
 /// Detailed output for a ball-ball collision response.
 ///
 /// `throw_angle_degrees` is the signed deflection of the object-ball departure away from the ideal
@@ -2811,7 +2852,6 @@ fn refine_ball_ball_collision_time_during_current_phases(
 
 const THROW_AWARE_MAX_ANGLE_DEGREES: f64 = 5.0;
 const THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO: f64 = 1e-12;
-const AVERAGE_BALL_BALL_FRICTION_COEFFICIENT: f64 = 0.06;
 
 fn collision_contact_basis(a: &OnTableBallState, b: &OnTableBallState) -> (f64, f64, f64, f64) {
     let a_state = a.as_ball_state();
@@ -3018,6 +3058,7 @@ fn ideal_ball_ball_collision_velocities(
     b: &Velocity2,
     normal_x: f64,
     normal_y: f64,
+    normal_restitution: f64,
 ) -> (Velocity2, Velocity2) {
     let tangent_x = normal_y;
     let tangent_y = -normal_x;
@@ -3036,8 +3077,15 @@ fn ideal_ball_ball_collision_velocities(
             Inches::from_f64(normal_component * normal_y + tangent_component * tangent_y),
         )
     };
+    let a_normal_after =
+        0.5 * ((1.0 - normal_restitution) * a_normal + (1.0 + normal_restitution) * b_normal);
+    let b_normal_after =
+        0.5 * ((1.0 + normal_restitution) * a_normal + (1.0 - normal_restitution) * b_normal);
 
-    (rebuild(b_normal, a_tangent), rebuild(a_normal, b_tangent))
+    (
+        rebuild(a_normal_after, a_tangent),
+        rebuild(b_normal_after, b_tangent),
+    )
 }
 
 /// Predict the next future ball-ball impact for two on-table balls under a constant-velocity
@@ -5040,9 +5088,28 @@ pub fn trace_ball_path_with_rails_on_table(
     )
 }
 
-fn ideal_collision_outcome_on_table(
+fn validated_ball_ball_normal_restitution(config: &BallBallCollisionConfig) -> f64 {
+    let restitution = config.normal_restitution.as_f64();
+    assert!(
+        (0.0..=1.0).contains(&restitution),
+        "ball-ball normal restitution must lie in [0, 1]"
+    );
+    restitution
+}
+
+fn validated_ball_ball_tangential_friction_coefficient(config: &BallBallCollisionConfig) -> f64 {
+    let friction = config.tangential_friction_coefficient.as_f64();
+    assert!(
+        friction >= 0.0,
+        "ball-ball tangential friction coefficient must be non-negative"
+    );
+    friction
+}
+
+fn ideal_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
+    config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
     let a_state = a.as_ball_state();
     let b_state = b.as_ball_state();
@@ -5052,6 +5119,7 @@ fn ideal_collision_outcome_on_table(
         &b_state.velocity,
         normal_x,
         normal_y,
+        validated_ball_ball_normal_restitution(config),
     );
 
     CollisionOutcome {
@@ -5076,6 +5144,7 @@ fn transferred_spin_from_contact_slip(
     tangential_contact_slip: f64,
     vertical_contact_slip: f64,
     normal_relative_speed: f64,
+    tangential_friction_coefficient: f64,
     ball_radius: f64,
 ) -> Option<AngularVelocity3> {
     // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C10), (C11), and (C13),
@@ -5091,7 +5160,7 @@ fn transferred_spin_from_contact_slip(
     }
 
     let no_slip_delta_scale = 5.0 / (14.0 * ball_radius);
-    let friction_limited_scale = (AVERAGE_BALL_BALL_FRICTION_COEFFICIENT * normal_relative_speed
+    let friction_limited_scale = (tangential_friction_coefficient * normal_relative_speed
         / contact_slip_norm)
         .clamp(0.0, 1.0);
     let spin_gain_scale = no_slip_delta_scale * friction_limited_scale;
@@ -5109,6 +5178,7 @@ fn transferred_spin_from_contact_slip(
 fn spin_post_impact_cue_state_from_tp_a8_a24(
     a: &OnTableBallState,
     b: &OnTableBallState,
+    tangential_friction_coefficient: f64,
     ball_radius: f64,
 ) -> Option<(Velocity2, f64, f64)> {
     let a_state = a.as_ball_state();
@@ -5144,7 +5214,7 @@ fn spin_post_impact_cue_state_from_tp_a8_a24(
     let local_pre_angular_y = shot_x * a_state.angular_velocity.x().as_f64()
         + shot_y * a_state.angular_velocity.y().as_f64();
     let english = a_state.angular_velocity.z().as_f64();
-    let mu_balls = AVERAGE_BALL_BALL_FRICTION_COEFFICIENT;
+    let mu_balls = tangential_friction_coefficient;
     let cos_phi = signed_cut.cos();
     let sin_phi = signed_cut.sin();
 
@@ -5190,13 +5260,16 @@ fn spin_post_impact_cue_state_from_tp_a8_a24(
     Some((velocity, angular_x, angular_y))
 }
 
-fn throw_aware_collision_outcome_on_table(
+fn throw_aware_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
+    config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
-    let ideal = ideal_collision_outcome_on_table(a, b);
+    let ideal = ideal_collision_outcome_on_table_with_config(a, b, config);
     let a_state = a.as_ball_state();
     let b_state = b.as_ball_state();
+    let tangential_friction_coefficient =
+        validated_ball_ball_tangential_friction_coefficient(config);
 
     // TODO(physics): model the later post-contact cue-ball bend caused by residual follow / draw /
     // side spin interacting with the cloth after impact.
@@ -5260,6 +5333,7 @@ fn throw_aware_collision_outcome_on_table(
         tangential_contact_slip,
         vertical_contact_slip,
         normal_relative_speed,
+        tangential_friction_coefficient,
         ball_radius,
     );
     let spin_delta_x = transferred_spin
@@ -5274,7 +5348,12 @@ fn throw_aware_collision_outcome_on_table(
         .as_ref()
         .map(|spin| spin.z().as_f64())
         .unwrap_or(0.0);
-    let tp_a8_cue_state = spin_post_impact_cue_state_from_tp_a8_a24(a, b, ball_radius);
+    let tp_a8_cue_state = spin_post_impact_cue_state_from_tp_a8_a24(
+        a,
+        b,
+        tangential_friction_coefficient,
+        ball_radius,
+    );
     let (a_velocity, a_angular_velocity) = match tp_a8_cue_state {
         Some((velocity, angular_x, angular_y)) => (
             velocity,
@@ -5334,36 +5413,68 @@ fn throw_aware_collision_outcome_on_table(
 /// immediate post-impact velocity / horizontal spin state from a broader local TP A.8 / A.24-style
 /// shot-basis model before the on-cloth sliding solver takes over. Exact throw magnitudes and
 /// richer transferred-spin components remain future work.
-pub fn collide_ball_ball_detailed_on_table(
+pub fn collide_ball_ball_detailed_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
     model: CollisionModel,
+    config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
     match model {
-        CollisionModel::Ideal => ideal_collision_outcome_on_table(a, b),
-        CollisionModel::ThrowAware => throw_aware_collision_outcome_on_table(a, b),
+        CollisionModel::Ideal => ideal_collision_outcome_on_table_with_config(a, b, config),
+        CollisionModel::ThrowAware => {
+            throw_aware_collision_outcome_on_table_with_config(a, b, config)
+        }
         CollisionModel::SpinFriction => {
             todo!("spin-friction ball-ball collisions are not implemented yet")
         }
     }
 }
 
+pub fn collide_ball_ball_detailed_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    model: CollisionModel,
+) -> CollisionOutcome {
+    collide_ball_ball_detailed_on_table_with_config(a, b, model, &BallBallCollisionConfig::ideal())
+}
+
 /// Resolve an instantaneous ball-ball collision for two validated on-table states.
 ///
 /// This convenience helper returns only the post-impact states. Use
 /// `collide_ball_ball_detailed_on_table(...)` if you also want throw metadata.
+pub fn collide_ball_ball_on_table_with_config(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    model: CollisionModel,
+    config: &BallBallCollisionConfig,
+) -> (OnTableBallState, OnTableBallState) {
+    let outcome = collide_ball_ball_detailed_on_table_with_config(a, b, model, config);
+
+    (outcome.a_after, outcome.b_after)
+}
+
 pub fn collide_ball_ball_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
     model: CollisionModel,
 ) -> (OnTableBallState, OnTableBallState) {
-    let outcome = collide_ball_ball_detailed_on_table(a, b, model);
-
-    (outcome.a_after, outcome.b_after)
+    collide_ball_ball_on_table_with_config(a, b, model, &BallBallCollisionConfig::ideal())
 }
 
 /// Resolve an instantaneous ball-ball collision and also bundle the current cue-ball bend estimate
 /// convenience data.
+pub fn collide_ball_ball_analyzed_on_table_with_config(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    model: CollisionModel,
+    config: &BallBallCollisionConfig,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> CollisionAnalysis {
+    collide_ball_ball_detailed_on_table_with_config(a, b, model, config)
+        .with_post_contact_cue_ball_bend(ball, motion)
+}
+
 pub fn collide_ball_ball_analyzed_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -5371,7 +5482,14 @@ pub fn collide_ball_ball_analyzed_on_table(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
 ) -> CollisionAnalysis {
-    collide_ball_ball_detailed_on_table(a, b, model).with_post_contact_cue_ball_bend(ball, motion)
+    collide_ball_ball_analyzed_on_table_with_config(
+        a,
+        b,
+        model,
+        &BallBallCollisionConfig::ideal(),
+        ball,
+        motion,
+    )
 }
 
 /// Estimate the later side-spin-driven cue-ball curve generated by cloth interaction after an

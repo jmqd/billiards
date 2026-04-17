@@ -356,21 +356,95 @@ fn rejects_rails_profiles_that_reference_unknown_rail_responses() {
 }
 
 #[test]
+fn shot_scenarios_can_use_named_simulations_defined_in_dsl() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.0, 4.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(ideal).normal_restitution(1.0).tangential_friction(0.06)\n\
+         ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
+         rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)\n\
+         rails(table).default(clean)\n\
+         simulation(ideal_table).collision_model(ideal).ball_ball(ideal).rail_model(spin_aware).rails(table)\n\
+         simulation(human_table).collision_model(ideal).ball_ball(human).rail_model(spin_aware).rails(table)\n\
+         shot(cue).heading(0deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+    let ideal = scenario
+        .simulate_shot_system_with_simulation_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            "ideal_table",
+        )
+        .expect("expected ideal simulation to succeed")
+        .expect("scenario should contain a shot");
+    let damped = scenario
+        .simulate_shot_system_with_simulation_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            "human_table",
+        )
+        .expect("expected damped simulation to succeed")
+        .expect("scenario should contain a shot");
+
+    assert_eq!(
+        scenario
+            .simulation_named("human_table")
+            .expect("named simulation")
+            .ball_ball_name,
+        "human"
+    );
+
+    let ideal_object_y = match &ideal.states[1] {
+        NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
+        other => panic!("expected object ball to remain on-table, got {other:?}"),
+    };
+    let damped_object_y = match &damped.states[1] {
+        NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
+        other => panic!("expected object ball to remain on-table, got {other:?}"),
+    };
+
+    assert!(
+        damped_object_y < ideal_object_y,
+        "the simulation preset should thread the named ball-ball config into the engine"
+    );
+}
+
+#[test]
+fn rejects_simulations_that_reference_unknown_named_physics() {
+    let err = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         simulation(trace).collision_model(throw_aware).ball_ball(ideal).rail_model(spin_aware).rails(table)\n\
+         shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect_err("expected build failure");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::UnknownBallBallConfig(name)) if name == "ideal"
+    ));
+}
+
+#[test]
 fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_traces() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at center\n\
          ball one at rack\n\
          cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(ideal).normal_restitution(1.0).tangential_friction(0.06)\n\
+         rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)\n\
+         rails(table).default(clean)\n\
+         simulation(trace).collision_model(throw_aware).ball_ball(ideal).rail_model(spin_aware).rails(table)\n\
          shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
     )
     .expect("expected shot DSL to build");
 
     let trace = scenario
-        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+        .simulate_shot_trace_with_simulation_on_table_until_rest(
             &BallSetPhysicsSpec::default(),
             &motion_config(),
-            CollisionModel::ThrowAware,
-            RailModel::SpinAware,
+            "trace",
         )
         .expect("expected full traced system simulation to succeed")
         .expect("scenario should contain a shot");

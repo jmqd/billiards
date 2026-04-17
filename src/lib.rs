@@ -708,6 +708,69 @@ impl Default for RailCollisionConfig {
     }
 }
 
+/// Per-rail response coefficients for the current cushion model.
+///
+/// This allows each rail to play differently while still reusing the same `RailModel`. It is the
+/// smallest useful step toward table-specific rail behavior like dead rails, extra-grabby rails, or
+/// asymmetry from wear / dirt / table setup.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RailCollisionProfile {
+    pub top: RailCollisionConfig,
+    pub right: RailCollisionConfig,
+    pub bottom: RailCollisionConfig,
+    pub left: RailCollisionConfig,
+}
+
+impl RailCollisionProfile {
+    pub fn uniform(config: RailCollisionConfig) -> Self {
+        Self {
+            top: config.clone(),
+            right: config.clone(),
+            bottom: config.clone(),
+            left: config,
+        }
+    }
+
+    pub fn human_tuned() -> Self {
+        Self::uniform(RailCollisionConfig::human_tuned())
+    }
+
+    pub fn for_rail(&self, rail: Rail) -> &RailCollisionConfig {
+        match rail {
+            Rail::Top => &self.top,
+            Rail::Right => &self.right,
+            Rail::Bottom => &self.bottom,
+            Rail::Left => &self.left,
+        }
+    }
+
+    pub fn with_top(mut self, config: RailCollisionConfig) -> Self {
+        self.top = config;
+        self
+    }
+
+    pub fn with_right(mut self, config: RailCollisionConfig) -> Self {
+        self.right = config;
+        self
+    }
+
+    pub fn with_bottom(mut self, config: RailCollisionConfig) -> Self {
+        self.bottom = config;
+        self
+    }
+
+    pub fn with_left(mut self, config: RailCollisionConfig) -> Self {
+        self.left = config;
+        self
+    }
+}
+
+impl Default for RailCollisionProfile {
+    fn default() -> Self {
+        Self::human_tuned()
+    }
+}
+
 /// Detailed output for a ball-ball collision response.
 ///
 /// `throw_angle_degrees` is the signed deflection of the object-ball departure away from the ideal
@@ -3733,7 +3796,7 @@ fn advance_to_next_n_ball_event_with_scheduler<FindNextEvent>(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-    rail_response: Option<(RailModel, RailCollisionConfig)>,
+    rail_response: Option<(RailModel, RailCollisionProfile)>,
     find_next_event: FindNextEvent,
 ) -> NBallOnTableAdvance
 where
@@ -3766,15 +3829,15 @@ where
             states_after[*second_ball_index] = second_after;
         }
         NBallOnTableEvent::BallRailImpact { ball_index, impact } => {
-            let (rail_model, rail_config) = rail_response
+            let (rail_model, rail_profile) = rail_response
                 .as_ref()
                 .expect("rail impacts require a rail collision model");
-            states_after[*ball_index] = collide_ball_rail_on_table_with_radius_and_config(
+            states_after[*ball_index] = collide_ball_rail_on_table_with_radius_and_profile(
                 &impact.state_at_impact,
                 impact.rail,
                 ball.radius.clone(),
                 *rail_model,
-                rail_config,
+                rail_profile,
             );
         }
     }
@@ -3807,6 +3870,27 @@ pub fn advance_to_next_n_ball_event_on_table(
 
 /// Advance any number of on-table balls to the next supported event while also resolving rail
 /// impacts using explicit rail-response coefficients.
+pub fn advance_to_next_n_ball_event_with_rail_profile_on_table(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallOnTableAdvance {
+    advance_to_next_n_ball_event_with_scheduler(
+        states,
+        ball,
+        motion,
+        collision_model,
+        Some((rail_model, rail_profile.clone())),
+        |state_refs| compute_next_n_ball_event_with_rails_on_table(state_refs, ball, table, motion),
+    )
+}
+
+/// Advance any number of on-table balls to the next supported event while also resolving rail
+/// impacts using explicit rail-response coefficients.
 pub fn advance_to_next_n_ball_event_with_rail_config_on_table(
     states: &[OnTableBallState],
     ball: &BallSetPhysicsSpec,
@@ -3816,13 +3900,14 @@ pub fn advance_to_next_n_ball_event_with_rail_config_on_table(
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
 ) -> NBallOnTableAdvance {
-    advance_to_next_n_ball_event_with_scheduler(
+    advance_to_next_n_ball_event_with_rail_profile_on_table(
         states,
         ball,
+        table,
         motion,
         collision_model,
-        Some((rail_model, rail_config.clone())),
-        |state_refs| compute_next_n_ball_event_with_rails_on_table(state_refs, ball, table, motion),
+        rail_model,
+        &RailCollisionProfile::uniform(rail_config.clone()),
     )
 }
 
@@ -3840,14 +3925,14 @@ pub fn advance_to_next_n_ball_event_with_rails_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
 ) -> NBallOnTableAdvance {
-    advance_to_next_n_ball_event_with_rail_config_on_table(
+    advance_to_next_n_ball_event_with_rail_profile_on_table(
         states,
         ball,
         table,
         motion,
         collision_model,
         rail_model,
-        &RailCollisionConfig::default(),
+        &RailCollisionProfile::default(),
     )
 }
 
@@ -3883,7 +3968,7 @@ pub fn advance_to_next_two_ball_event_on_table(
 
 /// Advance two on-table balls to the next supported event while also resolving rail impacts using
 /// explicit rail-response coefficients.
-pub fn advance_to_next_two_ball_event_with_rail_config_on_table(
+pub fn advance_to_next_two_ball_event_with_rail_profile_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
@@ -3891,16 +3976,16 @@ pub fn advance_to_next_two_ball_event_with_rail_config_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-    rail_config: &RailCollisionConfig,
+    rail_profile: &RailCollisionProfile,
 ) -> TwoBallOnTableAdvance {
-    let advanced = advance_to_next_n_ball_event_with_rail_config_on_table(
+    let advanced = advance_to_next_n_ball_event_with_rail_profile_on_table(
         &[a.clone(), b.clone()],
         ball,
         table,
         motion,
         collision_model,
         rail_model,
-        rail_config,
+        rail_profile,
     );
     let [a_after, b_after]: [OnTableBallState; 2] = advanced
         .states
@@ -3913,6 +3998,30 @@ pub fn advance_to_next_two_ball_event_with_rail_config_on_table(
         elapsed: advanced.elapsed,
         event: advanced.event.map(two_ball_event_from_n_ball_event),
     }
+}
+
+/// Advance two on-table balls to the next supported event while also resolving rail impacts using
+/// explicit rail-response coefficients.
+pub fn advance_to_next_two_ball_event_with_rail_config_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> TwoBallOnTableAdvance {
+    advance_to_next_two_ball_event_with_rail_profile_on_table(
+        a,
+        b,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionProfile::uniform(rail_config.clone()),
+    )
 }
 
 /// Advance two on-table balls to the next supported event while also resolving rail impacts against
@@ -4061,7 +4170,7 @@ pub fn simulate_two_balls_on_table(
 
 /// Simulate two on-table balls forward over a requested duration while also resolving rail impacts
 /// using explicit rail-response coefficients.
-pub fn simulate_two_balls_with_rail_config_on_table(
+pub fn simulate_two_balls_with_rail_profile_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
     dt: Seconds,
@@ -4070,7 +4179,7 @@ pub fn simulate_two_balls_with_rail_config_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-    rail_config: &RailCollisionConfig,
+    rail_profile: &RailCollisionProfile,
 ) -> TwoBallOnTableSimulation {
     simulate_two_ball_system_on_table(
         a,
@@ -4082,7 +4191,7 @@ pub fn simulate_two_balls_with_rail_config_on_table(
             compute_next_two_ball_event_with_rails_on_table(a_state, b_state, ball, table, motion)
         },
         |a_state, b_state| {
-            advance_to_next_two_ball_event_with_rail_config_on_table(
+            advance_to_next_two_ball_event_with_rail_profile_on_table(
                 a_state,
                 b_state,
                 ball,
@@ -4090,9 +4199,35 @@ pub fn simulate_two_balls_with_rail_config_on_table(
                 motion,
                 collision_model,
                 rail_model,
-                rail_config,
+                rail_profile,
             )
         },
+    )
+}
+
+/// Simulate two on-table balls forward over a requested duration while also resolving rail impacts
+/// using explicit rail-response coefficients.
+pub fn simulate_two_balls_with_rail_config_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> TwoBallOnTableSimulation {
+    simulate_two_balls_with_rail_profile_on_table(
+        a,
+        b,
+        dt,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionProfile::uniform(rail_config.clone()),
     )
 }
 
@@ -4111,7 +4246,7 @@ pub fn simulate_two_balls_with_rails_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
 ) -> TwoBallOnTableSimulation {
-    simulate_two_balls_with_rail_config_on_table(
+    simulate_two_balls_with_rail_profile_on_table(
         a,
         b,
         dt,
@@ -4120,7 +4255,7 @@ pub fn simulate_two_balls_with_rails_on_table(
         motion,
         collision_model,
         rail_model,
-        &RailCollisionConfig::default(),
+        &RailCollisionProfile::default(),
     )
 }
 
@@ -4196,6 +4331,30 @@ pub fn simulate_n_balls_on_table_until_rest(
 
 /// Simulate any number of on-table balls until rest while also resolving rail impacts using
 /// explicit rail-response coefficients.
+pub fn simulate_n_balls_with_rail_profile_on_table_until_rest(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallOnTableSimulation {
+    simulate_n_ball_system_on_table_until_rest(states, |current| {
+        advance_to_next_n_ball_event_with_rail_profile_on_table(
+            current,
+            ball,
+            table,
+            motion,
+            collision_model,
+            rail_model,
+            rail_profile,
+        )
+    })
+}
+
+/// Simulate any number of on-table balls until rest while also resolving rail impacts using
+/// explicit rail-response coefficients.
 pub fn simulate_n_balls_with_rail_config_on_table_until_rest(
     states: &[OnTableBallState],
     ball: &BallSetPhysicsSpec,
@@ -4205,17 +4364,15 @@ pub fn simulate_n_balls_with_rail_config_on_table_until_rest(
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
 ) -> NBallOnTableSimulation {
-    simulate_n_ball_system_on_table_until_rest(states, |current| {
-        advance_to_next_n_ball_event_with_rail_config_on_table(
-            current,
-            ball,
-            table,
-            motion,
-            collision_model,
-            rail_model,
-            rail_config,
-        )
-    })
+    simulate_n_balls_with_rail_profile_on_table_until_rest(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionProfile::uniform(rail_config.clone()),
+    )
 }
 
 /// Simulate any number of on-table balls until rest while also resolving rail impacts against the
@@ -4232,14 +4389,14 @@ pub fn simulate_n_balls_with_rails_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
 ) -> NBallOnTableSimulation {
-    simulate_n_balls_with_rail_config_on_table_until_rest(
+    simulate_n_balls_with_rail_profile_on_table_until_rest(
         states,
         ball,
         table,
         motion,
         collision_model,
         rail_model,
-        &RailCollisionConfig::default(),
+        &RailCollisionProfile::default(),
     )
 }
 
@@ -4391,14 +4548,14 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
 /// Advance the richer indexed N-ball system to the next supported event while also resolving rail
 /// impacts using explicit rail-response coefficients and pocket captures against the current table
 /// geometry.
-pub fn advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table(
+pub fn advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
     states: &[NBallSystemState],
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-    rail_config: &RailCollisionConfig,
+    rail_profile: &RailCollisionProfile,
 ) -> NBallSystemAdvance {
     let Some(event) = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
         states, ball, table, motion,
@@ -4438,12 +4595,12 @@ pub fn advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table
         }
         NBallSystemEvent::BallRailImpact { ball_index, impact } => {
             states_after[*ball_index] =
-                NBallSystemState::OnTable(collide_ball_rail_on_table_with_radius_and_config(
+                NBallSystemState::OnTable(collide_ball_rail_on_table_with_radius_and_profile(
                     &impact.state_at_impact,
                     impact.rail,
                     ball.radius.clone(),
                     rail_model,
-                    rail_config,
+                    rail_profile,
                 ));
         }
     }
@@ -4456,6 +4613,29 @@ pub fn advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table
 }
 
 /// Advance the richer indexed N-ball system to the next supported event while also resolving rail
+/// impacts using explicit rail-response coefficients and pocket captures against the current table
+/// geometry.
+pub fn advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> NBallSystemAdvance {
+    advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionProfile::uniform(rail_config.clone()),
+    )
+}
+
+/// Advance the richer indexed N-ball system to the next supported event while also resolving rail
 /// impacts against the current table geometry and using default rail-response coefficients.
 pub fn advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
     states: &[NBallSystemState],
@@ -4465,14 +4645,14 @@ pub fn advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
 ) -> NBallSystemAdvance {
-    advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table(
+    advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
         states,
         ball,
         table,
         motion,
         collision_model,
         rail_model,
-        &RailCollisionConfig::default(),
+        &RailCollisionProfile::default(),
     )
 }
 
@@ -4519,6 +4699,30 @@ where
 
 /// Simulate the richer indexed N-ball system until rest while also resolving rail impacts using
 /// explicit rail-response coefficients and pocket captures.
+pub fn simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallSystemSimulation {
+    simulate_n_ball_system_with_pockets_until_rest(states, |current| {
+        advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
+            current,
+            ball,
+            table,
+            motion,
+            collision_model,
+            rail_model,
+            rail_profile,
+        )
+    })
+}
+
+/// Simulate the richer indexed N-ball system until rest while also resolving rail impacts using
+/// explicit rail-response coefficients and pocket captures.
 pub fn simulate_n_ball_system_with_rail_config_and_pockets_on_table_until_rest(
     states: &[NBallSystemState],
     ball: &BallSetPhysicsSpec,
@@ -4528,17 +4732,15 @@ pub fn simulate_n_ball_system_with_rail_config_and_pockets_on_table_until_rest(
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
 ) -> NBallSystemSimulation {
-    simulate_n_ball_system_with_pockets_until_rest(states, |current| {
-        advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table(
-            current,
-            ball,
-            table,
-            motion,
-            collision_model,
-            rail_model,
-            rail_config,
-        )
-    })
+    simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        &RailCollisionProfile::uniform(rail_config.clone()),
+    )
 }
 
 /// Simulate the richer indexed N-ball system until rest while also resolving rail impacts and
@@ -4551,14 +4753,41 @@ pub fn simulate_n_ball_system_with_rails_and_pockets_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
 ) -> NBallSystemSimulation {
-    simulate_n_ball_system_with_rail_config_and_pockets_on_table_until_rest(
+    simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
         states,
         ball,
         table,
         motion,
         collision_model,
         rail_model,
-        &RailCollisionConfig::default(),
+        &RailCollisionProfile::default(),
+    )
+}
+
+/// Simulate any number of initially on-table balls until rest while also resolving rail impacts and
+/// pocket captures against the current table geometry.
+pub fn simulate_n_balls_with_rail_profile_and_pockets_on_table_until_rest(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallSystemSimulation {
+    let system_states = states
+        .iter()
+        .cloned()
+        .map(NBallSystemState::from)
+        .collect::<Vec<_>>();
+    simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
+        &system_states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        rail_model,
+        rail_profile,
     )
 }
 
@@ -4572,18 +4801,14 @@ pub fn simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
 ) -> NBallSystemSimulation {
-    let system_states = states
-        .iter()
-        .cloned()
-        .map(NBallSystemState::from)
-        .collect::<Vec<_>>();
-    simulate_n_ball_system_with_rails_and_pockets_on_table_until_rest(
-        &system_states,
+    simulate_n_balls_with_rail_profile_and_pockets_on_table_until_rest(
+        states,
         ball,
         table,
         motion,
         collision_model,
         rail_model,
+        &RailCollisionProfile::default(),
     )
 }
 
@@ -4621,14 +4846,14 @@ fn push_visible_ball_path_segment(
 /// the current state, any in-window motion-transition vertices, any in-window rail impacts, and the
 /// final requested stop condition. It does not yet sample within-phase side-spin curvature inside a
 /// segment.
-pub fn trace_ball_path_with_rail_config_on_table(
+pub fn trace_ball_path_with_rail_profile_on_table(
     state: &OnTableBallState,
     stop: BallPathStop,
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     motion: &OnTableMotionConfig,
     rail_model: RailModel,
-    rail_config: &RailCollisionConfig,
+    rail_profile: &RailCollisionProfile,
 ) -> BallPath {
     let mut current = state.clone();
     let mut elapsed = Seconds::zero();
@@ -4740,12 +4965,12 @@ pub fn trace_ball_path_with_rail_config_on_table(
                     }
                 }
 
-                current = collide_ball_rail_on_table_with_radius_and_config(
+                current = collide_ball_rail_on_table_with_radius_and_profile(
                     &current,
                     rail,
                     ball.radius.clone(),
                     rail_model,
-                    rail_config,
+                    rail_profile,
                 );
             }
         }
@@ -4764,6 +4989,33 @@ pub fn trace_ball_path_with_rail_config_on_table(
     }
 }
 
+/// Trace a single ball forward over the table while resolving rail impacts using explicit rail
+/// response coefficients.
+///
+/// This is currently a first-pass event-vertex trace: it records visible straight segments between
+/// the current state, any in-window motion-transition vertices, any in-window rail impacts, and the
+/// final requested stop condition. It does not yet sample within-phase side-spin curvature inside a
+/// segment.
+pub fn trace_ball_path_with_rail_config_on_table(
+    state: &OnTableBallState,
+    stop: BallPathStop,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    rail_model: RailModel,
+    rail_config: &RailCollisionConfig,
+) -> BallPath {
+    trace_ball_path_with_rail_profile_on_table(
+        state,
+        stop,
+        ball,
+        table,
+        motion,
+        rail_model,
+        &RailCollisionProfile::uniform(rail_config.clone()),
+    )
+}
+
 /// Trace a single ball forward over the table while resolving rail impacts against the current
 /// table geometry.
 ///
@@ -4777,14 +5029,14 @@ pub fn trace_ball_path_with_rails_on_table(
     motion: &OnTableMotionConfig,
     rail_model: RailModel,
 ) -> BallPath {
-    trace_ball_path_with_rail_config_on_table(
+    trace_ball_path_with_rail_profile_on_table(
         state,
         stop,
         ball,
         table,
         motion,
         rail_model,
-        &RailCollisionConfig::default(),
+        &RailCollisionProfile::default(),
     )
 }
 
@@ -5561,13 +5813,14 @@ fn spin_aware_ball_rail_collision_on_table(
 /// normal component of translational velocity changes the no-slip condition. In that sense, carried
 /// rolling spin can act like draw relative to the post-rail travel direction until cloth friction
 /// re-establishes rolling.
-pub fn collide_ball_rail_on_table_with_radius_and_config(
+pub fn collide_ball_rail_on_table_with_radius_and_profile(
     state: &OnTableBallState,
     rail: Rail,
     ball_radius: Inches,
     model: RailModel,
-    config: &RailCollisionConfig,
+    profile: &RailCollisionProfile,
 ) -> OnTableBallState {
+    let config = profile.for_rail(rail);
     let state_ref = state.as_ball_state();
     match model {
         RailModel::Mirror => build_on_table_ball_state(
@@ -5595,6 +5848,24 @@ pub fn collide_ball_rail_on_table_with_radius_and_config(
 }
 
 /// Resolve an instantaneous ball-rail collision for a validated on-table state using an explicit
+/// ball radius and explicit rail-response coefficients.
+pub fn collide_ball_rail_on_table_with_radius_and_config(
+    state: &OnTableBallState,
+    rail: Rail,
+    ball_radius: Inches,
+    model: RailModel,
+    config: &RailCollisionConfig,
+) -> OnTableBallState {
+    collide_ball_rail_on_table_with_radius_and_profile(
+        state,
+        rail,
+        ball_radius,
+        model,
+        &RailCollisionProfile::uniform(config.clone()),
+    )
+}
+
+/// Resolve an instantaneous ball-rail collision for a validated on-table state using an explicit
 /// ball radius.
 ///
 /// This compatibility wrapper uses the default rail-response coefficients. Prefer
@@ -5605,12 +5876,12 @@ pub fn collide_ball_rail_on_table_with_radius(
     ball_radius: Inches,
     model: RailModel,
 ) -> OnTableBallState {
-    collide_ball_rail_on_table_with_radius_and_config(
+    collide_ball_rail_on_table_with_radius_and_profile(
         state,
         rail,
         ball_radius,
         model,
-        &RailCollisionConfig::default(),
+        &RailCollisionProfile::default(),
     )
 }
 
@@ -6560,22 +6831,31 @@ impl Rail {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlayLayer {
+    BelowBalls,
+    AboveBalls,
+}
+
 #[derive(Clone, Debug)]
 enum Overlay {
     DashedLine {
         start: Position,
         end: Position,
         color: Rgba<u8>,
+        layer: OverlayLayer,
     },
     SmoothPolyline {
         points: Vec<Position>,
         width_px: f32,
         color: Rgba<u8>,
+        layer: OverlayLayer,
     },
     GhostBall {
         center: Position,
         fill_color: Rgba<u8>,
         outline_color: Rgba<u8>,
+        layer: OverlayLayer,
     },
 }
 
@@ -6665,6 +6945,16 @@ impl GameState {
     }
 
     pub fn add_dotted_line(&mut self, from: &Position, to: &Position, color: Rgba<u8>) {
+        self.add_dotted_line_on_layer(from, to, color, OverlayLayer::BelowBalls);
+    }
+
+    pub fn add_dotted_line_on_layer(
+        &mut self,
+        from: &Position,
+        to: &Position,
+        color: Rgba<u8>,
+        layer: OverlayLayer,
+    ) {
         let mut from = from.clone();
         from.resolve_shifts(&self.table_spec);
 
@@ -6675,19 +6965,29 @@ impl GameState {
             start: from,
             end: to,
             color,
+            layer,
         })
     }
 
     /// Add a dotted polyline by drawing dashed segments between each consecutive pair of points.
     pub fn add_dotted_polyline(&mut self, points: &[Position], color: Rgba<u8>) {
+        self.add_dotted_polyline_on_layer(points, color, OverlayLayer::BelowBalls);
+    }
+
+    pub fn add_dotted_polyline_on_layer(
+        &mut self,
+        points: &[Position],
+        color: Rgba<u8>,
+        layer: OverlayLayer,
+    ) {
         for window in points.windows(2) {
-            self.add_dotted_line(&window[0], &window[1], color);
+            self.add_dotted_line_on_layer(&window[0], &window[1], color, layer);
         }
     }
 
     /// Add a smooth anti-aliased polyline overlay.
     pub fn add_smooth_polyline(&mut self, points: &[Position], color: Rgba<u8>) {
-        self.add_smooth_polyline_with_width(points, 4.0, color);
+        self.add_smooth_polyline_with_width_on_layer(points, 4.0, color, OverlayLayer::BelowBalls);
     }
 
     /// Add a smooth anti-aliased polyline overlay with an explicit width.
@@ -6696,6 +6996,21 @@ impl GameState {
         points: &[Position],
         width_px: f32,
         color: Rgba<u8>,
+    ) {
+        self.add_smooth_polyline_with_width_on_layer(
+            points,
+            width_px,
+            color,
+            OverlayLayer::BelowBalls,
+        );
+    }
+
+    pub fn add_smooth_polyline_with_width_on_layer(
+        &mut self,
+        points: &[Position],
+        width_px: f32,
+        color: Rgba<u8>,
+        layer: OverlayLayer,
     ) {
         let mut resolved = Vec::with_capacity(points.len());
         for point in points {
@@ -6708,6 +7023,7 @@ impl GameState {
             points: resolved,
             width_px,
             color,
+            layer,
         });
     }
 
@@ -6718,6 +7034,21 @@ impl GameState {
         fill_color: Rgba<u8>,
         outline_color: Rgba<u8>,
     ) {
+        self.add_ghost_ball_on_layer(
+            position,
+            fill_color,
+            outline_color,
+            OverlayLayer::BelowBalls,
+        );
+    }
+
+    pub fn add_ghost_ball_on_layer(
+        &mut self,
+        position: &Position,
+        fill_color: Rgba<u8>,
+        outline_color: Rgba<u8>,
+        layer: OverlayLayer,
+    ) {
         let mut position = position.clone();
         position.resolve_shifts(&self.table_spec);
 
@@ -6725,6 +7056,7 @@ impl GameState {
             center: position,
             fill_color,
             outline_color,
+            layer,
         });
     }
 
@@ -6759,11 +7091,7 @@ impl GameState {
         color: Rgba<u8>,
     ) -> Position {
         let ghost_ball = object_ball.ghost_ball(destination, &self.table_spec);
-        self.add_ghost_ball(
-            &ghost_ball,
-            Rgba([255, 255, 255, 64]),
-            Rgba([0, 0, 0, 96]),
-        );
+        self.add_ghost_ball(&ghost_ball, Rgba([255, 255, 255, 64]), Rgba([0, 0, 0, 96]));
         self.add_dotted_line(shooting_position, &ghost_ball, color);
         ghost_ball
     }
@@ -6802,35 +7130,45 @@ impl GameState {
 
         let (tw, th) = table.dimensions();
 
-        for overlay in resolved.lines_to_draw.iter() {
-            match overlay {
-                Overlay::DashedLine { start, end, color } => {
-                    drawing::draw_dashed_line_thick_mut(
-                        &mut table, start, end, 3., 12., 2., *color,
-                    );
-                }
-                Overlay::SmoothPolyline {
-                    points,
-                    width_px,
-                    color,
-                } => {
-                    drawing::draw_smooth_polyline_mut(&mut table, points, *width_px, *color);
-                }
-                Overlay::GhostBall {
-                    center,
-                    fill_color,
-                    outline_color,
-                } => {
-                    drawing::draw_ghost_ball_mut(
-                        &mut table,
+        let draw_overlays_for_layer = |layer: OverlayLayer, table: &mut RgbaImage| {
+            for overlay in resolved.lines_to_draw.iter() {
+                match overlay {
+                    Overlay::DashedLine {
+                        start,
+                        end,
+                        color,
+                        layer: overlay_layer,
+                    } if *overlay_layer == layer => {
+                        drawing::draw_dashed_line_thick_mut(table, start, end, 3., 12., 2., *color);
+                    }
+                    Overlay::SmoothPolyline {
+                        points,
+                        width_px,
+                        color,
+                        layer: overlay_layer,
+                    } if *overlay_layer == layer => {
+                        drawing::draw_smooth_polyline_mut(table, points, *width_px, *color);
+                    }
+                    Overlay::GhostBall {
                         center,
-                        ball_diameter_px,
-                        *fill_color,
-                        *outline_color,
-                    );
+                        fill_color,
+                        outline_color,
+                        layer: overlay_layer,
+                    } if *overlay_layer == layer => {
+                        drawing::draw_ghost_ball_mut(
+                            table,
+                            center,
+                            ball_diameter_px,
+                            *fill_color,
+                            *outline_color,
+                        );
+                    }
+                    _ => {}
                 }
             }
-        }
+        };
+
+        draw_overlays_for_layer(OverlayLayer::BelowBalls, &mut table);
 
         for ball in &resolved.ball_positions {
             let ball_png = assets::ball_img(ball.ty.clone());
@@ -6862,6 +7200,8 @@ impl GameState {
 
             overlay(&mut table, &ball_img, px_shifted.into(), py_shifted.into());
         }
+
+        draw_overlays_for_layer(OverlayLayer::AboveBalls, &mut table);
 
         let mut buf = Vec::new();
         PngEncoder::new(&mut buf)

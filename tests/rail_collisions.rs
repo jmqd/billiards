@@ -1,8 +1,9 @@
 use billiards::{
     cloth_contact_velocity_on_table, collide_ball_rail_on_table,
-    collide_ball_rail_on_table_with_radius_and_config, AngularVelocity3, BallState, Inches,
-    Inches2, MotionPhase, OnTableBallState, Rail, RailCollisionConfig, RailModel, Scale, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    collide_ball_rail_on_table_with_radius_and_config,
+    collide_ball_rail_on_table_with_radius_and_profile, AngularVelocity3, BallState, Inches,
+    Inches2, MotionPhase, OnTableBallState, Rail, RailCollisionConfig, RailCollisionProfile,
+    RailModel, Scale, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -270,4 +271,43 @@ fn gearing_english_remains_a_tangential_fixed_point_in_the_combined_spin_aware_m
         reflected.as_ball_state().angular_velocity.z().as_f64(),
         geared_spin,
     );
+}
+
+#[test]
+fn a_rail_profile_can_make_different_rails_play_differently() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::zero(),
+    ));
+    let profile = RailCollisionProfile::human_tuned()
+        .with_top(RailCollisionConfig {
+            normal_restitution: Scale::from_f64(0.6),
+            tangential_friction_coefficient: Scale::from_f64(1.0),
+        })
+        .with_right(RailCollisionConfig {
+            normal_restitution: Scale::from_f64(0.9),
+            tangential_friction_coefficient: Scale::from_f64(1.0),
+        });
+
+    let top_reflected = collide_ball_rail_on_table_with_radius_and_profile(
+        &state,
+        Rail::Top,
+        radius.clone(),
+        RailModel::RestitutionOnly,
+        &profile,
+    );
+    let right_reflected = collide_ball_rail_on_table_with_radius_and_profile(
+        &state,
+        Rail::Right,
+        radius,
+        RailModel::RestitutionOnly,
+        &profile,
+    );
+
+    assert_close(top_reflected.as_ball_state().velocity.x().as_f64(), 5.0);
+    assert_close(top_reflected.as_ball_state().velocity.y().as_f64(), -3.0);
+    assert_close(right_reflected.as_ball_state().velocity.x().as_f64(), -4.5);
+    assert_close(right_reflected.as_ball_state().velocity.y().as_f64(), 5.0);
 }

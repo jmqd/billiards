@@ -1,4 +1,4 @@
-use crate::OverlayLayer;
+use crate::{Inches, OverlayLayer, TYPICAL_BALL_RADIUS};
 use image::Rgba;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,6 +120,7 @@ impl Default for EventMarkerStyle {
 pub struct AimOverlayStyle {
     pub line: DashedLineStyle,
     pub ghost_ball: Option<GhostBallStyle>,
+    pub clip_endpoints_to_ball_radius: Option<Inches>,
 }
 
 impl AimOverlayStyle {
@@ -127,7 +128,13 @@ impl AimOverlayStyle {
         Self {
             line: DashedLineStyle::new(color),
             ghost_ball: Some(GhostBallStyle::default()),
+            clip_endpoints_to_ball_radius: Some(TYPICAL_BALL_RADIUS.clone()),
         }
+    }
+
+    pub fn without_endpoint_clipping(mut self) -> Self {
+        self.clip_endpoints_to_ball_radius = None;
+        self
     }
 }
 
@@ -135,6 +142,7 @@ impl AimOverlayStyle {
 pub struct BallPathStyle {
     pub line: DashedLineStyle,
     pub start_ghost_ball: Option<GhostBallStyle>,
+    pub clip_endpoints_to_ball_radius: Option<Inches>,
     pub color_mode: PathColorMode,
     pub event_markers: EventMarkerStyle,
     pub labels: LabelOverlayStyle,
@@ -145,6 +153,7 @@ impl BallPathStyle {
         Self {
             line: DashedLineStyle::new(color),
             start_ghost_ball: None,
+            clip_endpoints_to_ball_radius: Some(TYPICAL_BALL_RADIUS.clone()),
             color_mode: PathColorMode::Solid,
             event_markers: EventMarkerStyle::default(),
             labels: LabelOverlayStyle::default(),
@@ -153,6 +162,11 @@ impl BallPathStyle {
 
     pub fn with_start_ghost(mut self, ghost_ball: GhostBallStyle) -> Self {
         self.start_ghost_ball = Some(ghost_ball);
+        self
+    }
+
+    pub fn without_endpoint_clipping(mut self) -> Self {
+        self.clip_endpoints_to_ball_radius = None;
         self
     }
 }

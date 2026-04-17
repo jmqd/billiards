@@ -1,11 +1,10 @@
 use billiards::{
-    trace_ball_path_with_rails_on_table, visualization::AimOverlayStyle, Angle,
-    AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
-    Diamond, GameState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq,
-    MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
-    OverlayLayer, Pocket, Position, RadiansPerSecondSq, Rail, RailAngleReference, RailModel,
-    RailTangentDirection, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
-    TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    trace_ball_path_with_rails_on_table, visualization::AimOverlayStyle, Angle, AngularVelocity3,
+    Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType, Diamond, GameState,
+    Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
+    OnTableBallState, OnTableMotionConfig, OverlayLayer, Pocket, Position, RadiansPerSecondSq,
+    Rail, RailAngleReference, RailModel, RailTangentDirection, RollingResistanceModel,
+    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, RgbaImage};
 
@@ -79,6 +78,34 @@ fn on_table(state: BallState) -> OnTableBallState {
 
 fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
+}
+
+fn clip_to_ball_edges(
+    table_spec: &TableSpec,
+    from: &Position,
+    to: &Position,
+) -> (Position, Position) {
+    let mut from = from.clone();
+    from.resolve_shifts(table_spec);
+    let mut to = to.clone();
+    to.resolve_shifts(table_spec);
+
+    let from_x = table_spec.diamond_to_inches(from.x.clone()).as_f64();
+    let from_y = table_spec.diamond_to_inches(from.y.clone()).as_f64();
+    let to_x = table_spec.diamond_to_inches(to.x.clone()).as_f64();
+    let to_y = table_spec.diamond_to_inches(to.y.clone()).as_f64();
+    let distance = (to_x - from_x).hypot(to_y - from_y);
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    if distance <= 2.0 * radius.as_f64() + 1e-9 {
+        return (from, to);
+    }
+
+    let angle = from.angle_to(&to);
+    let mut clipped_from = from.translate_inches(radius.clone(), angle);
+    clipped_from.resolve_shifts(table_spec);
+    let mut clipped_to = to.translate_inches(radius, angle.flipped());
+    clipped_to.resolve_shifts(table_spec);
+    (clipped_from, clipped_to)
 }
 
 fn thirty_degree_top_rail_bank_state(table: &TableSpec) -> OnTableBallState {
@@ -189,12 +216,14 @@ fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_o
     resolved_shooting_position.resolve_shifts(&table_spec);
     let ghost_ball = object_ball.ghost_ball_to_pocket(Pocket::TopRight, &table_spec);
     manual.add_ghost_ball(&ghost_ball, ghost_fill_color(), ghost_outline_color());
-    manual.add_dotted_line(&resolved_shooting_position, &ghost_ball, color);
+    let (clipped_start, clipped_end) =
+        clip_to_ball_edges(&table_spec, &resolved_shooting_position, &ghost_ball);
+    manual.add_dotted_line(&clipped_start, &clipped_end, color);
 
     let mut helper = GameState::new(table_spec.clone());
     helper.add_dotted_aim_line_to_pocket(&object_ball, Pocket::TopRight, &shooting_position, color);
 
-    let mut styled = GameState::new(table_spec);
+    let mut styled = GameState::new(table_spec.clone());
     styled.add_dotted_aim_line_to_pocket_styled(
         &object_ball,
         Pocket::TopRight,
@@ -202,8 +231,17 @@ fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_o
         &AimOverlayStyle::new(color),
     );
 
+    let mut unclipped = GameState::new(table_spec);
+    unclipped.add_dotted_aim_line_to_pocket_styled(
+        &object_ball,
+        Pocket::TopRight,
+        &shooting_position,
+        &AimOverlayStyle::new(color).without_endpoint_clipping(),
+    );
+
     assert_eq!(render(&helper), render(&manual));
     assert_eq!(render(&styled), render(&manual));
+    assert_ne!(render(&unclipped), render(&manual));
 }
 
 #[test]
@@ -272,20 +310,25 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
     );
 
     let mut manual = GameState::new(table_spec.clone());
-    manual.add_dotted_line(&points[0], &points[1], color);
-    manual.add_dotted_line(&points[1], &points[2], color);
+    let (first_start, first_end) = clip_to_ball_edges(&table_spec, &points[0], &points[1]);
+    manual.add_dotted_line(&first_start, &first_end, color);
+    let (second_start, second_end) = clip_to_ball_edges(&table_spec, &points[1], &points[2]);
+    manual.add_dotted_line(&second_start, &second_end, color);
 
     let mut helper = GameState::new(table_spec.clone());
     helper.add_dotted_ball_path(&path, color);
 
     assert_eq!(render(&helper), render(&manual));
 
-    let start = path.initial_state.as_ball_state().projected_position(&table_spec);
+    let start = path
+        .initial_state
+        .as_ball_state()
+        .projected_position(&table_spec);
 
     let mut manual_with_ghost = GameState::new(table_spec.clone());
     manual_with_ghost.add_ghost_ball(&start, ghost_fill_color(), ghost_outline_color());
-    manual_with_ghost.add_dotted_line(&points[0], &points[1], color);
-    manual_with_ghost.add_dotted_line(&points[1], &points[2], color);
+    manual_with_ghost.add_dotted_line(&first_start, &first_end, color);
+    manual_with_ghost.add_dotted_line(&second_start, &second_end, color);
 
     let mut helper_with_ghost = GameState::new(table_spec.clone());
     helper_with_ghost.add_dotted_ball_path_with_start_ghost(

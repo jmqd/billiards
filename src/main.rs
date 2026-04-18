@@ -1,10 +1,13 @@
-use billiards::dsl::parse_dsl_to_scenario;
+use billiards::dsl::{parse_dsl_to_scenario, ScenarioTraceRenderOptions};
 use billiards::{
-    write_png_to_file, BallSetPhysicsSpec, CollisionModel, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
-    RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
+    write_png_to_file,
+    visualization::PathColorMode,
+    BallSetPhysicsSpec, CollisionModel, DiagramBackground, DiagramRenderOptions,
+    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableMotionConfig,
+    RadiansPerSecondSq, RailModel, RollingResistanceModel, Seconds, SlidingFrictionModel,
+    SpinDecayModel,
 };
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::fs;
 use std::path::PathBuf;
 
@@ -23,6 +26,23 @@ fn shot_preview_motion_config() -> OnTableMotionConfig {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum TraceColorModeArg {
+    Solid,
+    FadeByTime,
+    MotionPhase,
+}
+
+impl From<TraceColorModeArg> for PathColorMode {
+    fn from(value: TraceColorModeArg) -> Self {
+        match value {
+            TraceColorModeArg::Solid => PathColorMode::Solid,
+            TraceColorModeArg::FadeByTime => PathColorMode::FadeByTime,
+            TraceColorModeArg::MotionPhase => PathColorMode::MotionPhase,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -33,6 +53,34 @@ struct Args {
     /// Output .png file path (optional, defaults to input filename with .png extension)
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// Render translucent ghost balls at the start of each moving trace.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    trace_start_ghosts: bool,
+
+    /// Render event markers at traced segment endpoints.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    trace_event_markers: bool,
+
+    /// Render numeric labels next to traced segment endpoints.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    trace_labels: bool,
+
+    /// Render traced paths with solid, fade-by-time, or motion-phase coloring.
+    #[arg(long, value_enum, default_value_t = TraceColorModeArg::Solid)]
+    trace_color_mode: TraceColorModeArg,
+
+    /// Maximum trace sampling step in seconds for smooth path rendering.
+    #[arg(long, default_value_t = 0.02)]
+    trace_sample_step_seconds: f64,
+
+    /// Scale the final rendered PNG by this positive integer factor.
+    #[arg(long, default_value_t = 1)]
+    scale_factor: u32,
+
+    /// Render onto a transparent background instead of the table image.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+    transparent_background: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,6 +99,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ball_set = BallSetPhysicsSpec::default();
     let motion = shot_preview_motion_config();
+    let trace_render = ScenarioTraceRenderOptions {
+        max_time_step: Seconds::new(args.trace_sample_step_seconds),
+        line_width_px: 3.0,
+        start_ghost_balls: args.trace_start_ghosts,
+        event_markers: args.trace_event_markers,
+        labels: args.trace_labels,
+        path_color_mode: args.trace_color_mode.into(),
+    };
     let render_state = if let Some(trace) = scenario
         .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
             &ball_set,
@@ -79,12 +135,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pocketed,
             remaining
         );
-        trace.rendered_final_layout_with_traces(&scenario, Seconds::new(0.02), &ball_set, &motion)
+        trace.rendered_final_layout_with_trace_options(&scenario, &trace_render, &ball_set, &motion)
     } else {
         scenario.game_state
     };
 
-    let img = render_state.draw_2d_diagram();
+    let img = render_state.draw_2d_diagram_with_options(&DiagramRenderOptions {
+        scale_factor: args.scale_factor.max(1),
+        background: if args.transparent_background {
+            DiagramBackground::Transparent
+        } else {
+            DiagramBackground::Table
+        },
+    });
 
     let output_path = match args.output {
         Some(path) => path,

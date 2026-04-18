@@ -3,14 +3,16 @@ use std::collections::HashMap;
 use crate::{
     advance_motion_on_table, advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
     simulate_n_balls_with_physics_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
-    trace_ball_path_with_rail_profile_on_table, Angle, Ball, BallBallCollisionConfig, BallPath,
-    BallPathSegment, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
-    CollisionModel, CueStrikeConfig, CueTipContact, Diamond, GameState, HumanShotSpeedValidation,
-    Inches, InchesPerSecond, MotionPhase, NBallSystemEvent, NBallSystemSimulation,
-    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, Position, Rail,
-    RailCollisionConfig, RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds,
-    Shot, ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
-    CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
+    trace_ball_path_with_rail_profile_on_table,
+    visualization::{EventMarkerStyle, GhostBallStyle, LabelOverlayStyle, PathColorMode},
+    Angle, Ball, BallBallCollisionConfig, BallPath, BallPathSegment, BallPathStop,
+    BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
+    CueTipContact, Diamond, GameState, HumanShotSpeedValidation, Inches, InchesPerSecond,
+    MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
+    OnTableMotionConfig, Pocket, Position, Rail, RailCollisionConfig, RailCollisionProfile,
+    RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError, TableSpec,
+    BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
+    CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use image::Rgba;
 use winnow::ascii::{float, line_ending, till_line_ending};
@@ -477,6 +479,39 @@ pub struct ScenarioShotTrace {
     pub ball_traces: Vec<ScenarioBallTrace>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioTraceRenderOptions {
+    pub max_time_step: Seconds,
+    pub line_width_px: f32,
+    pub start_ghost_balls: bool,
+    pub event_markers: bool,
+    pub labels: bool,
+    pub path_color_mode: PathColorMode,
+}
+
+impl Default for ScenarioTraceRenderOptions {
+    fn default() -> Self {
+        Self {
+            max_time_step: Seconds::new(0.02),
+            line_width_px: 3.0,
+            start_ghost_balls: false,
+            event_markers: false,
+            labels: false,
+            path_color_mode: PathColorMode::Solid,
+        }
+    }
+}
+
+impl ScenarioTraceRenderOptions {
+    pub fn rich_defaults() -> Self {
+        Self {
+            start_ghost_balls: true,
+            event_markers: true,
+            ..Self::default()
+        }
+    }
+}
+
 impl ScenarioShotTrace {
     pub fn event_lines(&self) -> Vec<String> {
         self.event_log
@@ -492,20 +527,101 @@ impl ScenarioShotTrace {
         ball_set: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
     ) -> GameState {
+        self.rendered_final_layout_with_trace_options(
+            scenario,
+            &ScenarioTraceRenderOptions {
+                max_time_step,
+                ..ScenarioTraceRenderOptions::default()
+            },
+            ball_set,
+            motion,
+        )
+    }
+
+    pub fn rendered_final_layout_with_trace_options(
+        &self,
+        scenario: &DslScenario,
+        options: &ScenarioTraceRenderOptions,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> GameState {
         let mut game_state = scenario.game_state_for_system_states(&self.simulation.states);
         for ball_trace in &self.ball_traces {
-            let points = ball_trace.sampled_points(
-                max_time_step,
-                ball_set,
-                motion,
-                &scenario.game_state.table_spec,
-            );
-            if points.len() >= 2 {
-                game_state.add_smooth_polyline_with_width(
-                    &points,
-                    3.0,
-                    ball_trace_color(&ball_trace.ball),
+            if ball_trace.segments.is_empty() {
+                continue;
+            }
+
+            let trace_color = ball_trace_color(&ball_trace.ball);
+            if options.start_ghost_balls {
+                game_state.add_ghost_ball_styled(
+                    &ball_trace
+                        .initial_state
+                        .as_ball_state()
+                        .projected_position(&scenario.game_state.table_spec),
+                    GhostBallStyle::default(),
                 );
+            }
+
+            let mut elapsed_before_segment = Seconds::zero();
+            for (index, segment) in ball_trace.segments.iter().enumerate() {
+                let points = ball_trace.sampled_points_for_segment(
+                    segment,
+                    options.max_time_step,
+                    ball_set,
+                    motion,
+                    &scenario.game_state.table_spec,
+                );
+                if points.len() >= 2 {
+                    game_state.add_smooth_polyline_with_width(
+                        &points,
+                        options.line_width_px,
+                        scenario_trace_segment_color(
+                            trace_color,
+                            options.path_color_mode,
+                            segment,
+                            elapsed_before_segment,
+                            ball_trace.elapsed(),
+                        ),
+                    );
+                }
+
+                let end_position = segment
+                    .end
+                    .as_ball_state()
+                    .projected_position(&scenario.game_state.table_spec);
+                if options.event_markers {
+                    game_state.add_event_marker_styled(
+                        &end_position,
+                        EventMarkerStyle::enabled(trace_color),
+                    );
+                }
+                if options.labels {
+                    game_state.add_text_label_styled(
+                        &end_position,
+                        (index + 1).to_string(),
+                        LabelOverlayStyle::enabled(Rgba([0, 0, 0, 255])),
+                    );
+                }
+
+                elapsed_before_segment =
+                    Seconds::new(elapsed_before_segment.as_f64() + segment.duration.as_f64());
+            }
+
+            if let Some(pocket_terminal) = ball_trace.pocket_terminal_point() {
+                let last = ball_trace
+                    .segments
+                    .last()
+                    .expect("non-empty trace should have a last segment")
+                    .end
+                    .as_ball_state()
+                    .projected_position(&scenario.game_state.table_spec);
+                if last != pocket_terminal {
+                    game_state.add_smooth_polyline_with_width(
+                        &[last, pocket_terminal],
+                        options.line_width_px,
+                        trace_color,
+                    );
+                }
             }
         }
         game_state
@@ -592,6 +708,42 @@ impl ScenarioBallTrace {
             NBallSystemState::Pocketed { pocket, .. } => Some(pocket.aiming_center()),
             NBallSystemState::OnTable(_) => None,
         }
+    }
+
+    fn elapsed(&self) -> Seconds {
+        Seconds::new(self.segments.iter().map(|segment| segment.duration.as_f64()).sum())
+    }
+
+    fn sampled_points_for_segment(
+        &self,
+        segment: &BallPathSegment,
+        max_time_step: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        table_spec: &TableSpec,
+    ) -> Vec<Position> {
+        let max_time_step = max_time_step.as_f64();
+        assert!(
+            max_time_step.is_finite() && max_time_step > 0.0,
+            "sampled trace max_time_step must be positive and finite"
+        );
+
+        let duration = segment.duration.as_f64();
+        let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
+        let mut points = vec![segment.start.as_ball_state().projected_position(table_spec)];
+        for step in 1..=sample_count {
+            if step == sample_count {
+                points.push(segment.end.as_ball_state().projected_position(table_spec));
+            } else {
+                let t = duration * step as f64 / sample_count as f64;
+                let sampled = OnTableBallState::try_from(
+                    advance_motion_on_table(&segment.start, Seconds::new(t), ball, motion).state,
+                )
+                .expect("sampled trace sub-advance should preserve on-table invariants");
+                points.push(sampled.as_ball_state().projected_position(table_spec));
+            }
+        }
+        points
     }
 
     pub fn projected_points(&self, table_spec: &TableSpec) -> Vec<Position> {
@@ -784,6 +936,48 @@ fn ball_trace_color(ball: &BallType) -> Rgba<u8> {
         BallType::Seven => Rgba([128, 0, 0, 255]),
         BallType::Eight => Rgba([32, 32, 32, 255]),
         BallType::Nine => Rgba([255, 215, 0, 255]),
+    }
+}
+
+fn scenario_trace_segment_color(
+    base_color: Rgba<u8>,
+    mode: PathColorMode,
+    segment: &BallPathSegment,
+    elapsed_before_segment: Seconds,
+    total_elapsed: Seconds,
+) -> Rgba<u8> {
+    match mode {
+        PathColorMode::Solid => base_color,
+        PathColorMode::FadeByTime => {
+            let total_elapsed = total_elapsed.as_f64();
+            if total_elapsed <= 0.0 {
+                return base_color;
+            }
+
+            let midpoint_fraction =
+                (elapsed_before_segment.as_f64() + 0.5 * segment.duration.as_f64()) / total_elapsed;
+            let alpha_scale = (1.0 - 0.7 * midpoint_fraction).clamp(0.2, 1.0);
+            Rgba([
+                base_color[0],
+                base_color[1],
+                base_color[2],
+                ((base_color[3] as f32) * alpha_scale as f32).round() as u8,
+            ])
+        }
+        PathColorMode::MotionPhase => {
+            let alpha = base_color[3];
+            match segment
+                .start
+                .as_ball_state()
+                .motion_phase(crate::TYPICAL_BALL_RADIUS.clone())
+            {
+                MotionPhase::Airborne => Rgba([255, 0, 255, alpha]),
+                MotionPhase::Sliding => Rgba([255, 140, 0, alpha]),
+                MotionPhase::Rolling => Rgba([0, 102, 255, alpha]),
+                MotionPhase::Spinning => Rgba([128, 0, 160, alpha]),
+                MotionPhase::Rest => Rgba([96, 96, 96, alpha]),
+            }
+        }
     }
 }
 

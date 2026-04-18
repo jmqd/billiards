@@ -1,14 +1,16 @@
 use bigdecimal::ToPrimitive;
 use billiards::dsl::{
     parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, CoordinateAxis, DslBuildError,
-    DslError, DslParseError, RailSide,
+    DslError, DslParseError, RailSide, ScenarioTraceRenderOptions,
 };
 use billiards::{
-    BallSetPhysicsSpec, BallType, CollisionModel, HumanShotSpeedBand, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemState,
-    OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailCollisionProfile, RailModel,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
+    visualization::PathColorMode, BallSetPhysicsSpec, BallType, CollisionModel,
+    HumanShotSpeedBand, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
+    MotionTransitionConfig, NBallSystemEvent, NBallSystemState, OnTableMotionConfig, Pocket,
+    RadiansPerSecondSq, RailCollisionProfile, RailModel, RollingResistanceModel,
+    SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
 };
+use image::load_from_memory;
 
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
@@ -36,6 +38,12 @@ fn assert_close(actual: f64, expected: f64) {
         delta < 1e-9,
         "expected {expected}, got {actual} (delta {delta})"
     );
+}
+
+fn render_png(state: &billiards::GameState) -> image::RgbaImage {
+    load_from_memory(&state.draw_2d_diagram())
+        .expect("png decode")
+        .into_rgba8()
 }
 
 #[test]
@@ -454,6 +462,28 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     );
+    let rendered_via_default_options = trace.rendered_final_layout_with_trace_options(
+        &scenario,
+        &ScenarioTraceRenderOptions {
+            max_time_step: billiards::Seconds::new(0.02),
+            ..ScenarioTraceRenderOptions::default()
+        },
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
+    let rendered_with_rich_overlays = trace.rendered_final_layout_with_trace_options(
+        &scenario,
+        &ScenarioTraceRenderOptions {
+            labels: true,
+            path_color_mode: PathColorMode::FadeByTime,
+            ..ScenarioTraceRenderOptions::rich_defaults()
+        },
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
+
+    assert_eq!(render_png(&rendered), render_png(&rendered_via_default_options));
+    assert_ne!(render_png(&rendered), render_png(&rendered_with_rich_overlays));
 
     assert!(matches!(
         trace.event_log.as_slice(),

@@ -1,0 +1,5 @@
+# Short stop shot: the object ball goes to the right side pocket while the cue dies near contact.
+ball cue at (1.0, 4.0)
+ball one at (2.4, 4.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(90deg).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)

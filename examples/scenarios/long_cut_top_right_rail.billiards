@@ -1,0 +1,5 @@
+# Long cut: object ball runs up the right rail and drops in the top-right corner.
+ball cue at (1.0, 3.5)
+ball one at (3.75, 6.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(50deg).speed(88ips).tip(side: 0.0R, height: 0.0R).using(default)

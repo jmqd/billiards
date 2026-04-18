@@ -1,0 +1,10 @@
+# Compact break-style shot into a six-ball rack-like cluster near the rack spot.
+ball cue at (2.0, 6.8)
+ball one at (2.0, 2.0)
+ball two at (1.91, 1.844)
+ball three at (2.09, 1.844)
+ball four at (1.82, 1.688)
+ball five at (2.0, 1.688)
+ball six at (2.18, 1.688)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(180deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)

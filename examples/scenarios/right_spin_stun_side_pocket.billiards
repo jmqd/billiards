@@ -1,0 +1,5 @@
+# Slight cut to the right side pocket with lots of right spin from a near-stun tip height.
+ball cue at (1.0, 4.0)
+ball one at (3.0, 3.8)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(96deg).speed(80ips).tip(side: 0.25R, height: 0.0R).using(default)

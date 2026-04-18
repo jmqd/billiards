@@ -145,6 +145,95 @@ fn straight_draw_side_pocket_example_runs_end_to_end() {
 }
 
 #[test]
+fn stop_shot_side_pocket_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/stop_shot_side_pocket.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+    let cue = cue_trace(&trace);
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> one collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue Rolling -> Rest")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one pocketed in center-right")));
+    assert!(matches!(&cue.final_state, NBallSystemState::OnTable(_)));
+}
+
+#[test]
+fn right_spin_stun_side_pocket_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/right_spin_stun_side_pocket.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> one collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one pocketed in center-right")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue rail impact: bottom")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue rail impact: left")));
+}
+
+#[test]
+fn long_cut_top_right_rail_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/long_cut_top_right_rail.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> one collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one pocketed in top-right")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue rail impact: right")));
+}
+
+#[test]
 fn spot_shot_bottom_right_example_runs_end_to_end() {
     let scenario = parse_dsl_to_scenario(include_str!(
         "../examples/scenarios/spot_shot_bottom_right.billiards"
@@ -173,6 +262,70 @@ fn spot_shot_bottom_right_example_runs_end_to_end() {
 }
 
 #[test]
+fn force_follow_scratch_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/force_follow_scratch.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+    let cue = cue_trace(&trace);
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> one collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one pocketed in center-right")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue pocketed in center-right")));
+    match &cue.final_state {
+        NBallSystemState::Pocketed { pocket, .. } => assert_eq!(*pocket, Pocket::CenterRight),
+        other => panic!("expected follow-through cue scratch, got {other:?}"),
+    }
+}
+
+#[test]
+fn double_rail_kick_side_pocket_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/double_rail_kick_side_pocket.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue rail impact: right")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue rail impact: top")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> one collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one pocketed in center-right")));
+}
+
+#[test]
 fn two_rail_bank_scratch_example_runs_end_to_end() {
     let scenario = parse_dsl_to_scenario(include_str!(
         "../examples/scenarios/two_rail_bank_scratch.billiards"
@@ -198,6 +351,35 @@ fn two_rail_bank_scratch_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("cue pocketed in center-left")));
+}
+
+#[test]
+fn mini_break_cluster_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/mini_break_cluster.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> one collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one -> two collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("four pocketed in top-right")));
+    assert!(lines.len() >= 20, "expected a busy break-style spread");
 }
 
 #[test]

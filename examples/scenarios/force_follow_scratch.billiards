@@ -1,0 +1,5 @@
+# Force-follow straight pot: the object drops in the right side pocket and the cue follows in after it.
+ball cue at (1.0, 4.0)
+ball one at (2.6, 4.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(90deg).speed(96ips).tip(side: 0.0R, height: 0.4R).using(default)

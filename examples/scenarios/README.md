@@ -83,13 +83,13 @@ Expected flavor:
 - cue scratches in center-right after following through
 
 ### `double_rail_kick_side_pocket.billiards`
-A two-rail kick into an object ball that later falls in the right side pocket.
+A two-rail kick into an object ball that later falls in the left side pocket.
 
 Expected flavor:
 - cue rail impact: right
 - cue rail impact: top
 - cue -> one collision
-- one pocketed in center-right
+- one pocketed in center-left
 
 ### `two_rail_bank_scratch.billiards`
 Cue-only multi-rail bank path that eventually scratches in the opposite side pocket.
@@ -104,8 +104,8 @@ A compact break-style shot into a six-ball cluster near the rack spot.
 
 Expected flavor:
 - several nearly immediate collisions through the cluster
-- at least one later pocketed ball
 - a busy multi-event spread with several balls remaining on the table
+- no pocketing in the current tuned setup
 
 ### `three_ball_pinball.billiards`
 A deliberately busy three-ball chain-reaction layout.

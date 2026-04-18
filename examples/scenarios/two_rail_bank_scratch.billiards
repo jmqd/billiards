@@ -1,4 +1,4 @@
 # Cue-only bank path: right rail, top rail, then scratch in the left side pocket.
 ball cue at center
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
-shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).using(default)
+shot(cue).heading(34deg).speed(144ips).tip(side: 0.0R, height: 0.1R).using(default)

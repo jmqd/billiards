@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         path_color_mode: args.trace_color_mode.into(),
     };
     let render_state = if let Some(trace) = scenario
-        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
             &ball_set,
             &motion,
             CollisionModel::ThrowAware,

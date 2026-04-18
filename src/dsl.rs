@@ -78,6 +78,16 @@ impl DslScenario {
             .ok_or_else(|| DslBuildError::UnknownSimulation(name.to_string()))
     }
 
+    pub fn preferred_simulation_name(&self) -> Option<&str> {
+        if self.simulations.contains_key("default") {
+            Some("default")
+        } else if self.simulations.len() == 1 {
+            self.simulations.keys().next().map(String::as_str)
+        } else {
+            None
+        }
+    }
+
     pub fn simulate_shot_system_with_simulation_on_table_until_rest(
         &self,
         ball_set: &BallSetPhysicsSpec,
@@ -251,7 +261,7 @@ impl DslScenario {
             ball_set,
             motion,
             collision_model,
-            &BallBallCollisionConfig::ideal(),
+            &BallBallCollisionConfig::human_tuned(),
             rail_model,
             &RailCollisionProfile::default(),
         )
@@ -314,10 +324,33 @@ impl DslScenario {
             ball_set,
             motion,
             collision_model,
-            &BallBallCollisionConfig::ideal(),
+            &BallBallCollisionConfig::human_tuned(),
             rail_model,
             &RailCollisionProfile::default(),
         )
+    }
+
+    pub fn simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        rail_model: RailModel,
+    ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        if let Some(simulation_name) = self.preferred_simulation_name() {
+            self.simulate_shot_trace_with_simulation_on_table_until_rest(
+                ball_set,
+                motion,
+                simulation_name,
+            )
+        } else {
+            self.simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+                ball_set,
+                motion,
+                collision_model,
+                rail_model,
+            )
+        }
     }
 
     pub fn game_state_for_system_states(&self, states: &[NBallSystemState]) -> GameState {
@@ -547,77 +580,44 @@ impl ScenarioShotTrace {
     ) -> GameState {
         let mut game_state = scenario.game_state_for_system_states(&self.simulation.states);
         for ball_trace in &self.ball_traces {
-            if ball_trace.segments.is_empty() {
-                continue;
-            }
-
             let trace_color = ball_trace_color(&ball_trace.ball);
+            let mut path_style = crate::visualization::BallPathStyle::new(trace_color)
+                .with_color_mode(options.path_color_mode);
             if options.start_ghost_balls {
-                game_state.add_ghost_ball_styled(
-                    &ball_trace
-                        .initial_state
-                        .as_ball_state()
-                        .projected_position(&scenario.game_state.table_spec),
-                    GhostBallStyle::default(),
-                );
+                path_style = path_style.with_start_ghost(GhostBallStyle::default());
+            }
+            if options.event_markers {
+                path_style =
+                    path_style.with_event_markers(EventMarkerStyle::enabled(trace_color));
+            }
+            if options.labels {
+                path_style = path_style
+                    .with_labels(LabelOverlayStyle::enabled(Rgba([0, 0, 0, 255])));
             }
 
-            let mut elapsed_before_segment = Seconds::zero();
-            for (index, segment) in ball_trace.segments.iter().enumerate() {
-                let points = ball_trace.sampled_points_for_segment(
-                    segment,
+            if let Some(path) = ball_trace.as_ball_path() {
+                game_state.add_smooth_ball_path_styled(
+                    &path,
                     options.max_time_step,
                     ball_set,
                     motion,
-                    &scenario.game_state.table_spec,
+                    options.line_width_px,
+                    &path_style,
                 );
-                if points.len() >= 2 {
-                    game_state.add_smooth_polyline_with_width(
-                        &points,
-                        options.line_width_px,
-                        scenario_trace_segment_color(
-                            trace_color,
-                            options.path_color_mode,
-                            segment,
-                            elapsed_before_segment,
-                            ball_trace.elapsed(),
-                        ),
-                    );
-                }
-
-                let end_position = segment
-                    .end
-                    .as_ball_state()
-                    .projected_position(&scenario.game_state.table_spec);
-                if options.event_markers {
-                    game_state.add_event_marker_styled(
-                        &end_position,
-                        EventMarkerStyle::enabled(trace_color),
-                    );
-                }
-                if options.labels {
-                    game_state.add_text_label_styled(
-                        &end_position,
-                        (index + 1).to_string(),
-                        LabelOverlayStyle::enabled(Rgba([0, 0, 0, 255])),
-                    );
-                }
-
-                elapsed_before_segment =
-                    Seconds::new(elapsed_before_segment.as_f64() + segment.duration.as_f64());
             }
 
             if let Some(pocket_terminal) = ball_trace.pocket_terminal_point() {
-                let last = ball_trace
-                    .segments
-                    .last()
-                    .expect("non-empty trace should have a last segment")
-                    .end
-                    .as_ball_state()
-                    .projected_position(&scenario.game_state.table_spec);
-                if last != pocket_terminal {
+                let capture_point = match &ball_trace.final_state {
+                    NBallSystemState::Pocketed {
+                        state_at_capture, ..
+                    } => state_at_capture
+                        .as_ball_state()
+                        .projected_position(&scenario.game_state.table_spec),
+                    NBallSystemState::OnTable(_) => continue,
+                };
+                if capture_point != pocket_terminal {
                     game_state.add_smooth_polyline_with_width(
-                        &[last, pocket_terminal],
+                        &[capture_point, pocket_terminal],
                         options.line_width_px,
                         trace_color,
                     );
@@ -714,46 +714,26 @@ impl ScenarioBallTrace {
         Seconds::new(self.segments.iter().map(|segment| segment.duration.as_f64()).sum())
     }
 
-    fn sampled_points_for_segment(
-        &self,
-        segment: &BallPathSegment,
-        max_time_step: Seconds,
-        ball: &BallSetPhysicsSpec,
-        motion: &OnTableMotionConfig,
-        table_spec: &TableSpec,
-    ) -> Vec<Position> {
-        let max_time_step = max_time_step.as_f64();
-        assert!(
-            max_time_step.is_finite() && max_time_step > 0.0,
-            "sampled trace max_time_step must be positive and finite"
-        );
+    fn as_ball_path(&self) -> Option<BallPath> {
+        let final_state = match &self.final_state {
+            NBallSystemState::OnTable(state) => state.clone(),
+            NBallSystemState::Pocketed { state_at_capture, .. } => state_at_capture.clone(),
+        };
 
-        let duration = segment.duration.as_f64();
-        let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
-        let mut points = vec![segment.start.as_ball_state().projected_position(table_spec)];
-        for step in 1..=sample_count {
-            if step == sample_count {
-                points.push(segment.end.as_ball_state().projected_position(table_spec));
-            } else {
-                let t = duration * step as f64 / sample_count as f64;
-                let sampled = OnTableBallState::try_from(
-                    advance_motion_on_table(&segment.start, Seconds::new(t), ball, motion).state,
-                )
-                .expect("sampled trace sub-advance should preserve on-table invariants");
-                points.push(sampled.as_ball_state().projected_position(table_spec));
-            }
-        }
-        points
+        (!self.segments.is_empty()).then(|| BallPath {
+            initial_state: self.initial_state.clone(),
+            final_state,
+            elapsed: self.elapsed(),
+            rail_impacts: 0,
+            segments: self.segments.clone(),
+        })
     }
 
     pub fn projected_points(&self, table_spec: &TableSpec) -> Vec<Position> {
-        let mut points = vec![self
-            .initial_state
-            .as_ball_state()
-            .projected_position(table_spec)];
-        for segment in &self.segments {
-            points.push(segment.end.as_ball_state().projected_position(table_spec));
-        }
+        let mut points = self.as_ball_path().map_or_else(
+            || vec![self.initial_state.as_ball_state().projected_position(table_spec)],
+            |path| path.projected_points(table_spec),
+        );
         if let Some(pocket_terminal) = self.pocket_terminal_point() {
             if points.last() != Some(&pocket_terminal) {
                 points.push(pocket_terminal);
@@ -769,34 +749,10 @@ impl ScenarioBallTrace {
         motion: &OnTableMotionConfig,
         table_spec: &TableSpec,
     ) -> Vec<Position> {
-        let max_time_step = max_time_step.as_f64();
-        assert!(
-            max_time_step.is_finite() && max_time_step > 0.0,
-            "sampled trace max_time_step must be positive and finite"
+        let mut points = self.as_ball_path().map_or_else(
+            || vec![self.initial_state.as_ball_state().projected_position(table_spec)],
+            |path| path.sampled_points(max_time_step, ball, motion, table_spec),
         );
-
-        let mut points = vec![self
-            .initial_state
-            .as_ball_state()
-            .projected_position(table_spec)];
-        for segment in &self.segments {
-            let duration = segment.duration.as_f64();
-            let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
-
-            for step in 1..=sample_count {
-                if step == sample_count {
-                    points.push(segment.end.as_ball_state().projected_position(table_spec));
-                } else {
-                    let t = duration * step as f64 / sample_count as f64;
-                    let sampled = OnTableBallState::try_from(
-                        advance_motion_on_table(&segment.start, Seconds::new(t), ball, motion)
-                            .state,
-                    )
-                    .expect("sampled trace sub-advance should preserve on-table invariants");
-                    points.push(sampled.as_ball_state().projected_position(table_spec));
-                }
-            }
-        }
         if let Some(pocket_terminal) = self.pocket_terminal_point() {
             if points.last() != Some(&pocket_terminal) {
                 points.push(pocket_terminal);
@@ -936,48 +892,6 @@ fn ball_trace_color(ball: &BallType) -> Rgba<u8> {
         BallType::Seven => Rgba([128, 0, 0, 255]),
         BallType::Eight => Rgba([32, 32, 32, 255]),
         BallType::Nine => Rgba([255, 215, 0, 255]),
-    }
-}
-
-fn scenario_trace_segment_color(
-    base_color: Rgba<u8>,
-    mode: PathColorMode,
-    segment: &BallPathSegment,
-    elapsed_before_segment: Seconds,
-    total_elapsed: Seconds,
-) -> Rgba<u8> {
-    match mode {
-        PathColorMode::Solid => base_color,
-        PathColorMode::FadeByTime => {
-            let total_elapsed = total_elapsed.as_f64();
-            if total_elapsed <= 0.0 {
-                return base_color;
-            }
-
-            let midpoint_fraction =
-                (elapsed_before_segment.as_f64() + 0.5 * segment.duration.as_f64()) / total_elapsed;
-            let alpha_scale = (1.0 - 0.7 * midpoint_fraction).clamp(0.2, 1.0);
-            Rgba([
-                base_color[0],
-                base_color[1],
-                base_color[2],
-                ((base_color[3] as f32) * alpha_scale as f32).round() as u8,
-            ])
-        }
-        PathColorMode::MotionPhase => {
-            let alpha = base_color[3];
-            match segment
-                .start
-                .as_ball_state()
-                .motion_phase(crate::TYPICAL_BALL_RADIUS.clone())
-            {
-                MotionPhase::Airborne => Rgba([255, 0, 255, alpha]),
-                MotionPhase::Sliding => Rgba([255, 140, 0, alpha]),
-                MotionPhase::Rolling => Rgba([0, 102, 255, alpha]),
-                MotionPhase::Spinning => Rgba([128, 0, 160, alpha]),
-                MotionPhase::Rest => Rgba([96, 96, 96, alpha]),
-            }
-        }
     }
 }
 

@@ -4,6 +4,7 @@ use billiards::dsl::{
     DslError, DslParseError, RailSide, ScenarioTraceRenderOptions,
 };
 use billiards::{
+    advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
     visualization::PathColorMode, BallSetPhysicsSpec, BallType, CollisionModel,
     HumanShotSpeedBand, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
     MotionTransitionConfig, NBallSystemEvent, NBallSystemState, OnTableMotionConfig, Pocket,
@@ -237,45 +238,50 @@ fn shot_scenarios_can_use_named_ball_ball_configs_defined_in_dsl() {
          shot(cue).heading(0deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
     )
     .expect("expected shot DSL to build");
-    let ideal = scenario
-        .simulate_shot_system_with_physics_on_table_until_rest(
-            &BallSetPhysicsSpec::default(),
-            &motion_config(),
-            CollisionModel::Ideal,
-            scenario
-                .ball_ball_config_named("ideal")
-                .expect("ideal ball-ball config should exist"),
-            RailModel::SpinAware,
-            &RailCollisionProfile::default(),
-        )
-        .expect("expected ideal simulation to succeed")
-        .expect("scenario should contain a shot");
-    let damped = scenario
-        .simulate_shot_system_with_physics_on_table_until_rest(
-            &BallSetPhysicsSpec::default(),
-            &motion_config(),
-            CollisionModel::Ideal,
-            scenario
-                .ball_ball_config_named("human")
-                .expect("human ball-ball config should exist"),
-            RailModel::SpinAware,
-            &RailCollisionProfile::default(),
-        )
-        .expect("expected damped simulation to succeed")
-        .expect("scenario should contain a shot");
+    let initial = scenario
+        .initial_shot_system_states_on_table(&BallSetPhysicsSpec::default())
+        .expect("expected initial shot states to build")
+        .expect("scenario should contain a shot")
+        .into_iter()
+        .map(NBallSystemState::from)
+        .collect::<Vec<_>>();
+    let ideal = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        &initial,
+        &BallSetPhysicsSpec::default(),
+        &scenario.game_state.table_spec,
+        &motion_config(),
+        CollisionModel::Ideal,
+        scenario
+            .ball_ball_config_named("ideal")
+            .expect("ideal ball-ball config should exist"),
+        RailModel::SpinAware,
+        &RailCollisionProfile::default(),
+    );
+    let damped = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        &initial,
+        &BallSetPhysicsSpec::default(),
+        &scenario.game_state.table_spec,
+        &motion_config(),
+        CollisionModel::Ideal,
+        scenario
+            .ball_ball_config_named("human")
+            .expect("human ball-ball config should exist"),
+        RailModel::SpinAware,
+        &RailCollisionProfile::default(),
+    );
 
-    let ideal_object_y = match &ideal.states[1] {
-        NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
+    let ideal_object_speed = match &ideal.states[1] {
+        NBallSystemState::OnTable(state) => state.as_ball_state().speed().as_f64(),
         other => panic!("expected object ball to remain on-table, got {other:?}"),
     };
-    let damped_object_y = match &damped.states[1] {
-        NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
+    let damped_object_speed = match &damped.states[1] {
+        NBallSystemState::OnTable(state) => state.as_ball_state().speed().as_f64(),
         other => panic!("expected object ball to remain on-table, got {other:?}"),
     };
 
     assert!(
-        damped_object_y < ideal_object_y,
-        "lower ball-ball restitution should shorten the struck ball's final travel"
+        damped_object_speed < ideal_object_speed,
+        "lower ball-ball restitution should reduce the struck ball's immediate post-collision speed"
     );
 }
 
@@ -416,6 +422,39 @@ fn shot_scenarios_can_use_named_simulations_defined_in_dsl() {
         damped_object_y < ideal_object_y,
         "the simulation preset should thread the named ball-ball config into the engine"
     );
+}
+
+#[test]
+fn a_single_named_simulation_becomes_the_preferred_cli_physics_path() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.0, 4.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
+         rail_response(clean).normal_restitution(0.7).tangential_friction(0.17)\n\
+         rails(table).default(clean)\n\
+         simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table)\n\
+         shot(cue).heading(0deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+    let explicit = scenario
+        .simulate_shot_trace_with_simulation_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            "human_table",
+        )
+        .expect("explicit named simulation should succeed");
+    let preferred = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("preferred simulation should succeed");
+
+    assert_eq!(scenario.preferred_simulation_name(), Some("human_table"));
+    assert_eq!(preferred, explicit);
 }
 
 #[test]

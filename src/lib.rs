@@ -684,14 +684,20 @@ pub enum RailModel {
     SpinAware,
 }
 
-const DEFAULT_RAIL_NORMAL_RESTITUTION: f64 = 0.80;
+const HUMAN_TUNED_RAIL_NORMAL_RESTITUTION: f64 = 0.70;
+const HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.17;
 
 /// Configurable coefficients for the current ball-rail response helpers.
 ///
-/// `human_tuned()` is the current default: it keeps the cushion a little less lively than the
-/// earlier placeholder default so multi-rail rebounds feel closer to ordinary table play. The
-/// `tangential_friction_coefficient` is still the current first-pass coefficient `fi` from
-/// `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.1.
+/// `human_tuned()` is the current default. It now follows the local rail references more closely
+/// than the earlier placeholder values by using a less lively cushion-normal restitution and a much
+/// smaller tangential friction coefficient, in line with the representative values surfaced in the
+/// local whitepaper notes:
+///
+/// - `agent_knowledge/whitepapers_formula_candidates.txt` (`TP 7.3`) includes the worked example
+///   `e = 0.7` and `μ = 0.17` for ball-rail interaction with vertical-plane spin.
+/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.1, models the rail friction term
+///   with the same `fi`-style friction-limited contact-slip structure used here.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RailCollisionConfig {
     pub normal_restitution: Scale,
@@ -701,8 +707,10 @@ pub struct RailCollisionConfig {
 impl RailCollisionConfig {
     pub fn human_tuned() -> Self {
         Self {
-            normal_restitution: Scale::from_f64(DEFAULT_RAIL_NORMAL_RESTITUTION),
-            tangential_friction_coefficient: Scale::from_f64(1.0),
+            normal_restitution: Scale::from_f64(HUMAN_TUNED_RAIL_NORMAL_RESTITUTION),
+            tangential_friction_coefficient: Scale::from_f64(
+                HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT,
+            ),
         }
     }
 }
@@ -7464,6 +7472,117 @@ impl GameState {
                 path.elapsed,
             );
             self.add_dotted_line_styled(&line_start, &line_end, segment_style);
+
+            if style.event_markers.enabled {
+                self.add_event_marker_styled(&projected_end, style.event_markers.clone());
+            }
+            if style.labels.enabled {
+                self.add_text_label_styled(
+                    &projected_end,
+                    (index + 1).to_string(),
+                    style.labels.clone(),
+                );
+            }
+
+            elapsed_before_segment =
+                Seconds::new(elapsed_before_segment.as_f64() + segment.duration.as_f64());
+        }
+    }
+
+    fn sampled_points_for_ball_path_segment(
+        &self,
+        segment: &BallPathSegment,
+        max_time_step: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> Vec<Position> {
+        let max_time_step = max_time_step.as_f64();
+        assert!(
+            max_time_step.is_finite() && max_time_step > 0.0,
+            "sampled path max_time_step must be positive and finite"
+        );
+
+        let duration = segment.duration.as_f64();
+        let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
+        let mut points = vec![segment.start.as_ball_state().projected_position(&self.table_spec)];
+        for step in 1..=sample_count {
+            if step == sample_count {
+                points.push(segment.end.as_ball_state().projected_position(&self.table_spec));
+            } else {
+                let t = duration * step as f64 / sample_count as f64;
+                let sampled = advance_on_table_ball_without_event(
+                    &segment.start,
+                    Seconds::new(t),
+                    ball,
+                    motion,
+                );
+                points.push(sampled.as_ball_state().projected_position(&self.table_spec));
+            }
+        }
+        points
+    }
+
+    pub fn add_smooth_ball_path_styled(
+        &mut self,
+        path: &BallPath,
+        max_time_step: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        width_px: f32,
+        style: &BallPathStyle,
+    ) {
+        if let Some(ghost_style) = &style.start_ghost_ball {
+            let start = path
+                .initial_state
+                .as_ball_state()
+                .projected_position(&self.table_spec);
+            self.add_ghost_ball_styled(&start, ghost_style.clone());
+        }
+
+        let mut elapsed_before_segment = Seconds::zero();
+        for (index, segment) in path.segments.iter().enumerate() {
+            let projected_start = segment
+                .start
+                .as_ball_state()
+                .projected_position(&self.table_spec);
+            let projected_end = segment
+                .end
+                .as_ball_state()
+                .projected_position(&self.table_spec);
+            let mut points = self.sampled_points_for_ball_path_segment(
+                segment,
+                max_time_step,
+                ball,
+                motion,
+            );
+            if let Some(radius) = &style.clip_endpoints_to_ball_radius {
+                let (line_start, line_end) = self.clip_line_to_ball_edges(
+                    &projected_start,
+                    &projected_end,
+                    radius.clone(),
+                    radius.clone(),
+                );
+                if !points.is_empty() {
+                    points[0] = line_start;
+                    let last = points.len() - 1;
+                    points[last] = line_end;
+                }
+            }
+
+            self.add_smooth_polyline_styled(
+                &points,
+                SmoothPolylineStyle {
+                    color: self.path_segment_color(
+                        style.line.color,
+                        style.color_mode,
+                        segment,
+                        elapsed_before_segment,
+                        path.elapsed,
+                    ),
+                    width_px,
+                    layer: style.line.layer,
+                },
+            );
 
             if style.event_markers.enabled {
                 self.add_event_marker_styled(&projected_end, style.event_markers.clone());

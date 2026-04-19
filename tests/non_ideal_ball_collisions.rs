@@ -585,7 +585,7 @@ fn the_side_spin_curve_estimate_is_none_without_residual_z_spin() {
 }
 
 #[test]
-fn side_spin_produces_a_signed_post_contact_curve_estimate() {
+fn side_spin_alone_no_longer_produces_a_post_contact_curve_estimate_in_the_horizontal_model() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
         inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
@@ -595,9 +595,6 @@ fn side_spin_produces_a_signed_post_contact_curve_estimate() {
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
-    let curve = outcome
-        .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
-        .expect("sidespin should produce a post-contact curve estimate");
 
     assert_eq!(
         outcome
@@ -606,22 +603,19 @@ fn side_spin_produces_a_signed_post_contact_curve_estimate() {
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Sliding
     );
-    assert_close(curve.time_until_curve_starts.as_f64(), 0.0);
-    assert!(curve.time_until_curve_completes.as_f64() > curve.time_until_curve_starts.as_f64());
-    assert!(curve.curve_angle_degrees.abs() > 1e-9);
-    assert_eq!(
-        curve,
-        estimate_post_contact_cue_ball_curve_on_table(
-            &outcome.a_after,
-            &BallSetPhysicsSpec::default(),
-            &motion_config(),
-        )
-        .expect("direct helper should agree with the outcome method")
-    );
+    assert!(outcome
+        .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
+        .is_none());
+    assert!(estimate_post_contact_cue_ball_curve_on_table(
+        &outcome.a_after,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .is_none());
 }
 
 #[test]
-fn opposite_english_signs_produce_opposite_curve_directions() {
+fn opposite_english_signs_do_not_produce_separate_curve_estimates_in_the_horizontal_model() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let right_english = on_table(BallState::on_table(
@@ -634,22 +628,21 @@ fn opposite_english_signs_produce_opposite_curve_directions() {
         Velocity2::new("0", "10"),
         AngularVelocity3::new(0.0, 0.0, 6.0),
     ));
-    let right_curve = collide_ball_ball_detailed_on_table(
+
+    assert!(collide_ball_ball_detailed_on_table(
         &right_english,
         &object_ball,
         CollisionModel::ThrowAware,
     )
     .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
-    .expect("right english should curve");
-    let left_curve = collide_ball_ball_detailed_on_table(
+    .is_none());
+    assert!(collide_ball_ball_detailed_on_table(
         &left_english,
         &object_ball,
         CollisionModel::ThrowAware,
     )
     .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
-    .expect("left english should curve");
-
-    assert!(right_curve.curve_angle_degrees.signum() != left_curve.curve_angle_degrees.signum());
+    .is_none());
 }
 
 #[test]

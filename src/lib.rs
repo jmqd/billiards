@@ -5,8 +5,8 @@ pub mod visualization;
 
 use crate::assets::diamond_to_pixel;
 use crate::visualization::{
-    AimOverlayStyle, BallPathStyle, DashedLineStyle, EventMarkerStyle, GhostBallStyle,
-    LabelOverlayStyle, SmoothPolylineStyle,
+    AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
+    EventMarkerStyle, GhostBallStyle, LabelOverlayStyle, SmoothPolylineStyle,
 };
 use assets::ideal_ball_size_px;
 use core::fmt;
@@ -2488,53 +2488,18 @@ pub fn advance_within_phase_on_table(
                 state.angular_velocity.x().as_f64() + (5.0 / (2.0 * radius)) * delta_vy;
             let base_angular_y =
                 state.angular_velocity.y().as_f64() - (5.0 / (2.0 * radius)) * delta_vx;
-            let curve = state.velocity.angle_from_north().and_then(|start_heading| {
-                sliding_side_spin_curve_during(
-                    start_heading,
-                    vx_i,
-                    vy_i,
-                    vx_c,
-                    vy_c,
-                    state.angular_velocity.z().as_f64(),
-                    Seconds::new(advance_time),
-                    transition.time_until_transition,
-                    ball,
-                    config,
-                )
-            });
-            let (dx, dy, vx, vy, angular_x, angular_y) = if let Some(curve) = curve {
-                let curve_alpha = curve.duration.as_f64() / transition_time;
-                let vx_curve = vx_i - curve_alpha * (vx_i - vx_c);
-                let vy_curve = vy_i - curve_alpha * (vy_i - vy_c);
-                let (mut dx, mut dy) = rotate_xy_clockwise(
-                    0.5 * (vx_i + vx_curve) * curve.duration.as_f64(),
-                    0.5 * (vy_i + vy_curve) * curve.duration.as_f64(),
-                    0.5 * curve.angle_degrees,
-                );
-                let remaining_time = advance_time - curve.duration.as_f64();
-                if remaining_time > f64::EPSILON {
-                    let (dx_rest, dy_rest) = rotate_xy_clockwise(
-                        0.5 * (vx_curve + vx) * remaining_time,
-                        0.5 * (vy_curve + vy) * remaining_time,
-                        curve.angle_degrees,
-                    );
-                    dx += dx_rest;
-                    dy += dy_rest;
-                }
-                let (vx, vy) = rotate_xy_clockwise(vx, vy, curve.angle_degrees);
-                let (angular_x, angular_y) =
-                    rotate_xy_clockwise(base_angular_x, base_angular_y, curve.angle_degrees);
-                (dx, dy, vx, vy, angular_x, angular_y)
-            } else {
-                (
-                    0.5 * (vx_i + vx) * advance_time,
-                    0.5 * (vy_i + vy) * advance_time,
-                    vx,
-                    vy,
-                    base_angular_x,
-                    base_angular_y,
-                )
-            };
+            // TP A.4 models the curved post-impact sliding path from the cue ball's horizontal
+            // sliding contact velocity `(vx - Rωy, vy + Rωx)` and explicitly notes that `ωz`
+            // does not affect that contact-point velocity in the reduced on-table sliding model.
+            // Therefore we do not apply a separate `ωz`-driven heading rotation here.
+            let (dx, dy, vx, vy, angular_x, angular_y) = (
+                0.5 * (vx_i + vx) * advance_time,
+                0.5 * (vy_i + vy) * advance_time,
+                vx,
+                vy,
+                base_angular_x,
+                base_angular_y,
+            );
 
             OnTableBallState::try_from(BallState {
                 position: Inches2::new(
@@ -2569,39 +2534,17 @@ pub fn advance_within_phase_on_table(
                 .velocity
                 .angle_from_north()
                 .expect("rolling states should have a velocity heading");
-            let curve = rolling_side_spin_curve_during(
-                start_heading,
-                initial_speed,
-                state.angular_velocity.z().as_f64(),
-                Seconds::new(advance_time),
-                ball,
-                config,
-            );
-            let curve_duration = curve.map_or(0.0, |curve| curve.duration.as_f64());
-            let speed_after_curve = (initial_speed - linear_deceleration * curve_duration).max(0.0);
-            let curve_distance = 0.5 * (initial_speed + speed_after_curve) * curve_duration;
-            let (curve_angle_degrees, heading_after_curve) = curve
-                .map(|curve| (curve.angle_degrees, curve.heading_after_curve))
-                .unwrap_or((0.0, start_heading));
-            let curve_mid_heading = rotate_angle_degrees(start_heading, 0.5 * curve_angle_degrees);
-            let curve_mid_radians = curve_mid_heading.as_degrees().to_radians();
-            let mut dx = curve_distance * curve_mid_radians.sin();
-            let mut dy = curve_distance * curve_mid_radians.cos();
-
-            let remaining_time = advance_time - curve_duration;
-            if remaining_time > f64::EPSILON {
-                let straight_distance = 0.5 * (speed_after_curve + final_speed) * remaining_time;
-                let straight_heading_radians = heading_after_curve.as_degrees().to_radians();
-                dx += straight_distance * straight_heading_radians.sin();
-                dy += straight_distance * straight_heading_radians.cos();
-            }
+            let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
+            let heading_radians = start_heading.as_degrees().to_radians();
+            let dx = travel_distance * heading_radians.sin();
+            let dy = travel_distance * heading_radians.cos();
 
             let final_velocity = if final_speed <= f64::EPSILON {
                 Velocity2::zero()
             } else {
                 Velocity2::from_polar(
                     InchesPerSecond::new(Inches::from_f64(final_speed)),
-                    heading_after_curve,
+                    start_heading,
                 )
             };
             let radius = ball.radius.as_f64();
@@ -2897,162 +2840,6 @@ fn signed_angle_difference_degrees(from: Angle, to: Angle) -> f64 {
     } else {
         delta
     }
-}
-
-fn rotate_angle_degrees(angle: Angle, delta: f64) -> Angle {
-    Angle((angle.as_degrees() + delta).rem_euclid(360.0))
-}
-
-#[derive(Clone, Copy, Debug)]
-struct SideSpinCurve {
-    duration: Seconds,
-    angle_degrees: f64,
-    heading_after_curve: Angle,
-}
-
-fn rotate_xy_clockwise(x: f64, y: f64, delta_degrees: f64) -> (f64, f64) {
-    let radians = delta_degrees.to_radians();
-    let sin = radians.sin();
-    let cos = radians.cos();
-
-    (x * cos + y * sin, y * cos - x * sin)
-}
-
-// The current side-spin cloth-turn model is intentionally conservative.
-//
-// The local whitepaper set supports that residual side spin can bend the cue-ball path after
-// impact, but it repeatedly characterizes that bend as a small effect rather than tens of degrees
-// of immediate heading change. See especially:
-// - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf`
-//   (cue-ball / object-ball trajectory curve described as a small additional angle `Δθ`)
-// - `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf`
-//   (ball-turn discussion yields small turn angles for cloth effects)
-//
-// Our first-pass side-spin curve path is still heuristic rather than a full closed-form cloth-turn
-// derivation, so we scale the raw slip-ratio-to-heading coupling down to stay in believable
-// billiards bounds until a richer literature-backed turn model replaces it.
-//
-// Current policy after visual review: residual side spin can bend the path a little while the ball
-// is still sliding toward rolling equilibrium, but we should not let pure rolling states keep
-// curling dramatically across the table. Therefore the remaining sliding-only coupling is kept very
-// small and the rolling branch below is disabled conservatively.
-const SIDE_SPIN_CURVE_STRENGTH: f64 = 0.03;
-const SIDE_SPIN_CURVE_FULL_STRENGTH_SPEED_IPS: f64 = 30.0;
-
-fn side_spin_curve_from_speed_window(
-    start_heading: Angle,
-    initial_speed: f64,
-    speed_at_curve_end: f64,
-    initial_z_spin: f64,
-    curve_duration: Seconds,
-    phase_horizon: Seconds,
-    ball: &BallSetPhysicsSpec,
-    config: &MotionTransitionConfig,
-) -> Option<SideSpinCurve> {
-    if curve_duration.as_f64() <= f64::EPSILON
-        || phase_horizon.as_f64() <= f64::EPSILON
-        || initial_speed <= f64::EPSILON
-        || initial_z_spin.abs() <= f64::EPSILON
-    {
-        return None;
-    }
-
-    let end_z_spin = advance_vertical_axis_spin(initial_z_spin, curve_duration, config);
-    let average_speed = 0.5 * (initial_speed + speed_at_curve_end);
-    if average_speed <= f64::EPSILON {
-        return None;
-    }
-
-    let average_z_spin = 0.5 * (initial_z_spin + end_z_spin);
-    let slip_ratio = (ball.radius.as_f64() * average_z_spin / average_speed).clamp(-1.0, 1.0);
-    if slip_ratio.abs() <= f64::EPSILON {
-        return None;
-    }
-
-    // In the reduced sliding-only cloth-turn heuristic, the raw `Rωz / v` ratio can overstate the
-    // visible path bend late in a shot as `v` gets small. The local post-impact references do not
-    // support letting that reduced model explode into dramatic end-of-path curl, so we fade the
-    // heuristic down at low translational speeds and leave richer low-speed turn behavior to future
-    // literature-backed work.
-    let low_speed_curve_ratio =
-        (average_speed / SIDE_SPIN_CURVE_FULL_STRENGTH_SPEED_IPS).clamp(0.0, 1.0);
-    let low_speed_curve_scale = low_speed_curve_ratio * low_speed_curve_ratio;
-    let duration_fraction = (curve_duration.as_f64() / phase_horizon.as_f64()).clamp(0.0, 1.0);
-    let angle_degrees =
-        (SIDE_SPIN_CURVE_STRENGTH * low_speed_curve_scale * slip_ratio * duration_fraction)
-            .to_degrees();
-    if angle_degrees.abs() <= f64::EPSILON {
-        return None;
-    }
-
-    Some(SideSpinCurve {
-        duration: curve_duration,
-        angle_degrees,
-        heading_after_curve: rotate_angle_degrees(start_heading, angle_degrees),
-    })
-}
-
-fn sliding_side_spin_curve_during(
-    start_heading: Angle,
-    vx_i: f64,
-    vy_i: f64,
-    vx_c: f64,
-    vy_c: f64,
-    initial_z_spin: f64,
-    max_duration: Seconds,
-    transition_time: Seconds,
-    ball: &BallSetPhysicsSpec,
-    config: &MotionTransitionConfig,
-) -> Option<SideSpinCurve> {
-    let initial_speed = vx_i.hypot(vy_i);
-    if max_duration.as_f64() <= f64::EPSILON
-        || transition_time.as_f64() <= f64::EPSILON
-        || initial_speed <= f64::EPSILON
-        || initial_z_spin.abs() <= f64::EPSILON
-    {
-        return None;
-    }
-
-    let curve_duration = Seconds::new(
-        time_until_vertical_axis_spin_stops(initial_z_spin, config)
-            .expect("non-zero z-spin should have a stop time")
-            .as_f64()
-            .min(max_duration.as_f64())
-            .min(transition_time.as_f64()),
-    );
-    if curve_duration.as_f64() <= f64::EPSILON {
-        return None;
-    }
-
-    let alpha = curve_duration.as_f64() / transition_time.as_f64();
-    let vx_curve = vx_i - alpha * (vx_i - vx_c);
-    let vy_curve = vy_i - alpha * (vy_i - vy_c);
-    let speed_at_curve_end = vx_curve.hypot(vy_curve);
-
-    side_spin_curve_from_speed_window(
-        start_heading,
-        initial_speed,
-        speed_at_curve_end,
-        initial_z_spin,
-        curve_duration,
-        transition_time,
-        ball,
-        config,
-    )
-}
-
-fn rolling_side_spin_curve_during(
-    _start_heading: Angle,
-    _initial_speed: f64,
-    _initial_z_spin: f64,
-    _max_duration: Seconds,
-    _ball: &BallSetPhysicsSpec,
-    _config: &MotionTransitionConfig,
-) -> Option<SideSpinCurve> {
-    // Conservative current policy: once the ball is already in pure rolling motion, do not keep
-    // curling it visibly across the cloth just because residual z-spin remains. We still decay the
-    // z-spin, and sliding states above can still bend slightly while establishing rolling.
-    None
 }
 
 fn build_on_table_ball_state(
@@ -5648,75 +5435,27 @@ pub fn collide_ball_ball_analyzed_on_table(
     )
 }
 
-/// Estimate the later side-spin-driven cue-ball curve generated by cloth interaction after an
-/// impact.
+/// Estimate the later cue-ball swerve / curve driven by side spin after impact.
 ///
-/// This helper follows the current motion phase using the same bounded side-spin coupling used by
-/// `advance_within_phase_on_table(...)`.
+/// The current public shot model is horizontal-cue / on-table only, so cue-elevation-driven swerve
+/// is not represented. Local references also distinguish that effect from the reduced post-impact
+/// sliding model used here:
 ///
-/// In the current conservative model, only the sliding interval contributes a visible curve. Once
-/// the ball is already in pure rolling motion, residual z-spin is allowed to decay but does not
-/// continue to curl the path.
+/// - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`
+///   explicitly states that `ωz` does not affect the cue ball's sliding contact-point velocity in
+///   the reduced on-table post-impact trajectory derivation.
+/// - `whitepapers/swerve.md` summarizes the local Dr. Dave notes that practical swerve increases
+///   with cue elevation and occurs only while the cue ball is sliding.
 ///
-/// The local references motivating this are:
-///
-/// - `whitepapers/publications_presentations_and_software_index.html`, which indexes the local Dr.
-///   Dave proofs for post-impact cue-ball trajectory (`TP_A-4`) and sidespin effects on the 90° /
-///   30° rules (`TP_A-7`, `TP_A-8`).
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3 and §7.5, which provide the
-///   sliding / rolling deceleration and z-spin decay primitives used to bound the estimate in time.
-///
-/// This remains a first-pass bounded model rather than a full separate derivation of the cue ball's
-/// side-spin cloth force, but it matches the current solver in the sliding interval where visible
-/// side-spin curve is presently modeled.
+/// Therefore this horizontal on-table model currently reports no separate side-spin-only curve
+/// estimate. Any remaining post-impact bend in the solver comes from the existing A.4-style
+/// translational / horizontal-spin sliding dynamics instead.
 pub fn estimate_post_contact_cue_ball_curve_on_table(
-    state: &OnTableBallState,
-    ball: &BallSetPhysicsSpec,
-    motion: &OnTableMotionConfig,
+    _state: &OnTableBallState,
+    _ball: &BallSetPhysicsSpec,
+    _motion: &OnTableMotionConfig,
 ) -> Option<PostContactCueBallCurve> {
-    let state_ref = state.as_ball_state();
-    match classify_motion_phase(state_ref, ball, &motion.phase) {
-        MotionPhase::Sliding => {
-            let transition = compute_next_transition_on_table(state, ball, motion)?;
-            if transition.phase_before != MotionPhase::Sliding {
-                return None;
-            }
-
-            let slip_velocity = cloth_contact_velocity_on_table(state_ref, ball.radius.clone());
-            let vx_i = state_ref.velocity.x().as_f64();
-            let vy_i = state_ref.velocity.y().as_f64();
-            let we_x = slip_velocity.x().as_f64();
-            let we_y = slip_velocity.y().as_f64();
-            let vx_c = vx_i - (2.0 / 7.0) * we_x;
-            let vy_c = vy_i - (2.0 / 7.0) * we_y;
-            let curve = state_ref
-                .velocity
-                .angle_from_north()
-                .and_then(|start_heading| {
-                    sliding_side_spin_curve_during(
-                        start_heading,
-                        vx_i,
-                        vy_i,
-                        vx_c,
-                        vy_c,
-                        state_ref.angular_velocity.z().as_f64(),
-                        transition.time_until_transition,
-                        transition.time_until_transition,
-                        ball,
-                        motion,
-                    )
-                })?;
-
-            Some(PostContactCueBallCurve {
-                time_until_curve_starts: Seconds::zero(),
-                time_until_curve_completes: curve.duration,
-                curve_angle_degrees: curve.angle_degrees,
-                heading_after_curve: curve.heading_after_curve,
-            })
-        }
-        MotionPhase::Rolling => None,
-        _ => None,
-    }
+    None
 }
 
 /// Convenience helpers for working with an immediate ball-ball collision outcome.
@@ -5980,6 +5719,7 @@ const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.10;
 const RAIL_SIDE_SPIN_RETENTION_ROLLING_MIN_SCALE: f64 = 0.55;
 const RAIL_ROLLING_REBOUND_HORIZONTAL_SPIN_BLEND: f64 = 0.35;
 const RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 1.15;
+const RAIL_ROLLING_REBOUND_LOW_ENGLISH_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 0.8;
 const RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE: f64 = 0.10;
 const RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE: f64 = 0.25;
 
@@ -6093,6 +5833,23 @@ fn rail_rebound_horizontal_spin_blend(state: &BallState, ball_radius: f64) -> f6
         * (1.0 - explicit_side_spin_scale)
 }
 
+fn rail_rebound_outgoing_cloth_slip_ratio_limit(state: &BallState, ball_radius: f64) -> f64 {
+    let speed = ball_speed(state).as_f64();
+    if speed <= f64::EPSILON {
+        return RAIL_ROLLING_REBOUND_LOW_ENGLISH_MAX_OUTGOING_CLOTH_SLIP_RATIO;
+    }
+
+    let side_spin_ratio =
+        (ball_radius * state.angular_velocity.z().as_f64()).abs() / speed.max(f64::EPSILON);
+    let explicit_side_spin_scale =
+        (side_spin_ratio / RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE).clamp(0.0, 1.0);
+
+    RAIL_ROLLING_REBOUND_LOW_ENGLISH_MAX_OUTGOING_CLOTH_SLIP_RATIO
+        + (RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO
+            - RAIL_ROLLING_REBOUND_LOW_ENGLISH_MAX_OUTGOING_CLOTH_SLIP_RATIO)
+            * explicit_side_spin_scale
+}
+
 fn clamp_rail_rebound_horizontal_spin_to_slip_limit(
     state_before: &BallState,
     velocity_after: &Velocity2,
@@ -6104,7 +5861,10 @@ fn clamp_rail_rebound_horizontal_spin_to_slip_limit(
         return;
     }
 
-    let speed_after = velocity_after.x().as_f64().hypot(velocity_after.y().as_f64());
+    let speed_after = velocity_after
+        .x()
+        .as_f64()
+        .hypot(velocity_after.y().as_f64());
     if speed_after <= f64::EPSILON {
         return;
     }
@@ -6119,12 +5879,13 @@ fn clamp_rail_rebound_horizontal_spin_to_slip_limit(
     let cloth_slip = cloth_contact_velocity_on_table(&slip_state, Inches::from_f64(ball_radius));
     let cloth_slip_ratio =
         cloth_slip.x().as_f64().hypot(cloth_slip.y().as_f64()) / speed_after.max(f64::EPSILON);
-    if cloth_slip_ratio <= RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO {
+    let cloth_slip_ratio_limit =
+        rail_rebound_outgoing_cloth_slip_ratio_limit(state_before, ball_radius);
+    if cloth_slip_ratio <= cloth_slip_ratio_limit {
         return;
     }
 
-    let deviation_scale =
-        RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO / cloth_slip_ratio.max(f64::EPSILON);
+    let deviation_scale = cloth_slip_ratio_limit / cloth_slip_ratio.max(f64::EPSILON);
     *outgoing_wx = rolling_outgoing_wx + deviation_scale * (*outgoing_wx - rolling_outgoing_wx);
     *outgoing_wy = rolling_outgoing_wy + deviation_scale * (*outgoing_wy - rolling_outgoing_wy);
 }
@@ -6215,9 +5976,8 @@ fn spin_aware_ball_rail_collision_on_table(
         normal_restitution,
         (-normal_component).max(0.0),
     );
-    let outgoing_wz =
-        (state_ref.angular_velocity.z().as_f64() + delta_wz)
-            * rail_side_spin_retention_scale(state_ref, ball_radius);
+    let outgoing_wz = (state_ref.angular_velocity.z().as_f64() + delta_wz)
+        * rail_side_spin_retention_scale(state_ref, ball_radius);
     let mut outgoing_wx = state_ref.angular_velocity.x().as_f64() + delta_wx + geom_delta_wx;
     let mut outgoing_wy = state_ref.angular_velocity.y().as_f64() + delta_wy + geom_delta_wy;
     let rolling_rebound_blend = rail_rebound_horizontal_spin_blend(state_ref, ball_radius);
@@ -7780,13 +7540,12 @@ impl GameState {
         points
     }
 
-    pub fn add_smooth_ball_path_styled(
+    pub fn add_rendered_ball_path_styled(
         &mut self,
         path: &BallPath,
-        max_time_step: Seconds,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-        width_px: f32,
+        render: &BallPathRenderOptions,
         style: &BallPathStyle,
     ) {
         if let Some(ghost_style) = &style.start_ghost_ball {
@@ -7797,6 +7556,7 @@ impl GameState {
             self.add_ghost_ball_styled(&start, ghost_style.clone());
         }
 
+        let initial_speed_ips = path.initial_state.as_ball_state().speed().as_f64();
         let mut elapsed_before_segment = Seconds::zero();
         for (index, segment) in path.segments.iter().enumerate() {
             let projected_start = segment
@@ -7807,8 +7567,12 @@ impl GameState {
                 .end
                 .as_ball_state()
                 .projected_position(&self.table_spec);
-            let mut points =
-                self.sampled_points_for_ball_path_segment(segment, max_time_step, ball, motion);
+            let mut points = self.sampled_points_for_ball_path_segment(
+                segment,
+                render.max_time_step,
+                ball,
+                motion,
+            );
             if let Some(radius) = &style.clip_endpoints_to_ball_radius {
                 let (line_start, line_end) = self.clip_line_to_ball_edges(
                     &projected_start,
@@ -7823,20 +7587,58 @@ impl GameState {
                 }
             }
 
-            self.add_smooth_polyline_styled(
-                &points,
-                SmoothPolylineStyle {
-                    color: self.path_segment_color(
-                        style.line.color,
-                        style.color_mode,
-                        segment,
-                        elapsed_before_segment,
-                        path.elapsed,
-                    ),
-                    width_px,
-                    layer: style.line.layer,
-                },
+            let segment_color = self.path_segment_color(
+                style.line.color,
+                style.color_mode,
+                segment,
+                elapsed_before_segment,
+                path.elapsed,
             );
+            match render.width_mode {
+                BallPathWidthMode::Fixed => self.add_smooth_polyline_styled(
+                    &points,
+                    SmoothPolylineStyle {
+                        color: segment_color,
+                        width_px: render.width_px_for_speed(initial_speed_ips, initial_speed_ips),
+                        layer: style.line.layer,
+                    },
+                ),
+                BallPathWidthMode::ScaleBySpeed => {
+                    for (point_window, point_indices) in points.windows(2).zip(0..) {
+                        let current_speed_ips = if point_indices + 1 == points.len() - 1 {
+                            segment.end.as_ball_state().speed().as_f64()
+                        } else {
+                            let duration = segment.duration.as_f64();
+                            let sample_count = (points.len() - 1).max(1);
+                            let t0 = duration * point_indices as f64 / sample_count as f64;
+                            let t1 = duration * (point_indices + 1) as f64 / sample_count as f64;
+                            let sampled_start = advance_on_table_ball_without_event(
+                                &segment.start,
+                                Seconds::new(t0),
+                                ball,
+                                motion,
+                            );
+                            let sampled_end = advance_on_table_ball_without_event(
+                                &segment.start,
+                                Seconds::new(t1),
+                                ball,
+                                motion,
+                            );
+                            0.5 * (sampled_start.as_ball_state().speed().as_f64()
+                                + sampled_end.as_ball_state().speed().as_f64())
+                        };
+                        self.add_smooth_polyline_styled(
+                            point_window,
+                            SmoothPolylineStyle {
+                                color: segment_color,
+                                width_px: render
+                                    .width_px_for_speed(initial_speed_ips, current_speed_ips),
+                                layer: style.line.layer,
+                            },
+                        );
+                    }
+                }
+            }
 
             if style.event_markers.enabled {
                 self.add_event_marker_styled(&projected_end, style.event_markers.clone());
@@ -7852,6 +7654,51 @@ impl GameState {
             elapsed_before_segment =
                 Seconds::new(elapsed_before_segment.as_f64() + segment.duration.as_f64());
         }
+    }
+
+    pub fn add_smooth_ball_path_styled(
+        &mut self,
+        path: &BallPath,
+        max_time_step: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        width_px: f32,
+        style: &BallPathStyle,
+    ) {
+        self.add_rendered_ball_path_styled(
+            path,
+            ball,
+            motion,
+            &BallPathRenderOptions {
+                max_time_step,
+                width_px,
+                width_mode: BallPathWidthMode::Fixed,
+            },
+            style,
+        );
+    }
+
+    /// Add a smooth traced ball path whose width tapers with the ball's sampled speed.
+    pub fn add_speed_scaled_smooth_ball_path_styled(
+        &mut self,
+        path: &BallPath,
+        max_time_step: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        width_px: f32,
+        style: &BallPathStyle,
+    ) {
+        self.add_rendered_ball_path_styled(
+            path,
+            ball,
+            motion,
+            &BallPathRenderOptions {
+                max_time_step,
+                width_px,
+                width_mode: BallPathWidthMode::ScaleBySpeed,
+            },
+            style,
+        );
     }
 
     /// Add a dotted overlay for a traced ball path and include a ghost ball at the start.

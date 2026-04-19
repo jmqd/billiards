@@ -164,6 +164,61 @@ impl AimOverlayStyle {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BallPathWidthMode {
+    Fixed,
+    ScaleBySpeed,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BallPathRenderOptions {
+    pub max_time_step: crate::Seconds,
+    pub width_px: f32,
+    pub width_mode: BallPathWidthMode,
+}
+
+impl Default for BallPathRenderOptions {
+    fn default() -> Self {
+        Self {
+            max_time_step: crate::Seconds::new(0.02),
+            width_px: 4.0,
+            width_mode: BallPathWidthMode::Fixed,
+        }
+    }
+}
+
+impl BallPathRenderOptions {
+    pub fn with_width_mode(mut self, width_mode: BallPathWidthMode) -> Self {
+        self.width_mode = width_mode;
+        self
+    }
+
+    pub fn width_px_for_speed(&self, initial_speed_ips: f64, current_speed_ips: f64) -> f32 {
+        let base_width_px = if self.width_px.is_finite() && self.width_px > 0.0 {
+            self.width_px
+        } else {
+            1.0
+        };
+
+        match self.width_mode {
+            BallPathWidthMode::Fixed => base_width_px,
+            BallPathWidthMode::ScaleBySpeed => {
+                if !initial_speed_ips.is_finite() || initial_speed_ips <= f64::EPSILON {
+                    return base_width_px;
+                }
+
+                let current_speed_ips = if current_speed_ips.is_finite() {
+                    current_speed_ips.max(0.0)
+                } else {
+                    0.0
+                };
+                let speed_ratio = (current_speed_ips / initial_speed_ips).clamp(0.0, 1.0) as f32;
+                (base_width_px * (0.25 + 0.75 * speed_ratio)).max(1.0)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BallPathStyle {
     pub line: DashedLineStyle,

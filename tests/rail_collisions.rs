@@ -292,8 +292,8 @@ fn a_rolling_low_english_entry_leaves_the_rail_with_bounded_horizontal_cloth_sli
         slip.x().as_f64().hypot(slip.y().as_f64()) / reflected.as_ball_state().speed().as_f64();
 
     assert!(
-        slip_ratio <= 1.15 + 1e-9,
-        "rolling-style rail entries should not leave the reduced on-table model with excessive post-rail cloth slip"
+        slip_ratio <= 0.8 + 1e-9,
+        "rolling-style low-english rail entries should not leave the reduced on-table model with excessive post-rail cloth slip"
     );
 }
 

@@ -156,7 +156,7 @@ fn advancing_spin_on_table_depends_on_ball_state_and_total_spin() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     );
-    let curve_angle_radians: f64 = 9.0 / 26.0;
+    let curve_angle_radians: f64 = 9.0 / 520.0;
     let base_x = -25.0 / (7.0 * radius.as_f64());
 
     assert_close(angular.x().as_f64(), base_x * curve_angle_radians.cos());
@@ -318,7 +318,7 @@ fn advancing_a_pure_spinning_ball_leaves_position_fixed_and_decays_z_spin_linear
 }
 
 #[test]
-fn advancing_a_rolling_ball_with_vertical_spin_curves_its_path_before_stopping() {
+fn advancing_a_rolling_ball_with_vertical_spin_no_longer_curls_once_it_is_in_pure_rolling_motion() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let state = rolling_with_vertical_spin_state();
     let advanced = advance_ball_state(
@@ -327,65 +327,28 @@ fn advancing_a_rolling_ball_with_vertical_spin_curves_its_path_before_stopping()
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     );
-    let expected_heading_radians: f64 = 3.0 / 8.0;
-    let expected_distance: f64 = 15.0 / 2.0;
 
-    assert_close(
-        advanced.position.x().as_f64(),
-        10.0 + expected_distance * (0.5 * expected_heading_radians).sin(),
-    );
-    assert_close(
-        advanced.position.y().as_f64(),
-        20.0 + expected_distance * (0.5 * expected_heading_radians).cos(),
-    );
+    assert_close(advanced.position.x().as_f64(), 10.0);
+    assert_close(advanced.position.y().as_f64(), 27.5);
     assert_close(advanced.speed().as_f64(), 5.0);
-    assert_close(
-        advanced.velocity.x().as_f64(),
-        5.0 * expected_heading_radians.sin(),
-    );
-    assert_close(
-        advanced.velocity.y().as_f64(),
-        5.0 * expected_heading_radians.cos(),
-    );
-    assert_close(
-        advanced.angular_velocity.x().as_f64(),
-        -advanced.velocity.y().as_f64() / radius.as_f64(),
-    );
-    assert_close(
-        advanced.angular_velocity.y().as_f64(),
-        advanced.velocity.x().as_f64() / radius.as_f64(),
-    );
+    assert_close(advanced.velocity.x().as_f64(), 0.0);
+    assert_close(advanced.velocity.y().as_f64(), 5.0);
+    assert_close(advanced.angular_velocity.x().as_f64(), -5.0 / radius.as_f64());
+    assert_close(advanced.angular_velocity.y().as_f64(), 0.0);
     assert_close(advanced.angular_velocity.z().as_f64(), 4.0);
     assert_eq!(advanced.motion_phase(radius), MotionPhase::Rolling);
 }
 
 #[test]
-fn the_curve_estimate_matches_rolling_motion_advance_before_z_spin_dies_out() {
+fn the_curve_estimate_is_none_for_a_pure_rolling_state_with_residual_z_spin() {
     let state = on_table(rolling_with_small_vertical_spin_state());
-    let curve = estimate_post_contact_cue_ball_curve_on_table(
+
+    assert!(estimate_post_contact_cue_ball_curve_on_table(
         &state,
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
-    .expect("rolling state with residual sidespin should have a curve estimate");
-    let advanced = advance_motion_on_table(
-        &state,
-        curve.time_until_curve_completes,
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
-    );
-    let heading = advanced
-        .state
-        .velocity
-        .angle_from_north()
-        .expect("curve completion should still leave translational speed");
-
-    assert_close(curve.time_until_curve_starts.as_f64(), 0.0);
-    assert_close(heading.as_degrees(), curve.heading_after_curve.as_degrees());
-    assert!(
-        advanced.state.position.x().as_f64() > state.as_ball_state().position.x().as_f64(),
-        "positive residual z-spin should curve this test shot toward +x"
-    );
+    .is_none());
 }
 
 #[test]
@@ -398,17 +361,9 @@ fn advancing_a_rolling_ball_with_vertical_spin_can_enter_the_spinning_phase() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     );
-    let expected_heading_radians: f64 = 0.9;
-    let expected_distance: f64 = 10.0;
 
-    assert_close(
-        advanced.position.x().as_f64(),
-        10.0 + expected_distance * (0.5 * expected_heading_radians).sin(),
-    );
-    assert_close(
-        advanced.position.y().as_f64(),
-        20.0 + expected_distance * (0.5 * expected_heading_radians).cos(),
-    );
+    assert_close(advanced.position.x().as_f64(), 10.0);
+    assert_close(advanced.position.y().as_f64(), 30.0);
     assert_close(advanced.speed().as_f64(), 0.0);
     assert_close(advanced.angular_velocity.x().as_f64(), 0.0);
     assert_close(advanced.angular_velocity.y().as_f64(), 0.0);

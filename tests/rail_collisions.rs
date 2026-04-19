@@ -104,7 +104,6 @@ fn a_restitution_only_rail_collision_reduces_the_outgoing_normal_speed() {
 #[test]
 fn a_spin_aware_rail_collision_saturates_at_the_no_slip_limit_when_friction_is_high() {
     let radius = TYPICAL_BALL_RADIUS.clone();
-    let radius_value = radius.as_f64();
     let state = on_table(BallState::on_table(
         inches2(10.0, 20.0),
         Velocity2::new("5", "5"),
@@ -125,18 +124,17 @@ fn a_spin_aware_rail_collision_saturates_at_the_no_slip_limit_when_friction_is_h
 
     assert_close(reflected.as_ball_state().velocity.x().as_f64(), 25.0 / 7.0);
     assert_close(reflected.as_ball_state().velocity.y().as_f64(), -4.0);
-    assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.0);
+    assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.4);
     assert_close(reflected.as_ball_state().angular_velocity.y().as_f64(), 0.0);
     assert_close(
         reflected.as_ball_state().angular_velocity.z().as_f64(),
-        25.0 / (7.0 * radius_value),
+        1.8912217153793102,
     );
 }
 
 #[test]
 fn a_spin_aware_rail_collision_exhibits_partial_slip_when_friction_is_low() {
     let radius = TYPICAL_BALL_RADIUS.clone();
-    let radius_value = radius.as_f64();
     let state = on_table(BallState::on_table(
         inches2(10.0, 20.0),
         Velocity2::new("5", "5"),
@@ -157,15 +155,18 @@ fn a_spin_aware_rail_collision_exhibits_partial_slip_when_friction_is_low() {
 
     assert_close(reflected.as_ball_state().velocity.x().as_f64(), 4.1);
     assert_close(reflected.as_ball_state().velocity.y().as_f64(), -4.0);
-    assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.0);
+    assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.4);
     assert_close(reflected.as_ball_state().angular_velocity.y().as_f64(), 0.0);
-    assert_close(reflected.as_ball_state().angular_velocity.z().as_f64(), 2.0);
+    assert_close(
+        reflected.as_ball_state().angular_velocity.z().as_f64(),
+        1.191469680689655,
+    );
     assert!(
         reflected.as_ball_state().velocity.x().as_f64() > 25.0 / 7.0,
         "lower friction should preserve more tangential speed than the no-slip limit"
     );
     assert!(
-        reflected.as_ball_state().angular_velocity.z().as_f64() < 25.0 / (7.0 * radius_value),
+        reflected.as_ball_state().angular_velocity.z().as_f64() < 1.8912217153793102,
         "lower friction should transfer less running spin than the no-slip limit"
     );
 }
@@ -195,7 +196,7 @@ fn a_spin_aware_rail_collision_with_topspin_reduces_vertical_plane_spin() {
     assert_close(reflected.as_ball_state().velocity.y().as_f64(), -4.0);
     assert_close(
         reflected.as_ball_state().angular_velocity.x().as_f64(),
-        8.0 / 7.0,
+        2.84,
     );
     assert_close(reflected.as_ball_state().angular_velocity.y().as_f64(), 0.0);
     assert_close(reflected.as_ball_state().angular_velocity.z().as_f64(), 0.0);
@@ -243,8 +244,7 @@ fn a_rolling_ball_rebounding_from_a_rail_carries_draw_like_spin_relative_to_its_
 #[test]
 fn gearing_english_remains_a_tangential_fixed_point_in_the_combined_spin_aware_model() {
     let radius = TYPICAL_BALL_RADIUS.clone();
-    let radius_value = radius.as_f64();
-    let geared_spin = 5.0 / radius_value;
+    let geared_spin = 5.0 / (radius.as_f64() * (21.0_f64).sqrt() / 5.0);
     let state = on_table(BallState::on_table(
         inches2(10.0, 20.0),
         Velocity2::new("5", "5"),
@@ -265,7 +265,7 @@ fn gearing_english_remains_a_tangential_fixed_point_in_the_combined_spin_aware_m
 
     assert_close(reflected.as_ball_state().velocity.x().as_f64(), 5.0);
     assert_close(reflected.as_ball_state().velocity.y().as_f64(), -4.0);
-    assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.0);
+    assert_close(reflected.as_ball_state().angular_velocity.x().as_f64(), 0.4);
     assert_close(reflected.as_ball_state().angular_velocity.y().as_f64(), 0.0);
     assert_close(
         reflected.as_ball_state().angular_velocity.z().as_f64(),

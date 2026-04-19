@@ -2918,6 +2918,26 @@ fn rotate_xy_clockwise(x: f64, y: f64, delta_degrees: f64) -> (f64, f64) {
     (x * cos + y * sin, y * cos - x * sin)
 }
 
+// The current side-spin cloth-turn model is intentionally conservative.
+//
+// The local whitepaper set supports that residual side spin can bend the cue-ball path after
+// impact, but it repeatedly characterizes that bend as a small effect rather than tens of degrees
+// of immediate heading change. See especially:
+// - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf`
+//   (cue-ball / object-ball trajectory curve described as a small additional angle `Δθ`)
+// - `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf`
+//   (ball-turn discussion yields small turn angles for cloth effects)
+//
+// Our first-pass side-spin curve path is still heuristic rather than a full closed-form cloth-turn
+// derivation, so we scale the raw slip-ratio-to-heading coupling down to stay in believable
+// billiards bounds until a richer literature-backed turn model replaces it.
+//
+// Current policy after visual review: residual side spin can bend the path a little while the ball
+// is still sliding toward rolling equilibrium, but we should not let pure rolling states keep
+// curling dramatically across the table. Therefore the remaining sliding-only coupling is kept very
+// small and the rolling branch below is disabled conservatively.
+const SIDE_SPIN_CURVE_STRENGTH: f64 = 0.05;
+
 fn side_spin_curve_from_speed_window(
     start_heading: Angle,
     initial_speed: f64,
@@ -2949,7 +2969,7 @@ fn side_spin_curve_from_speed_window(
     }
 
     let duration_fraction = (curve_duration.as_f64() / phase_horizon.as_f64()).clamp(0.0, 1.0);
-    let angle_degrees = (slip_ratio * duration_fraction).to_degrees();
+    let angle_degrees = (SIDE_SPIN_CURVE_STRENGTH * slip_ratio * duration_fraction).to_degrees();
     if angle_degrees.abs() <= f64::EPSILON {
         return None;
     }
@@ -3011,50 +3031,17 @@ fn sliding_side_spin_curve_during(
 }
 
 fn rolling_side_spin_curve_during(
-    start_heading: Angle,
-    initial_speed: f64,
-    initial_z_spin: f64,
-    max_duration: Seconds,
-    ball: &BallSetPhysicsSpec,
-    config: &MotionTransitionConfig,
+    _start_heading: Angle,
+    _initial_speed: f64,
+    _initial_z_spin: f64,
+    _max_duration: Seconds,
+    _ball: &BallSetPhysicsSpec,
+    _config: &MotionTransitionConfig,
 ) -> Option<SideSpinCurve> {
-    if max_duration.as_f64() <= f64::EPSILON
-        || initial_speed <= f64::EPSILON
-        || initial_z_spin.abs() <= f64::EPSILON
-    {
-        return None;
-    }
-
-    let stop_time = initial_speed / rolling_linear_deceleration(config);
-    if stop_time <= f64::EPSILON {
-        return None;
-    }
-
-    let curve_duration = Seconds::new(
-        time_until_vertical_axis_spin_stops(initial_z_spin, config)
-            .expect("non-zero z-spin should have a stop time")
-            .as_f64()
-            .min(max_duration.as_f64())
-            .min(stop_time),
-    );
-    if curve_duration.as_f64() <= f64::EPSILON {
-        return None;
-    }
-
-    let linear_deceleration = rolling_linear_deceleration(config);
-    let speed_at_curve_end =
-        (initial_speed - linear_deceleration * curve_duration.as_f64()).max(0.0);
-
-    side_spin_curve_from_speed_window(
-        start_heading,
-        initial_speed,
-        speed_at_curve_end,
-        initial_z_spin,
-        curve_duration,
-        Seconds::new(stop_time),
-        ball,
-        config,
-    )
+    // Conservative current policy: once the ball is already in pure rolling motion, do not keep
+    // curling it visibly across the cloth just because residual z-spin remains. We still decay the
+    // z-spin, and sliding states above can still bend slightly while establishing rolling.
+    None
 }
 
 fn build_on_table_ball_state(
@@ -5578,11 +5565,11 @@ pub fn collide_ball_ball_analyzed_on_table(
 /// impact.
 ///
 /// This helper follows the current motion phase using the same bounded side-spin coupling used by
-/// `advance_within_phase_on_table(...)`:
+/// `advance_within_phase_on_table(...)`.
 ///
-/// - if the cue ball is currently sliding, the estimate reports the immediate side-spin-driven
-///   curve interval during that sliding phase; and
-/// - if the cue ball is already rolling, the estimate reports the rolling curve interval.
+/// In the current conservative model, only the sliding interval contributes a visible curve. Once
+/// the ball is already in pure rolling motion, residual z-spin is allowed to decay but does not
+/// continue to curl the path.
 ///
 /// The local references motivating this are:
 ///
@@ -5593,8 +5580,8 @@ pub fn collide_ball_ball_analyzed_on_table(
 ///   sliding / rolling deceleration and z-spin decay primitives used to bound the estimate in time.
 ///
 /// This remains a first-pass bounded model rather than a full separate derivation of the cue ball's
-/// side-spin cloth force, but it now matches the current solver in both the sliding and rolling
-/// intervals where side-spin curve is modeled.
+/// side-spin cloth force, but it matches the current solver in the sliding interval where visible
+/// side-spin curve is presently modeled.
 pub fn estimate_post_contact_cue_ball_curve_on_table(
     state: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
@@ -5640,28 +5627,7 @@ pub fn estimate_post_contact_cue_ball_curve_on_table(
                 heading_after_curve: curve.heading_after_curve,
             })
         }
-        MotionPhase::Rolling => {
-            let transition = compute_next_transition_on_table(state, ball, motion)?;
-            if transition.phase_before != MotionPhase::Rolling {
-                return None;
-            }
-
-            let curve = rolling_side_spin_curve_during(
-                state_ref.velocity.angle_from_north()?,
-                ball_speed(state_ref).as_f64(),
-                state_ref.angular_velocity.z().as_f64(),
-                transition.time_until_transition,
-                ball,
-                motion,
-            )?;
-
-            Some(PostContactCueBallCurve {
-                time_until_curve_starts: Seconds::zero(),
-                time_until_curve_completes: curve.duration,
-                curve_angle_degrees: curve.angle_degrees,
-                heading_after_curve: curve.heading_after_curve,
-            })
-        }
+        MotionPhase::Rolling => None,
         _ => None,
     }
 }
@@ -5911,14 +5877,70 @@ fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Veloc
     restitution_aware_ball_rail_collision_velocity(velocity, rail, 1.0)
 }
 
+// TP 7.3 quotes an effective cushion-geometry term around `a ≈ 0.08R` for the vertical-plane
+// spin response. Our reduced horizontal rail model already captures part of the cushion response
+// through the friction/slip coupling, so we use a smaller effective term here to avoid
+// double-counting while still moving ordinary rolling rail contacts toward the near-stun behavior
+// discussed in the note.
+const TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.02;
+const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
+// The local cushion-impact references treat the rail contact as a compliant patch rather than a
+// rigid point impulse at the side equator. In the reduced on-table model we therefore use a
+// smaller effective torque lever for the friction-generated spin response than the raw geometric
+// contact lever alone would suggest.
+const CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO: f64 = 0.65;
+
+fn theoretical_cushion_contact_normal_lever_ratio() -> f64 {
+    (1.0 - THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO.powi(2)).sqrt()
+}
+
+fn effective_cushion_spin_torque_lever(ball_radius: f64) -> f64 {
+    ball_radius
+        * theoretical_cushion_contact_normal_lever_ratio()
+        * CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO
+}
+
+fn cushion_angular_response_coefficient(ball_radius: f64) -> f64 {
+    5.0 * effective_cushion_spin_torque_lever(ball_radius) / (2.0 * ball_radius * ball_radius)
+}
+
 fn rail_vertical_contact_slip(
     angular_velocity: &AngularVelocity3,
     normal_x: f64,
     normal_y: f64,
-    ball_radius: f64,
+    contact_normal_lever: f64,
 ) -> f64 {
-    ball_radius
+    contact_normal_lever
         * (normal_x * angular_velocity.y().as_f64() - normal_y * angular_velocity.x().as_f64())
+}
+
+fn tp73_geometric_vertical_plane_spin_delta(
+    normal_x: f64,
+    normal_y: f64,
+    tangent_x: f64,
+    tangent_y: f64,
+    ball_radius: f64,
+    normal_restitution: f64,
+    approaching_normal_speed: f64,
+) -> (f64, f64) {
+    if approaching_normal_speed <= f64::EPSILON {
+        return (0.0, 0.0);
+    }
+
+    // `whitepapers/tp_7_3_ball_rail_interaction_and_the_effects_on_vertical_plane_spin.pdf`
+    // models the vertical-plane spin response with an additional small cushion-geometry term `a`
+    // beyond the pure frictional torque term. In the reduced on-table model we treat that as an
+    // extra angular-velocity increment along the rail-tangent spin axis, proportional to the
+    // incoming normal impulse magnitude `(1 + e) v_n`.
+    let tangent_axis_delta = (5.0 * TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO / (2.0 * ball_radius))
+        * (1.0 + normal_restitution)
+        * approaching_normal_speed
+        * (normal_x * tangent_y - normal_y * tangent_x);
+
+    (
+        tangent_axis_delta * tangent_x,
+        tangent_axis_delta * tangent_y,
+    )
 }
 
 fn spin_aware_ball_rail_collision_on_table(
@@ -5937,13 +5959,22 @@ fn spin_aware_ball_rail_collision_on_table(
     let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
     let normal_component = project_velocity_on_basis(&state_ref.velocity, normal_x, normal_y);
     let tangent_component = project_velocity_on_basis(&state_ref.velocity, tangent_x, tangent_y);
-    let contact_x = -ball_radius * normal_x;
-    let contact_y = -ball_radius * normal_y;
+    // The local cushion-contact references place the rail contact point above the ball center.
+    // Using that raised contact geometry gives a slightly shorter horizontal normal lever arm than
+    // a full side-equator contact point, which modestly reduces the `ωz` coupling created by
+    // along-rail friction.
+    let contact_normal_lever = ball_radius * theoretical_cushion_contact_normal_lever_ratio();
+    let contact_x = -contact_normal_lever * normal_x;
+    let contact_y = -contact_normal_lever * normal_y;
     let tangential_spin_scale = contact_x * tangent_y - contact_y * tangent_x;
     let tangential_contact_slip =
         tangent_component + state_ref.angular_velocity.z().as_f64() * tangential_spin_scale;
-    let vertical_contact_slip =
-        rail_vertical_contact_slip(&state_ref.angular_velocity, normal_x, normal_y, ball_radius);
+    let vertical_contact_slip = rail_vertical_contact_slip(
+        &state_ref.angular_velocity,
+        normal_x,
+        normal_y,
+        contact_normal_lever,
+    );
     let contact_slip_norm = tangential_contact_slip.hypot(vertical_contact_slip);
     let coupling_scale = if contact_slip_norm <= f64::EPSILON {
         0.0
@@ -5976,13 +6007,28 @@ fn spin_aware_ball_rail_collision_on_table(
     // draw both contribute. Because the current on-table state does not represent post-impact
     // vertical center-of-mass velocity, the vertical translational component of that frictional rail
     // impulse is projected out after using it to compute the coupled spin change.
+    //
+    // Important limitation: the local TP 7.3 notes also include a cushion contact-height /
+    // geometry term (`a`) that is not yet represented in this reduced horizontal on-table model.
+    // That omission likely means ordinary no-english rolling rail contacts still over-seed running
+    // english (`ωz`) in some shots.
     let normal_cross_tangent_z = normal_x * tangent_y - normal_y * tangent_x;
-    let delta_wz = -(5.0 / (2.0 * ball_radius)) * normal_cross_tangent_z * tangential_delta;
-    let delta_wx = -(5.0 / (2.0 * ball_radius)) * vertical_contact_delta * normal_y;
-    let delta_wy = (5.0 / (2.0 * ball_radius)) * vertical_contact_delta * normal_x;
+    let angular_response = cushion_angular_response_coefficient(ball_radius);
+    let delta_wz = -angular_response * normal_cross_tangent_z * tangential_delta;
+    let delta_wx = -angular_response * vertical_contact_delta * normal_y;
+    let delta_wy = angular_response * vertical_contact_delta * normal_x;
+    let (geom_delta_wx, geom_delta_wy) = tp73_geometric_vertical_plane_spin_delta(
+        normal_x,
+        normal_y,
+        tangent_x,
+        tangent_y,
+        ball_radius,
+        normal_restitution,
+        (-normal_component).max(0.0),
+    );
     let angular_velocity = AngularVelocity3::new(
-        state_ref.angular_velocity.x().as_f64() + delta_wx,
-        state_ref.angular_velocity.y().as_f64() + delta_wy,
+        state_ref.angular_velocity.x().as_f64() + delta_wx + geom_delta_wx,
+        state_ref.angular_velocity.y().as_f64() + delta_wy + geom_delta_wy,
         state_ref.angular_velocity.z().as_f64() + delta_wz,
     );
 
@@ -7504,10 +7550,18 @@ impl GameState {
 
         let duration = segment.duration.as_f64();
         let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
-        let mut points = vec![segment.start.as_ball_state().projected_position(&self.table_spec)];
+        let mut points = vec![segment
+            .start
+            .as_ball_state()
+            .projected_position(&self.table_spec)];
         for step in 1..=sample_count {
             if step == sample_count {
-                points.push(segment.end.as_ball_state().projected_position(&self.table_spec));
+                points.push(
+                    segment
+                        .end
+                        .as_ball_state()
+                        .projected_position(&self.table_spec),
+                );
             } else {
                 let t = duration * step as f64 / sample_count as f64;
                 let sampled = advance_on_table_ball_without_event(
@@ -7549,12 +7603,8 @@ impl GameState {
                 .end
                 .as_ball_state()
                 .projected_position(&self.table_spec);
-            let mut points = self.sampled_points_for_ball_path_segment(
-                segment,
-                max_time_step,
-                ball,
-                motion,
-            );
+            let mut points =
+                self.sampled_points_for_ball_path_segment(segment, max_time_step, ball, motion);
             if let Some(radius) = &style.clip_endpoints_to_ball_radius {
                 let (line_start, line_end) = self.clip_line_to_ball_edges(
                     &projected_start,

@@ -136,9 +136,13 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
     );
 
     let outside_impact = outside_impact.expect(
-        "outside english should curve the post-collision cue ball into the left rail during sliding",
+        "outside english should still be able to reach the left rail in this staged post-contact case",
+    );
+    let inside_impact = inside_impact.expect(
+        "inside english should also still reach the left rail here, but later",
     );
     assert_eq!(outside_impact.rail, Rail::Left);
+    assert_eq!(inside_impact.rail, Rail::Left);
     assert_eq!(
         outside_impact
             .state_at_impact
@@ -146,7 +150,14 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Sliding
     );
-    assert!(inside_impact.is_none());
+    assert_eq!(
+        inside_impact
+            .state_at_impact
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Sliding
+    );
+    assert!(outside_impact.time_until_impact.as_f64() < inside_impact.time_until_impact.as_f64());
 }
 
 #[test]
@@ -212,33 +223,30 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
         )
         .expect("inside english should produce a next event");
 
-    match outside_event {
-        TwoBallOnTableEvent::BallRailImpact { ball, impact } => {
-            assert_eq!(ball, TwoBallEventBall::A);
-            assert_eq!(impact.rail, Rail::Left);
-            assert!(impact.time_until_impact.as_f64() < 0.25);
-            assert_eq!(
-                impact
-                    .state_at_impact
-                    .as_ball_state()
-                    .motion_phase(TYPICAL_BALL_RADIUS.clone()),
-                MotionPhase::Sliding
-            );
-        }
-        other => panic!("expected rail impact before transition, got {other:?}"),
-    }
-    match inside_event {
+    let outside_time = match outside_event {
         TwoBallOnTableEvent::MotionTransition { ball, transition } => {
             assert_eq!(ball, TwoBallEventBall::A);
             assert_eq!(transition.phase_before, MotionPhase::Sliding);
             assert_eq!(transition.phase_after, MotionPhase::Rolling);
-            assert_close(
-                transition.time_until_transition.as_f64(),
-                0.27520658498952827,
-            );
+            transition.time_until_transition.as_f64()
         }
-        other => panic!("expected motion transition before rail impact, got {other:?}"),
-    }
+        other => panic!("expected motion transition under the conservative side-spin model, got {other:?}"),
+    };
+    let inside_time = match inside_event {
+        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
+            assert_eq!(ball, TwoBallEventBall::A);
+            assert_eq!(transition.phase_before, MotionPhase::Sliding);
+            assert_eq!(transition.phase_after, MotionPhase::Rolling);
+            transition.time_until_transition.as_f64()
+        }
+        other => panic!("expected motion transition under the conservative side-spin model, got {other:?}"),
+    };
+    assert!(
+        outside_time < inside_time,
+        "outside vs inside english should still change the next-event timing even when neither branch reaches a rail during sliding"
+    );
+    assert_close(outside_time, 0.24875327809825132);
+    assert_close(inside_time, 0.27520658498952827);
 }
 
 #[test]

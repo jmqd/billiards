@@ -298,6 +298,72 @@ fn shot_scenarios_can_derive_heading_with_cut_helpers() {
 }
 
 #[test]
+fn shot_scenarios_can_derive_heading_with_cut_left_and_cut_right_aliases() {
+    let via_cut_left = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).cut_left(nine, 32).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected cut_left shot DSL to build");
+    let via_cut = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).cut(nine, left(32deg)).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected cut shot DSL to build");
+    let via_cut_right = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).cut_right(nine, 18).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected cut_right shot DSL to build");
+
+    let cue = via_cut_right
+        .game_state
+        .select_ball(BallType::Cue)
+        .expect("cue ball placement");
+    let nine = via_cut_right
+        .game_state
+        .select_ball(BallType::Nine)
+        .expect("nine ball placement");
+    let object_heading_degrees = cue.position.angle_to(&nine.position).as_degrees() + 18.0;
+    let object_heading = Angle::from_north(
+        object_heading_degrees.to_radians().sin(),
+        object_heading_degrees.to_radians().cos(),
+    );
+    let destination = nine.position.translate(Diamond::one(), object_heading);
+    let expected_right = nine.aim_angle(
+        &destination,
+        &cue.position,
+        &via_cut_right.game_state.table_spec,
+    );
+
+    assert_close(
+        via_cut_left
+            .shot
+            .as_ref()
+            .expect("shot")
+            .shot
+            .heading()
+            .as_degrees(),
+        via_cut.shot.as_ref().expect("shot").shot.heading().as_degrees(),
+    );
+    assert_close(
+        via_cut_right
+            .shot
+            .as_ref()
+            .expect("shot")
+            .shot
+            .heading()
+            .as_degrees(),
+        expected_right.as_degrees(),
+    );
+}
+
+#[test]
 fn shot_scenarios_can_report_human_speed_validation() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at center\n\

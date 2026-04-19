@@ -2584,6 +2584,8 @@ fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
     alt((
         preceded(peek("heading"), cut_err(shot_heading_method)),
         preceded(peek("to_pocket"), cut_err(shot_to_pocket_method)),
+        preceded(peek("cut_left"), cut_err(shot_cut_left_method)),
+        preceded(peek("cut_right"), cut_err(shot_cut_right_method)),
         preceded(peek("pocket"), cut_err(shot_pocket_method)),
         preceded(peek("cut"), cut_err(shot_cut_method)),
         preceded(peek("speed"), cut_err(shot_speed_method)),
@@ -2631,12 +2633,42 @@ fn shot_cut_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr
     shot_cut_arguments(input)
 }
 
+fn shot_cut_left_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+    let _ = "cut_left".parse_next(input)?;
+    shot_one_sided_cut_arguments(input, ShotCutDirection::Left)
+}
+
+fn shot_cut_right_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+    let _ = "cut_right".parse_next(input)?;
+    shot_one_sided_cut_arguments(input, ShotCutDirection::Right)
+}
+
 fn shot_cut_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
     let (object_ball, (direction, degrees)) = delimited(
         '(',
         delimited(
             hws0,
             (terminated(ball_ref, (hws0, ',', hws0)), cut_direction_literal),
+            hws0,
+        ),
+        ')',
+    )
+    .parse_next(input)?;
+    Ok(ShotMethodExpr::Cut { object_ball, direction, degrees })
+}
+
+fn shot_one_sided_cut_arguments<'a>(
+    input: &mut Stream<'a>,
+    direction: ShotCutDirection,
+) -> ParseResult<'a, ShotMethodExpr> {
+    let (object_ball, degrees) = delimited(
+        '(',
+        delimited(
+            hws0,
+            (
+                terminated(ball_ref, (hws0, ',', hws0)),
+                cut_angle_degrees_literal,
+            ),
             hws0,
         ),
         ')',

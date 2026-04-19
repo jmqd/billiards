@@ -1017,9 +1017,24 @@ pub struct ShotDef {
     pub methods: Vec<ShotMethodExpr>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShotCutDirection {
+    Left,
+    Right,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShotMethodExpr {
     HeadingDegrees(f64),
+    ToPocket {
+        object_ball: BallRef,
+        pocket: Pocket,
+    },
+    Cut {
+        object_ball: BallRef,
+        direction: ShotCutDirection,
+        degrees: f64,
+    },
     SpeedIps(f64),
     Tip { side: f64, height: f64 },
     Using(String),
@@ -1173,6 +1188,11 @@ pub enum DslBuildError {
     DuplicateShotMethod {
         method: String,
     },
+    ConflictingShotAimMethods {
+        first: String,
+        second: String,
+    },
+    MissingShotAimMethod,
     MissingShotMethod {
         method: String,
     },
@@ -1186,6 +1206,8 @@ pub enum DslBuildError {
     },
     ShotTargetMustBeCueBall(BallRef),
     ShotTargetBallNotPlaced(BallRef),
+    ShotAimingBallMustNotBeCueBall(BallRef),
+    ShotAimingBallNotPlaced(BallRef),
     InvalidCueStrikeConfig {
         name: String,
         error: ShotError,
@@ -1277,6 +1299,16 @@ impl std::fmt::Display for DslBuildError {
             Self::DuplicateShotMethod { method } => {
                 write!(f, "shot specified .{method}(...) more than once")
             }
+            Self::ConflictingShotAimMethods { first, second } => write!(
+                f,
+                "shot specified conflicting aim helpers .{first}(...) and .{second}(...)"
+            ),
+            Self::MissingShotAimMethod => {
+                write!(
+                    f,
+                    "shot is missing one aim helper: .heading(...), .to_pocket(...), or .cut(...)"
+                )
+            }
             Self::MissingShotMethod { method } => {
                 write!(f, "shot is missing .{method}(...)")
             }
@@ -1295,6 +1327,13 @@ impl std::fmt::Display for DslBuildError {
             ),
             Self::ShotTargetBallNotPlaced(ball) => {
                 write!(f, "shot target ball '{ball}' is not present in the layout")
+            }
+            Self::ShotAimingBallMustNotBeCueBall(ball) => write!(
+                f,
+                "shot aiming helpers require an object ball, not '{ball}'"
+            ),
+            Self::ShotAimingBallNotPlaced(ball) => {
+                write!(f, "shot aiming ball '{ball}' is not present in the layout")
             }
             Self::InvalidCueStrikeConfig { name, error } => {
                 write!(f, "cue_strike '{name}' is invalid: {error:?}")
@@ -1834,6 +1873,98 @@ fn build_simulation(
     })
 }
 
+enum ShotAimSpec {
+    HeadingDegrees(f64),
+    ToPocket {
+        object_ball: BallRef,
+        pocket: Pocket,
+    },
+    Cut {
+        object_ball: BallRef,
+        direction: ShotCutDirection,
+        degrees: f64,
+    },
+}
+
+fn set_shot_aim_once(
+    slot: &mut Option<(ShotAimSpec, &'static str)>,
+    value: ShotAimSpec,
+    method_name: &'static str,
+) -> Result<(), DslBuildError> {
+    if let Some((_, existing_method)) = slot {
+        return Err(if *existing_method == method_name {
+            DslBuildError::DuplicateShotMethod {
+                method: method_name.to_string(),
+            }
+        } else {
+            DslBuildError::ConflictingShotAimMethods {
+                first: existing_method.to_string(),
+                second: method_name.to_string(),
+            }
+        });
+    }
+
+    *slot = Some((value, method_name));
+    Ok(())
+}
+
+fn angle_from_degrees(degrees: f64) -> Angle {
+    let radians = degrees.to_radians();
+    Angle::from_north(radians.sin(), radians.cos())
+}
+
+fn resolve_shot_aiming_ball<'a>(
+    game_state: &'a GameState,
+    ball_ref: BallRef,
+) -> Result<&'a Ball, DslBuildError> {
+    if ball_ref == BallRef::Cue {
+        return Err(DslBuildError::ShotAimingBallMustNotBeCueBall(ball_ref));
+    }
+
+    game_state
+        .select_ball(ball_ref.to_ball_type())
+        .ok_or(DslBuildError::ShotAimingBallNotPlaced(ball_ref))
+}
+
+fn resolve_shot_heading(aim: ShotAimSpec, game_state: &GameState) -> Result<Angle, DslBuildError> {
+    let cue_ball = game_state
+        .select_ball(BallType::Cue)
+        .ok_or(DslBuildError::ShotTargetBallNotPlaced(BallRef::Cue))?;
+
+    match aim {
+        ShotAimSpec::HeadingDegrees(degrees) => Ok(angle_from_degrees(degrees)),
+        ShotAimSpec::ToPocket {
+            object_ball,
+            pocket,
+        } => {
+            let object_ball = resolve_shot_aiming_ball(game_state, object_ball)?;
+            Ok(object_ball.aim_angle_to_pocket(pocket, &cue_ball.position, &game_state.table_spec))
+        }
+        ShotAimSpec::Cut {
+            object_ball,
+            direction,
+            degrees,
+        } => {
+            let object_ball = resolve_shot_aiming_ball(game_state, object_ball)?;
+            let base_heading = cue_ball
+                .position
+                .angle_to(&object_ball.position)
+                .as_degrees();
+            let signed_degrees = match direction {
+                ShotCutDirection::Left => -degrees,
+                ShotCutDirection::Right => degrees,
+            };
+            let object_heading =
+                angle_from_degrees((base_heading + signed_degrees).rem_euclid(360.0));
+            let destination = object_ball
+                .position
+                .translate(Diamond::one(), object_heading);
+
+            Ok(object_ball.aim_angle(&destination, &cue_ball.position, &game_state.table_spec))
+        }
+    }
+}
+
 fn build_shot(
     def: &ShotDef,
     cue_strikes: &HashMap<String, CueStrikeConfig>,
@@ -1848,7 +1979,7 @@ fn build_shot(
         return Err(DslBuildError::ShotTargetBallNotPlaced(def.ball));
     }
 
-    let mut heading_degrees = None;
+    let mut aim = None;
     let mut speed_ips = None;
     let mut tip = None;
     let mut cue_strike_name = None;
@@ -1856,12 +1987,32 @@ fn build_shot(
     for method in &def.methods {
         match method {
             ShotMethodExpr::HeadingDegrees(value) => {
-                set_once(&mut heading_degrees, *value, || {
-                    DslBuildError::DuplicateShotMethod {
-                        method: "heading".to_string(),
-                    }
-                })?;
+                set_shot_aim_once(&mut aim, ShotAimSpec::HeadingDegrees(*value), "heading")?
             }
+            ShotMethodExpr::ToPocket {
+                object_ball,
+                pocket,
+            } => set_shot_aim_once(
+                &mut aim,
+                ShotAimSpec::ToPocket {
+                    object_ball: *object_ball,
+                    pocket: *pocket,
+                },
+                "to_pocket",
+            )?,
+            ShotMethodExpr::Cut {
+                object_ball,
+                direction,
+                degrees,
+            } => set_shot_aim_once(
+                &mut aim,
+                ShotAimSpec::Cut {
+                    object_ball: *object_ball,
+                    direction: *direction,
+                    degrees: *degrees,
+                },
+                "cut",
+            )?,
             ShotMethodExpr::SpeedIps(value) => {
                 set_once(&mut speed_ips, *value, || {
                     DslBuildError::DuplicateShotMethod {
@@ -1886,9 +2037,7 @@ fn build_shot(
         }
     }
 
-    let heading_degrees = heading_degrees.ok_or_else(|| DslBuildError::MissingShotMethod {
-        method: "heading".to_string(),
-    })?;
+    let (aim, _) = aim.ok_or(DslBuildError::MissingShotAimMethod)?;
     let speed_ips = speed_ips.ok_or_else(|| DslBuildError::MissingShotMethod {
         method: "speed".to_string(),
     })?;
@@ -1903,11 +2052,10 @@ fn build_shot(
         .get(&cue_strike_name)
         .cloned()
         .ok_or(DslBuildError::UnknownCueStrike(cue_strike_name))?;
-    let angle_radians = heading_degrees.to_radians();
     let tip_contact = CueTipContact::new(Scale::from_f64(side), Scale::from_f64(height))
         .map_err(DslBuildError::InvalidShot)?;
     let shot = Shot::new(
-        Angle::from_north(angle_radians.sin(), angle_radians.cos()),
+        resolve_shot_heading(aim, game_state)?,
         InchesPerSecond::new(Inches::from_f64(speed_ips)),
         tip_contact,
     )
@@ -2435,6 +2583,8 @@ fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethod
 fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
     alt((
         preceded(peek("heading"), cut_err(shot_heading_method)),
+        preceded(peek("to_pocket"), cut_err(shot_to_pocket_method)),
+        preceded(peek("cut"), cut_err(shot_cut_method)),
         preceded(peek("speed"), cut_err(shot_speed_method)),
         preceded(peek("tip"), cut_err(shot_tip_method)),
         preceded(peek("using"), cut_err(shot_using_method)),
@@ -2446,6 +2596,47 @@ fn shot_heading_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethod
     let _ = "heading".parse_next(input)?;
     let value = delimited('(', delimited(hws0, degrees_literal, hws0), ')').parse_next(input)?;
     Ok(ShotMethodExpr::HeadingDegrees(value))
+}
+
+fn shot_to_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+    let _ = "to_pocket".parse_next(input)?;
+    shot_pocket_arguments.parse_next(input)
+}
+
+fn shot_pocket_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+    let (object_ball, pocket) = delimited(
+        '(',
+        delimited(
+            hws0,
+            (terminated(ball_ref, (hws0, ',', hws0)), pocket_ref),
+            hws0,
+        ),
+        ')',
+    )
+    .parse_next(input)?;
+    Ok(ShotMethodExpr::ToPocket {
+        object_ball,
+        pocket,
+    })
+}
+
+fn shot_cut_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+    let _ = "cut".parse_next(input)?;
+    shot_cut_arguments(input)
+}
+
+fn shot_cut_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+    let (object_ball, (direction, degrees)) = delimited(
+        '(',
+        delimited(
+            hws0,
+            (terminated(ball_ref, (hws0, ',', hws0)), cut_direction_literal),
+            hws0,
+        ),
+        ')',
+    )
+    .parse_next(input)?;
+    Ok(ShotMethodExpr::Cut { object_ball, direction, degrees })
 }
 
 fn shot_speed_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -2513,6 +2704,33 @@ fn speed_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
     .parse_next(input)
 }
 
+fn cut_angle_degrees_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
+    let value = float.parse_next(input)?;
+    let _ = opt("deg").parse_next(input)?;
+    Ok(value)
+}
+
+fn cut_direction_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (ShotCutDirection, f64)> {
+    alt((
+        preceded(
+            peek("left"),
+            cut_err(preceded(
+                "left",
+                delimited('(', delimited(hws0, cut_angle_degrees_literal, hws0), ')')
+                    .map(|degrees| (ShotCutDirection::Left, degrees)),
+            )),
+        ),
+        preceded(
+            peek("right"),
+            cut_err(preceded(
+                "right",
+                delimited('(', delimited(hws0, cut_angle_degrees_literal, hws0), ')')
+                    .map(|degrees| (ShotCutDirection::Right, degrees)),
+            )),
+        ),
+    )).parse_next(input)
+}
+
 fn radius_scale_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
     terminated(float, 'R').parse_next(input)
 }
@@ -2564,6 +2782,18 @@ fn named_position<'a>(input: &mut Stream<'a>) -> ParseResult<'a, NamedPosition> 
 
 fn table_ref<'a>(input: &mut Stream<'a>) -> ParseResult<'a, TableRef> {
     alt(("brunswick_gc4_9ft".map(|_| TableRef::BrunswickGc4_9ft),)).parse_next(input)
+}
+
+fn pocket_ref<'a>(input: &mut Stream<'a>) -> ParseResult<'a, Pocket> {
+    alt((
+        "top-right".map(|_| Pocket::TopRight),
+        "center-right".map(|_| Pocket::CenterRight),
+        "bottom-right".map(|_| Pocket::BottomRight),
+        "bottom-left".map(|_| Pocket::BottomLeft),
+        "center-left".map(|_| Pocket::CenterLeft),
+        "top-left".map(|_| Pocket::TopLeft),
+    ))
+    .parse_next(input)
 }
 
 fn ball_ref<'a>(input: &mut Stream<'a>) -> ParseResult<'a, BallRef> {

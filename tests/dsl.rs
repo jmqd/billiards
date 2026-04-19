@@ -4,10 +4,11 @@ use billiards::dsl::{
     DslError, DslParseError, RailSide, ScenarioTraceRenderOptions,
 };
 use billiards::{
+    Angle,
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
-    visualization::PathColorMode, BallSetPhysicsSpec, BallType, CollisionModel,
-    HumanShotSpeedBand, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
-    MotionTransitionConfig, NBallSystemEvent, NBallSystemState, OnTableMotionConfig, Pocket,
+    visualization::PathColorMode, BallSetPhysicsSpec, BallType, CollisionModel, Diamond,
+    HumanShotSpeedBand, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
+    NBallSystemEvent, NBallSystemState, OnTableMotionConfig, Pocket,
     RadiansPerSecondSq, RailCollisionProfile, RailModel, RollingResistanceModel,
     SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
 };
@@ -203,6 +204,62 @@ fn shot_speed_literals_accept_mph_and_kph() {
         kph.shot.as_ref().expect("kph shot").shot.cue_speed().as_f64(),
         176.0,
     );
+}
+
+#[test]
+fn shot_scenarios_can_derive_heading_with_to_pocket() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).to_pocket(nine, top-right).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected to_pocket shot DSL to build");
+
+    let cue = scenario
+        .game_state
+        .select_ball(BallType::Cue)
+        .expect("cue ball placement");
+    let nine = scenario
+        .game_state
+        .select_ball(BallType::Nine)
+        .expect("nine ball placement");
+    let expected = nine.aim_angle_to_pocket(
+        Pocket::TopRight,
+        &cue.position,
+        &scenario.game_state.table_spec,
+    );
+
+    assert_close(
+        scenario
+            .shot
+            .as_ref()
+            .expect("shot")
+            .shot
+            .heading()
+            .as_degrees(),
+        expected.as_degrees(),
+    );
+}
+
+#[test]
+fn shot_scenarios_can_derive_heading_with_cut_helpers() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).cut(nine, left(32)).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected cut shot DSL to build");
+
+    let cue = scenario.game_state.select_ball(BallType::Cue).expect("cue ball placement");
+    let nine = scenario.game_state.select_ball(BallType::Nine).expect("nine ball placement");
+    let object_heading_degrees = cue.position.angle_to(&nine.position).as_degrees() - 32.0;
+    let object_heading = Angle::from_north(object_heading_degrees.to_radians().sin(), object_heading_degrees.to_radians().cos());
+    let destination = nine.position.translate(Diamond::one(), object_heading);
+    let expected = nine.aim_angle(&destination, &cue.position, &scenario.game_state.table_spec);
+
+    assert_close(scenario.shot.as_ref().expect("shot").shot.heading().as_degrees(), expected.as_degrees());
 }
 
 #[test]

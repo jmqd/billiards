@@ -2936,7 +2936,7 @@ fn rotate_xy_clockwise(x: f64, y: f64, delta_degrees: f64) -> (f64, f64) {
 // is still sliding toward rolling equilibrium, but we should not let pure rolling states keep
 // curling dramatically across the table. Therefore the remaining sliding-only coupling is kept very
 // small and the rolling branch below is disabled conservatively.
-const SIDE_SPIN_CURVE_STRENGTH: f64 = 0.04;
+const SIDE_SPIN_CURVE_STRENGTH: f64 = 0.03;
 
 fn side_spin_curve_from_speed_window(
     start_heading: Angle,
@@ -5966,7 +5966,7 @@ const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
 // contact lever alone would suggest.
 const CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO: f64 = 0.65;
 const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.10;
-const RAIL_SIDE_SPIN_RETENTION_ROLLING_MIN_SCALE: f64 = 0.75;
+const RAIL_SIDE_SPIN_RETENTION_ROLLING_MIN_SCALE: f64 = 0.55;
 const RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE: f64 = 0.10;
 const RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE: f64 = 0.25;
 

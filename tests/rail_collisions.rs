@@ -278,6 +278,26 @@ fn a_rolling_entry_with_carried_side_spin_scrubs_some_of_that_spin_at_the_rail()
 }
 
 #[test]
+fn a_rolling_low_english_entry_leaves_the_rail_with_bounded_horizontal_cloth_slip() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let rolling = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::new(-5.0 / radius_value, 5.0 / radius_value, 0.0),
+    ));
+    let reflected = collide_ball_rail_on_table(&rolling, Rail::Top, RailModel::SpinAware);
+    let slip = cloth_contact_velocity_on_table(reflected.as_ball_state(), radius.clone());
+    let slip_ratio =
+        slip.x().as_f64().hypot(slip.y().as_f64()) / reflected.as_ball_state().speed().as_f64();
+
+    assert!(
+        slip_ratio <= 1.15 + 1e-9,
+        "rolling-style rail entries should not leave the reduced on-table model with excessive post-rail cloth slip"
+    );
+}
+
+#[test]
 fn a_rolling_ball_rebounding_from_a_rail_carries_draw_like_spin_relative_to_its_new_direction() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();

@@ -2937,6 +2937,7 @@ fn rotate_xy_clockwise(x: f64, y: f64, delta_degrees: f64) -> (f64, f64) {
 // curling dramatically across the table. Therefore the remaining sliding-only coupling is kept very
 // small and the rolling branch below is disabled conservatively.
 const SIDE_SPIN_CURVE_STRENGTH: f64 = 0.03;
+const SIDE_SPIN_CURVE_FULL_STRENGTH_SPEED_IPS: f64 = 30.0;
 
 fn side_spin_curve_from_speed_window(
     start_heading: Angle,
@@ -2968,8 +2969,18 @@ fn side_spin_curve_from_speed_window(
         return None;
     }
 
+    // In the reduced sliding-only cloth-turn heuristic, the raw `Rωz / v` ratio can overstate the
+    // visible path bend late in a shot as `v` gets small. The local post-impact references do not
+    // support letting that reduced model explode into dramatic end-of-path curl, so we fade the
+    // heuristic down at low translational speeds and leave richer low-speed turn behavior to future
+    // literature-backed work.
+    let low_speed_curve_ratio =
+        (average_speed / SIDE_SPIN_CURVE_FULL_STRENGTH_SPEED_IPS).clamp(0.0, 1.0);
+    let low_speed_curve_scale = low_speed_curve_ratio * low_speed_curve_ratio;
     let duration_fraction = (curve_duration.as_f64() / phase_horizon.as_f64()).clamp(0.0, 1.0);
-    let angle_degrees = (SIDE_SPIN_CURVE_STRENGTH * slip_ratio * duration_fraction).to_degrees();
+    let angle_degrees =
+        (SIDE_SPIN_CURVE_STRENGTH * low_speed_curve_scale * slip_ratio * duration_fraction)
+            .to_degrees();
     if angle_degrees.abs() <= f64::EPSILON {
         return None;
     }
@@ -5967,6 +5978,8 @@ const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
 const CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO: f64 = 0.65;
 const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.10;
 const RAIL_SIDE_SPIN_RETENTION_ROLLING_MIN_SCALE: f64 = 0.55;
+const RAIL_ROLLING_REBOUND_HORIZONTAL_SPIN_BLEND: f64 = 0.35;
+const RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 1.15;
 const RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE: f64 = 0.10;
 const RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE: f64 = 0.25;
 
@@ -6064,6 +6077,58 @@ fn rail_side_spin_retention_scale(state: &BallState, ball_radius: f64) -> f64 {
         * rail_rolling_proximity(state, ball_radius)
 }
 
+fn rail_rebound_horizontal_spin_blend(state: &BallState, ball_radius: f64) -> f64 {
+    let speed = ball_speed(state).as_f64();
+    if speed <= f64::EPSILON {
+        return 0.0;
+    }
+
+    let side_spin_ratio =
+        (ball_radius * state.angular_velocity.z().as_f64()).abs() / speed.max(f64::EPSILON);
+    let explicit_side_spin_scale =
+        (side_spin_ratio / RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE).clamp(0.0, 1.0);
+
+    RAIL_ROLLING_REBOUND_HORIZONTAL_SPIN_BLEND
+        * rail_rolling_proximity(state, ball_radius)
+        * (1.0 - explicit_side_spin_scale)
+}
+
+fn clamp_rail_rebound_horizontal_spin_to_slip_limit(
+    state_before: &BallState,
+    velocity_after: &Velocity2,
+    ball_radius: f64,
+    outgoing_wx: &mut f64,
+    outgoing_wy: &mut f64,
+) {
+    if rail_rolling_proximity(state_before, ball_radius) <= f64::EPSILON {
+        return;
+    }
+
+    let speed_after = velocity_after.x().as_f64().hypot(velocity_after.y().as_f64());
+    if speed_after <= f64::EPSILON {
+        return;
+    }
+
+    let rolling_outgoing_wx = -velocity_after.y().as_f64() / ball_radius;
+    let rolling_outgoing_wy = velocity_after.x().as_f64() / ball_radius;
+    let slip_state = BallState::on_table(
+        Inches2::new(Inches::from_f64(0.0), Inches::from_f64(0.0)),
+        velocity_after.clone(),
+        AngularVelocity3::new(*outgoing_wx, *outgoing_wy, 0.0),
+    );
+    let cloth_slip = cloth_contact_velocity_on_table(&slip_state, Inches::from_f64(ball_radius));
+    let cloth_slip_ratio =
+        cloth_slip.x().as_f64().hypot(cloth_slip.y().as_f64()) / speed_after.max(f64::EPSILON);
+    if cloth_slip_ratio <= RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO {
+        return;
+    }
+
+    let deviation_scale =
+        RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO / cloth_slip_ratio.max(f64::EPSILON);
+    *outgoing_wx = rolling_outgoing_wx + deviation_scale * (*outgoing_wx - rolling_outgoing_wx);
+    *outgoing_wy = rolling_outgoing_wy + deviation_scale * (*outgoing_wy - rolling_outgoing_wy);
+}
+
 fn spin_aware_ball_rail_collision_on_table(
     state: &OnTableBallState,
     rail: Rail,
@@ -6153,11 +6218,23 @@ fn spin_aware_ball_rail_collision_on_table(
     let outgoing_wz =
         (state_ref.angular_velocity.z().as_f64() + delta_wz)
             * rail_side_spin_retention_scale(state_ref, ball_radius);
-    let angular_velocity = AngularVelocity3::new(
-        state_ref.angular_velocity.x().as_f64() + delta_wx + geom_delta_wx,
-        state_ref.angular_velocity.y().as_f64() + delta_wy + geom_delta_wy,
-        outgoing_wz,
+    let mut outgoing_wx = state_ref.angular_velocity.x().as_f64() + delta_wx + geom_delta_wx;
+    let mut outgoing_wy = state_ref.angular_velocity.y().as_f64() + delta_wy + geom_delta_wy;
+    let rolling_rebound_blend = rail_rebound_horizontal_spin_blend(state_ref, ball_radius);
+    if rolling_rebound_blend > f64::EPSILON {
+        let rolling_outgoing_wx = -velocity.y().as_f64() / ball_radius;
+        let rolling_outgoing_wy = velocity.x().as_f64() / ball_radius;
+        outgoing_wx += rolling_rebound_blend * (rolling_outgoing_wx - outgoing_wx);
+        outgoing_wy += rolling_rebound_blend * (rolling_outgoing_wy - outgoing_wy);
+    }
+    clamp_rail_rebound_horizontal_spin_to_slip_limit(
+        state_ref,
+        &velocity,
+        ball_radius,
+        &mut outgoing_wx,
+        &mut outgoing_wy,
     );
+    let angular_velocity = AngularVelocity3::new(outgoing_wx, outgoing_wy, outgoing_wz);
 
     build_on_table_ball_state(state_ref.position.clone(), velocity, angular_velocity)
 }

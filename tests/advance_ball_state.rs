@@ -156,7 +156,7 @@ fn advancing_spin_on_table_depends_on_ball_state_and_total_spin() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     );
-    let curve_angle_radians: f64 = 27.0 / 2600.0;
+    let curve_angle_radians: f64 = 4563.0 / 4586400.0;
     let base_x = -25.0 / (7.0 * radius.as_f64());
 
     assert_close(angular.x().as_f64(), base_x * curve_angle_radians.cos());

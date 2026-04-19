@@ -1,8 +1,9 @@
 use billiards::dsl::parse_dsl_to_scenario;
 use billiards::{
-    BallSetPhysicsSpec, BallType, CollisionModel, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, NBallSystemState, OnTableMotionConfig, Pocket, RadiansPerSecondSq,
-    RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
+    advance_motion_on_table, BallSetPhysicsSpec, BallType, CollisionModel, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemState,
+    OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailModel, RollingResistanceModel, Seconds,
+    SlidingFrictionModel, SpinDecayModel,
 };
 
 fn motion_config() -> OnTableMotionConfig {
@@ -40,6 +41,53 @@ fn trace_path_length_inches(ball_trace: &billiards::dsl::ScenarioBallTrace) -> f
             dx.hypot(dy)
         })
         .sum()
+}
+
+fn point_line_distance(x: f64, y: f64, x0: f64, y0: f64, x1: f64, y1: f64) -> f64 {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let denom = dx.hypot(dy);
+    if denom <= f64::EPSILON {
+        return x.hypot(y);
+    }
+    ((x - x0) * dy - (y - y0) * dx).abs() / denom
+}
+
+fn final_cue_sliding_segment_max_chord_deviation_inches(
+    trace: &billiards::dsl::ScenarioShotTrace,
+) -> f64 {
+    let cue = cue_trace(trace);
+    let ball = BallSetPhysicsSpec::default();
+    let radius = ball.radius.clone();
+    let segment = cue
+        .segments
+        .iter()
+        .rev()
+        .find(|segment| segment.start.as_ball_state().motion_phase(radius.clone()) == MotionPhase::Sliding)
+        .expect("expected a final sliding cue segment");
+    let start = segment.start.as_ball_state();
+    let end = segment.end.as_ball_state();
+    let x0 = start.position.x().as_f64();
+    let y0 = start.position.y().as_f64();
+    let x1 = end.position.x().as_f64();
+    let y1 = end.position.y().as_f64();
+    let mut max_deviation = 0.0;
+    for step in 1..64 {
+        let t = segment.duration.as_f64() * step as f64 / 64.0;
+        let state = advance_motion_on_table(&segment.start, Seconds::new(t), &ball, &motion_config()).state;
+        let deviation = point_line_distance(
+            state.position.x().as_f64(),
+            state.position.y().as_f64(),
+            x0,
+            y0,
+            x1,
+            y1,
+        );
+        if deviation > max_deviation {
+            max_deviation = deviation;
+        }
+    }
+    max_deviation
 }
 
 #[test]
@@ -266,6 +314,10 @@ fn long_cut_top_right_rail_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("cue rail impact: right")));
+    assert!(
+        final_cue_sliding_segment_max_chord_deviation_inches(&trace) < 0.10,
+        "the final post-rail cue path should stay close to straight in this long-cut example"
+    );
 }
 
 #[test]
@@ -418,6 +470,10 @@ fn two_rail_bank_scratch_example_runs_end_to_end() {
         "the current jaw-aware pocket gate should keep this bank path on the table as a near-miss"
     );
     assert!(matches!(cue_trace(&trace).final_state, NBallSystemState::OnTable(_)));
+    assert!(
+        final_cue_sliding_segment_max_chord_deviation_inches(&trace) < 0.02,
+        "the final post-rail cue path should no longer show a large late bow in this bank-scratch example"
+    );
 }
 
 #[test]

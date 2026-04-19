@@ -18,7 +18,7 @@ fn shot_preview_motion_config() -> OnTableMotionConfig {
             acceleration_magnitude: InchesPerSecondSq::new("5"),
         },
         spin_decay: SpinDecayModel::ConstantAngularDeceleration {
-            angular_deceleration: RadiansPerSecondSq::new(2.0),
+            angular_deceleration: RadiansPerSecondSq::new(10.9),
         },
         rolling_resistance: RollingResistanceModel::ConstantDeceleration {
             linear_deceleration: InchesPerSecondSq::new("5"),

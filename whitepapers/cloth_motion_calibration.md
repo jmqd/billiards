@@ -9,13 +9,15 @@ Recent probe sweeps suggest the cue ball can keep meaningful spin and post-conta
 than expected. This note checks whether the current cloth-motion parameters are plausibly too weak
 at dissipating spin and spin-related sliding mismatch.
 
-## Current repo motion settings used by the probes / examples
+## Current repo motion settings used by preview / example tooling
 
-The current probe / example motion config uses:
+The current preview / example motion config uses:
 
 - sliding friction acceleration: `5 ips²`
 - rolling resistance deceleration: `5 ips²`
-- z-spin angular deceleration: `2 rad/s²`
+- z-spin angular deceleration: `10.9 rad/s²`
+
+The previous baseline used during the initial calibration sweeps was `2 rad/s²` for z-spin decay.
 
 Because gravity is about `386.09 ips²`, these imply effective cloth coefficients of roughly:
 
@@ -67,7 +69,7 @@ time:
 - measured spin-down rate approximately `α_meas ≈ 10 rad/s²`
 
 So a first-pass z-spin angular deceleration on the order of `10 rad/s²` is much more consistent
-with the local references than the current `2 rad/s²`.
+with the local references than the previous `2 rad/s²` baseline.
 
 ## Local `pooltool` comparison
 
@@ -123,11 +125,13 @@ So rolling resistance is **not** the strongest candidate for overactive spin beh
 
 ### z-spin decay
 
-- current repo: `2 rad/s²`
+- current repo: `10.9 rad/s²`
+- prior repo baseline: `2 rad/s²`
 - TP B.2 measured spin-down: `~10 rad/s²`
 - pooltool default equivalent: `~10.9 rad/s²`
 
-So the current repo's z-spin decay is roughly:
+So the current repo's z-spin decay is now broadly aligned with the whitepaper / `pooltool`
+picture, while the previous baseline was roughly:
 
 - **5x weaker** than the whitepaper / pooltool picture
 
@@ -164,9 +168,10 @@ Yes: the current solver is very plausibly under-damping cloth-driven spin effect
 
 Most likely ranking:
 
-1. **sliding friction is much too low** relative to the whitepapers;
-2. **z-spin decay is also much too low** relative to the whitepapers and `pooltool`;
-3. **rolling resistance is not the main problem**.
+1. **sliding friction is still much too low** relative to the whitepapers;
+2. **rolling resistance is not the main problem**;
+3. the earlier **z-spin decay mismatch** was real, but the preview / example defaults now use the
+   calibrated `10.9 rad/s²` value.
 
 ## Probe-backed calibration pass
 
@@ -189,9 +194,19 @@ Using the side-spin stun suite with `side_offset = 0.25R`:
   about `19.67 s` to about `4.51 s`;
 - cue-path geometry and bend metrics changed only slightly in that suite.
 
+That calibration has now been adopted as the preview / example default.
+
+A checked-in gallery scenario also improved in the expected way:
+
+- `examples/scenarios/right_spin_stun_side_pocket.billiards`
+  - previous long-tail behavior had the cue still spinning until about `t = 18.788 s`
+  - with the calibrated z-spin decay, the cue now reaches `Rolling -> Rest` at about
+    `t = 4.555 s`
+
 Interpretation:
 
-- the current `2 rad/s²` value is indeed causing very long residual side-spin / spin-tail behavior;
+- the previous `2 rad/s²` value was indeed causing very long residual side-spin / spin-tail
+  behavior;
 - increasing z-spin decay fixes that tail much more than it changes the main post-contact path.
 
 ### What the sliding-friction calibration changed
@@ -210,18 +225,41 @@ Important nuance:
 - therefore a sliding-friction sweep is not only a post-impact bend calibration, it also changes
   the cue-ball arrival state at contact.
 
+### Gentler sliding-friction candidates
+
+Two smaller sliding-friction candidates were also checked against the no-side follow / stun / draw
+suite:
+
+- `10 ips²`
+- `15 ips²`
+
+Both materially shorten draw / force-follow travel compared with the current `5 ips²` default.
+For example, mean cue-path length changed approximately as follows:
+
+- force-follow: `85.65 in` baseline -> `69.66 in` at `10` -> `67.23 in` at `15`
+- draw: `79.56 in` baseline -> `61.29 in` at `10` -> `53.09 in` at `15`
+
+On this fixed probe family:
+
+- baseline produced `1 / 75` cue scratch / pocket outcome,
+- `10 ips²` produced `2 / 75`,
+- `15 ips²` produced `1 / 75`.
+
+So a **midrange** increase still looks plausible, but it should be treated as a separate follow /
+draw calibration step rather than bundled with the z-spin change.
+
 ### Practical takeaway from the first pass
 
-- **z-spin decay** looks clearly too weak and can likely be increased substantially without
-  destabilizing the main cue-ball trajectory shape;
-- **sliding friction** also looks too weak, but jumping straight from `5` to a literal
+- **z-spin decay** was clearly too weak, and the preview / example defaults now use the calibrated
+  `10.9 rad/s²` value;
+- **sliding friction** also still looks too weak, but jumping straight from `5` to a literal
   `mu_s ≈ 0.2` / `77.2 ips²` mapping likely over-corrects inside the current reduced solver;
-- a more realistic next step is probably a **midrange sliding-friction calibration** rather than a
+- a more realistic next step is still a **midrange sliding-friction calibration** rather than a
   direct jump to the full whitepaper coefficient.
 
 ## Suggested calibration order
 
-1. Raise **z-spin decay** first; this looks like the cleanest mismatch.
-2. Then run a **midrange sliding-friction** calibration pass on the no-side follow / stun / draw
-   suite.
+1. Keep the calibrated **z-spin decay** default at `10.9 rad/s²`.
+2. Next, run a **midrange sliding-friction** calibration pass on the no-side follow / stun / draw
+   suite and only land it after checking a few scenario renders.
 3. Only then revisit rolling resistance if the probe results still look wrong.

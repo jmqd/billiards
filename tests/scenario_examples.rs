@@ -13,7 +13,7 @@ fn motion_config() -> OnTableMotionConfig {
             acceleration_magnitude: InchesPerSecondSq::new("5"),
         },
         spin_decay: SpinDecayModel::ConstantAngularDeceleration {
-            angular_deceleration: RadiansPerSecondSq::new(2.0),
+            angular_deceleration: RadiansPerSecondSq::new(10.9),
         },
         rolling_resistance: RollingResistanceModel::ConstantDeceleration {
             linear_deceleration: InchesPerSecondSq::new("5"),
@@ -295,6 +295,7 @@ fn right_spin_stun_side_pocket_example_runs_end_to_end() {
         cue_trace(&trace).final_state,
         NBallSystemState::OnTable(_)
     ));
+    assert!(trace.simulation.elapsed.as_f64() < 5.0);
 }
 
 #[test]

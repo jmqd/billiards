@@ -2936,7 +2936,7 @@ fn rotate_xy_clockwise(x: f64, y: f64, delta_degrees: f64) -> (f64, f64) {
 // is still sliding toward rolling equilibrium, but we should not let pure rolling states keep
 // curling dramatically across the table. Therefore the remaining sliding-only coupling is kept very
 // small and the rolling branch below is disabled conservatively.
-const SIDE_SPIN_CURVE_STRENGTH: f64 = 0.05;
+const SIDE_SPIN_CURVE_STRENGTH: f64 = 0.04;
 
 fn side_spin_curve_from_speed_window(
     start_heading: Angle,
@@ -3395,14 +3395,20 @@ fn pocket_center_in_inches(pocket: Pocket, table: &TableSpec) -> (f64, f64) {
 }
 
 fn pocket_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
-    0.5 * table
-        .diamond_to_inches(table.pockets[pocket.index()].width.clone())
-        .as_f64()
+    let base_radius = 0.5
+        * table
+            .diamond_to_inches(table.pockets[pocket.index()].width.clone())
+            .as_f64();
+    match table.pockets[pocket.index()].ty {
+        PocketType::Corner => base_radius * CORNER_POCKET_CAPTURE_RADIUS_SCALE,
+        PocketType::Side => base_radius,
+    }
 }
 
+const CORNER_POCKET_CAPTURE_RADIUS_SCALE: f64 = 1.08;
 const SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES: f64 = 68.292;
 const SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES: f64 = 50.688;
-const CORNER_POCKET_CONSERVATIVE_MAX_ENTRY_ANGLE_DEGREES: f64 = 59.841;
+const CORNER_POCKET_CONSERVATIVE_MAX_ENTRY_ANGLE_DEGREES: f64 = 61.5;
 const POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND: f64 = 60.0;
 
 fn pocket_entry_axis(pocket: Pocket) -> (f64, f64) {
@@ -5959,7 +5965,8 @@ const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
 // smaller effective torque lever for the friction-generated spin response than the raw geometric
 // contact lever alone would suggest.
 const CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO: f64 = 0.65;
-const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.35;
+const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.10;
+const RAIL_SIDE_SPIN_RETENTION_ROLLING_MIN_SCALE: f64 = 0.75;
 const RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE: f64 = 0.10;
 const RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE: f64 = 0.25;
 
@@ -6016,6 +6023,19 @@ fn tp73_geometric_vertical_plane_spin_delta(
     )
 }
 
+fn rail_rolling_proximity(state: &BallState, ball_radius: f64) -> f64 {
+    let speed = ball_speed(state).as_f64();
+    if speed <= f64::EPSILON {
+        return 0.0;
+    }
+
+    let cloth_slip = cloth_contact_velocity_on_table(state, Inches::from_f64(ball_radius));
+    let cloth_slip_ratio = cloth_slip.x().as_f64().hypot(cloth_slip.y().as_f64()) / speed;
+
+    (1.0 - cloth_slip_ratio / RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE)
+        .clamp(0.0, 1.0)
+}
+
 fn rail_running_english_generation_scale(state: &BallState, ball_radius: f64) -> f64 {
     let speed = ball_speed(state).as_f64();
     if speed <= f64::EPSILON {
@@ -6028,11 +6048,7 @@ fn rail_running_english_generation_scale(state: &BallState, ball_radius: f64) ->
     // ball-cloth interaction are accounted for. We therefore only suppress `ωz` generation when the
     // incoming state is already close to cloth rolling equilibrium and lacks explicit side spin;
     // sliding entries or deliberate side-spin shots still use the full coupling below.
-    let cloth_slip = cloth_contact_velocity_on_table(state, Inches::from_f64(ball_radius));
-    let cloth_slip_ratio = cloth_slip.x().as_f64().hypot(cloth_slip.y().as_f64()) / speed;
-    let rolling_proximity = (1.0
-        - cloth_slip_ratio / RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE)
-        .clamp(0.0, 1.0);
+    let rolling_proximity = rail_rolling_proximity(state, ball_radius);
     let side_spin_ratio =
         (ball_radius * state.angular_velocity.z().as_f64()).abs() / speed.max(f64::EPSILON);
     let explicit_side_spin_scale =
@@ -6041,6 +6057,11 @@ fn rail_running_english_generation_scale(state: &BallState, ball_radius: f64) ->
     1.0 - (1.0 - RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE)
         * rolling_proximity
         * (1.0 - explicit_side_spin_scale)
+}
+
+fn rail_side_spin_retention_scale(state: &BallState, ball_radius: f64) -> f64 {
+    1.0 - (1.0 - RAIL_SIDE_SPIN_RETENTION_ROLLING_MIN_SCALE)
+        * rail_rolling_proximity(state, ball_radius)
 }
 
 fn spin_aware_ball_rail_collision_on_table(
@@ -6129,10 +6150,13 @@ fn spin_aware_ball_rail_collision_on_table(
         normal_restitution,
         (-normal_component).max(0.0),
     );
+    let outgoing_wz =
+        (state_ref.angular_velocity.z().as_f64() + delta_wz)
+            * rail_side_spin_retention_scale(state_ref, ball_radius);
     let angular_velocity = AngularVelocity3::new(
         state_ref.angular_velocity.x().as_f64() + delta_wx + geom_delta_wx,
         state_ref.angular_velocity.y().as_f64() + delta_wy + geom_delta_wy,
-        state_ref.angular_velocity.z().as_f64() + delta_wz,
+        outgoing_wz,
     );
 
     build_on_table_ball_state(state_ref.position.clone(), velocity, angular_velocity)

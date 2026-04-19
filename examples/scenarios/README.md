@@ -72,8 +72,8 @@ A longer cut where the object ball runs up the right rail toward the top-right c
 
 Expected flavor:
 - cue -> one collision
-- object ball rides the right rail toward the top-right pocket area
-- the current jaw-aware pocket gate rejects this near-jaw corner approach
+- object ball runs up the rail and now falls in top-right under the slightly more generous corner capture
+- cue continues with later rail contacts
 
 ### `spot_shot_bottom_right.billiards`
 Object ball on the rack / spot region, cut toward the bottom-right corner pocket.

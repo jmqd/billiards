@@ -249,6 +249,35 @@ fn an_ordinary_no_english_rolling_entry_seeds_less_running_english_than_a_slidin
 }
 
 #[test]
+fn a_rolling_entry_with_carried_side_spin_scrubs_some_of_that_spin_at_the_rail() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let state = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::new(-5.0 / radius_value, 5.0 / radius_value, -8.0),
+    ));
+    let config = RailCollisionConfig {
+        normal_restitution: Scale::from_f64(0.8),
+        tangential_friction_coefficient: Scale::from_f64(1.0),
+    };
+
+    let reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &state,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &config,
+    );
+
+    assert!(
+        reflected.as_ball_state().angular_velocity.z().as_f64().abs()
+            < state.as_ball_state().angular_velocity.z().as_f64().abs(),
+        "a rolling rail entry with carried side spin should leave the rail with less side spin than it brought in"
+    );
+}
+
+#[test]
 fn a_rolling_ball_rebounding_from_a_rail_carries_draw_like_spin_relative_to_its_new_direction() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();

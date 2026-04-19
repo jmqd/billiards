@@ -262,7 +262,7 @@ fn long_cut_top_right_rail_example_runs_end_to_end() {
         .any(|line| line.contains("cue -> one collision")));
     assert!(lines
         .iter()
-        .any(|line| line.contains("one rail impact: top")));
+        .any(|line| line.contains("one pocketed in top-right")));
     assert!(lines
         .iter()
         .any(|line| line.contains("cue rail impact: right")));

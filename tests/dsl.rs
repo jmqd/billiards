@@ -243,6 +243,41 @@ fn shot_scenarios_can_derive_heading_with_to_pocket() {
 }
 
 #[test]
+fn shot_scenarios_can_derive_heading_with_pocket_alias() {
+    let via_to_pocket = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).to_pocket(nine, top-right).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected to_pocket shot DSL to build");
+    let via_pocket = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).pocket(nine, top-right).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected pocket alias shot DSL to build");
+
+    assert_close(
+        via_pocket
+            .shot
+            .as_ref()
+            .expect("shot")
+            .shot
+            .heading()
+            .as_degrees(),
+        via_to_pocket
+            .shot
+            .as_ref()
+            .expect("shot")
+            .shot
+            .heading()
+            .as_degrees(),
+    );
+}
+
+#[test]
 fn shot_scenarios_can_derive_heading_with_cut_helpers() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at center\n\

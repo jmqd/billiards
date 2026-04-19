@@ -2584,6 +2584,7 @@ fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
     alt((
         preceded(peek("heading"), cut_err(shot_heading_method)),
         preceded(peek("to_pocket"), cut_err(shot_to_pocket_method)),
+        preceded(peek("pocket"), cut_err(shot_pocket_method)),
         preceded(peek("cut"), cut_err(shot_cut_method)),
         preceded(peek("speed"), cut_err(shot_speed_method)),
         preceded(peek("tip"), cut_err(shot_tip_method)),
@@ -2600,6 +2601,11 @@ fn shot_heading_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethod
 
 fn shot_to_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
     let _ = "to_pocket".parse_next(input)?;
+    shot_pocket_arguments.parse_next(input)
+}
+
+fn shot_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+    let _ = "pocket".parse_next(input)?;
     shot_pocket_arguments.parse_next(input)
 }
 

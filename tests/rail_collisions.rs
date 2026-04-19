@@ -298,6 +298,78 @@ fn a_rolling_low_english_entry_leaves_the_rail_with_bounded_horizontal_cloth_sli
 }
 
 #[test]
+fn a_spin_aware_rolling_entry_exits_much_closer_to_tp73_near_stun_than_a_mirror_rebound() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let rolling = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("0", "5"),
+        AngularVelocity3::new(-5.0 / radius_value, 0.0, 0.0),
+    ));
+
+    let mirror = collide_ball_rail_on_table(&rolling, Rail::Top, RailModel::Mirror);
+    let spin_aware = collide_ball_rail_on_table(&rolling, Rail::Top, RailModel::SpinAware);
+    let outgoing_rolling_wx = -spin_aware.as_ball_state().velocity.y().as_f64() / radius_value;
+
+    assert!(
+        spin_aware.as_ball_state().angular_velocity.x().as_f64().abs()
+            < mirror.as_ball_state().angular_velocity.x().as_f64().abs() * 0.5,
+        "TP 7.3 rolling rail entries should rebound much closer to stun than the mirror-limit draw-like carryover"
+    );
+    assert!(
+        spin_aware.as_ball_state().angular_velocity.x().as_f64() > 0.0,
+        "the rebound should still carry a small amount of forward vertical-plane roll in the new travel direction"
+    );
+    assert!(
+        spin_aware.as_ball_state().angular_velocity.x().as_f64() < outgoing_rolling_wx,
+        "the rebound should remain clearly below immediate pure rolling after impact"
+    );
+}
+
+#[test]
+fn a_spin_aware_stun_entry_picks_up_some_forward_vertical_plane_roll_from_tp73_geometry() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let stun = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("0", "5"),
+        AngularVelocity3::zero(),
+    ));
+
+    let reflected = collide_ball_rail_on_table(&stun, Rail::Top, RailModel::SpinAware);
+    let outgoing_rolling_wx = -reflected.as_ball_state().velocity.y().as_f64() / radius_value;
+
+    assert!(
+        reflected.as_ball_state().angular_velocity.x().as_f64() > 0.0,
+        "TP 7.3 predicts that even a stun rail impact can pick up some forward roll from cushion geometry"
+    );
+    assert!(
+        reflected.as_ball_state().angular_velocity.x().as_f64() < outgoing_rolling_wx,
+        "the stun rebound should still leave the ball sliding, not immediately rolling"
+    );
+}
+
+#[test]
+fn a_spin_aware_overspin_entry_can_leave_with_reverse_vertical_plane_spin() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let overspin = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("0", "5"),
+        AngularVelocity3::new(-1.5 * 5.0 / radius_value, 0.0, 0.0),
+    ));
+
+    let reflected = collide_ball_rail_on_table(&overspin, Rail::Top, RailModel::SpinAware);
+    let outgoing_rolling_wx = -reflected.as_ball_state().velocity.y().as_f64() / radius_value;
+
+    assert!(
+        reflected.as_ball_state().angular_velocity.x().as_f64().signum()
+            != outgoing_rolling_wx.signum(),
+        "strong overspin / follow-style entries should be able to leave the rail with reverse vertical-plane spin"
+    );
+}
+
+#[test]
 fn a_rolling_ball_rebounding_from_a_rail_carries_draw_like_spin_relative_to_its_new_direction() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();

@@ -5708,6 +5708,10 @@ fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Veloc
 // through the friction/slip coupling, so we use a smaller effective term here to avoid
 // double-counting while still moving ordinary rolling rail contacts toward the near-stun behavior
 // discussed in the note.
+//
+// Important limitation: shrinking the effective `a` term this way likely also under-represents how
+// much new forward vertical-plane roll a pure stun rail impact should pick up in the TP 7.3 worked
+// example. See `whitepapers/rail_rebound.md` for the current mapping and open questions.
 const TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.02;
 const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
 // The local cushion-impact references treat the rail contact as a compliant patch rather than a
@@ -5955,10 +5959,12 @@ fn spin_aware_ball_rail_collision_on_table(
     // vertical center-of-mass velocity, the vertical translational component of that frictional rail
     // impulse is projected out after using it to compute the coupled spin change.
     //
-    // Important limitation: the local TP 7.3 notes also include a cushion contact-height /
-    // geometry term (`a`) that is not yet represented in this reduced horizontal on-table model.
-    // That omission likely means ordinary no-english rolling rail contacts still over-seed running
-    // english (`ωz`) in some shots.
+    // Important limitations are tracked in `whitepapers/rail_rebound.md`. In particular, the
+    // reduced on-table model still compresses the full cushion geometry/compliance behavior down to
+    // a small effective `a`-style term plus tuned horizontal-spin clamps. That means ordinary no-
+    // english rolling rail contacts can still over-seed running english (`ωz`) in some shots, while
+    // pure stun entries likely under-pick-up some of the forward vertical-plane roll suggested by
+    // the TP 7.3 worked example.
     let normal_cross_tangent_z = normal_x * tangent_y - normal_y * tangent_x;
     let angular_response = cushion_angular_response_coefficient(ball_radius);
     let delta_wz = -angular_response
@@ -6016,7 +6022,8 @@ fn spin_aware_ball_rail_collision_on_table(
 /// configurable normal restitution plus a tunable cushion-friction response for the full rail-face
 /// contact-slip vector. Running / reverse english (`ωz`) changes the returned tangential speed and
 /// z-spin, while top / draw (`ωx`, `ωy`) changes the vertical slip component and therefore the
-/// horizontal spin carried away from the cushion.
+/// horizontal spin carried away from the cushion. The current TP 7.3 mapping, worked-case notes,
+/// and known simplifications are summarized in `whitepapers/rail_rebound.md`.
 ///
 /// A rolling ball that rebounds from a rail will generally leave the cushion in a `Sliding` phase,
 /// not `Rolling`: the pre-impact rolling spin is still present after the bounce, but the reversed
@@ -7654,51 +7661,6 @@ impl GameState {
             elapsed_before_segment =
                 Seconds::new(elapsed_before_segment.as_f64() + segment.duration.as_f64());
         }
-    }
-
-    pub fn add_smooth_ball_path_styled(
-        &mut self,
-        path: &BallPath,
-        max_time_step: Seconds,
-        ball: &BallSetPhysicsSpec,
-        motion: &OnTableMotionConfig,
-        width_px: f32,
-        style: &BallPathStyle,
-    ) {
-        self.add_rendered_ball_path_styled(
-            path,
-            ball,
-            motion,
-            &BallPathRenderOptions {
-                max_time_step,
-                width_px,
-                width_mode: BallPathWidthMode::Fixed,
-            },
-            style,
-        );
-    }
-
-    /// Add a smooth traced ball path whose width tapers with the ball's sampled speed.
-    pub fn add_speed_scaled_smooth_ball_path_styled(
-        &mut self,
-        path: &BallPath,
-        max_time_step: Seconds,
-        ball: &BallSetPhysicsSpec,
-        motion: &OnTableMotionConfig,
-        width_px: f32,
-        style: &BallPathStyle,
-    ) {
-        self.add_rendered_ball_path_styled(
-            path,
-            ball,
-            motion,
-            &BallPathRenderOptions {
-                max_time_step,
-                width_px,
-                width_mode: BallPathWidthMode::ScaleBySpeed,
-            },
-            style,
-        );
     }
 
     /// Add a dotted overlay for a traced ball path and include a ghost ball at the start.

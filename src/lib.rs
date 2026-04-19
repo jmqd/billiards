@@ -3400,6 +3400,60 @@ fn pocket_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
         .as_f64()
 }
 
+const SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES: f64 = 68.292;
+const SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES: f64 = 50.688;
+const CORNER_POCKET_CONSERVATIVE_MAX_ENTRY_ANGLE_DEGREES: f64 = 59.841;
+const POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND: f64 = 60.0;
+
+fn pocket_entry_axis(pocket: Pocket) -> (f64, f64) {
+    let diagonal = 0.5_f64.sqrt();
+    match pocket {
+        Pocket::TopRight => (diagonal, diagonal),
+        Pocket::CenterRight => (1.0, 0.0),
+        Pocket::BottomRight => (diagonal, -diagonal),
+        Pocket::BottomLeft => (-diagonal, -diagonal),
+        Pocket::CenterLeft => (-1.0, 0.0),
+        Pocket::TopLeft => (-diagonal, diagonal),
+    }
+}
+
+fn pocket_entry_angle_degrees(state: &BallState, pocket: Pocket) -> Option<f64> {
+    let vx = state.velocity.x().as_f64();
+    let vy = state.velocity.y().as_f64();
+    let speed = vx.hypot(vy);
+    if speed <= f64::EPSILON {
+        return None;
+    }
+
+    let (entry_x, entry_y) = pocket_entry_axis(pocket);
+    let aligned = ((vx * entry_x) + (vy * entry_y)) / speed;
+
+    Some(aligned.clamp(-1.0, 1.0).acos().to_degrees())
+}
+
+fn pocket_capture_max_entry_angle_degrees(pocket: Pocket, speed: f64, table: &TableSpec) -> f64 {
+    match table.pockets[pocket.index()].ty {
+        PocketType::Side => {
+            let fast_fraction = (speed / POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
+            SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES
+                + fast_fraction
+                    * (SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES
+                        - SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES)
+        }
+        PocketType::Corner => CORNER_POCKET_CONSERVATIVE_MAX_ENTRY_ANGLE_DEGREES,
+    }
+}
+
+fn pocket_acceptance_gap(state: &BallState, pocket: Pocket, table: &TableSpec) -> f64 {
+    let speed = ball_speed(state).as_f64();
+    if speed <= f64::EPSILON {
+        return f64::INFINITY;
+    }
+
+    let entry_angle = pocket_entry_angle_degrees(state, pocket).unwrap_or(f64::INFINITY);
+    entry_angle - pocket_capture_max_entry_angle_degrees(pocket, speed, table)
+}
+
 fn pocket_capture_gap_during_current_phase(
     state: &OnTableBallState,
     phase: MotionPhase,
@@ -3414,8 +3468,14 @@ fn pocket_capture_gap_during_current_phase(
     let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
     let dx = state_at_t.position.x().as_f64() - pocket_x;
     let dy = state_at_t.position.y().as_f64() - pocket_y;
+    let radial_gap = dx.hypot(dy) - pocket_capture_radius_in_inches(pocket, table);
 
-    dx.hypot(dy) - pocket_capture_radius_in_inches(pocket, table)
+    // First-pass jaw / rattle filter: the ball must not only reach the pocket's nominal capture
+    // region, it must also enter within a reasonable target-angle window. The local pocket-target
+    // whitepapers (TP 3.5 / 3.7 / 3.8) show that the effective target size shrinks quickly on
+    // steeper cuts, especially at speed. We approximate that here with a conservative entry-angle
+    // gate while leaving full explicit jaw / rattle collisions for future work.
+    radial_gap.max(pocket_acceptance_gap(state_at_t, pocket, table))
 }
 
 fn refine_ball_pocket_capture_time_during_current_phase(
@@ -3456,6 +3516,16 @@ fn refine_ball_pocket_capture_time_during_current_phase(
 /// current within-phase motion model up to the ball's next motion transition and checks for first
 /// entry into a conservative first-pass pocket capture region around each pocket's current aiming
 /// center.
+///
+/// The current capture model is also jaw-aware in a limited first-pass sense: candidate entries
+/// must arrive within a pocket-type-specific effective entry-angle window motivated by the local
+/// target-size references:
+///
+/// - `whitepapers/tp_3_5_effective_target_sizes_for_slow_shots_into_a_side_pocket_at_different_angles.pdf`
+/// - `whitepapers/tp_3_7_effective_target_sizes_for_fast_shots_into_a_side_pocket_at_different_angles.pdf`
+/// - `whitepapers/tp_3_8_effective_target_sizes_for_fast_shots_into_a_corner_pocket_at_different_angles.pdf`
+///
+/// This remains an acceptance/rejection filter, not a full explicit jaw/rattle collision solve.
 pub fn compute_next_ball_pocket_capture_on_table(
     state: &OnTableBallState,
     ball: &BallSetPhysicsSpec,

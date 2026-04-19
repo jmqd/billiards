@@ -89,6 +89,70 @@ fn a_single_ball_heading_into_the_side_pocket_predicts_capture_before_the_rail()
 }
 
 #[test]
+fn a_fast_side_pocket_entry_beyond_the_effective_target_angle_is_rejected() {
+    let table = TableSpec::default();
+    let pocket_center = Pocket::CenterRight.aiming_center();
+    let pocket_x = table.diamond_to_inches(pocket_center.x).as_f64();
+    let pocket_y = table.diamond_to_inches(pocket_center.y).as_f64();
+    let angle_radians = 60.0_f64.to_radians();
+    let distance = 10.0;
+    let speed = 80.0;
+    let state = on_table(BallState::on_table(
+        inches2(
+            pocket_x - distance * angle_radians.cos(),
+            pocket_y - distance * angle_radians.sin(),
+        ),
+        Velocity2::new(
+            Inches::from_f64(speed * angle_radians.cos()),
+            Inches::from_f64(speed * angle_radians.sin()),
+        ),
+        AngularVelocity3::zero(),
+    ));
+
+    assert!(
+        compute_next_ball_pocket_capture_on_table(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .is_none(),
+        "a steep fast side-pocket approach should now be rejected by the jaw-aware capture gate"
+    );
+}
+
+#[test]
+fn a_ball_heading_cleanly_into_a_corner_pocket_still_predicts_capture() {
+    let table = TableSpec::default();
+    let pocket_center = Pocket::TopRight.aiming_center();
+    let pocket_x = table.diamond_to_inches(pocket_center.x).as_f64();
+    let pocket_y = table.diamond_to_inches(pocket_center.y).as_f64();
+    let diagonal = 0.5_f64.sqrt();
+    let distance = 10.0;
+    let speed = 40.0;
+    let state = on_table(BallState::on_table(
+        inches2(
+            pocket_x - distance * diagonal,
+            pocket_y - distance * diagonal,
+        ),
+        Velocity2::new(
+            Inches::from_f64(speed * diagonal),
+            Inches::from_f64(speed * diagonal),
+        ),
+        AngularVelocity3::zero(),
+    ));
+
+    let capture = compute_next_ball_pocket_capture_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect("a straight-in corner-pocket entry should still be accepted");
+    assert_eq!(capture.pocket, Pocket::TopRight);
+}
+
+#[test]
 fn advancing_to_a_pocket_capture_marks_that_ball_pocketed_and_advances_other_balls() {
     let table = TableSpec::default();
     let a = NBallSystemState::from(rolling_toward_center_right_side_pocket());

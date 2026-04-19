@@ -181,6 +181,31 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
 }
 
 #[test]
+fn shot_speed_literals_accept_mph_and_kph() {
+    let mph = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(90deg).speed(10mph).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected mph shot DSL to build");
+    let kph = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(90deg).speed(16.09344kph).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected kph shot DSL to build");
+
+    assert_close(
+        mph.shot.as_ref().expect("mph shot").shot.cue_speed().as_f64(),
+        176.0,
+    );
+    assert_close(
+        kph.shot.as_ref().expect("kph shot").shot.cue_speed().as_f64(),
+        176.0,
+    );
+}
+
+#[test]
 fn shot_scenarios_can_report_human_speed_validation() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at center\n\

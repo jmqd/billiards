@@ -2504,7 +2504,13 @@ fn degrees_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
 }
 
 fn speed_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
-    terminated(float, "ips").parse_next(input)
+    alt((
+        terminated(float, "ips"),
+        terminated(float, "mph").map(|mph: f64| InchesPerSecond::from_mph(mph).as_f64()),
+        terminated(float, "kph")
+            .map(|kph: f64| InchesPerSecond::from_mph(kph / 1.609_344).as_f64()),
+    ))
+    .parse_next(input)
 }
 
 fn radius_scale_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {

@@ -208,6 +208,47 @@ fn a_spin_aware_rail_collision_with_topspin_reduces_vertical_plane_spin() {
 }
 
 #[test]
+fn an_ordinary_no_english_rolling_entry_seeds_less_running_english_than_a_sliding_entry() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let config = RailCollisionConfig {
+        normal_restitution: Scale::from_f64(0.8),
+        tangential_friction_coefficient: Scale::from_f64(1.0),
+    };
+    let sliding = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::zero(),
+    ));
+    let rolling = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::new(-5.0 / radius_value, 5.0 / radius_value, 0.0),
+    ));
+
+    let sliding_reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &sliding,
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &config,
+    );
+    let rolling_reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &rolling,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &config,
+    );
+
+    assert!(
+        rolling_reflected.as_ball_state().angular_velocity.z().as_f64().abs()
+            < sliding_reflected.as_ball_state().angular_velocity.z().as_f64().abs(),
+        "ordinary rolling entries without explicit side spin should seed less fresh running english than fully sliding entries"
+    );
+}
+
+#[test]
 fn a_rolling_ball_rebounding_from_a_rail_carries_draw_like_spin_relative_to_its_new_direction() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();

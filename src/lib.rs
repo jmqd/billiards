@@ -5889,6 +5889,9 @@ const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
 // smaller effective torque lever for the friction-generated spin response than the raw geometric
 // contact lever alone would suggest.
 const CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO: f64 = 0.65;
+const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.35;
+const RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE: f64 = 0.10;
+const RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE: f64 = 0.25;
 
 fn theoretical_cushion_contact_normal_lever_ratio() -> f64 {
     (1.0 - THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO.powi(2)).sqrt()
@@ -5941,6 +5944,33 @@ fn tp73_geometric_vertical_plane_spin_delta(
         tangent_axis_delta * tangent_x,
         tangent_axis_delta * tangent_y,
     )
+}
+
+fn rail_running_english_generation_scale(state: &BallState, ball_radius: f64) -> f64 {
+    let speed = ball_speed(state).as_f64();
+    if speed <= f64::EPSILON {
+        return 1.0;
+    }
+
+    // Ordinary no-english rolling entries should not leave the rail with as much fresh running
+    // english as a full rigid point-contact model predicts. The local rail references instead point
+    // toward a closer-to-stun rebound for those shots once cushion compliance and the remaining
+    // ball-cloth interaction are accounted for. We therefore only suppress `ωz` generation when the
+    // incoming state is already close to cloth rolling equilibrium and lacks explicit side spin;
+    // sliding entries or deliberate side-spin shots still use the full coupling below.
+    let cloth_slip = cloth_contact_velocity_on_table(state, Inches::from_f64(ball_radius));
+    let cloth_slip_ratio = cloth_slip.x().as_f64().hypot(cloth_slip.y().as_f64()) / speed;
+    let rolling_proximity = (1.0
+        - cloth_slip_ratio / RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE)
+        .clamp(0.0, 1.0);
+    let side_spin_ratio =
+        (ball_radius * state.angular_velocity.z().as_f64()).abs() / speed.max(f64::EPSILON);
+    let explicit_side_spin_scale =
+        (side_spin_ratio / RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE).clamp(0.0, 1.0);
+
+    1.0 - (1.0 - RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE)
+        * rolling_proximity
+        * (1.0 - explicit_side_spin_scale)
 }
 
 fn spin_aware_ball_rail_collision_on_table(
@@ -6014,7 +6044,10 @@ fn spin_aware_ball_rail_collision_on_table(
     // english (`ωz`) in some shots.
     let normal_cross_tangent_z = normal_x * tangent_y - normal_y * tangent_x;
     let angular_response = cushion_angular_response_coefficient(ball_radius);
-    let delta_wz = -angular_response * normal_cross_tangent_z * tangential_delta;
+    let delta_wz = -angular_response
+        * rail_running_english_generation_scale(state_ref, ball_radius)
+        * normal_cross_tangent_z
+        * tangential_delta;
     let delta_wx = -angular_response * vertical_contact_delta * normal_y;
     let delta_wy = angular_response * vertical_contact_delta * normal_x;
     let (geom_delta_wx, geom_delta_wy) = tp73_geometric_vertical_plane_spin_delta(

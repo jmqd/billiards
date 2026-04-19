@@ -28,6 +28,20 @@ fn cue_trace(trace: &billiards::dsl::ScenarioShotTrace) -> &billiards::dsl::Scen
         .expect("examples should include a cue-ball trace")
 }
 
+fn trace_path_length_inches(ball_trace: &billiards::dsl::ScenarioBallTrace) -> f64 {
+    ball_trace
+        .segments
+        .iter()
+        .map(|segment| {
+            let start = segment.start.as_ball_state();
+            let end = segment.end.as_ball_state();
+            let dx = end.position.x().as_f64() - start.position.x().as_f64();
+            let dy = end.position.y().as_f64() - start.position.y().as_f64();
+            dx.hypot(dy)
+        })
+        .sum()
+}
+
 #[test]
 fn straight_in_side_pocket_example_runs_end_to_end() {
     let scenario = parse_dsl_to_scenario(include_str!(
@@ -75,6 +89,32 @@ fn straight_in_side_pocket_example_runs_end_to_end() {
         }
         other => panic!("expected object ball to be pocketed, got {other:?}"),
     }
+}
+
+#[test]
+fn five_degree_side_pocket_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/five_degree_side_pocket.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> one collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one pocketed in center-right")));
+    assert!(matches!(cue_trace(&trace).final_state, NBallSystemState::OnTable(_)));
 }
 
 #[test]
@@ -197,12 +237,7 @@ fn right_spin_stun_side_pocket_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("one pocketed in center-right")));
-    assert!(lines
-        .iter()
-        .any(|line| line.contains("cue rail impact: bottom")));
-    assert!(lines
-        .iter()
-        .any(|line| line.contains("cue rail impact: left")));
+    assert!(matches!(cue_trace(&trace).final_state, NBallSystemState::OnTable(_)));
 }
 
 #[test]
@@ -227,7 +262,7 @@ fn long_cut_top_right_rail_example_runs_end_to_end() {
         .any(|line| line.contains("cue -> one collision")));
     assert!(lines
         .iter()
-        .any(|line| line.contains("one pocketed in top-right")));
+        .any(|line| line.contains("one rail impact: top")));
     assert!(lines
         .iter()
         .any(|line| line.contains("cue rail impact: right")));
@@ -259,6 +294,35 @@ fn spot_shot_bottom_right_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("cue pocketed in bottom-left")));
+}
+
+#[test]
+fn routine_nine_ball_corner_cut_example_runs_end_to_end() {
+    let scenario = parse_dsl_to_scenario(include_str!(
+        "../examples/scenarios/routine_nine_ball_corner_cut.billiards"
+    ))
+    .expect("example should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("example should simulate")
+        .expect("example contains a shot");
+    let lines = trace.event_lines();
+
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue -> nine collision")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("nine pocketed in top-right")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue rail impact: right")));
+    assert!(matches!(cue_trace(&trace).final_state, NBallSystemState::OnTable(_)));
 }
 
 #[test]
@@ -323,6 +387,7 @@ fn double_rail_kick_side_pocket_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("one pocketed in center-left")));
+    assert!(matches!(cue_trace(&trace).final_state, NBallSystemState::OnTable(_)));
 }
 
 #[test]
@@ -348,9 +413,11 @@ fn two_rail_bank_scratch_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("cue rail impact: top")));
-    assert!(lines
-        .iter()
-        .any(|line| line.contains("cue pocketed in center-left")));
+    assert!(
+        !lines.iter().any(|line| line.contains("pocketed")),
+        "the current jaw-aware pocket gate should keep this bank path on the table as a near-miss"
+    );
+    assert!(matches!(cue_trace(&trace).final_state, NBallSystemState::OnTable(_)));
 }
 
 #[test]
@@ -370,16 +437,29 @@ fn mini_break_cluster_example_runs_end_to_end() {
         .expect("example contains a shot");
     let lines = trace.event_lines();
 
+    let visibly_moving_balls = trace
+        .ball_traces
+        .iter()
+        .filter(|ball_trace| trace_path_length_inches(ball_trace) > 1.0)
+        .count();
+
     assert!(lines
         .iter()
         .any(|line| line.contains("cue -> one collision")));
     assert!(lines
         .iter()
         .any(|line| line.contains("one -> two collision")));
-    assert!(lines.len() >= 20, "expected a busy break-style spread");
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("one -> three collision")));
+    assert!(lines.len() >= 25, "expected a busy break-style spread");
     assert!(
         !lines.iter().any(|line| line.contains("pocketed")),
         "the current tuned break setup should spread without pocketing"
+    );
+    assert_eq!(
+        visibly_moving_balls, 7,
+        "the tuned mini-break example should show all seven balls taking visible paths"
     );
 }
 
@@ -408,13 +488,11 @@ fn three_ball_pinball_example_runs_end_to_end() {
         .any(|line| line.contains("one -> two collision")));
     assert!(lines
         .iter()
-        .any(|line| line.contains("two pocketed in center-right")));
-    assert!(lines.len() >= 7, "expected a multi-event chain example");
+        .any(|line| line.contains("two rail impact: left")));
+    assert!(lines.len() >= 12, "expected a busy multi-event chain example");
     assert!(
-        lines
-            .iter()
-            .any(|line| line.contains("cue Rolling -> Rest")),
-        "the cue ball should settle on the table in the corrected example"
+        !lines.iter().any(|line| line.contains("pocketed")),
+        "the current exploratory pinball example is meant to stay on the table"
     );
 }
 

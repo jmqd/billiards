@@ -15,6 +15,18 @@ shoot(9).angle(-60).draw(max).speed(max)
 
 * TODO Add facilities to change the conditions -- humidity, dirt on table, dirt on balls, etc.
 
+* TODO Model full pocket jaw / rattle collisions explicitly
+  The current pocket capture model now includes a first-pass jaw-aware acceptance gate based on
+  pocket entry angle and speed, but it still does not model explicit jaw contacts, rattles, or the
+  later fall / reject dynamics once a ball reaches the pocket mouth.
+
+* TODO Revisit rail-generated running english with a fuller TP 7.3 / compliant-contact solve
+  The current =RailModel::SpinAware= now includes a reduced TP 7.3-style contact-height term, a
+  compliant effective torque lever, and extra damping for ordinary rolling / no-english entries.
+  This is more believable than the old direct tangential-slip -> =ωz= coupling, but the reduced
+  on-table model still does not solve the full simultaneous rail+cloth contact problem or calibrate
+  post-rail running english against measured data.
+
 * TODO Update in-repo references to renamed whitepapers
   The whitepaper history rewrite changed many files from ad hoc names to title-based
   snake_case names.  I did not update references in code/docs yet because =src/lib.rs=

@@ -1,0 +1,5 @@
+# Routine cut shot: the nine is about 2 inches off the right rail, one diamond down from the top-right corner.
+ball cue at center
+ball nine at (3.84, 7.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(33.37deg).speed(48ips).tip(side: 0.0R, height: 0.0R).using(default)

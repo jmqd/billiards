@@ -1,5 +1,5 @@
 # Double-rail kick: cue goes right rail then top rail into the object, which later drops in the left side pocket.
 ball cue at center
-ball one at (0.6, 4.2)
+ball one at (1.0, 4.65)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
-shot(cue).heading(32deg).speed(160ips).tip(side: 0.0R, height: 0.0R).using(default)
+shot(cue).heading(33deg).speed(120ips).tip(side: 0.0R, height: 0.0R).using(default)

@@ -26,6 +26,15 @@ Expected flavor:
 - one pocketed in center-right
 - cue continues and comes to rest
 
+### `five_degree_side_pocket.billiards`
+A slight cut to the right side pocket from center, roughly five degrees off the straight-in line,
+with a little draw on the cue ball.
+
+Expected flavor:
+- cue -> one collision
+- one pocketed in center-right
+- cue stays on the table with a modest draw reaction
+
 ### `straight_follow_side_pocket.billiards`
 A straight pot with topspin / follow.
 
@@ -56,15 +65,15 @@ A slight cut to the right side pocket with lots of right spin and a near-stun hi
 Expected flavor:
 - cue -> one collision
 - one pocketed in center-right
-- cue takes a couple of post-contact rails from the right spin
+- cue stays on the table with a visible but bounded post-contact spin effect
 
 ### `long_cut_top_right_rail.billiards`
-A longer cut where the object ball runs up the right rail into the top-right corner pocket.
+A longer cut where the object ball runs up the right rail toward the top-right corner.
 
 Expected flavor:
 - cue -> one collision
-- one pocketed in top-right
-- cue continues with later rail contacts
+- object ball rides the right rail toward the top-right pocket area
+- the current jaw-aware pocket gate rejects this near-jaw corner approach
 
 ### `spot_shot_bottom_right.billiards`
 Object ball on the rack / spot region, cut toward the bottom-right corner pocket.
@@ -73,6 +82,14 @@ Expected flavor:
 - cue -> one collision
 - one pocketed in bottom-right
 - cue scratches later in bottom-left
+
+### `routine_nine_ball_corner_cut.billiards`
+A routine-looking cut on the 9-ball: cue from center, 9-ball near the top-right rail, cut into the top-right corner.
+
+Expected flavor:
+- cue -> nine collision
+- nine pocketed in top-right
+- cue brushes the right rail and comes to rest on the table
 
 ### `force_follow_scratch.billiards`
 A force-follow shot where the cue follows the object into the same side pocket.
@@ -90,20 +107,22 @@ Expected flavor:
 - cue rail impact: top
 - cue -> one collision
 - one pocketed in center-left
+- cue stays on the table after the kick
 
 ### `two_rail_bank_scratch.billiards`
-Cue-only multi-rail bank path that eventually scratches in the opposite side pocket.
+Cue-only multi-rail bank path that used to scratch in the opposite side pocket.
 
 Expected flavor:
 - right rail
 - top rail
-- cue pocketed in center-left
+- current jaw-aware pocket gate keeps this one on the table as a near-miss instead of a scratch
 
 ### `mini_break_cluster.billiards`
-A compact break-style shot into a six-ball cluster near the rack spot.
+A compact break-style shot into a slightly loosened six-ball cluster near the rack spot.
 
 Expected flavor:
 - several nearly immediate collisions through the cluster
+- all seven balls take visible paths in the current tuned setup
 - a busy multi-event spread with several balls remaining on the table
 - no pocketing in the current tuned setup
 
@@ -113,5 +132,5 @@ A deliberately busy three-ball chain-reaction layout.
 Expected flavor:
 - cue -> one collision
 - one -> two collision
-- two pockets in center-right
-- cue and one both stop on the table shortly after
+- later multi-rail motion from the object balls
+- no pocketing is required; this one is meant to look busy rather than cleanly finished

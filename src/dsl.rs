@@ -584,15 +584,14 @@ impl ScenarioShotTrace {
             let mut path_style = crate::visualization::BallPathStyle::new(trace_color)
                 .with_color_mode(options.path_color_mode);
             if options.start_ghost_balls {
-                path_style = path_style.with_start_ghost(GhostBallStyle::default());
+                path_style = path_style.with_start_ghost(ball_trace_ghost_style(trace_color));
             }
             if options.event_markers {
-                path_style =
-                    path_style.with_event_markers(EventMarkerStyle::enabled(trace_color));
+                path_style = path_style.with_event_markers(EventMarkerStyle::enabled(trace_color));
             }
             if options.labels {
-                path_style = path_style
-                    .with_labels(LabelOverlayStyle::enabled(Rgba([0, 0, 0, 255])));
+                path_style =
+                    path_style.with_labels(LabelOverlayStyle::enabled(Rgba([0, 0, 0, 255])));
             }
 
             if let Some(path) = ball_trace.as_ball_path() {
@@ -711,13 +710,20 @@ impl ScenarioBallTrace {
     }
 
     fn elapsed(&self) -> Seconds {
-        Seconds::new(self.segments.iter().map(|segment| segment.duration.as_f64()).sum())
+        Seconds::new(
+            self.segments
+                .iter()
+                .map(|segment| segment.duration.as_f64())
+                .sum(),
+        )
     }
 
     fn as_ball_path(&self) -> Option<BallPath> {
         let final_state = match &self.final_state {
             NBallSystemState::OnTable(state) => state.clone(),
-            NBallSystemState::Pocketed { state_at_capture, .. } => state_at_capture.clone(),
+            NBallSystemState::Pocketed {
+                state_at_capture, ..
+            } => state_at_capture.clone(),
         };
 
         (!self.segments.is_empty()).then(|| BallPath {
@@ -731,7 +737,12 @@ impl ScenarioBallTrace {
 
     pub fn projected_points(&self, table_spec: &TableSpec) -> Vec<Position> {
         let mut points = self.as_ball_path().map_or_else(
-            || vec![self.initial_state.as_ball_state().projected_position(table_spec)],
+            || {
+                vec![self
+                    .initial_state
+                    .as_ball_state()
+                    .projected_position(table_spec)]
+            },
             |path| path.projected_points(table_spec),
         );
         if let Some(pocket_terminal) = self.pocket_terminal_point() {
@@ -750,7 +761,12 @@ impl ScenarioBallTrace {
         table_spec: &TableSpec,
     ) -> Vec<Position> {
         let mut points = self.as_ball_path().map_or_else(
-            || vec![self.initial_state.as_ball_state().projected_position(table_spec)],
+            || {
+                vec![self
+                    .initial_state
+                    .as_ball_state()
+                    .projected_position(table_spec)]
+            },
             |path| path.sampled_points(max_time_step, ball, motion, table_spec),
         );
         if let Some(pocket_terminal) = self.pocket_terminal_point() {
@@ -892,6 +908,14 @@ fn ball_trace_color(ball: &BallType) -> Rgba<u8> {
         BallType::Seven => Rgba([128, 0, 0, 255]),
         BallType::Eight => Rgba([32, 32, 32, 255]),
         BallType::Nine => Rgba([255, 215, 0, 255]),
+    }
+}
+
+fn ball_trace_ghost_style(color: Rgba<u8>) -> GhostBallStyle {
+    GhostBallStyle {
+        fill_color: Rgba([color[0], color[1], color[2], 64]),
+        outline_color: Rgba([color[0], color[1], color[2], 160]),
+        ..GhostBallStyle::default()
     }
 }
 

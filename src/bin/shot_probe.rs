@@ -14,17 +14,27 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn motion_config() -> OnTableMotionConfig {
+const GRAVITY_IPS2: f64 = 386.0886;
+
+fn motion_config(
+    sliding_friction_accel_ips2: f64,
+    spin_decay_radps2: f64,
+    rolling_resistance_accel_ips2: f64,
+) -> OnTableMotionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
         sliding_friction: SlidingFrictionModel::ConstantAcceleration {
-            acceleration_magnitude: InchesPerSecondSq::new("5"),
+            acceleration_magnitude: InchesPerSecondSq::new(Inches::from_f64(
+                sliding_friction_accel_ips2,
+            )),
         },
         spin_decay: SpinDecayModel::ConstantAngularDeceleration {
-            angular_deceleration: RadiansPerSecondSq::new(2.0),
+            angular_deceleration: RadiansPerSecondSq::new(spin_decay_radps2),
         },
         rolling_resistance: RollingResistanceModel::ConstantDeceleration {
-            linear_deceleration: InchesPerSecondSq::new("5"),
+            linear_deceleration: InchesPerSecondSq::new(Inches::from_f64(
+                rolling_resistance_accel_ips2,
+            )),
         },
     }
 }
@@ -115,6 +125,22 @@ struct Args {
     /// Scale each rendered PNG by this positive integer factor.
     #[arg(long, default_value_t = 1)]
     scale_factor: u32,
+
+    /// Cue-tip side offset in ball-radius units. Positive is right English in the shot frame.
+    #[arg(long, default_value_t = 0.0)]
+    side_offset_r: f64,
+
+    /// Sliding-friction acceleration magnitude in inches / s^2.
+    #[arg(long, default_value_t = 5.0)]
+    sliding_friction_accel_ips2: f64,
+
+    /// Rolling-resistance deceleration magnitude in inches / s^2.
+    #[arg(long, default_value_t = 5.0)]
+    rolling_resistance_accel_ips2: f64,
+
+    /// Vertical-axis spin angular deceleration magnitude in rad / s^2.
+    #[arg(long, default_value_t = 2.0)]
+    spin_decay_radps2: f64,
 }
 
 const MIN_MEANINGFUL_BEND_SPEED_IPS: f64 = 1.0;
@@ -122,6 +148,7 @@ const MIN_MEANINGFUL_BEND_SPEED_IPS: f64 = 1.0;
 #[derive(Clone, Debug)]
 struct ProbeCase {
     style: ProbeStyleArg,
+    side_offset_r: f64,
     shot_speed_ips: f64,
     requested_cut_deg: f64,
     shot_heading_deg: f64,
@@ -141,6 +168,7 @@ struct ProbeResult {
     shot_heading_deg: f64,
     first_collision_time_s: f64,
     cue_impact_speed_ips: f64,
+    simulation_elapsed_s: f64,
     cue_post_contact_speed_ips: f64,
     cue_post_contact_heading_deg: f64,
     throw_angle_deg: Option<f64>,
@@ -180,13 +208,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let table = TableSpec::default();
     let ball_set = BallSetPhysicsSpec::default();
-    let motion = motion_config();
+    let motion = motion_config(
+        args.sliding_friction_accel_ips2,
+        args.spin_decay_radps2,
+        args.rolling_resistance_accel_ips2,
+    );
     let mut results = Vec::new();
 
     println!(
         "Generating {} probe cases into {}",
         styles.len() * speeds.len() * cut_angles.len(),
         output_dir.display()
+    );
+    println!(
+        "motion: slide={} ips^2 (mu_s≈{}), roll={} ips^2 (mu_r≈{}), spin={} rad/s^2, side={}R",
+        format_decimal(args.sliding_friction_accel_ips2),
+        format_decimal(args.sliding_friction_accel_ips2 / GRAVITY_IPS2),
+        format_decimal(args.rolling_resistance_accel_ips2),
+        format_decimal(args.rolling_resistance_accel_ips2 / GRAVITY_IPS2),
+        format_decimal(args.spin_decay_radps2),
+        format_decimal(args.side_offset_r),
     );
 
     for style in styles {
@@ -195,6 +236,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let probe = build_probe_case(
                     &table,
                     style,
+                    args.side_offset_r,
                     speed,
                     cut_angle,
                     args.cue_distance_inches,
@@ -218,7 +260,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if args.write_summary_csv {
-        fs::write(output_dir.join("summary.csv"), summary_csv(&results))?;
+        fs::write(output_dir.join("summary.csv"), summary_csv(&results, &args))?;
     }
     if args.write_summary_md {
         fs::write(
@@ -373,6 +415,7 @@ fn run_probe_case(
         shot_heading_deg: probe.shot_heading_deg,
         first_collision_time_s: collision.time_s,
         cue_impact_speed_ips,
+        simulation_elapsed_s: trace.simulation.elapsed.as_f64(),
         cue_post_contact_speed_ips,
         cue_post_contact_heading_deg,
         throw_angle_deg: outcome.throw_angle_degrees,
@@ -400,7 +443,14 @@ fn run_probe_case(
         let log_path = output_dir.join(format!("{}.log", probe.stem));
         fs::write(
             &log_path,
-            per_case_log(probe, &result, &scenario, &trace, raw_cue_bend.as_ref()),
+            per_case_log(
+                probe,
+                &result,
+                &scenario,
+                &trace,
+                raw_cue_bend.as_ref(),
+                args,
+            ),
         )?;
         result.log_filename = Some(file_name_string(&log_path));
     }
@@ -464,6 +514,7 @@ fn first_cue_object_collision(
 fn build_probe_case(
     table: &TableSpec,
     style: ProbeStyleArg,
+    side_offset_r: f64,
     shot_speed_ips: f64,
     requested_cut_deg: f64,
     cue_distance_inches: f64,
@@ -487,27 +538,31 @@ fn build_probe_case(
     cue_position.resolve_shifts(table);
 
     let stem = format!(
-        "{}_v{}_cut{}",
+        "{}_side{}_v{}_cut{}",
         style.label().replace('-', "_"),
+        slug_number(side_offset_r),
         slug_number(shot_speed_ips),
         slug_number(requested_cut_deg)
     );
     let dsl = format!(
-        "# Generated follow/draw/stun cut-shot probe\n# style: {}\n# requested cut angle: {} deg\n# cue speed input: {} ips\nball cue at ({}, {})\nball one at ({}, {})\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading({}deg).speed({}ips).tip(side: 0.0R, height: {}R).using(default)\n",
+        "# Generated follow/draw/stun cut-shot probe\n# style: {}\n# requested cut angle: {} deg\n# cue speed input: {} ips\n# side offset: {}R\nball cue at ({}, {})\nball one at ({}, {})\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading({}deg).speed({}ips).tip(side: {}R, height: {}R).using(default)\n",
         style.label(),
         format_decimal(requested_cut_deg),
         format_decimal(shot_speed_ips),
+        format_decimal(side_offset_r),
         diamond_string(&cue_position.x),
         diamond_string(&cue_position.y),
         diamond_string(&object_position.x),
         diamond_string(&object_position.y),
         format_decimal(shot_heading_deg),
         format_decimal(shot_speed_ips),
+        format_decimal(side_offset_r),
         format_decimal(style.tip_height_r()),
     );
 
     ProbeCase {
         style,
+        side_offset_r,
         shot_speed_ips,
         requested_cut_deg,
         shot_heading_deg,
@@ -524,9 +579,40 @@ fn per_case_log(
     _scenario: &DslScenario,
     trace: &ScenarioShotTrace,
     raw_cue_bend: Option<&billiards::PostContactCueBallBend>,
+    args: &Args,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "style: {}", result.style.label());
+    let _ = writeln!(
+        out,
+        "side_offset_r: {}",
+        format_decimal(probe.side_offset_r)
+    );
+    let _ = writeln!(
+        out,
+        "sliding_friction_accel_ips2: {}",
+        format_decimal(args.sliding_friction_accel_ips2)
+    );
+    let _ = writeln!(
+        out,
+        "rolling_resistance_accel_ips2: {}",
+        format_decimal(args.rolling_resistance_accel_ips2)
+    );
+    let _ = writeln!(
+        out,
+        "spin_decay_radps2: {}",
+        format_decimal(args.spin_decay_radps2)
+    );
+    let _ = writeln!(
+        out,
+        "effective_mu_s: {}",
+        format_decimal(args.sliding_friction_accel_ips2 / GRAVITY_IPS2)
+    );
+    let _ = writeln!(
+        out,
+        "effective_mu_r: {}",
+        format_decimal(args.rolling_resistance_accel_ips2 / GRAVITY_IPS2)
+    );
     let _ = writeln!(
         out,
         "requested_cut_deg: {}",
@@ -561,6 +647,11 @@ fn per_case_log(
         out,
         "cue_impact_speed_ips: {}",
         format_decimal(result.cue_impact_speed_ips)
+    );
+    let _ = writeln!(
+        out,
+        "simulation_elapsed_s: {}",
+        format_decimal(result.simulation_elapsed_s)
     );
     let _ = writeln!(
         out,
@@ -679,17 +770,23 @@ fn angle_between_states(a: &billiards::BallState, b: &billiards::BallState) -> A
     Angle::from_north(dx, dy)
 }
 
-fn summary_csv(results: &[ProbeResult]) -> String {
+fn summary_csv(results: &[ProbeResult], args: &Args) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "style,shot_speed_ips,cue_launch_speed_ips,requested_cut_deg,actual_cut_deg,shot_heading_deg,first_collision_time_s,cue_impact_speed_ips,cue_post_contact_speed_ips,cue_post_contact_heading_deg,throw_angle_deg,cue_bend_deg,cue_bend_duration_s,cue_heading_after_bend_deg,next_rail,time_to_next_rail_s,cue_rail_hits,cue_path_length_inches,object_final,cue_final,scenario_file,image_file,log_file"
+        "style,side_offset_r,sliding_friction_accel_ips2,rolling_resistance_accel_ips2,spin_decay_radps2,effective_mu_s,effective_mu_r,shot_speed_ips,cue_launch_speed_ips,requested_cut_deg,actual_cut_deg,shot_heading_deg,first_collision_time_s,cue_impact_speed_ips,simulation_elapsed_s,cue_post_contact_speed_ips,cue_post_contact_heading_deg,throw_angle_deg,cue_bend_deg,cue_bend_duration_s,cue_heading_after_bend_deg,next_rail,time_to_next_rail_s,cue_rail_hits,cue_path_length_inches,object_final,cue_final,scenario_file,image_file,log_file"
     );
     for result in results {
         let _ = writeln!(
             out,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             result.style.label(),
+            format_decimal(args.side_offset_r),
+            format_decimal(args.sliding_friction_accel_ips2),
+            format_decimal(args.rolling_resistance_accel_ips2),
+            format_decimal(args.spin_decay_radps2),
+            format_decimal(args.sliding_friction_accel_ips2 / GRAVITY_IPS2),
+            format_decimal(args.rolling_resistance_accel_ips2 / GRAVITY_IPS2),
             format_decimal(result.shot_speed_ips),
             format_decimal(result.cue_launch_speed_ips),
             format_decimal(result.requested_cut_deg),
@@ -697,6 +794,7 @@ fn summary_csv(results: &[ProbeResult]) -> String {
             format_decimal(result.shot_heading_deg),
             format_decimal(result.first_collision_time_s),
             format_decimal(result.cue_impact_speed_ips),
+            format_decimal(result.simulation_elapsed_s),
             format_decimal(result.cue_post_contact_speed_ips),
             format_decimal(result.cue_post_contact_heading_deg),
             format_option(result.throw_angle_deg, 6),
@@ -751,15 +849,40 @@ fn summary_markdown(results: &[ProbeResult], args: &Args, output_dir: &Path) -> 
         out,
         "- tip heights: force-follow `+0.4R`, stun `0.0R`, draw `-0.3R`"
     );
+    let _ = writeln!(
+        out,
+        "- side offset: `{}`R",
+        format_decimal(args.side_offset_r)
+    );
     let _ = writeln!(out, "- shot heading convention: `90° - cut_angle`, so the cue approaches from the lower-left side of the line");
     let _ = writeln!(out, "- bend columns are suppressed when the cue leaves contact below `1 ips`, because near-stop headings are not visually meaningful");
     let _ = writeln!(out);
-    let _ = writeln!(out, "## Results");
+    let _ = writeln!(out, "## Motion config");
     let _ = writeln!(out);
-    let _ = writeln!(out, "| style | speed | cut req | cut act | impact | throw | bend | next rail | cue rails | object | cue | png | log |");
     let _ = writeln!(
         out,
-        "|---|---:|---:|---:|---:|---:|---:|---|---:|---|---|---|---|"
+        "- sliding friction accel: `{}` ips² (`mu_s ≈ {}`)",
+        format_decimal(args.sliding_friction_accel_ips2),
+        format_decimal(args.sliding_friction_accel_ips2 / GRAVITY_IPS2)
+    );
+    let _ = writeln!(
+        out,
+        "- rolling resistance accel: `{}` ips² (`mu_r ≈ {}`)",
+        format_decimal(args.rolling_resistance_accel_ips2),
+        format_decimal(args.rolling_resistance_accel_ips2 / GRAVITY_IPS2)
+    );
+    let _ = writeln!(
+        out,
+        "- z-spin decay: `{}` rad/s²",
+        format_decimal(args.spin_decay_radps2)
+    );
+    let _ = writeln!(out);
+    let _ = writeln!(out, "## Results");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "| style | speed | cut req | cut act | impact | elapsed | throw | bend | next rail | cue rails | object | cue | png | log |");
+    let _ = writeln!(
+        out,
+        "|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---|---|---|"
     );
     for result in results {
         let png = result
@@ -774,12 +897,13 @@ fn summary_markdown(results: &[ProbeResult], args: &Args, output_dir: &Path) -> 
             .unwrap_or_else(|| "-".to_string());
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             result.style.label(),
             format_decimal(result.shot_speed_ips),
             format_decimal(result.requested_cut_deg),
             format_decimal(result.actual_cut_deg),
             format_decimal(result.cue_impact_speed_ips),
+            format_decimal(result.simulation_elapsed_s),
             format_option(result.throw_angle_deg, 2),
             format_option(result.cue_bend_deg, 2),
             result.next_rail.map(rail_name).unwrap_or("-"),

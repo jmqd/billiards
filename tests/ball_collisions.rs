@@ -33,6 +33,16 @@ fn impact_heading(from: &OnTableBallState, to: &OnTableBallState) -> Angle {
     )
 }
 
+fn cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let radians = cut_angle_degrees.to_radians();
+    on_table(BallState::on_table(
+        inches2(-2.0 * radius * radians.sin(), -2.0 * radius * radians.cos()),
+        velocity2(0.0, speed),
+        AngularVelocity3::zero(),
+    ))
+}
+
 #[test]
 fn a_head_on_ideal_collision_transfers_forward_motion_without_transferring_spin() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
@@ -121,6 +131,56 @@ fn an_ideal_cut_collision_sends_the_object_ball_along_the_line_of_centers_and_th
     assert_close(cue_after.velocity.x().as_f64(), -5.0);
     assert_close(cue_after.velocity.y().as_f64(), 5.0);
     assert_close(dot_product, 0.0);
+}
+
+#[test]
+fn a_thirty_degree_cut_transfers_cosine_scaled_speed_to_the_object_ball() {
+    let cue_ball = cue_ball_at_cut_angle_degrees(30.0, 10.0);
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let impact_line = impact_heading(&cue_ball, &object_ball);
+    let cut_angle = CutAngle::from_headings(
+        cue_ball
+            .as_ball_state()
+            .velocity
+            .angle_from_north()
+            .expect("moving cue ball should have a heading"),
+        impact_line,
+    );
+    let (cue_after, object_after) =
+        collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
+    let cue_speed = cue_after.as_ball_state().speed().as_f64();
+    let object_speed = object_after.as_ball_state().speed().as_f64();
+
+    assert_close(cut_angle.as_degrees(), 30.0);
+    assert_close(object_speed, 10.0 * 30.0_f64.to_radians().cos());
+    assert_close(cue_speed, 10.0 * 30.0_f64.to_radians().sin());
+    assert_close(object_speed.powi(2) / 100.0, 0.75);
+    assert_close(cue_speed.powi(2) / 100.0, 0.25);
+    assert_eq!(
+        object_after
+            .as_ball_state()
+            .velocity
+            .angle_from_north()
+            .expect("moving object ball should have a heading"),
+        impact_line
+    );
+}
+
+#[test]
+fn a_forty_five_degree_cut_transfers_half_the_kinetic_energy_to_the_object_ball() {
+    let cue_ball = cue_ball_at_cut_angle_degrees(45.0, 10.0);
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let (cue_after, object_after) =
+        collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
+    let cue_speed = cue_after.as_ball_state().speed().as_f64();
+    let object_speed = object_after.as_ball_state().speed().as_f64();
+
+    assert_close(object_speed, 10.0 / 2.0_f64.sqrt());
+    assert_close(cue_speed, 10.0 / 2.0_f64.sqrt());
+    assert_close(object_speed.powi(2) / 100.0, 0.5);
+    assert_close(cue_speed.powi(2) / 100.0, 0.5);
 }
 
 #[test]

@@ -611,13 +611,13 @@ fn shot_scenarios_can_use_named_simulations_defined_in_dsl() {
 fn a_single_named_simulation_becomes_the_preferred_cli_physics_path() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at (2.0, 3.0)\n\
-         ball one at (2.0, 4.0)\n\
+         ball one at (2.18, 4.12)\n\
          cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
          ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
          rail_response(clean).normal_restitution(0.7).tangential_friction(0.17)\n\
          rails(table).default(clean)\n\
          simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table)\n\
-         shot(cue).heading(0deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+         shot(cue).heading(9deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
     )
     .expect("expected shot DSL to build");
     let explicit = scenario

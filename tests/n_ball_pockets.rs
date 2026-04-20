@@ -1,11 +1,11 @@
 use billiards::{
     advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
-    compute_next_ball_pocket_capture_on_table,
+    compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest, AngularVelocity3,
     BallSetPhysicsSpec, BallState, CollisionModel, Inches, Inches2, InchesPerSecondSq, MotionPhase,
     MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemState,
-    OnTableBallState, OnTableMotionConfig, Pocket, RadiansPerSecondSq, Rail,
+    OnTableBallState, OnTableMotionConfig, Pocket, PocketShapeSpec, RadiansPerSecondSq, Rail,
     RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
     CENTER_SPOT, TYPICAL_BALL_RADIUS,
 };
@@ -118,6 +118,63 @@ fn a_fast_side_pocket_entry_beyond_the_effective_target_angle_is_rejected() {
         )
         .is_none(),
         "a steep fast side-pocket approach should now be rejected by the jaw-aware capture gate"
+    );
+}
+
+#[test]
+fn a_ball_aimed_at_a_side_pocket_jaw_predicts_a_jaw_impact() {
+    let table = TableSpec::default();
+    let state = on_table(BallState::on_table(
+        inches2(44.0, 58.0),
+        Velocity2::new("12", "-11"),
+        AngularVelocity3::zero(),
+    ));
+
+    let impact = compute_next_ball_jaw_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect("a jaw impact should be predicted");
+
+    assert_eq!(impact.pocket, Pocket::CenterRight);
+}
+
+#[test]
+fn injected_pocket_shape_changes_the_predicted_jaw_impact_time() {
+    let state = on_table(BallState::on_table(
+        inches2(44.0, 58.0),
+        Velocity2::new("12", "-11"),
+        AngularVelocity3::zero(),
+    ));
+    let point_table =
+        TableSpec::default().with_pocket_shape(Pocket::CenterRight, PocketShapeSpec::point_noses());
+    let rounded_table = TableSpec::default().with_pocket_shape(
+        Pocket::CenterRight,
+        PocketShapeSpec::rounded_noses(Inches::from_f64(0.75)),
+    );
+
+    let point_impact = compute_next_ball_jaw_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &point_table,
+        &motion_config(),
+    )
+    .expect("point jaws should still predict an impact");
+    let rounded_impact = compute_next_ball_jaw_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &rounded_table,
+        &motion_config(),
+    )
+    .expect("rounded jaws should still predict an impact");
+
+    assert_eq!(point_impact.pocket, Pocket::CenterRight);
+    assert_eq!(rounded_impact.pocket, Pocket::CenterRight);
+    assert!(
+        rounded_impact.time_until_impact.as_f64() < point_impact.time_until_impact.as_f64(),
+        "larger rounded jaws should be struck earlier than point jaws"
     );
 }
 
@@ -257,4 +314,53 @@ fn simulating_with_pockets_until_rest_keeps_pocketed_balls_out_of_play_and_stops
             impact,
         } if impact.rail == Rail::Right
     )));
+}
+
+#[test]
+fn cached_pocket_aware_until_rest_simulation_matches_manual_event_stepping() {
+    let table = TableSpec::default();
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let seed_a = rolling_toward_center_right_side_pocket();
+    let seed_b = on_table(BallState::on_table(
+        inches2(20.0, 20.0),
+        Velocity2::zero(),
+        AngularVelocity3::new(0.0, 0.0, 6.0),
+    ));
+    let mut manual_states = vec![
+        NBallSystemState::from(seed_a.clone()),
+        NBallSystemState::from(seed_b.clone()),
+    ];
+    let mut manual_elapsed = 0.0;
+    let mut manual_events = Vec::new();
+
+    loop {
+        let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+            &manual_states,
+            &ball_set,
+            &table,
+            &motion,
+            CollisionModel::Ideal,
+            billiards::RailModel::Mirror,
+        );
+        let Some(event) = advanced.event else {
+            break;
+        };
+        manual_elapsed += advanced.elapsed.as_f64();
+        manual_states = advanced.states;
+        manual_events.push(event);
+    }
+
+    let cached = simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+        &[seed_a, seed_b],
+        &ball_set,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        billiards::RailModel::Mirror,
+    );
+
+    assert_close(cached.elapsed.as_f64(), manual_elapsed);
+    assert_eq!(cached.events, manual_events);
+    assert_eq!(cached.states, manual_states);
 }

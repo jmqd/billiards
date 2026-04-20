@@ -12,7 +12,7 @@ use crate::{
     BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
     CueTipContact, Diamond, GameState, HumanShotSpeedValidation, Inches, InchesPerSecond,
     MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
-    OnTableMotionConfig, Pocket, Position, Rail, RailCollisionConfig, RailCollisionProfile,
+    OnTableMotionConfig, Pocket, PocketJaw, Position, Rail, RailCollisionConfig, RailCollisionProfile,
     RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError, TableSpec,
     BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
     CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
@@ -670,6 +670,11 @@ pub enum ScenarioShotTraceEventKind {
         ball: BallType,
         rail: Rail,
     },
+    BallJawImpact {
+        ball: BallType,
+        pocket: Pocket,
+        jaw: PocketJaw,
+    },
     MotionTransition {
         ball: BallType,
         phase_before: MotionPhase,
@@ -696,6 +701,12 @@ impl ScenarioShotTraceEventKind {
             ScenarioShotTraceEventKind::BallRailImpact { ball, rail } => {
                 format!("{} rail impact: {}", ball_type_name(ball), rail_name(*rail))
             }
+            ScenarioShotTraceEventKind::BallJawImpact { ball, pocket, jaw } => format!(
+                "{} jaw impact: {} {}",
+                ball_type_name(ball),
+                pocket_name(*pocket),
+                jaw_name(*jaw)
+            ),
             ScenarioShotTraceEventKind::MotionTransition {
                 ball,
                 phase_before,
@@ -867,6 +878,13 @@ fn scenario_event_kind_from_system_event(
                 rail: impact.rail,
             }
         }
+        NBallSystemEvent::BallJawImpact { ball_index, impact } => {
+            ScenarioShotTraceEventKind::BallJawImpact {
+                ball: balls[*ball_index].ty.clone(),
+                pocket: impact.pocket,
+                jaw: impact.jaw,
+            }
+        }
         NBallSystemEvent::MotionTransition {
             ball_index,
             transition,
@@ -910,6 +928,13 @@ fn rail_name(rail: Rail) -> &'static str {
         Rail::Right => "right",
         Rail::Bottom => "bottom",
         Rail::Left => "left",
+    }
+}
+
+fn jaw_name(jaw: PocketJaw) -> &'static str {
+    match jaw {
+        PocketJaw::First => "jaw-1",
+        PocketJaw::Second => "jaw-2",
     }
 }
 

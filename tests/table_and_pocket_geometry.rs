@@ -1,7 +1,7 @@
 use bigdecimal::ToPrimitive;
 use billiards::{
-    Angle, Pocket, PocketType, Rail, RailAngleReference, RailTangentDirection, TableSpec,
-    CENTER_SPOT,
+    Angle, Inches, Pocket, PocketShapeSpec, PocketType, Rail, RailAngleReference,
+    RailTangentDirection, TableSpec, CENTER_SPOT,
 };
 
 fn angle_degrees(angle: Angle) -> f64 {
@@ -70,6 +70,33 @@ fn given_a_brunswick_gc4_table_when_constructed_then_the_standard_lengths_and_po
             .to_f64()
             .expect("side width"),
         0.4,
+    );
+}
+
+#[test]
+fn default_table_pocket_shapes_are_composed_and_overridable_per_pocket() {
+    let baseline = TableSpec::default();
+    assert_eq!(
+        &baseline.pocket_spec(Pocket::TopRight).shape,
+        &TableSpec::brunswick_gc4_corner_pocket_shape()
+    );
+    assert_eq!(
+        &baseline.pocket_spec(Pocket::CenterRight).shape,
+        &TableSpec::brunswick_gc4_side_pocket_shape()
+    );
+
+    let customized = TableSpec::default().with_pocket_shape(
+        Pocket::CenterRight,
+        PocketShapeSpec::rounded_noses(Inches::from_f64(0.75)),
+    );
+
+    assert_eq!(
+        &customized.pocket_spec(Pocket::CenterRight).shape,
+        &PocketShapeSpec::rounded_noses(Inches::from_f64(0.75))
+    );
+    assert_eq!(
+        &customized.pocket_spec(Pocket::TopRight).shape,
+        &baseline.pocket_spec(Pocket::TopRight).shape
     );
 }
 

@@ -13,6 +13,7 @@ use core::fmt;
 use image::imageops::{resize, FilterType};
 use image::Rgba;
 use lazy_static::lazy_static;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -898,6 +899,25 @@ pub struct PredictedBallRailImpact {
     pub state_at_impact: OnTableBallState,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PocketJaw {
+    First,
+    Second,
+}
+
+impl PocketJaw {
+    const ALL: [PocketJaw; 2] = [PocketJaw::First, PocketJaw::Second];
+}
+
+/// A predicted future impact between one on-table ball and an explicit pocket jaw.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PredictedBallJawImpact {
+    pub pocket: Pocket,
+    pub jaw: PocketJaw,
+    pub time_until_impact: Seconds,
+    pub state_at_impact: OnTableBallState,
+}
+
 /// A predicted future capture of one on-table ball by a pocket.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PredictedBallPocketCapture {
@@ -1037,6 +1057,9 @@ enum NBallPocketAwareSystemEventSource {
         first_ball_index: usize,
         second_ball_index: usize,
     },
+    BallJawImpact {
+        ball_index: usize,
+    },
     BallPocketCapture {
         ball_index: usize,
     },
@@ -1052,6 +1075,239 @@ enum NBallPocketAwareSystemEventSource {
 struct NBallPocketAwareSystemEventCandidate {
     source: NBallPocketAwareSystemEventSource,
     event: NBallSystemEvent,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PocketAwareEventCache {
+    ball_ball: HashMap<(usize, usize), PredictedBallBallCollision>,
+    jaw_impacts: Vec<Option<PredictedBallJawImpact>>,
+    pocket_captures: Vec<Option<PredictedBallPocketCapture>>,
+    rail_impacts: Vec<Option<PredictedBallRailImpact>>,
+    transitions: Vec<Option<NextTransition>>,
+}
+
+impl PocketAwareEventCache {
+    fn build(
+        states: &[NBallSystemState],
+        ball: &BallSetPhysicsSpec,
+        table: &TableSpec,
+        config: &OnTableMotionConfig,
+    ) -> Self {
+        let mut cache = Self {
+            ball_ball: HashMap::new(),
+            jaw_impacts: vec![None; states.len()],
+            pocket_captures: vec![None; states.len()],
+            rail_impacts: vec![None; states.len()],
+            transitions: vec![None; states.len()],
+        };
+        for ball_index in 0..states.len() {
+            cache.refresh_ball(ball_index, states, ball, table, config);
+        }
+        cache
+    }
+
+    fn shift_event_times(&mut self, elapsed: Seconds) {
+        let shift = |time: &mut Seconds| {
+            *time = Seconds::new((time.as_f64() - elapsed.as_f64()).max(0.0));
+        };
+
+        for collision in self.ball_ball.values_mut() {
+            shift(&mut collision.time_until_impact);
+        }
+        for impact in self.jaw_impacts.iter_mut().flatten() {
+            shift(&mut impact.time_until_impact);
+        }
+        for capture in self.pocket_captures.iter_mut().flatten() {
+            shift(&mut capture.time_until_capture);
+        }
+        for impact in self.rail_impacts.iter_mut().flatten() {
+            shift(&mut impact.time_until_impact);
+        }
+        for transition in self.transitions.iter_mut().flatten() {
+            shift(&mut transition.time_until_transition);
+        }
+    }
+
+    fn refresh_ball(
+        &mut self,
+        ball_index: usize,
+        states: &[NBallSystemState],
+        ball: &BallSetPhysicsSpec,
+        table: &TableSpec,
+        config: &OnTableMotionConfig,
+    ) {
+        let Some(state) = states[ball_index].as_on_table() else {
+            self.jaw_impacts[ball_index] = None;
+            self.pocket_captures[ball_index] = None;
+            self.rail_impacts[ball_index] = None;
+            self.transitions[ball_index] = None;
+            self.ball_ball
+                .retain(|&(first, second), _| first != ball_index && second != ball_index);
+            return;
+        };
+
+        self.jaw_impacts[ball_index] =
+            compute_next_ball_jaw_impact_on_table(state, ball, table, config);
+        self.pocket_captures[ball_index] =
+            compute_next_ball_pocket_capture_on_table(state, ball, table, config);
+        self.rail_impacts[ball_index] =
+            compute_next_ball_rail_impact_on_table(state, ball, table, config);
+        self.transitions[ball_index] = compute_next_transition_on_table(state, ball, config);
+
+        for other_index in 0..states.len() {
+            if other_index == ball_index {
+                continue;
+            }
+            let key = if ball_index < other_index {
+                (ball_index, other_index)
+            } else {
+                (other_index, ball_index)
+            };
+
+            match (states[key.0].as_on_table(), states[key.1].as_on_table()) {
+                (Some(first_state), Some(second_state)) => {
+                    if let Some(collision) =
+                        compute_next_ball_ball_collision_during_current_phases_on_table(
+                            first_state,
+                            second_state,
+                            ball,
+                            config,
+                        )
+                    {
+                        self.ball_ball.insert(key, collision);
+                    } else {
+                        self.ball_ball.remove(&key);
+                    }
+                }
+                _ => {
+                    self.ball_ball.remove(&key);
+                }
+            }
+        }
+    }
+
+    fn refresh_affected_balls(
+        &mut self,
+        event: &NBallSystemEvent,
+        states: &[NBallSystemState],
+        ball: &BallSetPhysicsSpec,
+        table: &TableSpec,
+        config: &OnTableMotionConfig,
+    ) {
+        let mut affected = match event {
+            NBallSystemEvent::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                ..
+            } => vec![*first_ball_index, *second_ball_index],
+            NBallSystemEvent::BallJawImpact { ball_index, .. }
+            | NBallSystemEvent::BallPocketCapture { ball_index, .. }
+            | NBallSystemEvent::BallRailImpact { ball_index, .. }
+            | NBallSystemEvent::MotionTransition { ball_index, .. } => vec![*ball_index],
+        };
+        affected.sort_unstable();
+        affected.dedup();
+        for ball_index in affected {
+            self.refresh_ball(ball_index, states, ball, table, config);
+        }
+    }
+
+    fn next_event(&self) -> Option<NBallSystemEvent> {
+        let mut next: Option<NBallPocketAwareSystemEventCandidate> = None;
+
+        for (&(first_ball_index, second_ball_index), collision) in &self.ball_ball {
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::BallBallCollision {
+                    first_ball_index,
+                    second_ball_index,
+                },
+                event: NBallSystemEvent::BallBallCollision {
+                    first_ball_index,
+                    second_ball_index,
+                    collision: collision.clone(),
+                },
+            };
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
+        for (ball_index, impact) in self.jaw_impacts.iter().enumerate() {
+            let Some(impact) = impact else {
+                continue;
+            };
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::BallJawImpact { ball_index },
+                event: NBallSystemEvent::BallJawImpact {
+                    ball_index,
+                    impact: impact.clone(),
+                },
+            };
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
+        for (ball_index, capture) in self.pocket_captures.iter().enumerate() {
+            let Some(capture) = capture else {
+                continue;
+            };
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::BallPocketCapture { ball_index },
+                event: NBallSystemEvent::BallPocketCapture {
+                    ball_index,
+                    capture: capture.clone(),
+                },
+            };
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
+        for (ball_index, impact) in self.rail_impacts.iter().enumerate() {
+            let Some(impact) = impact else {
+                continue;
+            };
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::BallRailImpact { ball_index },
+                event: NBallSystemEvent::BallRailImpact {
+                    ball_index,
+                    impact: impact.clone(),
+                },
+            };
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
+        for (ball_index, transition) in self.transitions.iter().enumerate() {
+            let Some(transition) = transition else {
+                continue;
+            };
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::MotionTransition { ball_index },
+                event: NBallSystemEvent::MotionTransition {
+                    ball_index,
+                    transition: transition.clone(),
+                },
+            };
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
+        next.map(|candidate| candidate.event)
+    }
 }
 
 /// The result of advancing two on-table balls to the next currently supported event.
@@ -1137,6 +1393,10 @@ pub enum NBallSystemEvent {
         second_ball_index: usize,
         collision: PredictedBallBallCollision,
     },
+    BallJawImpact {
+        ball_index: usize,
+        impact: PredictedBallJawImpact,
+    },
     BallPocketCapture {
         ball_index: usize,
         capture: PredictedBallPocketCapture,
@@ -1155,6 +1415,7 @@ impl NBallSystemEvent {
     pub fn time(&self) -> Seconds {
         match self {
             NBallSystemEvent::BallBallCollision { collision, .. } => collision.time_until_impact,
+            NBallSystemEvent::BallJawImpact { impact, .. } => impact.time_until_impact,
             NBallSystemEvent::BallPocketCapture { capture, .. } => capture.time_until_capture,
             NBallSystemEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
             NBallSystemEvent::MotionTransition { transition, .. } => {
@@ -1166,7 +1427,8 @@ impl NBallSystemEvent {
     pub fn primary_ball(&self) -> Option<usize> {
         match self {
             NBallSystemEvent::BallBallCollision { .. } => None,
-            NBallSystemEvent::BallPocketCapture { ball_index, .. }
+            NBallSystemEvent::BallJawImpact { ball_index, .. }
+            | NBallSystemEvent::BallPocketCapture { ball_index, .. }
             | NBallSystemEvent::BallRailImpact { ball_index, .. }
             | NBallSystemEvent::MotionTransition { ball_index, .. } => Some(*ball_index),
         }
@@ -2178,6 +2440,229 @@ fn is_airborne(state: &BallState, thresholds: &MotionPhaseThresholds) -> bool {
         || state.vertical_velocity.as_f64().abs() > thresholds.airborne_vertical_speed.as_f64()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RawOnTableBallState {
+    x: f64,
+    y: f64,
+    vx: f64,
+    vy: f64,
+    wx: f64,
+    wy: f64,
+    wz: f64,
+}
+
+impl RawOnTableBallState {
+    fn from_on_table(state: &OnTableBallState) -> Self {
+        let state = state.as_ball_state();
+        Self {
+            x: state.position.x().as_f64(),
+            y: state.position.y().as_f64(),
+            vx: state.velocity.x().as_f64(),
+            vy: state.velocity.y().as_f64(),
+            wx: state.angular_velocity.x().as_f64(),
+            wy: state.angular_velocity.y().as_f64(),
+            wz: state.angular_velocity.z().as_f64(),
+        }
+    }
+
+    fn speed(self) -> f64 {
+        self.vx.hypot(self.vy)
+    }
+
+    fn cloth_contact_velocity(self, radius: f64) -> (f64, f64) {
+        (self.vx - radius * self.wy, self.vy + radius * self.wx)
+    }
+
+    fn cloth_contact_speed(self, radius: f64) -> f64 {
+        let (contact_vx, contact_vy) = self.cloth_contact_velocity(radius);
+        contact_vx.hypot(contact_vy)
+    }
+
+    fn into_on_table_state(self) -> OnTableBallState {
+        build_on_table_ball_state(
+            Inches2::new(Inches::from_f64(self.x), Inches::from_f64(self.y)),
+            Velocity2::from_components(
+                InchesPerSecond::new(Inches::from_f64(self.vx)),
+                InchesPerSecond::new(Inches::from_f64(self.vy)),
+            ),
+            AngularVelocity3::new(self.wx, self.wy, self.wz),
+        )
+    }
+}
+
+fn advance_vertical_axis_spin_f64(
+    initial_spin: f64,
+    dt_seconds: f64,
+    config: &OnTableMotionConfig,
+) -> f64 {
+    let spin_deceleration = spin_angular_deceleration(config);
+    if initial_spin > 0.0 {
+        (initial_spin - spin_deceleration * dt_seconds).max(0.0)
+    } else if initial_spin < 0.0 {
+        (initial_spin + spin_deceleration * dt_seconds).min(0.0)
+    } else {
+        0.0
+    }
+}
+
+fn time_until_vertical_axis_spin_stops_f64(
+    initial_spin: f64,
+    config: &OnTableMotionConfig,
+) -> Option<f64> {
+    (initial_spin.abs() > f64::EPSILON)
+        .then_some(initial_spin.abs() / spin_angular_deceleration(config))
+}
+
+fn raw_advance_within_phase_on_table(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    dt_seconds: f64,
+    radius: f64,
+    config: &OnTableMotionConfig,
+) -> RawOnTableBallState {
+    debug_assert!(dt_seconds >= 0.0);
+    if dt_seconds == 0.0 {
+        return state;
+    }
+
+    match phase {
+        MotionPhase::Rest => state,
+        MotionPhase::Sliding => {
+            let contact_speed = state.cloth_contact_speed(radius);
+            if contact_speed <= f64::EPSILON {
+                return state;
+            }
+
+            let transition_time =
+                (2.0 / 7.0) * contact_speed / sliding_friction_acceleration(config);
+            let advance_time = dt_seconds.min(transition_time);
+            let alpha = if transition_time <= f64::EPSILON {
+                1.0
+            } else {
+                advance_time / transition_time
+            };
+            let (we_x, we_y) = state.cloth_contact_velocity(radius);
+            let vx_c = state.vx - (2.0 / 7.0) * we_x;
+            let vy_c = state.vy - (2.0 / 7.0) * we_y;
+            let vx = state.vx - alpha * (state.vx - vx_c);
+            let vy = state.vy - alpha * (state.vy - vy_c);
+            let delta_vx = vx - state.vx;
+            let delta_vy = vy - state.vy;
+
+            RawOnTableBallState {
+                x: state.x + 0.5 * (state.vx + vx) * advance_time,
+                y: state.y + 0.5 * (state.vy + vy) * advance_time,
+                vx,
+                vy,
+                wx: state.wx + (5.0 / (2.0 * radius)) * delta_vy,
+                wy: state.wy - (5.0 / (2.0 * radius)) * delta_vx,
+                wz: advance_vertical_axis_spin_f64(state.wz, advance_time, config),
+            }
+        }
+        MotionPhase::Rolling => {
+            let initial_speed = state.speed();
+            if initial_speed <= f64::EPSILON {
+                return RawOnTableBallState {
+                    vx: 0.0,
+                    vy: 0.0,
+                    wx: 0.0,
+                    wy: 0.0,
+                    wz: advance_vertical_axis_spin_f64(state.wz, dt_seconds, config),
+                    ..state
+                };
+            }
+
+            let linear_deceleration = rolling_linear_deceleration(config);
+            let stop_time = initial_speed / linear_deceleration;
+            let advance_time = dt_seconds.min(stop_time);
+            let final_speed = (initial_speed - linear_deceleration * advance_time).max(0.0);
+            let heading_x = state.vx / initial_speed;
+            let heading_y = state.vy / initial_speed;
+            let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
+            let vx = if final_speed <= f64::EPSILON {
+                0.0
+            } else {
+                heading_x * final_speed
+            };
+            let vy = if final_speed <= f64::EPSILON {
+                0.0
+            } else {
+                heading_y * final_speed
+            };
+
+            RawOnTableBallState {
+                x: state.x + heading_x * travel_distance,
+                y: state.y + heading_y * travel_distance,
+                vx,
+                vy,
+                wx: if final_speed <= f64::EPSILON {
+                    0.0
+                } else {
+                    -vy / radius
+                },
+                wy: if final_speed <= f64::EPSILON {
+                    0.0
+                } else {
+                    vx / radius
+                },
+                wz: advance_vertical_axis_spin_f64(state.wz, advance_time, config),
+            }
+        }
+        MotionPhase::Spinning => RawOnTableBallState {
+            wz: advance_vertical_axis_spin_f64(state.wz, dt_seconds, config),
+            ..state
+        },
+        MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
+    }
+}
+
+fn raw_compute_next_transition_on_table(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    radius: f64,
+    config: &OnTableMotionConfig,
+) -> Option<NextTransition> {
+    match phase {
+        MotionPhase::Rest => None,
+        MotionPhase::Sliding => Some(NextTransition {
+            phase_before: MotionPhase::Sliding,
+            phase_after: MotionPhase::Rolling,
+            time_until_transition: Seconds::new(
+                (2.0 / 7.0) * state.cloth_contact_speed(radius)
+                    / sliding_friction_acceleration(config),
+            ),
+        }),
+        MotionPhase::Rolling => {
+            let time_until_transition =
+                Seconds::new(state.speed() / rolling_linear_deceleration(config));
+            let phase_after =
+                if advance_vertical_axis_spin_f64(state.wz, time_until_transition.as_f64(), config)
+                    .abs()
+                    > config.phase.thresholds.rest_angular_speed.as_f64()
+                {
+                    MotionPhase::Spinning
+                } else {
+                    MotionPhase::Rest
+                };
+
+            Some(NextTransition {
+                phase_before: MotionPhase::Rolling,
+                phase_after,
+                time_until_transition,
+            })
+        }
+        MotionPhase::Spinning => Some(NextTransition {
+            phase_before: MotionPhase::Spinning,
+            phase_after: MotionPhase::Rest,
+            time_until_transition: Seconds::new(
+                time_until_vertical_axis_spin_stops_f64(state.wz, config)
+                    .expect("spinning balls should have non-zero z-spin"),
+            ),
+        }),
+        MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
+    }
+}
+
 /// Compute the cloth-contact slip velocity for an on-table ball.
 ///
 /// `whitepapers/TP_A-4.pdf`, Eq. (3), gives the contact-point velocity at the cloth as
@@ -2306,28 +2791,6 @@ fn spin_angular_deceleration(config: &MotionTransitionConfig) -> f64 {
     angular_deceleration
 }
 
-fn advance_vertical_axis_spin(
-    initial_spin: f64,
-    dt: Seconds,
-    config: &MotionTransitionConfig,
-) -> f64 {
-    let remaining = (initial_spin.abs() - spin_angular_deceleration(config) * dt.as_f64()).max(0.0);
-    initial_spin.signum() * remaining
-}
-
-fn time_until_vertical_axis_spin_stops(
-    initial_spin: f64,
-    config: &MotionTransitionConfig,
-) -> Option<Seconds> {
-    if initial_spin.abs() <= f64::EPSILON {
-        None
-    } else {
-        Some(Seconds::new(
-            initial_spin.abs() / spin_angular_deceleration(config),
-        ))
-    }
-}
-
 fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
     let linear_deceleration = match &config.rolling_resistance {
         RollingResistanceModel::ConstantDeceleration {
@@ -2374,51 +2837,13 @@ pub fn compute_next_transition_on_table(
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
 ) -> Option<NextTransition> {
-    let state = state.as_ball_state();
-
-    match classify_motion_phase(state, ball, &config.phase) {
-        MotionPhase::Rest => None,
-        MotionPhase::Sliding => Some(NextTransition {
-            phase_before: MotionPhase::Sliding,
-            phase_after: MotionPhase::Rolling,
-            time_until_transition: Seconds::new(
-                (2.0 / 7.0) * cloth_contact_speed_on_table(state, ball.radius.clone()).as_f64()
-                    / sliding_friction_acceleration(config),
-            ),
-        }),
-        MotionPhase::Rolling => {
-            let time_until_transition =
-                Seconds::new(ball_speed(state).as_f64() / rolling_linear_deceleration(config));
-            let phase_after = if advance_vertical_axis_spin(
-                state.angular_velocity.z().as_f64(),
-                time_until_transition,
-                config,
-            )
-            .abs()
-                > config.phase.thresholds.rest_angular_speed.as_f64()
-            {
-                MotionPhase::Spinning
-            } else {
-                MotionPhase::Rest
-            };
-
-            Some(NextTransition {
-                phase_before: MotionPhase::Rolling,
-                phase_after,
-                time_until_transition,
-            })
-        }
-        MotionPhase::Spinning => Some(NextTransition {
-            phase_before: MotionPhase::Spinning,
-            phase_after: MotionPhase::Rest,
-            time_until_transition: time_until_vertical_axis_spin_stops(
-                state.angular_velocity.z().as_f64(),
-                config,
-            )
-            .expect("spinning balls should have non-zero z-spin"),
-        }),
-        MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
-    }
+    let phase = classify_motion_phase(state.as_ball_state(), ball, &config.phase);
+    raw_compute_next_transition_on_table(
+        RawOnTableBallState::from_on_table(state),
+        phase,
+        ball.radius.as_f64(),
+        config,
+    )
 }
 
 /// Compatibility wrapper for the older motion API name.
@@ -2455,144 +2880,17 @@ pub fn advance_within_phase_on_table(
         return state.clone();
     }
 
-    let state = state.as_ball_state();
-    debug_assert_eq!(classify_motion_phase(state, ball, &config.phase), phase);
+    let state_ref = state.as_ball_state();
+    debug_assert_eq!(classify_motion_phase(state_ref, ball, &config.phase), phase);
 
-    match phase {
-        MotionPhase::Rest => OnTableBallState::try_from(state.clone())
-            .expect("rest states should remain valid on-table states"),
-        MotionPhase::Sliding => {
-            let transition = compute_next_transition_on_table(
-                &OnTableBallState::try_from(state.clone())
-                    .expect("sliding states should remain valid on-table states"),
-                ball,
-                config,
-            )
-            .expect("sliding balls should predict a rolling transition");
-            let transition_time = transition.time_until_transition.as_f64();
-            let advance_time = dt.as_f64().min(transition_time);
-            let alpha = advance_time / transition_time;
-            let slip_velocity = cloth_contact_velocity_on_table(state, ball.radius.clone());
-            let vx_i = state.velocity.x().as_f64();
-            let vy_i = state.velocity.y().as_f64();
-            let we_x = slip_velocity.x().as_f64();
-            let we_y = slip_velocity.y().as_f64();
-            let vx_c = vx_i - (2.0 / 7.0) * we_x;
-            let vy_c = vy_i - (2.0 / 7.0) * we_y;
-            let vx = vx_i - alpha * (vx_i - vx_c);
-            let vy = vy_i - alpha * (vy_i - vy_c);
-            let radius = ball.radius.as_f64();
-            let delta_vx = vx - vx_i;
-            let delta_vy = vy - vy_i;
-            let base_angular_x =
-                state.angular_velocity.x().as_f64() + (5.0 / (2.0 * radius)) * delta_vy;
-            let base_angular_y =
-                state.angular_velocity.y().as_f64() - (5.0 / (2.0 * radius)) * delta_vx;
-            // TP A.4 models the curved post-impact sliding path from the cue ball's horizontal
-            // sliding contact velocity `(vx - Rωy, vy + Rωx)` and explicitly notes that `ωz`
-            // does not affect that contact-point velocity in the reduced on-table sliding model.
-            // Therefore we do not apply a separate `ωz`-driven heading rotation here.
-            let (dx, dy, vx, vy, angular_x, angular_y) = (
-                0.5 * (vx_i + vx) * advance_time,
-                0.5 * (vy_i + vy) * advance_time,
-                vx,
-                vy,
-                base_angular_x,
-                base_angular_y,
-            );
-
-            OnTableBallState::try_from(BallState {
-                position: Inches2::new(
-                    Inches::from_f64(state.position.x().as_f64() + dx),
-                    Inches::from_f64(state.position.y().as_f64() + dy),
-                ),
-                height: state.height.clone(),
-                velocity: Velocity2::from_components(
-                    InchesPerSecond::new(Inches::from_f64(vx)),
-                    InchesPerSecond::new(Inches::from_f64(vy)),
-                ),
-                vertical_velocity: state.vertical_velocity.clone(),
-                angular_velocity: AngularVelocity3::new(
-                    angular_x,
-                    angular_y,
-                    advance_vertical_axis_spin(
-                        state.angular_velocity.z().as_f64(),
-                        Seconds::new(advance_time),
-                        config,
-                    ),
-                ),
-            })
-            .expect("sliding phase advance should preserve on-table invariants")
-        }
-        MotionPhase::Rolling => {
-            let initial_speed = ball_speed(state).as_f64();
-            let linear_deceleration = rolling_linear_deceleration(config);
-            let stop_time = initial_speed / linear_deceleration;
-            let advance_time = dt.as_f64().min(stop_time);
-            let final_speed = (initial_speed - linear_deceleration * advance_time).max(0.0);
-            let start_heading = state
-                .velocity
-                .angle_from_north()
-                .expect("rolling states should have a velocity heading");
-            let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
-            let heading_radians = start_heading.as_degrees().to_radians();
-            let dx = travel_distance * heading_radians.sin();
-            let dy = travel_distance * heading_radians.cos();
-
-            let final_velocity = if final_speed <= f64::EPSILON {
-                Velocity2::zero()
-            } else {
-                Velocity2::from_polar(
-                    InchesPerSecond::new(Inches::from_f64(final_speed)),
-                    start_heading,
-                )
-            };
-            let radius = ball.radius.as_f64();
-            let rolling_wx = if final_speed <= f64::EPSILON {
-                0.0
-            } else {
-                -final_velocity.y().as_f64() / radius
-            };
-            let rolling_wy = if final_speed <= f64::EPSILON {
-                0.0
-            } else {
-                final_velocity.x().as_f64() / radius
-            };
-
-            OnTableBallState::try_from(BallState {
-                position: Inches2::new(
-                    Inches::from_f64(state.position.x().as_f64() + dx),
-                    Inches::from_f64(state.position.y().as_f64() + dy),
-                ),
-                height: state.height.clone(),
-                velocity: final_velocity,
-                vertical_velocity: state.vertical_velocity.clone(),
-                angular_velocity: AngularVelocity3::new(
-                    rolling_wx,
-                    rolling_wy,
-                    advance_vertical_axis_spin(
-                        state.angular_velocity.z().as_f64(),
-                        Seconds::new(advance_time),
-                        config,
-                    ),
-                ),
-            })
-            .expect("rolling phase advance should preserve on-table invariants")
-        }
-        MotionPhase::Spinning => OnTableBallState::try_from(BallState {
-            position: state.position.clone(),
-            height: state.height.clone(),
-            velocity: state.velocity.clone(),
-            vertical_velocity: state.vertical_velocity.clone(),
-            angular_velocity: AngularVelocity3::new(
-                state.angular_velocity.x().as_f64(),
-                state.angular_velocity.y().as_f64(),
-                advance_vertical_axis_spin(state.angular_velocity.z().as_f64(), dt, config),
-            ),
-        })
-        .expect("spinning phase advance should preserve on-table invariants"),
-        MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
-    }
+    raw_advance_within_phase_on_table(
+        RawOnTableBallState::from_on_table(state),
+        phase,
+        dt.as_f64(),
+        ball.radius.as_f64(),
+        config,
+    )
+    .into_on_table_state()
 }
 
 /// Advance the current on-table motion model through a full requested duration.
@@ -2738,61 +3036,54 @@ fn center_distance_squared(a: &OnTableBallState, b: &OnTableBallState) -> f64 {
     dx * dx + dy * dy
 }
 
-fn advance_within_current_phase(
-    state: &OnTableBallState,
+fn raw_ball_ball_collision_search_horizon(
+    state: RawOnTableBallState,
     phase: MotionPhase,
-    dt: Seconds,
-    ball: &BallSetPhysicsSpec,
-    config: &OnTableMotionConfig,
-) -> OnTableBallState {
-    advance_within_phase_on_table(state, phase, dt, ball, config)
-}
-
-fn ball_ball_collision_search_horizon(
-    state: &OnTableBallState,
-    ball: &BallSetPhysicsSpec,
+    radius: f64,
     config: &OnTableMotionConfig,
 ) -> f64 {
-    compute_next_transition_on_table(state, ball, config)
+    raw_compute_next_transition_on_table(state, phase, radius, config)
         .map(|transition| transition.time_until_transition.as_f64())
         .unwrap_or(f64::INFINITY)
 }
 
-fn collision_gap_during_current_phases(
-    a: &OnTableBallState,
+fn collision_gap_during_current_phases_raw(
+    a: RawOnTableBallState,
     a_phase: MotionPhase,
-    b: &OnTableBallState,
+    b: RawOnTableBallState,
     b_phase: MotionPhase,
-    t: Seconds,
-    ball: &BallSetPhysicsSpec,
+    t_seconds: f64,
+    radius: f64,
     config: &OnTableMotionConfig,
 ) -> f64 {
-    let a_at_t = advance_within_current_phase(a, a_phase, t, ball, config);
-    let b_at_t = advance_within_current_phase(b, b_phase, t, ball, config);
-    let contact_distance = 2.0 * ball.radius.as_f64();
+    let a_at_t = raw_advance_within_phase_on_table(a, a_phase, t_seconds, radius, config);
+    let b_at_t = raw_advance_within_phase_on_table(b, b_phase, t_seconds, radius, config);
+    let dx = b_at_t.x - a_at_t.x;
+    let dy = b_at_t.y - a_at_t.y;
+    let contact_distance = 2.0 * radius;
 
-    center_distance_squared(&a_at_t, &b_at_t) - contact_distance * contact_distance
+    dx * dx + dy * dy - contact_distance * contact_distance
 }
 
-fn refine_ball_ball_collision_time_during_current_phases(
-    a: &OnTableBallState,
+fn refine_ball_ball_collision_time_during_current_phases_raw(
+    a: RawOnTableBallState,
     a_phase: MotionPhase,
-    b: &OnTableBallState,
+    b: RawOnTableBallState,
     b_phase: MotionPhase,
     mut left: f64,
     mut right: f64,
-    ball: &BallSetPhysicsSpec,
+    radius: f64,
     config: &OnTableMotionConfig,
 ) -> Seconds {
     for _ in 0..60 {
         let midpoint = 0.5 * (left + right);
-        let gap = collision_gap_during_current_phases(
+        let gap = collision_gap_during_current_phases_raw(
             a,
             a_phase.clone(),
             b,
             b_phase.clone(),
-            Seconds::new(midpoint),
-            ball,
+            midpoint,
+            radius,
             config,
         );
 
@@ -2967,15 +3258,23 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
 ) -> Option<PredictedBallBallCollision> {
-    let initial_gap = center_distance_squared(a, b) - (2.0 * ball.radius.as_f64()).powi(2);
+    let radius = ball.radius.as_f64();
+    let a_raw = RawOnTableBallState::from_on_table(a);
+    let b_raw = RawOnTableBallState::from_on_table(b);
+    let contact_distance = 2.0 * radius;
+    let dx = b_raw.x - a_raw.x;
+    let dy = b_raw.y - a_raw.y;
+    let initial_gap = dx * dx + dy * dy - contact_distance * contact_distance;
     if initial_gap <= 0.0 {
         return None;
     }
 
     let a_phase = classify_motion_phase(a.as_ball_state(), ball, &config.phase);
     let b_phase = classify_motion_phase(b.as_ball_state(), ball, &config.phase);
-    let horizon = ball_ball_collision_search_horizon(a, ball, config)
-        .min(ball_ball_collision_search_horizon(b, ball, config));
+    let horizon =
+        raw_ball_ball_collision_search_horizon(a_raw, a_phase.clone(), radius, config).min(
+            raw_ball_ball_collision_search_horizon(b_raw, b_phase.clone(), radius, config),
+        );
     if !horizon.is_finite() || horizon <= f64::EPSILON {
         return None;
     }
@@ -2986,31 +3285,44 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
 
     for step in 1..=COLLISION_SCAN_STEPS {
         let t = horizon * step as f64 / COLLISION_SCAN_STEPS as f64;
-        let gap = collision_gap_during_current_phases(
-            a,
+        let gap = collision_gap_during_current_phases_raw(
+            a_raw,
             a_phase.clone(),
-            b,
+            b_raw,
             b_phase.clone(),
-            Seconds::new(t),
-            ball,
+            t,
+            radius,
             config,
         );
 
         if previous_gap > 0.0 && gap <= 0.0 {
-            let time_until_impact = refine_ball_ball_collision_time_during_current_phases(
-                a,
+            let time_until_impact = refine_ball_ball_collision_time_during_current_phases_raw(
+                a_raw,
                 a_phase.clone(),
-                b,
+                b_raw,
                 b_phase.clone(),
                 previous_t,
                 t,
-                ball,
+                radius,
                 config,
             );
-            let a_at_impact =
-                advance_within_current_phase(a, a_phase.clone(), time_until_impact, ball, config);
-            let b_at_impact =
-                advance_within_current_phase(b, b_phase.clone(), time_until_impact, ball, config);
+            let dt_seconds = time_until_impact.as_f64();
+            let a_at_impact = raw_advance_within_phase_on_table(
+                a_raw,
+                a_phase.clone(),
+                dt_seconds,
+                radius,
+                config,
+            )
+            .into_on_table_state();
+            let b_at_impact = raw_advance_within_phase_on_table(
+                b_raw,
+                b_phase.clone(),
+                dt_seconds,
+                radius,
+                config,
+            )
+            .into_on_table_state();
 
             return Some(PredictedBallBallCollision {
                 time_until_impact,
@@ -3026,58 +3338,49 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     None
 }
 
-fn rail_collision_plane_coordinate(
-    rail: Rail,
-    ball: &BallSetPhysicsSpec,
-    table: &TableSpec,
-) -> f64 {
-    match rail {
-        Rail::Top => table.diamond_to_inches(Diamond::eight()).as_f64() - ball.radius.as_f64(),
-        Rail::Bottom => ball.radius.as_f64(),
-        Rail::Left => ball.radius.as_f64(),
-        Rail::Right => table.diamond_to_inches(Diamond::four()).as_f64() - ball.radius.as_f64(),
-    }
-}
-
-fn rail_collision_gap_during_current_phase(
-    state: &OnTableBallState,
+fn rail_collision_gap_during_current_phase_raw(
+    state: RawOnTableBallState,
     phase: MotionPhase,
     rail: Rail,
-    t: Seconds,
-    ball: &BallSetPhysicsSpec,
+    t_seconds: f64,
+    radius: f64,
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> f64 {
-    let at_t = advance_within_current_phase(state, phase, t, ball, config);
-    let state_at_t = at_t.as_ball_state();
-    let plane = rail_collision_plane_coordinate(rail, ball, table);
+    let at_t = raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config);
+    let plane = match rail {
+        Rail::Top => table.diamond_to_inches(Diamond::eight()).as_f64() - radius,
+        Rail::Bottom => radius,
+        Rail::Left => radius,
+        Rail::Right => table.diamond_to_inches(Diamond::four()).as_f64() - radius,
+    };
 
     match rail {
-        Rail::Top => plane - state_at_t.position.y().as_f64(),
-        Rail::Bottom => state_at_t.position.y().as_f64() - plane,
-        Rail::Left => state_at_t.position.x().as_f64() - plane,
-        Rail::Right => plane - state_at_t.position.x().as_f64(),
+        Rail::Top => plane - at_t.y,
+        Rail::Bottom => at_t.y - plane,
+        Rail::Left => at_t.x - plane,
+        Rail::Right => plane - at_t.x,
     }
 }
 
-fn refine_ball_rail_collision_time_during_current_phase(
-    state: &OnTableBallState,
+fn refine_ball_rail_collision_time_during_current_phase_raw(
+    state: RawOnTableBallState,
     phase: MotionPhase,
     rail: Rail,
     mut left: f64,
     mut right: f64,
-    ball: &BallSetPhysicsSpec,
+    radius: f64,
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Seconds {
     for _ in 0..60 {
         let midpoint = 0.5 * (left + right);
-        let gap = rail_collision_gap_during_current_phase(
+        let gap = rail_collision_gap_during_current_phase_raw(
             state,
             phase.clone(),
             rail,
-            Seconds::new(midpoint),
-            ball,
+            midpoint,
+            radius,
             table,
             config,
         );
@@ -3104,8 +3407,10 @@ pub fn compute_next_ball_rail_impact_on_table(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<PredictedBallRailImpact> {
+    let raw_state = RawOnTableBallState::from_on_table(state);
+    let radius = ball.radius.as_f64();
     let phase = classify_motion_phase(state.as_ball_state(), ball, &config.phase);
-    let horizon = compute_next_transition_on_table(state, ball, config)
+    let horizon = raw_compute_next_transition_on_table(raw_state, phase.clone(), radius, config)
         .map(|transition| transition.time_until_transition.as_f64())
         .unwrap_or(f64::INFINITY);
     if !horizon.is_finite() || horizon <= f64::EPSILON {
@@ -3116,12 +3421,12 @@ pub fn compute_next_ball_rail_impact_on_table(
     let mut best: Option<PredictedBallRailImpact> = None;
 
     for rail in [Rail::Top, Rail::Right, Rail::Bottom, Rail::Left] {
-        let initial_gap = rail_collision_gap_during_current_phase(
-            state,
+        let initial_gap = rail_collision_gap_during_current_phase_raw(
+            raw_state,
             phase.clone(),
             rail,
-            Seconds::zero(),
-            ball,
+            0.0,
+            radius,
             table,
             config,
         );
@@ -3134,34 +3439,35 @@ pub fn compute_next_ball_rail_impact_on_table(
 
         for step in 1..=RAIL_COLLISION_SCAN_STEPS {
             let t = horizon * step as f64 / RAIL_COLLISION_SCAN_STEPS as f64;
-            let gap = rail_collision_gap_during_current_phase(
-                state,
+            let gap = rail_collision_gap_during_current_phase_raw(
+                raw_state,
                 phase.clone(),
                 rail,
-                Seconds::new(t),
-                ball,
+                t,
+                radius,
                 table,
                 config,
             );
 
             if previous_gap > 0.0 && gap <= 0.0 {
-                let time_until_impact = refine_ball_rail_collision_time_during_current_phase(
-                    state,
+                let time_until_impact = refine_ball_rail_collision_time_during_current_phase_raw(
+                    raw_state,
                     phase.clone(),
                     rail,
                     previous_t,
                     t,
-                    ball,
+                    radius,
                     table,
                     config,
                 );
-                let state_at_impact = advance_within_current_phase(
-                    state,
+                let state_at_impact = raw_advance_within_phase_on_table(
+                    raw_state,
                     phase.clone(),
-                    time_until_impact,
-                    ball,
+                    time_until_impact.as_f64(),
+                    radius,
                     config,
-                );
+                )
+                .into_on_table_state();
                 let impact = PredictedBallRailImpact {
                     rail,
                     time_until_impact,
@@ -3192,12 +3498,92 @@ fn pocket_center_in_inches(pocket: Pocket, table: &TableSpec) -> (f64, f64) {
     )
 }
 
+fn pocket_mouth_width_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
+    table
+        .diamond_to_inches(table.pocket_spec(pocket).width.clone())
+        .as_f64()
+}
+
+fn pocket_face_coordinates_in_inches(table: &TableSpec) -> (f64, f64, f64, f64) {
+    (
+        0.0,
+        table.diamond_to_inches(Diamond::four()).as_f64(),
+        0.0,
+        table.diamond_to_inches(Diamond::eight()).as_f64(),
+    )
+}
+
+fn pocket_jaw_associated_rail(pocket: Pocket, jaw: PocketJaw) -> Rail {
+    match (pocket, jaw) {
+        (Pocket::TopRight, PocketJaw::First) => Rail::Top,
+        (Pocket::TopRight, PocketJaw::Second) => Rail::Right,
+        (Pocket::CenterRight, _) => Rail::Right,
+        (Pocket::BottomRight, PocketJaw::First) => Rail::Right,
+        (Pocket::BottomRight, PocketJaw::Second) => Rail::Bottom,
+        (Pocket::BottomLeft, PocketJaw::First) => Rail::Bottom,
+        (Pocket::BottomLeft, PocketJaw::Second) => Rail::Left,
+        (Pocket::CenterLeft, _) => Rail::Left,
+        (Pocket::TopLeft, PocketJaw::First) => Rail::Left,
+        (Pocket::TopLeft, PocketJaw::Second) => Rail::Top,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ResolvedPocketJawGeometry {
+    center_x: f64,
+    center_y: f64,
+    nose_radius: f64,
+}
+
+fn pocket_jaw_reference_point_in_inches(
+    pocket: Pocket,
+    jaw: PocketJaw,
+    table: &TableSpec,
+) -> (f64, f64) {
+    let (left_x, right_x, bottom_y, top_y) = pocket_face_coordinates_in_inches(table);
+    let mouth_width = pocket_mouth_width_in_inches(pocket, table);
+    let side_offset = 0.5 * mouth_width;
+    let corner_offset = mouth_width / 2.0_f64.sqrt();
+    let center_y = table.diamond_to_inches(Diamond::four()).as_f64();
+
+    match (pocket, jaw) {
+        (Pocket::TopRight, PocketJaw::First) => (right_x - corner_offset, top_y),
+        (Pocket::TopRight, PocketJaw::Second) => (right_x, top_y - corner_offset),
+        (Pocket::CenterRight, PocketJaw::First) => (right_x, center_y + side_offset),
+        (Pocket::CenterRight, PocketJaw::Second) => (right_x, center_y - side_offset),
+        (Pocket::BottomRight, PocketJaw::First) => (right_x, bottom_y + corner_offset),
+        (Pocket::BottomRight, PocketJaw::Second) => (right_x - corner_offset, bottom_y),
+        (Pocket::BottomLeft, PocketJaw::First) => (left_x + corner_offset, bottom_y),
+        (Pocket::BottomLeft, PocketJaw::Second) => (left_x, bottom_y + corner_offset),
+        (Pocket::CenterLeft, PocketJaw::First) => (left_x, center_y - side_offset),
+        (Pocket::CenterLeft, PocketJaw::Second) => (left_x, center_y + side_offset),
+        (Pocket::TopLeft, PocketJaw::First) => (left_x, top_y - corner_offset),
+        (Pocket::TopLeft, PocketJaw::Second) => (left_x + corner_offset, top_y),
+    }
+}
+
+fn pocket_jaw_geometry_in_inches(
+    pocket: Pocket,
+    jaw: PocketJaw,
+    table: &TableSpec,
+) -> ResolvedPocketJawGeometry {
+    let (center_x, center_y) = pocket_jaw_reference_point_in_inches(pocket, jaw, table);
+    let nose_radius = match &table.pocket_spec(pocket).shape.jaw_geometry {
+        PocketJawGeometry::PointNoses => 0.0,
+        PocketJawGeometry::RoundedNoses { nose_radius } => nose_radius.as_f64(),
+    };
+
+    ResolvedPocketJawGeometry {
+        center_x,
+        center_y,
+        nose_radius,
+    }
+}
+
 fn pocket_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
-    let base_radius = 0.5
-        * table
-            .diamond_to_inches(table.pockets[pocket.index()].width.clone())
-            .as_f64();
-    match table.pockets[pocket.index()].ty {
+    let pocket_spec = table.pocket_spec(pocket);
+    let base_radius = 0.5 * table.diamond_to_inches(pocket_spec.width.clone()).as_f64();
+    match pocket_spec.ty {
         PocketType::Corner => base_radius * CORNER_POCKET_CAPTURE_RADIUS_SCALE,
         PocketType::Side => base_radius,
     }
@@ -3221,22 +3607,20 @@ fn pocket_entry_axis(pocket: Pocket) -> (f64, f64) {
     }
 }
 
-fn pocket_entry_angle_degrees(state: &BallState, pocket: Pocket) -> Option<f64> {
-    let vx = state.velocity.x().as_f64();
-    let vy = state.velocity.y().as_f64();
-    let speed = vx.hypot(vy);
+fn pocket_entry_angle_degrees_raw(state: RawOnTableBallState, pocket: Pocket) -> Option<f64> {
+    let speed = state.speed();
     if speed <= f64::EPSILON {
         return None;
     }
 
     let (entry_x, entry_y) = pocket_entry_axis(pocket);
-    let aligned = ((vx * entry_x) + (vy * entry_y)) / speed;
+    let aligned = ((state.vx * entry_x) + (state.vy * entry_y)) / speed;
 
     Some(aligned.clamp(-1.0, 1.0).acos().to_degrees())
 }
 
 fn pocket_capture_max_entry_angle_degrees(pocket: Pocket, speed: f64, table: &TableSpec) -> f64 {
-    match table.pockets[pocket.index()].ty {
+    match table.pocket_spec(pocket).ty {
         PocketType::Side => {
             let fast_fraction = (speed / POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
             SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES
@@ -3248,58 +3632,52 @@ fn pocket_capture_max_entry_angle_degrees(pocket: Pocket, speed: f64, table: &Ta
     }
 }
 
-fn pocket_acceptance_gap(state: &BallState, pocket: Pocket, table: &TableSpec) -> f64 {
-    let speed = ball_speed(state).as_f64();
+fn pocket_acceptance_gap_raw(state: RawOnTableBallState, pocket: Pocket, table: &TableSpec) -> f64 {
+    let speed = state.speed();
     if speed <= f64::EPSILON {
         return f64::INFINITY;
     }
 
-    let entry_angle = pocket_entry_angle_degrees(state, pocket).unwrap_or(f64::INFINITY);
+    let entry_angle = pocket_entry_angle_degrees_raw(state, pocket).unwrap_or(f64::INFINITY);
     entry_angle - pocket_capture_max_entry_angle_degrees(pocket, speed, table)
 }
 
-fn pocket_capture_gap_during_current_phase(
-    state: &OnTableBallState,
+fn pocket_capture_gap_during_current_phase_raw(
+    state: RawOnTableBallState,
     phase: MotionPhase,
     pocket: Pocket,
-    t: Seconds,
-    ball: &BallSetPhysicsSpec,
+    t_seconds: f64,
+    radius: f64,
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> f64 {
-    let at_t = advance_within_current_phase(state, phase, t, ball, config);
-    let state_at_t = at_t.as_ball_state();
+    let at_t = raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config);
     let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
-    let dx = state_at_t.position.x().as_f64() - pocket_x;
-    let dy = state_at_t.position.y().as_f64() - pocket_y;
+    let dx = at_t.x - pocket_x;
+    let dy = at_t.y - pocket_y;
     let radial_gap = dx.hypot(dy) - pocket_capture_radius_in_inches(pocket, table);
 
-    // First-pass jaw / rattle filter: the ball must not only reach the pocket's nominal capture
-    // region, it must also enter within a reasonable target-angle window. The local pocket-target
-    // whitepapers (TP 3.5 / 3.7 / 3.8) show that the effective target size shrinks quickly on
-    // steeper cuts, especially at speed. We approximate that here with a conservative entry-angle
-    // gate while leaving full explicit jaw / rattle collisions for future work.
-    radial_gap.max(pocket_acceptance_gap(state_at_t, pocket, table))
+    radial_gap.max(pocket_acceptance_gap_raw(at_t, pocket, table))
 }
 
-fn refine_ball_pocket_capture_time_during_current_phase(
-    state: &OnTableBallState,
+fn refine_ball_pocket_capture_time_during_current_phase_raw(
+    state: RawOnTableBallState,
     phase: MotionPhase,
     pocket: Pocket,
     mut left: f64,
     mut right: f64,
-    ball: &BallSetPhysicsSpec,
+    radius: f64,
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Seconds {
     for _ in 0..60 {
         let midpoint = 0.5 * (left + right);
-        let gap = pocket_capture_gap_during_current_phase(
+        let gap = pocket_capture_gap_during_current_phase_raw(
             state,
             phase.clone(),
             pocket,
-            Seconds::new(midpoint),
-            ball,
+            midpoint,
+            radius,
             table,
             config,
         );
@@ -3312,6 +3690,152 @@ fn refine_ball_pocket_capture_time_during_current_phase(
     }
 
     Seconds::new(right)
+}
+
+fn pocket_jaw_gap_during_current_phase_raw(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket: Pocket,
+    jaw: PocketJaw,
+    t_seconds: f64,
+    radius: f64,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> f64 {
+    let at_t = raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config);
+    let jaw_geometry = pocket_jaw_geometry_in_inches(pocket, jaw, table);
+
+    (at_t.x - jaw_geometry.center_x).hypot(at_t.y - jaw_geometry.center_y)
+        - (radius + jaw_geometry.nose_radius)
+}
+
+fn refine_ball_jaw_collision_time_during_current_phase_raw(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket: Pocket,
+    jaw: PocketJaw,
+    mut left: f64,
+    mut right: f64,
+    radius: f64,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Seconds {
+    for _ in 0..60 {
+        let midpoint = 0.5 * (left + right);
+        let gap = pocket_jaw_gap_during_current_phase_raw(
+            state,
+            phase.clone(),
+            pocket,
+            jaw,
+            midpoint,
+            radius,
+            table,
+            config,
+        );
+
+        if gap <= 0.0 {
+            right = midpoint;
+        } else {
+            left = midpoint;
+        }
+    }
+
+    Seconds::new(right)
+}
+
+pub fn compute_next_ball_jaw_impact_on_table(
+    state: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Option<PredictedBallJawImpact> {
+    let raw_state = RawOnTableBallState::from_on_table(state);
+    let radius = ball.radius.as_f64();
+    let phase = classify_motion_phase(state.as_ball_state(), ball, &config.phase);
+    let horizon = raw_compute_next_transition_on_table(raw_state, phase.clone(), radius, config)
+        .map(|transition| transition.time_until_transition.as_f64())
+        .unwrap_or(f64::INFINITY);
+    if !horizon.is_finite() || horizon <= f64::EPSILON {
+        return None;
+    }
+
+    const JAW_COLLISION_SCAN_STEPS: usize = 512;
+    let mut best: Option<PredictedBallJawImpact> = None;
+
+    for pocket in Pocket::ALL {
+        for jaw in PocketJaw::ALL {
+            let initial_gap = pocket_jaw_gap_during_current_phase_raw(
+                raw_state,
+                phase.clone(),
+                pocket,
+                jaw,
+                0.0,
+                radius,
+                table,
+                config,
+            );
+            if initial_gap <= 0.0 {
+                continue;
+            }
+
+            let mut previous_t = 0.0;
+            let mut previous_gap = initial_gap;
+
+            for step in 1..=JAW_COLLISION_SCAN_STEPS {
+                let t = horizon * step as f64 / JAW_COLLISION_SCAN_STEPS as f64;
+                let gap = pocket_jaw_gap_during_current_phase_raw(
+                    raw_state,
+                    phase.clone(),
+                    pocket,
+                    jaw,
+                    t,
+                    radius,
+                    table,
+                    config,
+                );
+
+                if previous_gap > 0.0 && gap <= 0.0 {
+                    let time_until_impact = refine_ball_jaw_collision_time_during_current_phase_raw(
+                        raw_state,
+                        phase.clone(),
+                        pocket,
+                        jaw,
+                        previous_t,
+                        t,
+                        radius,
+                        table,
+                        config,
+                    );
+                    let state_at_impact = raw_advance_within_phase_on_table(
+                        raw_state,
+                        phase.clone(),
+                        time_until_impact.as_f64(),
+                        radius,
+                        config,
+                    )
+                    .into_on_table_state();
+                    let impact = PredictedBallJawImpact {
+                        pocket,
+                        jaw,
+                        time_until_impact,
+                        state_at_impact,
+                    };
+
+                    if best.as_ref().is_none_or(|current| {
+                        impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
+                    }) {
+                        best = Some(impact);
+                    }
+                    break;
+                }
+
+                previous_t = t;
+                previous_gap = gap;
+            }
+        }
+    }
+
+    best
 }
 
 /// Predict the next future pocket capture for one on-table ball.
@@ -3336,8 +3860,10 @@ pub fn compute_next_ball_pocket_capture_on_table(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<PredictedBallPocketCapture> {
+    let raw_state = RawOnTableBallState::from_on_table(state);
+    let radius = ball.radius.as_f64();
     let phase = classify_motion_phase(state.as_ball_state(), ball, &config.phase);
-    let horizon = compute_next_transition_on_table(state, ball, config)
+    let horizon = raw_compute_next_transition_on_table(raw_state, phase.clone(), radius, config)
         .map(|transition| transition.time_until_transition.as_f64())
         .unwrap_or(f64::INFINITY);
     if !horizon.is_finite() || horizon <= f64::EPSILON {
@@ -3348,12 +3874,12 @@ pub fn compute_next_ball_pocket_capture_on_table(
     let mut best: Option<PredictedBallPocketCapture> = None;
 
     for pocket in Pocket::ALL {
-        let initial_gap = pocket_capture_gap_during_current_phase(
-            state,
+        let initial_gap = pocket_capture_gap_during_current_phase_raw(
+            raw_state,
             phase.clone(),
             pocket,
-            Seconds::zero(),
-            ball,
+            0.0,
+            radius,
             table,
             config,
         );
@@ -3366,34 +3892,35 @@ pub fn compute_next_ball_pocket_capture_on_table(
 
         for step in 1..=POCKET_CAPTURE_SCAN_STEPS {
             let t = horizon * step as f64 / POCKET_CAPTURE_SCAN_STEPS as f64;
-            let gap = pocket_capture_gap_during_current_phase(
-                state,
+            let gap = pocket_capture_gap_during_current_phase_raw(
+                raw_state,
                 phase.clone(),
                 pocket,
-                Seconds::new(t),
-                ball,
+                t,
+                radius,
                 table,
                 config,
             );
 
             if previous_gap > 0.0 && gap <= 0.0 {
-                let time_until_capture = refine_ball_pocket_capture_time_during_current_phase(
-                    state,
+                let time_until_capture = refine_ball_pocket_capture_time_during_current_phase_raw(
+                    raw_state,
                     phase.clone(),
                     pocket,
                     previous_t,
                     t,
-                    ball,
+                    radius,
                     table,
                     config,
                 );
-                let state_at_capture = advance_within_current_phase(
-                    state,
+                let state_at_capture = raw_advance_within_phase_on_table(
+                    raw_state,
                     phase.clone(),
-                    time_until_capture,
-                    ball,
+                    time_until_capture.as_f64(),
+                    radius,
                     config,
-                );
+                )
+                .into_on_table_state();
                 let capture = PredictedBallPocketCapture {
                     pocket,
                     time_until_capture,
@@ -4405,6 +4932,26 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
             }
         }
 
+        if let Some(impact) =
+            compute_next_ball_jaw_impact_on_table(first_state, ball, table, config)
+        {
+            let candidate = NBallPocketAwareSystemEventCandidate {
+                source: NBallPocketAwareSystemEventSource::BallJawImpact {
+                    ball_index: first_ball_index,
+                },
+                event: NBallSystemEvent::BallJawImpact {
+                    ball_index: first_ball_index,
+                    impact,
+                },
+            };
+
+            if next.as_ref().is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
+            }) {
+                next = Some(candidate);
+            }
+        }
+
         if let Some(capture) =
             compute_next_ball_pocket_capture_on_table(first_state, ball, table, config)
         {
@@ -4470,8 +5017,9 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
 /// Advance the richer indexed N-ball system to the next supported event while also resolving rail
 /// impacts using explicit rail-response coefficients and pocket captures against the current table
 /// geometry.
-pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
     states: &[NBallSystemState],
+    event: &NBallSystemEvent,
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     motion: &OnTableMotionConfig,
@@ -4479,20 +5027,10 @@ pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
     collision_config: &BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallSystemAdvance {
-    let Some(event) = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
-        states, ball, table, motion,
-    ) else {
-        return NBallSystemAdvance {
-            states: states.to_vec(),
-            elapsed: Seconds::zero(),
-            event: None,
-        };
-    };
-
+) -> Vec<NBallSystemState> {
     let elapsed = event.time();
     let mut states_after = advance_n_ball_system_without_event(states, elapsed, ball, motion);
-    match &event {
+    match event {
         NBallSystemEvent::MotionTransition { .. } => {}
         NBallSystemEvent::BallBallCollision {
             first_ball_index,
@@ -4507,6 +5045,17 @@ pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
             );
             states_after[*first_ball_index] = NBallSystemState::OnTable(first_after);
             states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
+        }
+        NBallSystemEvent::BallJawImpact { ball_index, impact } => {
+            states_after[*ball_index] =
+                NBallSystemState::OnTable(collide_ball_jaw_on_table_with_radius_and_profile(
+                    &impact.state_at_impact,
+                    impact,
+                    table,
+                    ball.radius.clone(),
+                    rail_model,
+                    rail_profile,
+                ));
         }
         NBallSystemEvent::BallPocketCapture {
             ball_index,
@@ -4528,10 +5077,42 @@ pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
                 ));
         }
     }
+    states_after
+}
+
+pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallSystemAdvance {
+    let Some(event) = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        states, ball, table, motion,
+    ) else {
+        return NBallSystemAdvance {
+            states: states.to_vec(),
+            elapsed: Seconds::zero(),
+            event: None,
+        };
+    };
 
     NBallSystemAdvance {
-        states: states_after,
-        elapsed,
+        states: resolve_n_ball_system_event_with_physics_and_pockets_on_table(
+            states,
+            &event,
+            ball,
+            table,
+            motion,
+            collision_model,
+            collision_config,
+            rail_model,
+            rail_profile,
+        ),
+        elapsed: event.time(),
         event: Some(event),
     }
 }
@@ -4601,47 +5182,6 @@ pub fn advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
     )
 }
 
-fn simulate_n_ball_system_with_pockets_until_rest<AdvanceNextEvent>(
-    states: &[NBallSystemState],
-    advance_next_event: AdvanceNextEvent,
-) -> NBallSystemSimulation
-where
-    AdvanceNextEvent: Fn(&[NBallSystemState]) -> NBallSystemAdvance,
-{
-    let mut states = states.to_vec();
-    let mut elapsed = Seconds::zero();
-    let mut events = Vec::new();
-
-    loop {
-        let advanced = advance_next_event(&states);
-        let step_elapsed = advanced.elapsed.as_f64();
-
-        let Some(event) = advanced.event else {
-            assert!(
-                step_elapsed.abs() <= f64::EPSILON,
-                "pocket-aware n-ball until-rest simulation should not consume time without an event"
-            );
-            states = advanced.states;
-            break;
-        };
-
-        assert!(
-            step_elapsed > f64::EPSILON,
-            "next pocket-aware n-ball event must advance simulation time"
-        );
-
-        states = advanced.states;
-        elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
-        events.push(event);
-    }
-
-    NBallSystemSimulation {
-        states,
-        elapsed,
-        events,
-    }
-}
-
 /// Simulate the richer indexed N-ball system until rest while also resolving rail impacts using
 /// explicit rail-response coefficients and pocket captures.
 pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
@@ -4654,9 +5194,24 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
 ) -> NBallSystemSimulation {
-    simulate_n_ball_system_with_pockets_until_rest(states, |current| {
-        advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
-            current,
+    let mut states = states.to_vec();
+    let mut elapsed = Seconds::zero();
+    let mut events = Vec::new();
+    let mut cache = PocketAwareEventCache::build(&states, ball, table, motion);
+
+    loop {
+        let Some(event) = cache.next_event() else {
+            break;
+        };
+        let step_elapsed = event.time().as_f64();
+        assert!(
+            step_elapsed > f64::EPSILON,
+            "next pocket-aware n-ball event must advance simulation time"
+        );
+
+        states = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
+            &states,
+            &event,
             ball,
             table,
             motion,
@@ -4664,8 +5219,19 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
             collision_config,
             rail_model,
             rail_profile,
-        )
-    })
+        );
+        elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
+        events.push(event.clone());
+
+        cache.shift_event_times(Seconds::new(step_elapsed));
+        cache.refresh_affected_balls(&event, &states, ball, table, motion);
+    }
+
+    NBallSystemSimulation {
+        states,
+        elapsed,
+        events,
+    }
 }
 
 pub fn simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
@@ -5639,6 +6205,17 @@ pub fn estimate_post_contact_cue_ball_bend_on_table(
     })
 }
 
+fn cushion_collision_basis_from_normal(normal_x: f64, normal_y: f64) -> (f64, f64, f64, f64) {
+    let norm = normal_x.hypot(normal_y);
+    assert!(
+        norm > f64::EPSILON,
+        "cushion collision normal must be non-zero"
+    );
+    let normal_x = normal_x / norm;
+    let normal_y = normal_y / norm;
+    (normal_x, normal_y, normal_y, -normal_x)
+}
+
 fn rail_collision_basis(rail: Rail) -> (f64, f64, f64, f64) {
     match rail {
         Rail::Top => (0.0, -1.0, 1.0, 0.0),
@@ -5646,6 +6223,18 @@ fn rail_collision_basis(rail: Rail) -> (f64, f64, f64, f64) {
         Rail::Left => (1.0, 0.0, 0.0, 1.0),
         Rail::Right => (-1.0, 0.0, 0.0, 1.0),
     }
+}
+
+fn pocket_jaw_collision_basis(
+    impact: &PredictedBallJawImpact,
+    table: &TableSpec,
+) -> (f64, f64, f64, f64) {
+    let state = impact.state_at_impact.as_ball_state();
+    let jaw_geometry = pocket_jaw_geometry_in_inches(impact.pocket, impact.jaw, table);
+    cushion_collision_basis_from_normal(
+        state.position.x().as_f64() - jaw_geometry.center_x,
+        state.position.y().as_f64() - jaw_geometry.center_y,
+    )
 }
 
 fn rebuild_velocity_from_basis(
@@ -5680,12 +6269,14 @@ fn validated_rail_tangential_friction_coefficient(config: &RailCollisionConfig) 
     friction
 }
 
-fn restitution_aware_ball_rail_collision_velocity(
+fn restitution_aware_ball_cushion_collision_velocity_from_basis(
     velocity: &Velocity2,
-    rail: Rail,
+    normal_x: f64,
+    normal_y: f64,
+    tangent_x: f64,
+    tangent_y: f64,
     normal_restitution: f64,
 ) -> Velocity2 {
-    let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
     let normal_component = project_velocity_on_basis(velocity, normal_x, normal_y);
     let tangent_component = project_velocity_on_basis(velocity, tangent_x, tangent_y);
 
@@ -5696,6 +6287,22 @@ fn restitution_aware_ball_rail_collision_velocity(
         normal_y,
         tangent_x,
         tangent_y,
+    )
+}
+
+fn restitution_aware_ball_rail_collision_velocity(
+    velocity: &Velocity2,
+    rail: Rail,
+    normal_restitution: f64,
+) -> Velocity2 {
+    let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
+    restitution_aware_ball_cushion_collision_velocity_from_basis(
+        velocity,
+        normal_x,
+        normal_y,
+        tangent_x,
+        tangent_y,
+        normal_restitution,
     )
 }
 
@@ -5894,26 +6501,24 @@ fn clamp_rail_rebound_horizontal_spin_to_slip_limit(
     *outgoing_wy = rolling_outgoing_wy + deviation_scale * (*outgoing_wy - rolling_outgoing_wy);
 }
 
-fn spin_aware_ball_rail_collision_on_table(
+fn spin_aware_ball_cushion_collision_on_table_from_basis(
     state: &OnTableBallState,
-    rail: Rail,
+    normal_x: f64,
+    normal_y: f64,
+    tangent_x: f64,
+    tangent_y: f64,
     ball_radius: f64,
     normal_restitution: f64,
     tangential_friction_coefficient: f64,
 ) -> OnTableBallState {
     assert!(
         ball_radius > f64::EPSILON,
-        "spin-aware rail collisions require a positive ball radius"
+        "spin-aware cushion collisions require a positive ball radius"
     );
 
     let state_ref = state.as_ball_state();
-    let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
     let normal_component = project_velocity_on_basis(&state_ref.velocity, normal_x, normal_y);
     let tangent_component = project_velocity_on_basis(&state_ref.velocity, tangent_x, tangent_y);
-    // The local cushion-contact references place the rail contact point above the ball center.
-    // Using that raised contact geometry gives a slightly shorter horizontal normal lever arm than
-    // a full side-equator contact point, which modestly reduces the `ωz` coupling created by
-    // along-rail friction.
     let contact_normal_lever = ball_radius * theoretical_cushion_contact_normal_lever_ratio();
     let contact_x = -contact_normal_lever * normal_x;
     let contact_y = -contact_normal_lever * normal_y;
@@ -5948,23 +6553,6 @@ fn spin_aware_ball_rail_collision_on_table(
         tangent_x,
         tangent_y,
     );
-
-    // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Figure 6 and §7.1, describe the
-    // rail rebound in terms of normal elasticity `N`, tangential friction `fi`, and the full
-    // contact-slip vector `WCa` inside the rail tangent plane. Eq. (C10) gives a friction-limited
-    // change along `-WCa`, while Eqs. (C11) and (C13) provide the no-slip / adherence limit.
-    // This first-pass rail model therefore uses the smaller of those two magnitudes on the full
-    // 2D slip vector: along-rail slip from running / reverse english and vertical slip from top /
-    // draw both contribute. Because the current on-table state does not represent post-impact
-    // vertical center-of-mass velocity, the vertical translational component of that frictional rail
-    // impulse is projected out after using it to compute the coupled spin change.
-    //
-    // Important limitations are tracked in `whitepapers/rail_rebound.md`. In particular, the
-    // reduced on-table model still compresses the full cushion geometry/compliance behavior down to
-    // a small effective `a`-style term plus tuned horizontal-spin clamps. That means ordinary no-
-    // english rolling rail contacts can still over-seed running english (`ωz`) in some shots, while
-    // pure stun entries likely under-pick-up some of the forward vertical-plane roll suggested by
-    // the TP 7.3 worked example.
     let normal_cross_tangent_z = normal_x * tangent_y - normal_y * tangent_x;
     let angular_response = cushion_angular_response_coefficient(ball_radius);
     let delta_wz = -angular_response
@@ -6003,6 +6591,77 @@ fn spin_aware_ball_rail_collision_on_table(
     let angular_velocity = AngularVelocity3::new(outgoing_wx, outgoing_wy, outgoing_wz);
 
     build_on_table_ball_state(state_ref.position.clone(), velocity, angular_velocity)
+}
+
+fn spin_aware_ball_rail_collision_on_table(
+    state: &OnTableBallState,
+    rail: Rail,
+    ball_radius: f64,
+    normal_restitution: f64,
+    tangential_friction_coefficient: f64,
+) -> OnTableBallState {
+    let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
+    spin_aware_ball_cushion_collision_on_table_from_basis(
+        state,
+        normal_x,
+        normal_y,
+        tangent_x,
+        tangent_y,
+        ball_radius,
+        normal_restitution,
+        tangential_friction_coefficient,
+    )
+}
+
+fn collide_ball_jaw_on_table_with_radius_and_profile(
+    state: &OnTableBallState,
+    impact: &PredictedBallJawImpact,
+    table: &TableSpec,
+    ball_radius: Inches,
+    model: RailModel,
+    profile: &RailCollisionProfile,
+) -> OnTableBallState {
+    let associated_rail = pocket_jaw_associated_rail(impact.pocket, impact.jaw);
+    let config = profile.for_rail(associated_rail);
+    let (normal_x, normal_y, tangent_x, tangent_y) = pocket_jaw_collision_basis(impact, table);
+    let state_ref = state.as_ball_state();
+
+    match model {
+        RailModel::Mirror => build_on_table_ball_state(
+            state_ref.position.clone(),
+            restitution_aware_ball_cushion_collision_velocity_from_basis(
+                &state_ref.velocity,
+                normal_x,
+                normal_y,
+                tangent_x,
+                tangent_y,
+                1.0,
+            ),
+            state_ref.angular_velocity.clone(),
+        ),
+        RailModel::RestitutionOnly => build_on_table_ball_state(
+            state_ref.position.clone(),
+            restitution_aware_ball_cushion_collision_velocity_from_basis(
+                &state_ref.velocity,
+                normal_x,
+                normal_y,
+                tangent_x,
+                tangent_y,
+                validated_rail_normal_restitution(config),
+            ),
+            state_ref.angular_velocity.clone(),
+        ),
+        RailModel::SpinAware => spin_aware_ball_cushion_collision_on_table_from_basis(
+            state,
+            normal_x,
+            normal_y,
+            tangent_x,
+            tangent_y,
+            ball_radius.as_f64(),
+            validated_rail_normal_restitution(config),
+            validated_rail_tangential_friction_coefficient(config),
+        ),
+    }
 }
 
 /// Resolve an instantaneous ball-rail collision for a validated on-table state using an explicit
@@ -6671,7 +7330,7 @@ impl Pocket {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 /// A type of pocket.
 pub enum PocketType {
     /// One of the four corner pockets.
@@ -6681,15 +7340,52 @@ pub enum PocketType {
     Side,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum PocketJawGeometry {
+    PointNoses,
+    RoundedNoses { nose_radius: Inches },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PocketShapeSpec {
+    pub jaw_geometry: PocketJawGeometry,
+}
+
+impl PocketShapeSpec {
+    pub fn point_noses() -> Self {
+        Self {
+            jaw_geometry: PocketJawGeometry::PointNoses,
+        }
+    }
+
+    pub fn rounded_noses(nose_radius: Inches) -> Self {
+        assert!(
+            nose_radius.as_f64() >= 0.0,
+            "pocket jaw nose radius must be non-negative"
+        );
+        Self {
+            jaw_geometry: PocketJawGeometry::RoundedNoses { nose_radius },
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 /// Physical specifications of a pocket.
 pub struct PocketSpec {
     pub ty: PocketType,
     pub depth: Diamond,
     pub width: Diamond,
+    pub shape: PocketShapeSpec,
 }
 
-#[derive(Clone, Debug)]
+impl PocketSpec {
+    pub fn with_shape(mut self, shape: PocketShapeSpec) -> Self {
+        self.shape = shape;
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 /// Physical specifications of a pool table.
 pub struct TableSpec {
     pub pockets: [PocketSpec; 6],
@@ -6753,6 +7449,7 @@ impl TableSpec {
                 magnitude: GC4_CORNER_POCKET_WIDTH.magnitude.clone()
                     / diamond_length.magnitude.clone(),
             },
+            shape: Self::brunswick_gc4_corner_pocket_shape(),
         }
     }
 
@@ -6767,7 +7464,29 @@ impl TableSpec {
                 magnitude: GC4_SIDE_POCKET_WIDTH.magnitude.clone()
                     / diamond_length.magnitude.clone(),
             },
+            shape: Self::brunswick_gc4_side_pocket_shape(),
         }
+    }
+
+    pub fn brunswick_gc4_corner_pocket_shape() -> PocketShapeSpec {
+        PocketShapeSpec::rounded_noses(Inches::from_f64(0.125))
+    }
+
+    pub fn brunswick_gc4_side_pocket_shape() -> PocketShapeSpec {
+        PocketShapeSpec::rounded_noses(Inches::from_f64(0.125))
+    }
+
+    pub fn pocket_spec(&self, pocket: Pocket) -> &PocketSpec {
+        &self.pockets[pocket.index()]
+    }
+
+    pub fn pocket_spec_mut(&mut self, pocket: Pocket) -> &mut PocketSpec {
+        &mut self.pockets[pocket.index()]
+    }
+
+    pub fn with_pocket_shape(mut self, pocket: Pocket, shape: PocketShapeSpec) -> Self {
+        self.pocket_spec_mut(pocket).shape = shape;
+        self
     }
 
     /// For a given table, convert Diamond Units into Inches.

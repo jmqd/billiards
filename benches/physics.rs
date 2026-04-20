@@ -3,17 +3,19 @@ use std::time::Duration;
 
 use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario, DslScenario};
 use billiards::{
+    advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
     collide_ball_ball_detailed_on_table,
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_ball_rail_impact_on_table, compute_next_transition_on_table,
-    compute_next_two_ball_event_with_rails_on_table, simulate_two_on_table_balls,
+    compute_next_two_ball_event_with_rails_on_table,
+    simulate_n_balls_with_rails_and_pockets_on_table_until_rest, simulate_two_on_table_balls,
     strike_resting_ball_on_table, trace_ball_path_with_rails_on_table, Angle, AngularVelocity3,
     Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel,
     CueStrikeConfig, CueTipContact, Diamond, GameState, Inches, Inches2, InchesPerSecond,
-    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
-    OnTableMotionConfig, Position, RadiansPerSecondSq, Rail, RailAngleReference, RailModel,
-    RailTangentDirection, RestingOnTableBallState, RollingResistanceModel, Seconds,
-    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, NBallSystemState,
+    OnTableBallState, OnTableMotionConfig, Position, RadiansPerSecondSq, Rail, RailAngleReference,
+    RailModel, RailTangentDirection, RestingOnTableBallState, RollingResistanceModel, Seconds,
+    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT, TYPICAL_BALL_RADIUS,
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 
@@ -206,6 +208,32 @@ fn throw_aware_collision_states() -> (OnTableBallState, OnTableBallState) {
     )
 }
 
+fn direct_pocket_aware_inputs() -> (
+    Vec<OnTableBallState>,
+    BallSetPhysicsSpec,
+    TableSpec,
+    OnTableMotionConfig,
+) {
+    let table = TableSpec::default();
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let cue = on_table(BallState::on_table(
+        inches2(
+            40.0,
+            table.diamond_to_inches(CENTER_SPOT.y.clone()).as_f64(),
+        ),
+        Velocity2::new("10", "0"),
+        AngularVelocity3::new(0.0, 10.0 / TYPICAL_BALL_RADIUS.as_f64(), 0.0),
+    ));
+    let spinner = on_table(BallState::on_table(
+        inches2(20.0, 20.0),
+        Velocity2::zero(),
+        AngularVelocity3::new(0.0, 0.0, 6.0),
+    ));
+
+    (vec![cue, spinner], ball_set, table, motion)
+}
+
 fn run_direct_single_ball_shot_to_completion() {
     let (seeded, ball_set, table, motion) = direct_seeded_single_ball();
     black_box(trace_ball_path_with_rails_on_table(
@@ -291,6 +319,43 @@ fn run_dsl_two_ball_shot_to_completion_from_parse() {
         &motion,
         CollisionModel::Ideal,
     ));
+}
+
+fn run_cached_pocket_aware_until_rest() {
+    let (states, ball_set, table, motion) = direct_pocket_aware_inputs();
+    black_box(simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+        &states,
+        &ball_set,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    ));
+}
+
+fn run_manual_pocket_aware_until_rest() {
+    let (states, ball_set, table, motion) = direct_pocket_aware_inputs();
+    let mut system_states = states
+        .into_iter()
+        .map(NBallSystemState::from)
+        .collect::<Vec<_>>();
+
+    loop {
+        let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+            &system_states,
+            &ball_set,
+            &table,
+            &motion,
+            CollisionModel::Ideal,
+            RailModel::Mirror,
+        );
+        if advanced.event.is_none() {
+            break;
+        }
+        system_states = advanced.states;
+    }
+
+    black_box(system_states);
 }
 
 fn bench_setup(c: &mut Criterion) {
@@ -425,6 +490,12 @@ fn bench_end_to_end(c: &mut Criterion) {
     });
     group.bench_function("dsl/parse_and_simulate_two_ball_to_completion", |b| {
         b.iter(run_dsl_two_ball_shot_to_completion_from_parse)
+    });
+    group.bench_function("direct/pocket_aware_until_rest_cached", |b| {
+        b.iter(run_cached_pocket_aware_until_rest)
+    });
+    group.bench_function("direct/pocket_aware_until_rest_manual", |b| {
+        b.iter(run_manual_pocket_aware_until_rest)
     });
 
     group.finish();

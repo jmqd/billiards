@@ -44,11 +44,7 @@ fn given_a_straight_in_shot_when_calculating_the_aim_angle_then_it_points_straig
     let object_ball = object_ball_at("2", "6");
     let shooting_position = Position::new(2u8, 4u8);
 
-    let angle = object_ball.aim_angle(
-        &Position::new(2u8, 8u8),
-        &shooting_position,
-        &table,
-    );
+    let angle = object_ball.aim_angle(&Position::new(2u8, 8u8), &shooting_position, &table);
 
     assert_close(angle_degrees(angle), 0.0);
 }
@@ -65,11 +61,8 @@ fn given_an_object_ball_and_pocket_when_calculating_the_aim_angle_then_the_pocke
         &shooting_position,
         &table,
     );
-    let angle_via_pocket = object_ball.aim_angle_to_pocket(
-        Pocket::TopRight,
-        &shooting_position,
-        &table,
-    );
+    let angle_via_pocket =
+        object_ball.aim_angle_to_pocket(Pocket::TopRight, &shooting_position, &table);
 
     assert_close(
         angle_degrees(angle_via_pocket),

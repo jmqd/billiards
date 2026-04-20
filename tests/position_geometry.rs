@@ -1,7 +1,7 @@
 use bigdecimal::ToPrimitive;
 use billiards::{
     translate_inwards, Angle, Ball, BallSpec, BallType, Diamond, GameState, Position, Rail,
-    TableSpec, TYPICAL_BALL_RADIUS, TOP_RIGHT_DIAMOND,
+    TableSpec, TOP_RIGHT_DIAMOND, TYPICAL_BALL_RADIUS,
 };
 
 fn diamond_value(diamond: &Diamond) -> f64 {
@@ -17,7 +17,8 @@ fn assert_close(actual: f64, expected: f64) {
 }
 
 #[test]
-fn given_a_position_when_translating_in_cardinal_directions_then_the_expected_coordinates_are_reached() {
+fn given_a_position_when_translating_in_cardinal_directions_then_the_expected_coordinates_are_reached(
+) {
     let origin = Position::new(2u8, 4u8);
 
     let up = origin.translate(Diamond::one(), Angle::from_north(0.0, 1.0));
@@ -36,7 +37,8 @@ fn given_a_position_when_translating_in_cardinal_directions_then_the_expected_co
 }
 
 #[test]
-fn given_a_position_when_translating_inches_and_resolving_then_the_equivalent_diamond_shift_is_applied() {
+fn given_a_position_when_translating_inches_and_resolving_then_the_equivalent_diamond_shift_is_applied(
+) {
     let table = TableSpec::default();
     let mut shifted = Position::new(2u8, 4u8)
         .translate_inches(TYPICAL_BALL_RADIUS.clone(), Angle::from_north(1.0, 0.0));
@@ -60,7 +62,11 @@ fn given_a_position_when_translating_to_the_ghost_ball_then_it_moves_by_one_ball
 
 #[test]
 fn given_the_top_right_corner_when_translating_inwards_then_both_coordinates_move_toward_center() {
-    let moved = translate_inwards(&TOP_RIGHT_DIAMOND, Diamond::from("0.07"), Diamond::from("0.07"));
+    let moved = translate_inwards(
+        &TOP_RIGHT_DIAMOND,
+        Diamond::from("0.07"),
+        Diamond::from("0.07"),
+    );
 
     assert_close(diamond_value(&moved.x), 3.93);
     assert_close(diamond_value(&moved.y), 7.93);

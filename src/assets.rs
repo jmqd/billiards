@@ -69,14 +69,16 @@ mod tests {
     use crate::{Position, CENTER_SPOT, TOP_RIGHT_DIAMOND};
 
     #[test]
-    fn given_known_table_anchor_positions_when_mapping_to_pixels_then_expected_anchor_pixels_are_returned() {
+    fn given_known_table_anchor_positions_when_mapping_to_pixels_then_expected_anchor_pixels_are_returned(
+    ) {
         assert_eq!(diamond_to_pixel(&Position::new(0u8, 0u8)), (110, 1828));
         assert_eq!(diamond_to_pixel(&CENTER_SPOT), (539, 969));
         assert_eq!(diamond_to_pixel(&TOP_RIGHT_DIAMOND), (968, 110));
     }
 
     #[test]
-    fn given_the_current_table_asset_when_computing_the_ideal_ball_size_then_the_expected_sprite_diameter_is_returned() {
+    fn given_the_current_table_asset_when_computing_the_ideal_ball_size_then_the_expected_sprite_diameter_is_returned(
+    ) {
         assert_eq!(ideal_ball_size_px(), 39);
     }
 }

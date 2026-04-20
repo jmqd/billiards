@@ -1,5 +1,7 @@
 use bigdecimal::ToPrimitive;
-use billiards::{rack_9_ball, racked_ball_positions, Ball, BallSpec, BallType, Displacement, Position, TableSpec};
+use billiards::{
+    rack_9_ball, racked_ball_positions, Ball, BallSpec, BallType, Displacement, Position, TableSpec,
+};
 
 fn diamond_value(position: &Position) -> (f64, f64) {
     (
@@ -17,12 +19,16 @@ fn assert_close(actual: f64, expected: f64) {
 }
 
 #[test]
-fn given_a_three_four_five_displacement_when_measuring_distance_then_the_pythagorean_length_is_returned() {
+fn given_a_three_four_five_displacement_when_measuring_distance_then_the_pythagorean_length_is_returned(
+) {
     let displacement = Displacement::new("3", "4");
 
     let distance = displacement.absolute_distance();
 
-    assert_close(distance.magnitude.to_f64().expect("distance magnitude"), 5.0);
+    assert_close(
+        distance.magnitude.to_f64().expect("distance magnitude"),
+        5.0,
+    );
 }
 
 #[test]
@@ -48,15 +54,25 @@ fn given_racked_ball_positions_when_returned_then_adjacent_balls_are_already_one
 
     let distance = head_ball.distance(&second_row_left);
 
-    assert_close(distance.magnitude.to_f64().expect("distance magnitude"), expected_diameter);
+    assert_close(
+        distance.magnitude.to_f64().expect("distance magnitude"),
+        expected_diameter,
+    );
 }
 
 #[test]
-fn given_a_nine_ball_rack_when_built_then_the_nine_ball_sits_behind_the_head_ball_in_the_middle_of_the_triangle() {
+fn given_a_nine_ball_rack_when_built_then_the_nine_ball_sits_behind_the_head_ball_in_the_middle_of_the_triangle(
+) {
     let rack = rack_9_ball();
 
-    let head_ball = rack.iter().find(|ball| ball.ty == BallType::One).expect("head ball");
-    let nine_ball = rack.iter().find(|ball| ball.ty == BallType::Nine).expect("nine ball");
+    let head_ball = rack
+        .iter()
+        .find(|ball| ball.ty == BallType::One)
+        .expect("head ball");
+    let nine_ball = rack
+        .iter()
+        .find(|ball| ball.ty == BallType::Nine)
+        .expect("nine ball");
 
     let (head_x, head_y) = diamond_value(&head_ball.position);
     let (nine_x, nine_y) = diamond_value(&nine_ball.position);

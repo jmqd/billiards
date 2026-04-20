@@ -52,7 +52,8 @@ fn given_the_center_spot_when_checking_side_helpers_then_it_is_on_neither_side_o
 }
 
 #[test]
-fn given_positions_on_the_center_lines_when_checking_side_helpers_then_only_strict_relations_are_true() {
+fn given_positions_on_the_center_lines_when_checking_side_helpers_then_only_strict_relations_are_true(
+) {
     let above_center = Position::new(2u8, 6u8);
     let right_of_center = Position::new(3u8, 4u8);
 

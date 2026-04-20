@@ -4,13 +4,12 @@ use billiards::dsl::{
     DslError, DslParseError, RailSide, ScenarioTraceRenderOptions,
 };
 use billiards::{
-    Angle,
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
-    visualization::{BallPathRenderOptions, PathColorMode}, BallSetPhysicsSpec, BallType, CollisionModel, Diamond,
-    HumanShotSpeedBand, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
-    NBallSystemEvent, NBallSystemState, OnTableMotionConfig, Pocket,
-    RadiansPerSecondSq, RailCollisionProfile, RailModel, RollingResistanceModel,
-    SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
+    visualization::{BallPathRenderOptions, PathColorMode},
+    Angle, BallSetPhysicsSpec, BallType, CollisionModel, Diamond, HumanShotSpeedBand,
+    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
+    NBallSystemState, OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailCollisionProfile,
+    RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
 };
 use image::load_from_memory;
 
@@ -197,11 +196,21 @@ fn shot_speed_literals_accept_mph_and_kph() {
     .expect("expected kph shot DSL to build");
 
     assert_close(
-        mph.shot.as_ref().expect("mph shot").shot.cue_speed().as_f64(),
+        mph.shot
+            .as_ref()
+            .expect("mph shot")
+            .shot
+            .cue_speed()
+            .as_f64(),
         176.0,
     );
     assert_close(
-        kph.shot.as_ref().expect("kph shot").shot.cue_speed().as_f64(),
+        kph.shot
+            .as_ref()
+            .expect("kph shot")
+            .shot
+            .cue_speed()
+            .as_f64(),
         176.0,
     );
 }
@@ -287,14 +296,32 @@ fn shot_scenarios_can_derive_heading_with_cut_helpers() {
     )
     .expect("expected cut shot DSL to build");
 
-    let cue = scenario.game_state.select_ball(BallType::Cue).expect("cue ball placement");
-    let nine = scenario.game_state.select_ball(BallType::Nine).expect("nine ball placement");
+    let cue = scenario
+        .game_state
+        .select_ball(BallType::Cue)
+        .expect("cue ball placement");
+    let nine = scenario
+        .game_state
+        .select_ball(BallType::Nine)
+        .expect("nine ball placement");
     let object_heading_degrees = cue.position.angle_to(&nine.position).as_degrees() - 32.0;
-    let object_heading = Angle::from_north(object_heading_degrees.to_radians().sin(), object_heading_degrees.to_radians().cos());
+    let object_heading = Angle::from_north(
+        object_heading_degrees.to_radians().sin(),
+        object_heading_degrees.to_radians().cos(),
+    );
     let destination = nine.position.translate(Diamond::one(), object_heading);
     let expected = nine.aim_angle(&destination, &cue.position, &scenario.game_state.table_spec);
 
-    assert_close(scenario.shot.as_ref().expect("shot").shot.heading().as_degrees(), expected.as_degrees());
+    assert_close(
+        scenario
+            .shot
+            .as_ref()
+            .expect("shot")
+            .shot
+            .heading()
+            .as_degrees(),
+        expected.as_degrees(),
+    );
 }
 
 #[test]
@@ -349,7 +376,13 @@ fn shot_scenarios_can_derive_heading_with_cut_left_and_cut_right_aliases() {
             .shot
             .heading()
             .as_degrees(),
-        via_cut.shot.as_ref().expect("shot").shot.heading().as_degrees(),
+        via_cut
+            .shot
+            .as_ref()
+            .expect("shot")
+            .shot
+            .heading()
+            .as_degrees(),
     );
     assert_close(
         via_cut_right
@@ -707,8 +740,14 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
         &motion_config(),
     );
 
-    assert_eq!(render_png(&rendered), render_png(&rendered_via_default_options));
-    assert_ne!(render_png(&rendered), render_png(&rendered_with_rich_overlays));
+    assert_eq!(
+        render_png(&rendered),
+        render_png(&rendered_via_default_options)
+    );
+    assert_ne!(
+        render_png(&rendered),
+        render_png(&rendered_with_rich_overlays)
+    );
 
     assert!(matches!(
         trace.event_log.as_slice(),

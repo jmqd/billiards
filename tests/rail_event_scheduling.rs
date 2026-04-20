@@ -138,9 +138,8 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
     let outside_impact = outside_impact.expect(
         "outside english should still be able to reach the left rail in this staged post-contact case",
     );
-    let inside_impact = inside_impact.expect(
-        "inside english should also still reach the left rail here, but later",
-    );
+    let inside_impact = inside_impact
+        .expect("inside english should also still reach the left rail here, but later");
     assert_eq!(outside_impact.rail, Rail::Left);
     assert_eq!(inside_impact.rail, Rail::Left);
     assert_eq!(
@@ -230,7 +229,9 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
             assert_eq!(transition.phase_after, MotionPhase::Rolling);
             transition.time_until_transition.as_f64()
         }
-        other => panic!("expected motion transition under the conservative side-spin model, got {other:?}"),
+        other => panic!(
+            "expected motion transition under the conservative side-spin model, got {other:?}"
+        ),
     };
     let inside_time = match inside_event {
         TwoBallOnTableEvent::MotionTransition { ball, transition } => {
@@ -239,7 +240,9 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
             assert_eq!(transition.phase_after, MotionPhase::Rolling);
             transition.time_until_transition.as_f64()
         }
-        other => panic!("expected motion transition under the conservative side-spin model, got {other:?}"),
+        other => panic!(
+            "expected motion transition under the conservative side-spin model, got {other:?}"
+        ),
     };
     assert!(
         outside_time < inside_time,

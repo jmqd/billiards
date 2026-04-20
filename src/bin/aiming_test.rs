@@ -48,11 +48,8 @@ fn main() {
         .unwrap()
         .position
         .clone();
-    let aim_angle = six.aim_angle_to_pocket(
-        Pocket::TopRight,
-        &cue_ball_pos,
-        &game_state.table_spec,
-    );
+    let aim_angle =
+        six.aim_angle_to_pocket(Pocket::TopRight, &cue_ball_pos, &game_state.table_spec);
     let ghost_ball_pos = six.ghost_ball_to_pocket(Pocket::TopRight, &game_state.table_spec);
 
     println!("aim angle: {}", aim_angle);

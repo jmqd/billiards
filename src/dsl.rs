@@ -1,3 +1,9 @@
+#![allow(
+    clippy::let_unit_value,
+    clippy::needless_lifetimes,
+    clippy::result_large_err
+)]
+
 use std::collections::HashMap;
 
 use crate::{
@@ -12,10 +18,10 @@ use crate::{
     BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
     CueTipContact, Diamond, GameState, HumanShotSpeedValidation, Inches, InchesPerSecond,
     MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
-    OnTableMotionConfig, Pocket, PocketJaw, Position, Rail, RailCollisionConfig, RailCollisionProfile,
-    RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError, TableSpec,
-    BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
-    CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
+    OnTableMotionConfig, Pocket, PocketJaw, Position, Rail, RailCollisionConfig,
+    RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError,
+    TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
+    CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use image::Rgba;
 use winnow::ascii::{float, line_ending, till_line_ending};
@@ -1078,7 +1084,10 @@ pub enum ShotMethodExpr {
         degrees: f64,
     },
     SpeedIps(f64),
-    Tip { side: f64, height: f64 },
+    Tip {
+        side: f64,
+        height: f64,
+    },
     Using(String),
 }
 
@@ -2219,22 +2228,17 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
     repeat(0.., statement)
         .fold(
             || (),
-            |(), entry| {
-                match entry {
-                    DslStatement::Table(table) => doc.table = Some(table),
-                    DslStatement::Alias(alias) => doc.entries.push(DslEntry::Alias(alias)),
-                    DslStatement::Ball(placement) => doc.entries.push(DslEntry::Ball(placement)),
-                    DslStatement::CueStrike(def) => doc.entries.push(DslEntry::CueStrike(def)),
-                    DslStatement::BallBall(def) => doc.entries.push(DslEntry::BallBall(def)),
-                    DslStatement::RailResponse(def) => {
-                        doc.entries.push(DslEntry::RailResponse(def))
-                    }
-                    DslStatement::Rails(def) => doc.entries.push(DslEntry::Rails(def)),
-                    DslStatement::Simulation(def) => doc.entries.push(DslEntry::Simulation(def)),
-                    DslStatement::Shot(def) => doc.entries.push(DslEntry::Shot(def)),
-                    DslStatement::Empty => {}
-                }
-                ()
+            |(), entry| match entry {
+                DslStatement::Table(table) => doc.table = Some(table),
+                DslStatement::Alias(alias) => doc.entries.push(DslEntry::Alias(alias)),
+                DslStatement::Ball(placement) => doc.entries.push(DslEntry::Ball(placement)),
+                DslStatement::CueStrike(def) => doc.entries.push(DslEntry::CueStrike(def)),
+                DslStatement::BallBall(def) => doc.entries.push(DslEntry::BallBall(def)),
+                DslStatement::RailResponse(def) => doc.entries.push(DslEntry::RailResponse(def)),
+                DslStatement::Rails(def) => doc.entries.push(DslEntry::Rails(def)),
+                DslStatement::Simulation(def) => doc.entries.push(DslEntry::Simulation(def)),
+                DslStatement::Shot(def) => doc.entries.push(DslEntry::Shot(def)),
+                DslStatement::Empty => {}
             },
         )
         .parse_next(input)?;
@@ -2690,13 +2694,20 @@ fn shot_cut_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodE
         '(',
         delimited(
             hws0,
-            (terminated(ball_ref, (hws0, ',', hws0)), cut_direction_literal),
+            (
+                terminated(ball_ref, (hws0, ',', hws0)),
+                cut_direction_literal,
+            ),
             hws0,
         ),
         ')',
     )
     .parse_next(input)?;
-    Ok(ShotMethodExpr::Cut { object_ball, direction, degrees })
+    Ok(ShotMethodExpr::Cut {
+        object_ball,
+        direction,
+        degrees,
+    })
 }
 
 fn shot_one_sided_cut_arguments<'a>(
@@ -2716,7 +2727,11 @@ fn shot_one_sided_cut_arguments<'a>(
         ')',
     )
     .parse_next(input)?;
-    Ok(ShotMethodExpr::Cut { object_ball, direction, degrees })
+    Ok(ShotMethodExpr::Cut {
+        object_ball,
+        direction,
+        degrees,
+    })
 }
 
 fn shot_speed_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -2808,7 +2823,8 @@ fn cut_direction_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (ShotCut
                     .map(|degrees| (ShotCutDirection::Right, degrees)),
             )),
         ),
-    )).parse_next(input)
+    ))
+    .parse_next(input)
 }
 
 fn radius_scale_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {

@@ -1,5 +1,5 @@
 use bigdecimal::ToPrimitive;
-use billiards::{Inches, TYPICAL_BALL_RADIUS, OPTIMAL_PACKING_RADIUS_SHIFT};
+use billiards::{Inches, OPTIMAL_PACKING_RADIUS_SHIFT, TYPICAL_BALL_RADIUS};
 
 fn assert_close(actual: f64, expected: f64) {
     let delta = (actual - expected).abs();
@@ -10,7 +10,8 @@ fn assert_close(actual: f64, expected: f64) {
 }
 
 #[test]
-fn given_the_optimal_packing_radius_shift_when_applied_to_a_ball_radius_then_it_scales_by_sqrt_three() {
+fn given_the_optimal_packing_radius_shift_when_applied_to_a_ball_radius_then_it_scales_by_sqrt_three(
+) {
     let shifted_radius: Inches = TYPICAL_BALL_RADIUS.clone() * OPTIMAL_PACKING_RADIUS_SHIFT.clone();
 
     assert_close(

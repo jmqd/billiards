@@ -511,6 +511,7 @@ fn first_cue_object_collision(
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_probe_case(
     table: &TableSpec,
     style: ProbeStyleArg,

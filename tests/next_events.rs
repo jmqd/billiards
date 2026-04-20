@@ -155,7 +155,7 @@ fn the_scheduler_uses_phase_aware_collision_timing_and_picks_stop_when_a_rolling
 }
 
 #[test]
-fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_collision() {
+fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_event() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let object_ball_1 = on_table(BallState::resting_at(inches2(7.2, 40.0)));
     let object_ball_2 = on_table(BallState::resting_at(inches2(4.0, 36.8)));
@@ -183,18 +183,32 @@ fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_collision() 
         "continuations should round-trip their source collision outcome"
     );
 
-    let collision = continuation
-        .next_collision_against_ball(&object_ball_2, &BallSetPhysicsSpec::default(), &motion_config())
-        .expect("outside english should leave a reachable second-ball collision during the current phase");
-
-    assert!(collision.time_until_impact.as_f64() < 0.25);
-    assert_eq!(
-        collision
-            .a_at_impact
-            .as_ball_state()
-            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
-        MotionPhase::Sliding
+    assert!(
+        continuation
+            .next_collision_against_ball(&object_ball_2, &BallSetPhysicsSpec::default(), &motion_config())
+            .is_none(),
+        "the current post-contact cue-ball path no longer reaches the second ball during the current sliding phase"
     );
+
+    match continuation
+        .next_event_against_ball(
+            &object_ball_2,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .expect("outside english should still produce a next event")
+    {
+        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
+            assert_eq!(ball, TwoBallEventBall::A);
+            assert_eq!(transition.phase_before, MotionPhase::Sliding);
+            assert_eq!(transition.phase_after, MotionPhase::Rolling);
+            assert_close(
+                transition.time_until_transition.as_f64(),
+                0.24875327809825132,
+            );
+        }
+        other => panic!("expected cue-ball motion transition, got {other:?}"),
+    }
 }
 
 #[test]
@@ -258,17 +272,16 @@ fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_aft
         .expect("inside english should produce a next event");
 
     match outside_event {
-        TwoBallOnTableEvent::BallBallCollision(collision) => {
-            assert!(collision.time_until_impact.as_f64() < 0.25);
-            assert_eq!(
-                collision
-                    .a_at_impact
-                    .as_ball_state()
-                    .motion_phase(TYPICAL_BALL_RADIUS.clone()),
-                MotionPhase::Sliding
+        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
+            assert_eq!(ball, TwoBallEventBall::A);
+            assert_eq!(transition.phase_before, MotionPhase::Sliding);
+            assert_eq!(transition.phase_after, MotionPhase::Rolling);
+            assert_close(
+                transition.time_until_transition.as_f64(),
+                0.24875327809825132,
             );
         }
-        other => panic!("expected second-ball collision, got {other:?}"),
+        other => panic!("expected motion transition before second-ball contact, got {other:?}"),
     }
     match inside_event {
         TwoBallOnTableEvent::MotionTransition { ball, transition } => {

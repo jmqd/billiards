@@ -1,7 +1,7 @@
 use billiards::{
     classify_motion_phase, cloth_contact_speed_on_table, projected_position, AngularVelocity3,
     BallSetPhysicsSpec, BallState, Inches2, MotionPhase, MotionPhaseConfig, Position,
-    SlidingToRollingModel, TableSpec, TYPICAL_BALL_RADIUS, Velocity2,
+    SlidingToRollingModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -17,7 +17,11 @@ fn a_resting_ball_is_classified_as_rest() {
     let state = BallState::resting_at(Inches2::new("12.5", "37.25"));
 
     assert_eq!(
-        classify_motion_phase(&state, &BallSetPhysicsSpec::default(), &MotionPhaseConfig::default()),
+        classify_motion_phase(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &MotionPhaseConfig::default()
+        ),
         MotionPhase::Rest
     );
 }
@@ -31,7 +35,11 @@ fn a_stationary_ball_with_only_z_spin_is_classified_as_spinning() {
     );
 
     assert_eq!(
-        classify_motion_phase(&state, &BallSetPhysicsSpec::default(), &MotionPhaseConfig::default()),
+        classify_motion_phase(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &MotionPhaseConfig::default()
+        ),
         MotionPhase::Spinning
     );
 }
@@ -45,7 +53,10 @@ fn rolling_without_slip_is_classified_as_rolling() {
         AngularVelocity3::new(-8.0 / radius.as_f64(), 6.0 / radius.as_f64(), 0.0),
     );
 
-    assert_close(cloth_contact_speed_on_table(&state, radius.clone()).as_f64(), 0.0);
+    assert_close(
+        cloth_contact_speed_on_table(&state, radius.clone()).as_f64(),
+        0.0,
+    );
     assert_eq!(
         classify_motion_phase(
             &state,
@@ -71,7 +82,11 @@ fn a_draw_ball_is_classified_as_sliding() {
 
     assert!(cloth_contact_speed_on_table(&state, TYPICAL_BALL_RADIUS.clone()).as_f64() > 0.0);
     assert_eq!(
-        classify_motion_phase(&state, &BallSetPhysicsSpec::default(), &MotionPhaseConfig::default()),
+        classify_motion_phase(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &MotionPhaseConfig::default()
+        ),
         MotionPhase::Sliding
     );
 }
@@ -86,7 +101,11 @@ fn an_overspin_ball_is_classified_as_sliding_until_roll_develops() {
 
     assert!(cloth_contact_speed_on_table(&state, TYPICAL_BALL_RADIUS.clone()).as_f64() > 0.0);
     assert_eq!(
-        classify_motion_phase(&state, &BallSetPhysicsSpec::default(), &MotionPhaseConfig::default()),
+        classify_motion_phase(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &MotionPhaseConfig::default()
+        ),
         MotionPhase::Sliding
     );
 }
@@ -102,7 +121,11 @@ fn a_ball_with_vertical_state_is_classified_as_airborne() {
     );
 
     assert_eq!(
-        classify_motion_phase(&state, &BallSetPhysicsSpec::default(), &MotionPhaseConfig::default()),
+        classify_motion_phase(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &MotionPhaseConfig::default()
+        ),
         MotionPhase::Airborne
     );
 }
@@ -115,6 +138,12 @@ fn projected_position_free_function_round_trips_through_table_inches() {
     let state = BallState::from_position(&position, &table);
     let round_tripped = projected_position(&state, &table);
 
-    assert_close(round_tripped.x.magnitude.to_string().parse().expect("x"), 2.75);
-    assert_close(round_tripped.y.magnitude.to_string().parse().expect("y"), 5.5);
+    assert_close(
+        round_tripped.x.magnitude.to_string().parse().expect("x"),
+        2.75,
+    );
+    assert_close(
+        round_tripped.y.magnitude.to_string().parse().expect("y"),
+        5.5,
+    );
 }

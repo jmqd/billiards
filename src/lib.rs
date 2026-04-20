@@ -1,3 +1,9 @@
+#![allow(
+    clippy::large_enum_variant,
+    clippy::result_large_err,
+    clippy::too_many_arguments
+)]
+
 mod assets;
 mod drawing;
 pub mod dsl;
@@ -4901,8 +4907,10 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
             continue;
         };
 
-        for second_ball_index in first_ball_index + 1..states.len() {
-            let Some(second_state) = states[second_ball_index].as_on_table() else {
+        for (second_ball_index, second_system_state) in
+            states.iter().enumerate().skip(first_ball_index + 1)
+        {
+            let Some(second_state) = second_system_state.as_on_table() else {
                 continue;
             };
             let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
@@ -7602,9 +7610,10 @@ pub struct Kinematics {
     pub angular_velocity: [RadiansPerSecond; 3],
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 /// The type of game, e.g. Nineball, EightBall, OnePocket, etc.
 pub enum GameType {
+    #[default]
     NineBall,
     EightBall,
     TenBall,
@@ -7612,25 +7621,14 @@ pub enum GameType {
     Banks,
 }
 
-impl Default for GameType {
-    fn default() -> Self {
-        Self::NineBall
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 /// A modifier being applied to the Cueball, for example ball in hand.
 pub enum CueballModifier {
+    #[default]
     AsItLays,
     BreakPlacement,
     BallInHand,
     KitchenPlacement,
-}
-
-impl Default for CueballModifier {
-    fn default() -> Self {
-        Self::AsItLays
-    }
 }
 
 /// How a bank / rail-approach angle is measured relative to a rail.

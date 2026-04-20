@@ -1,3 +1,6 @@
+use billiards::visualization::{
+    BallPathRenderOptions, BallPathStyle, BallPathWidthMode, GhostBallStyle,
+};
 use billiards::*;
 use image::Rgba;
 use std::path::Path;
@@ -78,7 +81,9 @@ fn main() {
         RailModel::SpinAware,
     );
 
-    let sampled_points = path.sampled_points(Seconds::new(0.02), &ball_set, &motion, &table);
+    let path_render =
+        BallPathRenderOptions::default().with_width_mode(BallPathWidthMode::ScaleBySpeed);
+    let sampled_points = path.sampled_points(path_render.max_time_step, &ball_set, &motion, &table);
 
     let mut game_state = GameState::with_balls(
         table.clone(),
@@ -88,12 +93,13 @@ fn main() {
             spec: BallSpec::default(),
         }],
     );
-    game_state.add_ghost_ball(
-        &path.initial_state.as_ball_state().projected_position(&table),
-        Rgba([255, 255, 255, 64]),
-        Rgba([0, 0, 0, 96]),
+    game_state.add_rendered_ball_path_styled(
+        &path,
+        &ball_set,
+        &motion,
+        &path_render,
+        &BallPathStyle::new(Rgba([0, 0, 0, 255])).with_start_ghost(GhostBallStyle::default()),
     );
-    game_state.add_smooth_polyline(&sampled_points, Rgba([0, 0, 0, 255]));
 
     let output_path = Path::new("bank_path_demo.png");
     let image = game_state.draw_2d_diagram();

@@ -4,7 +4,10 @@ use crate::{
     advance_motion_on_table, advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
     simulate_n_balls_with_physics_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
     trace_ball_path_with_rail_profile_on_table,
-    visualization::{EventMarkerStyle, GhostBallStyle, LabelOverlayStyle, PathColorMode},
+    visualization::{
+        BallPathRenderOptions, BallPathWidthMode, EventMarkerStyle, GhostBallStyle,
+        LabelOverlayStyle, PathColorMode,
+    },
     Angle, Ball, BallBallCollisionConfig, BallPath, BallPathSegment, BallPathStop,
     BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
     CueTipContact, Diamond, GameState, HumanShotSpeedValidation, Inches, InchesPerSecond,
@@ -514,8 +517,7 @@ pub struct ScenarioShotTrace {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScenarioTraceRenderOptions {
-    pub max_time_step: Seconds,
-    pub line_width_px: f32,
+    pub path_render: BallPathRenderOptions,
     pub start_ghost_balls: bool,
     pub event_markers: bool,
     pub labels: bool,
@@ -525,8 +527,7 @@ pub struct ScenarioTraceRenderOptions {
 impl Default for ScenarioTraceRenderOptions {
     fn default() -> Self {
         Self {
-            max_time_step: Seconds::new(0.02),
-            line_width_px: 3.0,
+            path_render: BallPathRenderOptions::default(),
             start_ghost_balls: false,
             event_markers: false,
             labels: false,
@@ -563,7 +564,10 @@ impl ScenarioShotTrace {
         self.rendered_final_layout_with_trace_options(
             scenario,
             &ScenarioTraceRenderOptions {
-                max_time_step,
+                path_render: BallPathRenderOptions {
+                    max_time_step,
+                    ..BallPathRenderOptions::default()
+                },
                 ..ScenarioTraceRenderOptions::default()
             },
             ball_set,
@@ -594,30 +598,43 @@ impl ScenarioShotTrace {
                     path_style.with_labels(LabelOverlayStyle::enabled(Rgba([0, 0, 0, 255])));
             }
 
+            let mut path_render = options.path_render.clone();
+            path_render.width_mode = if ball_trace.ball == BallType::Cue {
+                BallPathWidthMode::ScaleBySpeed
+            } else {
+                BallPathWidthMode::Fixed
+            };
+
             if let Some(path) = ball_trace.as_ball_path() {
-                game_state.add_smooth_ball_path_styled(
+                game_state.add_rendered_ball_path_styled(
                     &path,
-                    options.max_time_step,
                     ball_set,
                     motion,
-                    options.line_width_px,
+                    &path_render,
                     &path_style,
                 );
             }
 
             if let Some(pocket_terminal) = ball_trace.pocket_terminal_point() {
-                let capture_point = match &ball_trace.final_state {
+                let (capture_point, capture_width_px) = match &ball_trace.final_state {
                     NBallSystemState::Pocketed {
                         state_at_capture, ..
-                    } => state_at_capture
-                        .as_ball_state()
-                        .projected_position(&scenario.game_state.table_spec),
+                    } => {
+                        let capture_point = state_at_capture
+                            .as_ball_state()
+                            .projected_position(&scenario.game_state.table_spec);
+                        let capture_width_px = path_render.width_px_for_speed(
+                            ball_trace.initial_state.as_ball_state().speed().as_f64(),
+                            state_at_capture.as_ball_state().speed().as_f64(),
+                        );
+                        (capture_point, capture_width_px)
+                    }
                     NBallSystemState::OnTable(_) => continue,
                 };
                 if capture_point != pocket_terminal {
                     game_state.add_smooth_polyline_with_width(
                         &[capture_point, pocket_terminal],
-                        options.line_width_px,
+                        capture_width_px,
                         trace_color,
                     );
                 }

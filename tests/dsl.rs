@@ -6,7 +6,7 @@ use billiards::dsl::{
 use billiards::{
     Angle,
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
-    visualization::PathColorMode, BallSetPhysicsSpec, BallType, CollisionModel, Diamond,
+    visualization::{BallPathRenderOptions, PathColorMode}, BallSetPhysicsSpec, BallType, CollisionModel, Diamond,
     HumanShotSpeedBand, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
     NBallSystemEvent, NBallSystemState, OnTableMotionConfig, Pocket,
     RadiansPerSecondSq, RailCollisionProfile, RailModel, RollingResistanceModel,
@@ -687,7 +687,10 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
     let rendered_via_default_options = trace.rendered_final_layout_with_trace_options(
         &scenario,
         &ScenarioTraceRenderOptions {
-            max_time_step: billiards::Seconds::new(0.02),
+            path_render: BallPathRenderOptions {
+                max_time_step: billiards::Seconds::new(0.02),
+                ..BallPathRenderOptions::default()
+            },
             ..ScenarioTraceRenderOptions::default()
         },
         &BallSetPhysicsSpec::default(),

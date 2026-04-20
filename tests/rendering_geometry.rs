@@ -1,15 +1,15 @@
 use billiards::{
     trace_ball_path_with_rails_on_table,
     visualization::{
-        AimOverlayStyle, BallPathStyle, EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
+        AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, EventMarkerStyle,
+        GhostBallStyle, LabelOverlayStyle,
     },
-    Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState,
-    BallType, DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2,
-    InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
-    OnTableBallState, OnTableMotionConfig, OverlayLayer, Pocket, Position,
-    RadiansPerSecondSq, Rail, RailAngleReference, RailModel, RailTangentDirection,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
+    DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2, InchesPerSecond,
+    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
+    OnTableMotionConfig, OverlayLayer, Pocket, Position, RadiansPerSecondSq, Rail,
+    RailAngleReference, RailModel, RailTangentDirection, RollingResistanceModel, Seconds,
+    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, RgbaImage};
 
@@ -47,6 +47,12 @@ fn diff_bbox(a: &RgbaImage, b: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
     }
 
     changed.then_some((min_x, min_y, max_x, max_y))
+}
+
+fn visible_pixel_count_in_row(image: &RgbaImage, y: u32) -> usize {
+    (0..image.width())
+        .filter(|&x| image.get_pixel(x, y)[3] > 0)
+        .count()
 }
 
 fn cue_ball_at(x: &str, y: &str) -> GameState {
@@ -478,4 +484,80 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
     assert_ne!(smooth_image, dotted_image);
     assert!(diff_bbox(&empty, &dotted_image).is_some());
     assert!(diff_bbox(&empty, &smooth_image).is_some());
+}
+
+#[test]
+fn rendered_ball_paths_can_use_one_shared_renderer_for_fixed_and_speed_scaled_widths() {
+    let table_spec = TableSpec::default();
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let start = on_table(BallState::on_table(
+        inches2(
+            table_spec.diamond_to_inches(Diamond::two()).as_f64(),
+            table_spec.diamond_to_inches(Diamond::one()).as_f64(),
+        ),
+        Velocity2::new("0", "24"),
+        AngularVelocity3::zero(),
+    ));
+    let path = trace_ball_path_with_rails_on_table(
+        &start,
+        BallPathStop::UntilRest,
+        &ball_set,
+        &table_spec,
+        &motion,
+        RailModel::SpinAware,
+    );
+    let style = BallPathStyle::new(image::Rgba([255, 255, 255, 255])).without_endpoint_clipping();
+    let transparent = DiagramRenderOptions {
+        scale_factor: 1,
+        background: DiagramBackground::Transparent,
+    };
+    let empty = render_with_options(&GameState::new(table_spec.clone()), &transparent);
+
+    let mut uniform = GameState::new(table_spec.clone());
+    uniform.add_rendered_ball_path_styled(
+        &path,
+        &ball_set,
+        &motion,
+        &BallPathRenderOptions {
+            max_time_step: Seconds::new(0.02),
+            width_px: 8.0,
+            width_mode: BallPathWidthMode::Fixed,
+        },
+        &style,
+    );
+    let uniform_image = render_with_options(&uniform, &transparent);
+
+    let mut tapered = GameState::new(table_spec);
+    tapered.add_rendered_ball_path_styled(
+        &path,
+        &ball_set,
+        &motion,
+        &BallPathRenderOptions {
+            max_time_step: Seconds::new(0.02),
+            width_px: 8.0,
+            width_mode: BallPathWidthMode::ScaleBySpeed,
+        },
+        &style,
+    );
+    let tapered_image = render_with_options(&tapered, &transparent);
+
+    assert_ne!(tapered_image, uniform_image);
+
+    let (_, min_y, _, max_y) = diff_bbox(&empty, &tapered_image).expect("speed-scaled path bbox");
+    let height = max_y - min_y;
+    assert!(
+        height > 40,
+        "expected a clearly visible vertical trace, got height {height}"
+    );
+
+    let fast_row = max_y - height / 4;
+    let slow_row = min_y + height / 4;
+    let fast_width = visible_pixel_count_in_row(&tapered_image, fast_row);
+    let slow_width = visible_pixel_count_in_row(&tapered_image, slow_row);
+
+    assert!(
+        fast_width > slow_width,
+        "expected the faster early cue-ball path to render thicker than the slower late path; got fast row width {fast_width} and slow row width {slow_width}"
+    );
 }

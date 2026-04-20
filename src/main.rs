@@ -1,8 +1,7 @@
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioTraceRenderOptions};
 use billiards::{
-    write_png_to_file,
-    visualization::PathColorMode,
-    BallSetPhysicsSpec, CollisionModel, DiagramBackground, DiagramRenderOptions,
+    visualization::{BallPathRenderOptions, PathColorMode},
+    write_png_to_file, BallSetPhysicsSpec, CollisionModel, DiagramBackground, DiagramRenderOptions,
     InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableMotionConfig,
     RadiansPerSecondSq, RailModel, RollingResistanceModel, Seconds, SlidingFrictionModel,
     SpinDecayModel,
@@ -100,8 +99,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ball_set = BallSetPhysicsSpec::default();
     let motion = shot_preview_motion_config();
     let trace_render = ScenarioTraceRenderOptions {
-        max_time_step: Seconds::new(args.trace_sample_step_seconds),
-        line_width_px: 3.0,
+        path_render: BallPathRenderOptions {
+            max_time_step: Seconds::new(args.trace_sample_step_seconds),
+            ..BallPathRenderOptions::default()
+        },
         start_ghost_balls: args.trace_start_ghosts,
         event_markers: args.trace_event_markers,
         labels: args.trace_labels,

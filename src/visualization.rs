@@ -181,7 +181,7 @@ impl Default for BallPathRenderOptions {
     fn default() -> Self {
         Self {
             max_time_step: crate::Seconds::new(0.02),
-            width_px: 4.0,
+            width_px: 5.0,
             width_mode: BallPathWidthMode::Fixed,
         }
     }

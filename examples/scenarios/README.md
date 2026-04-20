@@ -122,9 +122,27 @@ A compact break-style shot into a slightly loosened six-ball cluster near the ra
 
 Expected flavor:
 - several nearly immediate collisions through the cluster
-- all seven balls take visible paths in the current tuned setup
+- at least six balls take clearly visible paths in the current tuned setup
 - a busy multi-event spread with several balls remaining on the table
 - no pocketing in the current tuned setup
+
+### `nine_ball_break_head_rail.billiards`
+A fuller nine-ball break from the head-rail side, with the cue ball four inches off the rail,
+a square hit on the 1-ball, and slight draw.
+
+Expected flavor:
+- cue -> one collision opens the rack
+- several early ball-ball collisions through the triangle
+- many balls begin moving quickly, with outcomes depending on the current break tuning
+
+### `nine_ball_break_left_side_rail.billiards`
+A fuller nine-ball break from the left side rail near the second diamond from the top, again with a
+slight-draw hit and a direct line through the 1-ball.
+
+Expected flavor:
+- cue -> one collision opens from a more off-axis approach
+- several early collisions spread through the rack
+- typically less symmetric motion than the head-rail break
 
 ### `three_ball_pinball.billiards`
 A deliberately busy three-ball chain-reaction layout.

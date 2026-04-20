@@ -82,3 +82,51 @@ fn given_a_nine_ball_rack_when_built_then_the_nine_ball_sits_behind_the_head_bal
     assert_close(nine_x, 2.0);
     assert!(nine_y < head_y, "expected nine-ball behind the head ball");
 }
+
+#[test]
+fn given_racked_ball_positions_when_checked_then_the_triangle_is_frozen_without_gaps_or_overlaps() {
+    let positions = racked_ball_positions();
+    let table = TableSpec::default();
+    let expected_diameter_inches = BallSpec::default().radius.as_f64() * 2.0;
+    let mut touching_pairs = 0usize;
+
+    let balls = positions
+        .into_iter()
+        .enumerate()
+        .map(|(idx, position)| Ball {
+            ty: match idx {
+                0 => BallType::One,
+                1 => BallType::Two,
+                2 => BallType::Three,
+                3 => BallType::Four,
+                4 => BallType::Nine,
+                5 => BallType::Five,
+                6 => BallType::Six,
+                7 => BallType::Seven,
+                _ => BallType::Eight,
+            },
+            position,
+            spec: BallSpec::default(),
+        })
+        .collect::<Vec<_>>();
+
+    for first in 0..balls.len() {
+        for second in (first + 1)..balls.len() {
+            let distance_inches = table
+                .diamond_to_inches(balls[first].distance(&balls[second]))
+                .as_f64();
+            assert!(
+                distance_inches + 1e-9 >= expected_diameter_inches,
+                "rack pair ({first}, {second}) overlaps: distance {distance_inches} < diameter {expected_diameter_inches}"
+            );
+            if (distance_inches - expected_diameter_inches).abs() < 1e-9 {
+                touching_pairs += 1;
+            }
+        }
+    }
+
+    assert_eq!(
+        touching_pairs, 16,
+        "expected the frozen nine-ball triangle to contain the standard 16 touching pairs"
+    );
+}

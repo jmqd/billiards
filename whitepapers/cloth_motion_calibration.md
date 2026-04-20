@@ -13,7 +13,7 @@ at dissipating spin and spin-related sliding mismatch.
 
 The current preview / example motion config uses:
 
-- sliding friction acceleration: `5 ips²`
+- sliding friction acceleration: `15 ips²`
 - rolling resistance deceleration: `5 ips²`
 - z-spin angular deceleration: `10.9 rad/s²`
 
@@ -21,7 +21,7 @@ The previous baseline used during the initial calibration sweeps was `2 rad/s²`
 
 Because gravity is about `386.09 ips²`, these imply effective cloth coefficients of roughly:
 
-- `mu_s ≈ 5 / 386.09 ≈ 0.013`
+- `mu_s ≈ 15 / 386.09 ≈ 0.039`
 - `mu_r ≈ 5 / 386.09 ≈ 0.013`
 
 ## Local whitepaper references
@@ -101,12 +101,12 @@ So `pooltool` lines up closely with the local whitepaper picture:
 
 ### Sliding friction
 
-- current repo: `5 ips²` -> `mu_s ≈ 0.013`
+- current preview / example defaults: `15 ips²` -> `mu_s ≈ 0.039`
 - whitepapers / pooltool-like: `~77.2 ips²` -> `mu_s ≈ 0.2`
 
-This means the current repo's sliding friction is roughly:
+This means the current preview / example sliding friction is still roughly:
 
-- **15x weaker** than the usual whitepaper / pooltool value
+- **5x weaker** than the usual whitepaper / pooltool value
 
 This matters for:
 
@@ -168,7 +168,8 @@ Yes: the current solver is very plausibly under-damping cloth-driven spin effect
 
 Most likely ranking:
 
-1. **sliding friction is still much too low** relative to the whitepapers;
+1. **sliding friction is still meaningfully low** relative to the whitepapers, even after the
+   midrange bump to `15 ips²`;
 2. **rolling resistance is not the main problem**;
 3. the earlier **z-spin decay mismatch** was real, but the preview / example defaults now use the
    calibrated `10.9 rad/s²` value.
@@ -245,21 +246,35 @@ On this fixed probe family:
 - `10 ips²` produced `2 / 75`,
 - `15 ips²` produced `1 / 75`.
 
-So a **midrange** increase still looks plausible, but it should be treated as a separate follow /
-draw calibration step rather than bundled with the z-spin change.
+A separate clean-worktree verification pass then checked the `15 ips²` candidate against the key
+scenario regressions:
+
+- `right_spin_stun_side_pocket_example_runs_end_to_end`
+- `long_cut_top_right_rail_example_runs_end_to_end`
+- `two_rail_bank_scratch_example_runs_end_to_end`
+
+and rerendered:
+
+- `/tmp/billiards-right-spin-stun-slide15.png`
+- `/tmp/billiards-long-cut-slide15.png`
+- `/tmp/billiards-two-rail-slide15.png`
+
+That pass kept all three key scenarios behaving sensibly, so `15 ips²` has now been adopted as the
+current preview / example sliding-friction default.
 
 ### Practical takeaway from the first pass
 
 - **z-spin decay** was clearly too weak, and the preview / example defaults now use the calibrated
   `10.9 rad/s²` value;
-- **sliding friction** also still looks too weak, but jumping straight from `5` to a literal
-  `mu_s ≈ 0.2` / `77.2 ips²` mapping likely over-corrects inside the current reduced solver;
-- a more realistic next step is still a **midrange sliding-friction calibration** rather than a
-  direct jump to the full whitepaper coefficient.
+- **sliding friction** also looked too weak; a midrange bump to `15 ips²` shortened follow / draw
+  travel materially while preserving the checked scenario regressions, so that value is now the
+  current preview / example default;
+- even after that bump, the current reduced solver still sits well below the literal
+  `mu_s ≈ 0.2` / `77.2 ips²` whitepaper mapping.
 
 ## Suggested calibration order
 
 1. Keep the calibrated **z-spin decay** default at `10.9 rad/s²`.
-2. Next, run a **midrange sliding-friction** calibration pass on the no-side follow / stun / draw
-   suite and only land it after checking a few scenario renders.
+2. Keep the current **midrange sliding-friction** default at `15 ips²` unless a later pass finds a
+   better tradeoff.
 3. Only then revisit rolling resistance if the probe results still look wrong.

@@ -3,11 +3,10 @@ use billiards::dsl::{
 };
 use billiards::{
     collide_ball_ball_detailed_on_table, write_png_to_file, Angle, Ball, BallSetPhysicsSpec,
-    BallSpec, BallType, CollisionModel, CutAngle, DiagramBackground, DiagramRenderOptions,
-    Inches, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
-    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, Position,
-    RadiansPerSecondSq, Rail, RailModel, RollingResistanceModel, SlidingFrictionModel,
-    SpinDecayModel, TableSpec,
+    BallSpec, BallType, CollisionModel, CutAngle, DiagramBackground, DiagramRenderOptions, Inches,
+    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, Position, RadiansPerSecondSq,
+    Rail, RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec,
 };
 use clap::{Parser, ValueEnum};
 use std::fmt::Write as _;
@@ -132,7 +131,7 @@ struct Args {
     side_offset_r: f64,
 
     /// Sliding-friction acceleration magnitude in inches / s^2.
-    #[arg(long, default_value_t = 5.0)]
+    #[arg(long, default_value_t = 15.0)]
     sliding_friction_accel_ips2: f64,
 
     /// Rolling-resistance deceleration magnitude in inches / s^2.

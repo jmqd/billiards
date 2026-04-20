@@ -15,7 +15,7 @@ fn shot_preview_motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
         sliding_friction: SlidingFrictionModel::ConstantAcceleration {
-            acceleration_magnitude: InchesPerSecondSq::new("5"),
+            acceleration_magnitude: InchesPerSecondSq::new("15"),
         },
         spin_decay: SpinDecayModel::ConstantAngularDeceleration {
             angular_deceleration: RadiansPerSecondSq::new(10.9),

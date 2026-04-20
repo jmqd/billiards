@@ -13,3 +13,9 @@
 - `agent_knowledge/` is generated. Do not hand-edit its contents unless explicitly asked.
 - To rebuild it, run: `nix develop -c python scripts/build_agent_knowledge.py`
 - If the distillation needs to change, edit `scripts/build_agent_knowledge.py` and regenerate.
+
+## API / compatibility
+
+- Backwards compatibility is not a project goal here.
+- Prefer the cleanest in-tree API / data-model refactor over compatibility shims.
+- It is acceptable to break existing call sites and update them in the same change.

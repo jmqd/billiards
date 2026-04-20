@@ -30,19 +30,13 @@ fn default_cue_strike() -> CueStrikeConfig {
         .expect("default cue-strike config should validate")
 }
 
-#[test]
-fn a_second_diamond_head_rail_nine_ball_break_with_slight_draw_opens_the_rack() {
+fn build_nine_ball_break_scenario(cue_position: Position) -> DslScenario {
     let table = TableSpec::default();
     let rack = rack_9_ball();
     let one_ball = rack
         .iter()
         .find(|ball| ball.ty == BallType::One)
         .expect("rack_9_ball should include the 1-ball");
-
-    let mut cue_position = Position::new(2u8, 8u8);
-    cue_position.shift_vertically_inches(Inches::from_f64(-4.0));
-    cue_position.resolve_shifts(&table);
-
     let shot = Shot::new(
         cue_position.angle_to(&one_ball.position),
         InchesPerSecond::from_mph(20.0),
@@ -59,7 +53,7 @@ fn a_second_diamond_head_rail_nine_ball_break_with_slight_draw_opens_the_rack() 
     });
     balls.extend(rack);
 
-    let scenario = DslScenario {
+    DslScenario {
         game_state: GameState::with_balls(table, balls),
         shot: Some(ScenarioShot {
             ball_ref: BallRef::Cue,
@@ -71,8 +65,10 @@ fn a_second_diamond_head_rail_nine_ball_break_with_slight_draw_opens_the_rack() 
         rail_responses: HashMap::new(),
         rail_profiles: HashMap::new(),
         simulations: HashMap::new(),
-    };
+    }
+}
 
+fn opening_break_summary(scenario: &DslScenario) -> ((usize, usize), usize, usize) {
     let ball_set = BallSetPhysicsSpec::default();
     let mut states = scenario
         .initial_shot_system_states_on_table(&ball_set)
@@ -140,6 +136,23 @@ fn a_second_diamond_head_rail_nine_ball_break_with_slight_draw_opens_the_rack() 
         })
         .count();
 
+    (
+        first_ball_collision,
+        ball_ball_collision_count,
+        moved_or_pocketed_ball_count,
+    )
+}
+
+#[test]
+fn a_second_diamond_head_rail_nine_ball_break_with_slight_draw_opens_the_rack() {
+    let mut cue_position = Position::new(2u8, 8u8);
+    cue_position.shift_vertically_inches(Inches::from_f64(-4.0));
+    cue_position.resolve_shifts(&TableSpec::default());
+
+    let scenario = build_nine_ball_break_scenario(cue_position);
+    let (first_ball_collision, ball_ball_collision_count, moved_or_pocketed_ball_count) =
+        opening_break_summary(&scenario);
+
     assert_eq!(first_ball_collision, (0, 1));
     assert!(
         moved_or_pocketed_ball_count >= 6,
@@ -148,5 +161,26 @@ fn a_second_diamond_head_rail_nine_ball_break_with_slight_draw_opens_the_rack() 
     assert!(
         ball_ball_collision_count >= 6,
         "expected a busy opening break spread, got only {ball_ball_collision_count} collisions"
+    );
+}
+
+#[test]
+fn a_second_diamond_left_side_rail_nine_ball_break_with_slight_draw_opens_the_rack() {
+    let mut cue_position = Position::new(0u8, 6u8);
+    cue_position.shift_horizontally_inches(Inches::from_f64(4.0));
+    cue_position.resolve_shifts(&TableSpec::default());
+
+    let scenario = build_nine_ball_break_scenario(cue_position);
+    let (first_ball_collision, ball_ball_collision_count, moved_or_pocketed_ball_count) =
+        opening_break_summary(&scenario);
+
+    assert_eq!(first_ball_collision, (0, 1));
+    assert!(
+        moved_or_pocketed_ball_count >= 4,
+        "expected the side-rail break to open part of the rack, got only {moved_or_pocketed_ball_count} moving or pocketed balls"
+    );
+    assert!(
+        ball_ball_collision_count >= 4,
+        "expected multiple opening collisions from the side-rail break, got only {ball_ball_collision_count} collisions"
     );
 }

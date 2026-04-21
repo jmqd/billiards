@@ -370,6 +370,26 @@ fn a_spin_aware_overspin_entry_can_leave_with_reverse_vertical_plane_spin() {
 }
 
 #[test]
+fn a_slightly_overspinning_entry_still_can_reverse_spin_relative_to_the_new_direction() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let slight_overspin = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("0", "5"),
+        AngularVelocity3::new(-1.08 * 5.0 / radius_value, 0.0, 0.0),
+    ));
+
+    let reflected = collide_ball_rail_on_table(&slight_overspin, Rail::Top, RailModel::SpinAware);
+    let outgoing_wx = reflected.as_ball_state().angular_velocity.x().as_f64();
+    let outgoing_rolling_wx = -reflected.as_ball_state().velocity.y().as_f64() / radius_value;
+
+    assert!(
+        outgoing_wx < 0.0,
+        "TP 7.3 flips to reverse spin for slight overspin beyond the near-rolling crossover; got outgoing_wx={outgoing_wx}, outgoing_rolling_wx={outgoing_rolling_wx}"
+    );
+}
+
+#[test]
 fn a_rolling_ball_rebounding_from_a_rail_carries_draw_like_spin_relative_to_its_new_direction() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();

@@ -62,6 +62,10 @@ These are not direct TP 7.3 formulas. They are pragmatic controls added because 
 not include full cushion compression, vertical center-of-mass motion, or richer post-rail contact
 history.
 
+The rolling-settle controls are also now capped so they can pull a reverse-spin overspin rebound
+back toward **stun**, but not all the way through stun into fresh forward roll; TP 7.3's slight-
+overspin cases should still be able to leave the rail with reverse vertical-plane spin.
+
 ## Important current simplifications / limits
 
 ### 1. The effective `a` term is intentionally reduced

@@ -6479,10 +6479,68 @@ fn rail_rebound_outgoing_cloth_slip_ratio_limit(state: &BallState, ball_radius: 
             * explicit_side_spin_scale
 }
 
+fn rail_entry_is_overspinning_relative_to_cloth_rolling(
+    state: &BallState,
+    normal_x: f64,
+    normal_y: f64,
+    tangent_x: f64,
+    tangent_y: f64,
+    ball_radius: f64,
+) -> bool {
+    if ball_radius <= f64::EPSILON {
+        return false;
+    }
+
+    let approaching_normal_component =
+        project_velocity_on_basis(&state.velocity, normal_x, normal_y);
+    if approaching_normal_component >= -f64::EPSILON {
+        return false;
+    }
+
+    let normal_cross_tangent_z = normal_x * tangent_y - normal_y * tangent_x;
+    let rolling_tangent_spin = approaching_normal_component * normal_cross_tangent_z / ball_radius;
+    if rolling_tangent_spin.abs() <= f64::EPSILON {
+        return false;
+    }
+
+    let incoming_tangent_spin = state.angular_velocity.x().as_f64() * tangent_x
+        + state.angular_velocity.y().as_f64() * tangent_y;
+
+    incoming_tangent_spin * rolling_tangent_spin > 0.0
+        && incoming_tangent_spin.abs() > rolling_tangent_spin.abs()
+}
+
+fn minimum_horizontal_spin_current_weight_to_preserve_reverse_projection(
+    current_wx: f64,
+    current_wy: f64,
+    rolling_wx: f64,
+    rolling_wy: f64,
+) -> f64 {
+    let rolling_magnitude_sq = rolling_wx * rolling_wx + rolling_wy * rolling_wy;
+    if rolling_magnitude_sq <= f64::EPSILON {
+        return 0.0;
+    }
+
+    let current_projection_on_rolling = current_wx * rolling_wx + current_wy * rolling_wy;
+    if current_projection_on_rolling >= 0.0 {
+        return 0.0;
+    }
+
+    // If the physical rail solve already predicts reverse vertical-plane spin relative to the new
+    // travel direction, the rolling-settle heuristics can pull it toward stun but should not drag
+    // it through stun into forward roll. TP 7.3 explicitly shows that slight overspin can cross
+    // into reverse spin after impact.
+    let zero_cross_current_weight =
+        rolling_magnitude_sq / (rolling_magnitude_sq - current_projection_on_rolling);
+
+    (zero_cross_current_weight + 1e-9).clamp(0.0, 1.0)
+}
+
 fn clamp_rail_rebound_horizontal_spin_to_slip_limit(
     state_before: &BallState,
     velocity_after: &Velocity2,
     ball_radius: f64,
+    preserve_reverse_projection: bool,
     outgoing_wx: &mut f64,
     outgoing_wy: &mut f64,
 ) {
@@ -6514,7 +6572,18 @@ fn clamp_rail_rebound_horizontal_spin_to_slip_limit(
         return;
     }
 
-    let deviation_scale = cloth_slip_ratio_limit / cloth_slip_ratio.max(f64::EPSILON);
+    let deviation_scale = if preserve_reverse_projection {
+        (cloth_slip_ratio_limit / cloth_slip_ratio.max(f64::EPSILON)).max(
+            minimum_horizontal_spin_current_weight_to_preserve_reverse_projection(
+                *outgoing_wx,
+                *outgoing_wy,
+                rolling_outgoing_wx,
+                rolling_outgoing_wy,
+            ),
+        )
+    } else {
+        cloth_slip_ratio_limit / cloth_slip_ratio.max(f64::EPSILON)
+    };
     *outgoing_wx = rolling_outgoing_wx + deviation_scale * (*outgoing_wx - rolling_outgoing_wx);
     *outgoing_wy = rolling_outgoing_wy + deviation_scale * (*outgoing_wy - rolling_outgoing_wy);
 }
@@ -6592,17 +6661,42 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
         * rail_side_spin_retention_scale(state_ref, ball_radius);
     let mut outgoing_wx = state_ref.angular_velocity.x().as_f64() + delta_wx + geom_delta_wx;
     let mut outgoing_wy = state_ref.angular_velocity.y().as_f64() + delta_wy + geom_delta_wy;
+    // The rolling-settle heuristics were introduced for ordinary rolling-style rail entries. If
+    // the incoming state is already true overspin beyond cloth rolling, TP 7.3 says the rebound can
+    // legitimately cross into reverse spin, so the heuristics may scrub that exit toward stun but
+    // should not flip it back into forward roll.
+    let preserve_reverse_projection = rail_entry_is_overspinning_relative_to_cloth_rolling(
+        state_ref,
+        normal_x,
+        normal_y,
+        tangent_x,
+        tangent_y,
+        ball_radius,
+    );
     let rolling_rebound_blend = rail_rebound_horizontal_spin_blend(state_ref, ball_radius);
     if rolling_rebound_blend > f64::EPSILON {
         let rolling_outgoing_wx = -velocity.y().as_f64() / ball_radius;
         let rolling_outgoing_wy = velocity.x().as_f64() / ball_radius;
-        outgoing_wx += rolling_rebound_blend * (rolling_outgoing_wx - outgoing_wx);
-        outgoing_wy += rolling_rebound_blend * (rolling_outgoing_wy - outgoing_wy);
+        let blend = if preserve_reverse_projection {
+            let max_blend_without_flipping_reverse_projection = 1.0
+                - minimum_horizontal_spin_current_weight_to_preserve_reverse_projection(
+                    outgoing_wx,
+                    outgoing_wy,
+                    rolling_outgoing_wx,
+                    rolling_outgoing_wy,
+                );
+            rolling_rebound_blend.min(max_blend_without_flipping_reverse_projection.max(0.0))
+        } else {
+            rolling_rebound_blend
+        };
+        outgoing_wx += blend * (rolling_outgoing_wx - outgoing_wx);
+        outgoing_wy += blend * (rolling_outgoing_wy - outgoing_wy);
     }
     clamp_rail_rebound_horizontal_spin_to_slip_limit(
         state_ref,
         &velocity,
         ball_radius,
+        preserve_reverse_projection,
         &mut outgoing_wx,
         &mut outgoing_wy,
     );

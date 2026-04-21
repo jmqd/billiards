@@ -162,6 +162,18 @@ fn assert_break_example_matches_helper_geometry(
     assert_heading_tracks_one_ball(label, &scenario);
 }
 
+fn simulate_break_trace(scenario: &DslScenario) -> billiards::dsl::ScenarioShotTrace {
+    scenario
+        .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("break scenario should simulate")
+        .expect("break scenario should include a shot")
+}
+
 fn opening_break_summary(scenario: &DslScenario) -> ((usize, usize), usize, usize) {
     let ball_set = BallSetPhysicsSpec::default();
     let mut states = scenario
@@ -293,5 +305,23 @@ fn the_left_side_rail_break_example_uses_exact_helper_owned_rack_geometry() {
         "examples/scenarios/nine_ball_break_left_side_rail.billiards",
         include_str!("../examples/scenarios/nine_ball_break_left_side_rail.billiards"),
         left_side_rail_break_cue_position(),
+    );
+}
+
+#[test]
+fn head_rail_break_trace_groups_effectively_simultaneous_collisions() {
+    let scenario = build_nine_ball_break_scenario(head_rail_break_cue_position());
+    let trace = simulate_break_trace(&scenario);
+    let lines = trace.event_lines();
+
+    assert!(
+        lines.len() < trace.event_log.len(),
+        "expected at least one effectively simultaneous event bucket in the head-rail break trace"
+    );
+    assert!(
+        lines.iter().any(|line| {
+            line.contains("six -> eight collision") && line.contains("seven -> eight collision")
+        }),
+        "expected the head-rail break trace to group the near-simultaneous rack-opening collisions"
     );
 }

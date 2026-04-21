@@ -552,12 +552,40 @@ impl ScenarioTraceRenderOptions {
     }
 }
 
+const SCENARIO_TRACE_TIME_DISPLAY_DECIMALS: usize = 6;
+// The current event scheduler intentionally breaks ties deterministically instead of producing a
+// composite simultaneous event, so break-style cluster contacts can arrive as back-to-back entries
+// separated only by floating-point residue. Group those for human-facing trace lines.
+const SCENARIO_TRACE_SIMULTANEOUS_EVENT_EPSILON_SECONDS: f64 = 1e-9;
+
 impl ScenarioShotTrace {
     pub fn event_lines(&self) -> Vec<String> {
-        self.event_log
-            .iter()
-            .map(ScenarioShotTraceEvent::format_human)
-            .collect()
+        let mut lines = Vec::new();
+        let mut index = 0;
+
+        while index < self.event_log.len() {
+            let group_time = self.event_log[index].time;
+            let mut group_kinds = vec![self.event_log[index].kind.format_human()];
+            index += 1;
+
+            while index < self.event_log.len()
+                && scenario_trace_times_are_effectively_simultaneous(
+                    group_time,
+                    self.event_log[index].time,
+                )
+            {
+                group_kinds.push(self.event_log[index].kind.format_human());
+                index += 1;
+            }
+
+            lines.push(format!(
+                "t={}  {}",
+                format_scenario_trace_time(group_time),
+                group_kinds.join(" | ")
+            ));
+        }
+
+        lines
     }
 
     pub fn rendered_final_layout_with_traces(
@@ -658,7 +686,11 @@ pub struct ScenarioShotTraceEvent {
 
 impl ScenarioShotTraceEvent {
     pub fn format_human(&self) -> String {
-        format!("t={:.3}  {}", self.time.as_f64(), self.kind.format_human())
+        format!(
+            "t={}  {}",
+            format_scenario_trace_time(self.time),
+            self.kind.format_human()
+        )
     }
 }
 
@@ -837,6 +869,14 @@ fn push_visible_trace_segment(
             duration,
         });
     }
+}
+
+fn format_scenario_trace_time(time: Seconds) -> String {
+    format!("{:.*}", SCENARIO_TRACE_TIME_DISPLAY_DECIMALS, time.as_f64())
+}
+
+fn scenario_trace_times_are_effectively_simultaneous(a: Seconds, b: Seconds) -> bool {
+    (a.as_f64() - b.as_f64()).abs() <= SCENARIO_TRACE_SIMULTANEOUS_EVENT_EPSILON_SECONDS
 }
 
 fn scenario_event_log_from_simulation(

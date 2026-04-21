@@ -142,6 +142,58 @@ fn a_ball_aimed_at_a_side_pocket_jaw_predicts_a_jaw_impact() {
 }
 
 #[test]
+fn advancing_a_near_jaw_side_pocket_entry_prefers_the_explicit_jaw_over_capture() {
+    let table = TableSpec::default();
+    let state = on_table(BallState::on_table(
+        inches2(43.0, 57.0),
+        Velocity2::new("12", "-10"),
+        AngularVelocity3::zero(),
+    ));
+
+    let capture = compute_next_ball_pocket_capture_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect("the coarse side-pocket gate should still see a capture candidate");
+    let jaw = compute_next_ball_jaw_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect("the same shot should also have an explicit jaw impact");
+    assert!(
+        jaw.time_until_impact.as_f64() > capture.time_until_capture.as_f64(),
+        "the reproducer needs capture to arrive slightly before the jaw in the raw predictors"
+    );
+    assert!(
+        jaw.time_until_impact.as_f64() - capture.time_until_capture.as_f64() < 0.005,
+        "the reproducer should be a very small near-tie between capture and jaw"
+    );
+
+    let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &[NBallSystemState::from(state)],
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        billiards::RailModel::Mirror,
+    );
+
+    match advanced.event.expect("a first event should be predicted") {
+        NBallSystemEvent::BallJawImpact { ball_index, impact } => {
+            assert_eq!(ball_index, 0);
+            assert_eq!(impact.pocket, Pocket::CenterRight);
+        }
+        other => panic!(
+            "expected the pocket-aware scheduler to prefer the explicit jaw over the nearby coarse capture, got {other:?}"
+        ),
+    }
+}
+
+#[test]
 fn injected_pocket_shape_changes_the_predicted_jaw_impact_time() {
     let state = on_table(BallState::on_table(
         inches2(44.0, 58.0),

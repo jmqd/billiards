@@ -4899,10 +4899,60 @@ fn advance_n_ball_system_without_event(
         .collect()
 }
 
+// The current pocket-capture predictor is only a coarse first-pass acceptance gate. If that gate
+// lands within a few milliseconds of an explicit same-pocket jaw contact, prefer the explicit jaw
+// so the scheduler does not pocket a ball that is effectively already entering the jaw collision.
+const NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS: f64 = 0.005;
+
+fn prefer_explicit_jaw_over_nearby_capture(
+    candidate: &NBallPocketAwareSystemEventCandidate,
+    current: &NBallPocketAwareSystemEventCandidate,
+) -> Option<bool> {
+    match (&candidate.event, &current.event) {
+        (
+            NBallSystemEvent::BallJawImpact {
+                ball_index: candidate_ball,
+                impact,
+            },
+            NBallSystemEvent::BallPocketCapture {
+                ball_index: current_ball,
+                capture,
+            },
+        ) if candidate_ball == current_ball
+            && impact.pocket == capture.pocket
+            && (impact.time_until_impact.as_f64() - capture.time_until_capture.as_f64()).abs()
+                <= NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS =>
+        {
+            Some(true)
+        }
+        (
+            NBallSystemEvent::BallPocketCapture {
+                ball_index: candidate_ball,
+                capture,
+            },
+            NBallSystemEvent::BallJawImpact {
+                ball_index: current_ball,
+                impact,
+            },
+        ) if candidate_ball == current_ball
+            && impact.pocket == capture.pocket
+            && (impact.time_until_impact.as_f64() - capture.time_until_capture.as_f64()).abs()
+                <= NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS =>
+        {
+            Some(false)
+        }
+        _ => None,
+    }
+}
+
 fn earlier_n_ball_pocket_aware_event_candidate(
     candidate: &NBallPocketAwareSystemEventCandidate,
     current: &NBallPocketAwareSystemEventCandidate,
 ) -> bool {
+    if let Some(prefer_candidate) = prefer_explicit_jaw_over_nearby_capture(candidate, current) {
+        return prefer_candidate;
+    }
+
     let candidate_time = candidate.event.time().as_f64();
     let current_time = current.event.time().as_f64();
 

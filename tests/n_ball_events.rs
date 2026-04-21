@@ -1,9 +1,10 @@
 use billiards::{
-    compute_next_n_ball_event_on_table, compute_next_n_ball_event_with_rails_on_table,
-    AngularVelocity3, BallSetPhysicsSpec, BallState, Diamond, Inches, Inches2, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent, OnTableBallState,
-    OnTableMotionConfig, RadiansPerSecondSq, Rail, RollingResistanceModel, SlidingFrictionModel,
-    SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    advance_to_next_n_ball_event_on_table, compute_next_n_ball_event_on_table,
+    compute_next_n_ball_event_with_rails_on_table, AngularVelocity3, BallSetPhysicsSpec, BallState,
+    CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
+    MotionTransitionConfig, NBallOnTableEvent, OnTableBallState, OnTableMotionConfig,
+    RadiansPerSecondSq, Rail, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
+    TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -176,6 +177,61 @@ fn simultaneous_pair_collisions_break_ties_by_lowest_index_pair() {
             assert_close(collision.time_until_impact.as_f64(), 1.0);
         }
         other => panic!("expected ball-ball collision, got {other:?}"),
+    }
+}
+
+#[test]
+fn touching_follow_on_collision_is_scheduled_immediately_after_a_frozen_cluster_tie_break() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let a = on_table(BallState::on_table(
+        inches2(-(2.0 * radius + 7.5), 0.0),
+        Velocity2::new("10", "0"),
+        AngularVelocity3::new(0.0, 10.0 / radius, 0.0),
+    ));
+    let b = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let c = on_table(BallState::resting_at(inches2(2.0 * radius, 0.0)));
+
+    let advanced = advance_to_next_n_ball_event_on_table(
+        &[a, b, c],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::Ideal,
+    );
+
+    match advanced
+        .event
+        .as_ref()
+        .expect("first cluster event should be predicted")
+    {
+        NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((*first_ball_index, *second_ball_index), (0, 1));
+            assert_close(collision.time_until_impact.as_f64(), 1.0);
+        }
+        other => panic!("expected opening ball-ball collision, got {other:?}"),
+    }
+
+    let next_state_refs = advanced.states.iter().collect::<Vec<_>>();
+    let next = compute_next_n_ball_event_on_table(
+        &next_state_refs,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("frozen neighbor contact should be preserved as an immediate follow-on collision");
+
+    match next {
+        NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((first_ball_index, second_ball_index), (1, 2));
+            assert_close(collision.time_until_impact.as_f64(), 0.0);
+        }
+        other => panic!("expected immediate follow-on ball-ball collision, got {other:?}"),
     }
 }
 

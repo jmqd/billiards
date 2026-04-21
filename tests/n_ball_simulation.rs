@@ -7,6 +7,14 @@ use billiards::{
     TYPICAL_BALL_RADIUS,
 };
 
+fn assert_close(actual: f64, expected: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta < 1e-9,
+        "expected {expected}, got {actual} (delta {delta})"
+    );
+}
+
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
@@ -86,6 +94,64 @@ fn simulating_n_balls_until_rest_records_collision_and_transition_events_until_e
         .events
         .iter()
         .any(|event| matches!(event, NBallOnTableEvent::MotionTransition { .. })));
+    for state in &simulated.states {
+        assert_eq!(
+            state
+                .as_ball_state()
+                .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+            MotionPhase::Rest
+        );
+    }
+}
+
+#[test]
+fn simulating_a_frozen_three_ball_chain_records_the_zero_time_follow_on_collision() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let a = on_table(BallState::on_table(
+        inches2(-(2.0 * radius + 7.5), 0.0),
+        Velocity2::new("10", "0"),
+        AngularVelocity3::new(0.0, 10.0 / radius, 0.0),
+    ));
+    let b = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let c = on_table(BallState::resting_at(inches2(2.0 * radius, 0.0)));
+
+    let simulated = simulate_n_balls_on_table_until_rest(
+        &[a, b, c],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::Ideal,
+    );
+
+    assert!(
+        simulated.events.len() >= 2,
+        "expected both cluster collisions to be recorded"
+    );
+    match &simulated.events[0] {
+        NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((*first_ball_index, *second_ball_index), (0, 1));
+            assert_close(collision.time_until_impact.as_f64(), 1.0);
+        }
+        other => panic!("expected opening cluster collision, got {other:?}"),
+    }
+    match &simulated.events[1] {
+        NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((*first_ball_index, *second_ball_index), (1, 2));
+            assert_close(collision.time_until_impact.as_f64(), 0.0);
+        }
+        other => panic!("expected immediate follow-on collision, got {other:?}"),
+    }
+    assert!(
+        simulated.states[2].as_ball_state().position.x().as_f64() > 2.0 * radius,
+        "the third ball should inherit the chain's forward motion"
+    );
     for state in &simulated.states {
         assert_eq!(
             state

@@ -3242,6 +3242,16 @@ pub fn compute_next_ball_ball_collision_on_table(
     })
 }
 
+fn ball_ball_approaching_normal_speed(a: &OnTableBallState, b: &OnTableBallState) -> f64 {
+    let a_state = a.as_ball_state();
+    let b_state = b.as_ball_state();
+    let (normal_x, normal_y, _, _) = collision_contact_basis(a, b);
+
+    (project_velocity_on_basis(&a_state.velocity, normal_x, normal_y)
+        - project_velocity_on_basis(&b_state.velocity, normal_x, normal_y))
+    .max(0.0)
+}
+
 /// Predict the next future ball-ball impact that occurs before either ball leaves its current
 /// qualitative motion phase.
 ///
@@ -3272,6 +3282,17 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     let dy = b_raw.y - a_raw.y;
     let initial_gap = dx * dx + dy * dy - contact_distance * contact_distance;
     if initial_gap <= 0.0 {
+        // Indexed N-ball tie-breaking can intentionally land exactly on another contact boundary in
+        // a frozen cluster. If the pair is already touching and still has positive closing speed,
+        // preserve that follow-on contact as an immediate t=0 collision instead of dropping it.
+        if ball_ball_approaching_normal_speed(a, b) > f64::EPSILON {
+            return Some(PredictedBallBallCollision {
+                time_until_impact: Seconds::zero(),
+                a_at_impact: a.clone(),
+                b_at_impact: b.clone(),
+            });
+        }
+
         return None;
     }
 
@@ -4574,8 +4595,8 @@ where
         let advanced = advance_next_event(&a_state, &b_state);
         let step_elapsed = advanced.elapsed.as_f64();
         assert!(
-            step_elapsed > f64::EPSILON,
-            "next two-ball event must advance simulation time"
+            step_elapsed >= 0.0,
+            "next two-ball event must not go backwards in time"
         );
 
         a_state = advanced.a;
@@ -4751,8 +4772,8 @@ where
         };
 
         assert!(
-            step_elapsed > f64::EPSILON,
-            "next n-ball event must advance simulation time"
+            step_elapsed >= 0.0,
+            "next n-ball event must not go backwards in time"
         );
 
         states = advanced.states;
@@ -5213,8 +5234,8 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
         };
         let step_elapsed = event.time().as_f64();
         assert!(
-            step_elapsed > f64::EPSILON,
-            "next pocket-aware n-ball event must advance simulation time"
+            step_elapsed >= 0.0,
+            "next pocket-aware n-ball event must not go backwards in time"
         );
 
         states = resolve_n_ball_system_event_with_physics_and_pockets_on_table(

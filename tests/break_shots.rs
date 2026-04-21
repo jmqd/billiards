@@ -173,7 +173,9 @@ fn opening_break_summary(scenario: &DslScenario) -> ((usize, usize), usize, usiz
         .collect::<Vec<_>>();
     let mut events = Vec::new();
     let mut elapsed = 0.0;
-    while events.len() < 10 && elapsed < 0.5 {
+    let mut positive_time_steps = 0;
+    let mut total_steps = 0;
+    while positive_time_steps < 10 && elapsed < 0.5 && total_steps < 200 {
         let advance = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
             &states,
             &ball_set,
@@ -185,7 +187,12 @@ fn opening_break_summary(scenario: &DslScenario) -> ((usize, usize), usize, usiz
         let Some(event) = advance.event else {
             break;
         };
-        elapsed += advance.elapsed.as_f64();
+        let step_elapsed = advance.elapsed.as_f64();
+        elapsed += step_elapsed;
+        if step_elapsed > f64::EPSILON {
+            positive_time_steps += 1;
+        }
+        total_steps += 1;
         events.push(event);
         states = advance.states;
     }

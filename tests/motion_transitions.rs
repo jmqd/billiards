@@ -28,6 +28,21 @@ fn transition_config() -> OnTableMotionConfig {
     }
 }
 
+fn calibrated_transition_config() -> OnTableMotionConfig {
+    OnTableMotionConfig {
+        phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("15"),
+        },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(10.9),
+        },
+        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new("5"),
+        },
+    }
+}
+
 fn on_table(state: BallState) -> OnTableBallState {
     OnTableBallState::try_from(state).expect("test states should validate as on-table")
 }
@@ -148,4 +163,46 @@ fn a_spinning_ball_predicts_the_time_until_rest_using_constant_angular_decelerat
     assert_eq!(transition.phase_before, MotionPhase::Spinning);
     assert_eq!(transition.phase_after, MotionPhase::Rest);
     assert_close(transition.time_until_transition.as_f64(), 3.0);
+}
+
+#[test]
+fn calibrated_spin_decay_sends_a_rolling_ball_directly_to_rest_when_spin_stops_first() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius.as_f64(), 0.0, 20.0),
+    ));
+
+    let transition = compute_next_transition_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &calibrated_transition_config(),
+    )
+    .expect("rolling balls should predict a transition");
+
+    assert_eq!(transition.phase_before, MotionPhase::Rolling);
+    assert_eq!(transition.phase_after, MotionPhase::Rest);
+    assert_close(transition.time_until_transition.as_f64(), 2.0);
+}
+
+#[test]
+fn calibrated_spin_decay_preserves_a_spinning_tail_only_when_spin_outlasts_roll_stop() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius.as_f64(), 0.0, 30.0),
+    ));
+
+    let transition = compute_next_transition_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &calibrated_transition_config(),
+    )
+    .expect("rolling balls should predict a transition");
+
+    assert_eq!(transition.phase_before, MotionPhase::Rolling);
+    assert_eq!(transition.phase_after, MotionPhase::Spinning);
+    assert_close(transition.time_until_transition.as_f64(), 2.0);
 }

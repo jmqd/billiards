@@ -272,6 +272,35 @@ current preview / example sliding-friction default.
 - even after that bump, the current reduced solver still sits well below the literal
   `mu_s ≈ 0.2` / `77.2 ips²` whitepaper mapping.
 
+## Focused phase-timing audit: Rolling -> Spinning -> Rest
+
+A separate code audit compared the current pure-z-spin transition logic against both the local
+TP B.2 / Petit-style notes and the installed `pooltool` event scheduler.
+
+Current status: **no additional z-spin timing fix looks justified right now**.
+
+Why:
+
+- the solver already uses linear z-spin decay during sliding, rolling, and spinning, matching the
+  local `(M13)` / `(M14')` picture and `pooltool`'s
+  `alpha = 5 * u_sp * g / (2 * R)` implementation;
+- the rolling-phase transition logic already matches the `pooltool` rule:
+  - let `t_roll = |v| / a_roll`
+  - let `t_spin = |ωz| / αz`
+  - if `t_spin > t_roll`, transition `Rolling -> Spinning`
+  - otherwise transition `Rolling -> Rest` at the linear stop time;
+- with the current preview / example defaults (`15 ips²`, `5 ips²`, `10.9 rad/s²`), the checked
+  `right_spin_stun_side_pocket` scenario currently ends with `cue Rolling -> Rest` at about
+  `t = 3.708 s`, with no separate `Spinning -> Rest` tail.
+
+Interpretation:
+
+- the earlier long-tail mismatch was primarily the old under-damped z-spin coefficient;
+- after the `10.9 rad/s²` calibration, the remaining pure-z-spin phase timing is broadly aligned
+  with the local whitepaper / `pooltool` picture;
+- if future examples still look wrong, the more likely remaining culprit is not the vertical-axis
+  decay law itself but other shot-state inputs into the post-contact motion.
+
 ## Suggested calibration order
 
 1. Keep the calibrated **z-spin decay** default at `10.9 rad/s²`.

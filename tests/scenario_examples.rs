@@ -291,6 +291,11 @@ fn right_spin_stun_side_pocket_example_runs_end_to_end() {
     assert!(lines
         .iter()
         .any(|line| line.contains("one pocketed in center-right")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("cue Rolling -> Rest")));
+    assert!(!lines.iter().any(|line| line.contains("cue Rolling -> Spinning")));
+    assert!(!lines.iter().any(|line| line.contains("cue Spinning -> Rest")));
     assert!(matches!(
         cue_trace(&trace).final_state,
         NBallSystemState::OnTable(_)

@@ -307,3 +307,33 @@ Interpretation:
 2. Keep the current **midrange sliding-friction** default at `15 ips²` unless a later pass finds a
    better tradeoff.
 3. Only then revisit rolling resistance if the probe results still look wrong.
+
+## Bug-hunt follow-up: straight follow / draw regression boundary
+
+A focused follow-up check was run against the exact checked-in straight follow / draw side-pocket
+examples while varying only the preview/example sliding-friction setting.
+
+Observed boundary:
+
+- `16` through `19 ips²` still preserve the current qualitative example outcomes;
+- `20 ips²` is the first nearby bump that materially changes them.
+
+At `20 ips²`:
+
+- `examples/scenarios/straight_follow_side_pocket.billiards`
+  reaches `cue Sliding -> Rolling` **before** the cue/object collision, so the cue arrives in a
+  different contact state than the intended force-follow example;
+- `examples/scenarios/straight_draw_side_pocket.billiards`
+  no longer scratches in `center-left` and instead rolls to rest on the table.
+
+That result matters because the local whitepaper / `pooltool` picture still argues that literal
+ball-cloth `μs ≈ 0.2` is much stronger than the current reduced preview setting, but the reduced
+solver is being tuned to preserve plausible example behavior, not to copy the raw coefficient
+numerically.
+
+So the present no-code conclusion is:
+
+- the sliding-evolution math already matches the local Coulomb / `pooltool` shape closely enough
+  for this scope;
+- the remaining mismatch is primarily a **calibration tradeoff**, not a fresh implementation bug;
+- the current preview/example default should stay at **`15 ips²`** for now.

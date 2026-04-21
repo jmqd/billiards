@@ -188,10 +188,19 @@ fn straight_follow_side_pocket_example_runs_end_to_end() {
         .expect("example contains a shot");
     let lines = trace.event_lines();
     let cue = cue_trace(&trace);
-
-    assert!(lines
+    let collision_index = lines
         .iter()
-        .any(|line| line.contains("cue -> one collision")));
+        .position(|line| line.contains("cue -> one collision"))
+        .expect("example should include the cue/object collision");
+    let first_roll_index = lines
+        .iter()
+        .position(|line| line.contains("cue Sliding -> Rolling"))
+        .expect("example should include the cue sliding-to-rolling transition");
+
+    assert!(
+        collision_index < first_roll_index,
+        "the preview straight-follow example should still reach the object before cloth friction settles the cue ball into rolling"
+    );
     assert!(lines
         .iter()
         .any(|line| line.contains("one pocketed in center-right")));

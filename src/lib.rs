@@ -5810,16 +5810,26 @@ fn throw_aware_collision_outcome_on_table_with_config(
             * (a_state.angular_velocity.x().as_f64() + b_state.angular_velocity.x().as_f64())
             - normal_x
                 * (a_state.angular_velocity.y().as_f64() + b_state.angular_velocity.y().as_f64()));
-    let slip_scale = tangential_relative_speed.abs()
+    let tangential_slip_scale = tangential_relative_speed.abs()
         + ball_radius
             * (a_state.angular_velocity.z().as_f64().abs()
                 + b_state.angular_velocity.z().as_f64().abs());
     let numerical_zero_slip =
         THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO * normal_relative_speed.max(1.0);
-    let throw_angle_degrees = if slip_scale <= numerical_zero_slip {
+    let throw_direction_scale = tangential_slip_scale.hypot(vertical_contact_slip.abs());
+    let throw_angle_degrees = if tangential_slip_scale <= numerical_zero_slip
+        || throw_direction_scale <= numerical_zero_slip
+    {
         0.0
     } else {
-        THROW_AWARE_MAX_ANGLE_DEGREES * (tangential_contact_slip / slip_scale).clamp(-1.0, 1.0)
+        // `whitepapers/amateur_physics_for_the_amateur_pool_player.pdf`, Sec. 4.3, resolves the
+        // ball-ball contact slip into a horizontal throw component `Vcpy` and a vertical
+        // follow/draw component `Vcpz`, with the throw-producing fraction scaled by
+        // `Vcpy / sqrt(Vcpy^2 + Vcpz^2)`. Keep the existing tangential-source scaling for
+        // no-slip / gearing cancellation, but reduce the realized throw when the contact-slip
+        // direction tilts into the vertical plane.
+        THROW_AWARE_MAX_ANGLE_DEGREES
+            * (tangential_contact_slip / throw_direction_scale).clamp(-1.0, 1.0)
     };
 
     let object_speed = ball_speed(ideal.b_after.as_ball_state()).as_f64();

@@ -131,6 +131,63 @@ fn a_nearly_head_on_rolling_collision_does_not_pick_up_throw_from_tiny_tangent_n
 }
 
 #[test]
+fn follow_and_draw_sharply_reduce_near_head_on_throw_relative_to_stun() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cut_angle_radians = 5.0_f64.to_radians();
+    let cue_position = inches2(
+        -2.0 * radius * cut_angle_radians.sin(),
+        -2.0 * radius * cut_angle_radians.cos(),
+    );
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let stun = on_table(BallState::on_table(
+        cue_position.clone(),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::zero(),
+    ));
+    let follow = on_table(BallState::on_table(
+        cue_position.clone(),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let draw = on_table(BallState::on_table(
+        cue_position,
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(10.0 / radius, 0.0, 0.0),
+    ));
+
+    let stun_throw =
+        collide_ball_ball_detailed_on_table(&stun, &object_ball, CollisionModel::ThrowAware)
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle")
+            .abs();
+    let follow_throw =
+        collide_ball_ball_detailed_on_table(&follow, &object_ball, CollisionModel::ThrowAware)
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle")
+            .abs();
+    let draw_throw =
+        collide_ball_ball_detailed_on_table(&draw, &object_ball, CollisionModel::ThrowAware)
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle")
+            .abs();
+
+    // For a 5° cut with full rolling follow/draw at impact, the APAPP Sec. 4.3 horizontal
+    // throw-efficiency term is on the order of `sin(5°) / sqrt(sin²(5°) + 1) ≈ 0.086`, so a 20%
+    // cap leaves comfortable tolerance while still catching the old bug where follow/draw left the
+    // near-head-on throw unchanged from stun.
+    let strong_reduction_limit = 0.2 * stun_throw;
+    assert!(
+        follow_throw < strong_reduction_limit,
+        "near-head-on follow should sharply reduce throw; got follow {follow_throw} vs stun {stun_throw}"
+    );
+    assert!(
+        draw_throw < strong_reduction_limit,
+        "near-head-on draw should sharply reduce throw; got draw {draw_throw} vs stun {stun_throw}"
+    );
+    assert_close(follow_throw, draw_throw);
+}
+
+#[test]
 fn a_rolling_cut_shot_with_english_uses_the_tp_a8_style_cue_ball_post_impact_state() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

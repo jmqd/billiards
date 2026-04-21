@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use billiards::dsl::{BallRef, DslScenario, ScenarioShot};
+use billiards::dsl::{parse_dsl_to_scenario, BallRef, DslScenario, ScenarioShot};
 use billiards::{
     advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table, rack_9_ball, Ball,
     BallSetPhysicsSpec, BallSpec, BallType, CollisionModel, CueStrikeConfig, CueTipContact,
@@ -28,6 +28,20 @@ fn motion_config() -> OnTableMotionConfig {
 fn default_cue_strike() -> CueStrikeConfig {
     CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.1))
         .expect("default cue-strike config should validate")
+}
+
+fn head_rail_break_cue_position() -> Position {
+    let mut cue_position = Position::new(2u8, 8u8);
+    cue_position.shift_vertically_inches(Inches::from_f64(-4.0));
+    cue_position.resolve_shifts(&TableSpec::default());
+    cue_position
+}
+
+fn left_side_rail_break_cue_position() -> Position {
+    let mut cue_position = Position::new(0u8, 6u8);
+    cue_position.shift_horizontally_inches(Inches::from_f64(4.0));
+    cue_position.resolve_shifts(&TableSpec::default());
+    cue_position
 }
 
 fn build_nine_ball_break_scenario(cue_position: Position) -> DslScenario {
@@ -66,6 +80,86 @@ fn build_nine_ball_break_scenario(cue_position: Position) -> DslScenario {
         rail_profiles: HashMap::new(),
         simulations: HashMap::new(),
     }
+}
+
+fn assert_position_matches_helper_geometry(label: &str, actual: &Position, expected: &Position) {
+    let delta_inches = TableSpec::default()
+        .diamond_to_inches(actual.displacement(expected).absolute_distance())
+        .as_f64();
+    assert!(
+        delta_inches < 1e-9,
+        "{label} drifted from helper geometry by {delta_inches} inches: actual={actual:?}, expected={expected:?}"
+    );
+}
+
+fn assert_heading_tracks_one_ball(label: &str, scenario: &DslScenario) {
+    let cue_ball = scenario
+        .game_state
+        .balls()
+        .iter()
+        .find(|ball| ball.ty == BallType::Cue)
+        .expect("scenario should include the cue ball");
+    let one_ball = scenario
+        .game_state
+        .balls()
+        .iter()
+        .find(|ball| ball.ty == BallType::One)
+        .expect("scenario should include the 1-ball");
+    let actual = scenario
+        .shot
+        .as_ref()
+        .expect("scenario should include a shot")
+        .shot
+        .heading()
+        .as_degrees();
+    let expected = cue_ball.position.angle_to(&one_ball.position).as_degrees();
+    let delta = (actual - expected).abs().rem_euclid(360.0);
+    let delta = delta.min(360.0 - delta);
+    assert!(
+        delta < 1e-6,
+        "{label} shot heading drifted away from the cue→1-ball line by {delta} degrees: actual={actual}, expected={expected}"
+    );
+}
+
+fn assert_break_example_matches_helper_geometry(
+    label: &str,
+    input: &str,
+    expected_cue_position: Position,
+) {
+    let scenario = parse_dsl_to_scenario(input).expect("break example should parse");
+    assert_eq!(
+        scenario.game_state.balls().len(),
+        10,
+        "{label} should contain a cue ball plus a full nine-ball rack"
+    );
+
+    let cue_ball = scenario
+        .game_state
+        .balls()
+        .iter()
+        .find(|ball| ball.ty == BallType::Cue)
+        .expect("scenario should include the cue ball");
+    assert_position_matches_helper_geometry(
+        &format!("{label} cue position"),
+        &cue_ball.position,
+        &expected_cue_position,
+    );
+
+    for expected_ball in rack_9_ball() {
+        let actual_ball = scenario
+            .game_state
+            .balls()
+            .iter()
+            .find(|ball| ball.ty == expected_ball.ty)
+            .unwrap_or_else(|| panic!("{label} should include {:?}", expected_ball.ty));
+        assert_position_matches_helper_geometry(
+            &format!("{label} {:?} position", expected_ball.ty),
+            &actual_ball.position,
+            &expected_ball.position,
+        );
+    }
+
+    assert_heading_tracks_one_ball(label, &scenario);
 }
 
 fn opening_break_summary(scenario: &DslScenario) -> ((usize, usize), usize, usize) {
@@ -145,11 +239,7 @@ fn opening_break_summary(scenario: &DslScenario) -> ((usize, usize), usize, usiz
 
 #[test]
 fn a_second_diamond_head_rail_nine_ball_break_with_slight_draw_opens_the_rack() {
-    let mut cue_position = Position::new(2u8, 8u8);
-    cue_position.shift_vertically_inches(Inches::from_f64(-4.0));
-    cue_position.resolve_shifts(&TableSpec::default());
-
-    let scenario = build_nine_ball_break_scenario(cue_position);
+    let scenario = build_nine_ball_break_scenario(head_rail_break_cue_position());
     let (first_ball_collision, ball_ball_collision_count, moved_or_pocketed_ball_count) =
         opening_break_summary(&scenario);
 
@@ -166,11 +256,7 @@ fn a_second_diamond_head_rail_nine_ball_break_with_slight_draw_opens_the_rack() 
 
 #[test]
 fn a_second_diamond_left_side_rail_nine_ball_break_with_slight_draw_opens_the_rack() {
-    let mut cue_position = Position::new(0u8, 6u8);
-    cue_position.shift_horizontally_inches(Inches::from_f64(4.0));
-    cue_position.resolve_shifts(&TableSpec::default());
-
-    let scenario = build_nine_ball_break_scenario(cue_position);
+    let scenario = build_nine_ball_break_scenario(left_side_rail_break_cue_position());
     let (first_ball_collision, ball_ball_collision_count, moved_or_pocketed_ball_count) =
         opening_break_summary(&scenario);
 
@@ -182,5 +268,23 @@ fn a_second_diamond_left_side_rail_nine_ball_break_with_slight_draw_opens_the_ra
     assert!(
         ball_ball_collision_count >= 4,
         "expected multiple opening collisions from the side-rail break, got only {ball_ball_collision_count} collisions"
+    );
+}
+
+#[test]
+fn the_head_rail_break_example_uses_exact_helper_owned_rack_geometry() {
+    assert_break_example_matches_helper_geometry(
+        "examples/scenarios/nine_ball_break_head_rail.billiards",
+        include_str!("../examples/scenarios/nine_ball_break_head_rail.billiards"),
+        head_rail_break_cue_position(),
+    );
+}
+
+#[test]
+fn the_left_side_rail_break_example_uses_exact_helper_owned_rack_geometry() {
+    assert_break_example_matches_helper_geometry(
+        "examples/scenarios/nine_ball_break_left_side_rail.billiards",
+        include_str!("../examples/scenarios/nine_ball_break_left_side_rail.billiards"),
+        left_side_rail_break_cue_position(),
     );
 }

@@ -40,27 +40,27 @@ Qualitatively, the note says:
 ### Directly represented in `src/lib.rs`
 
 - `RailCollisionConfig::normal_restitution` models the TP 7.3 `e` term.
-- `RailCollisionConfig::tangential_friction_coefficient` models the tangential friction term `μ`.
-- `spin_aware_ball_rail_collision_on_table(...)` uses the full rail-face contact-slip vector,
-  combining:
-  - along-rail slip from tangential velocity and `ωz`, and
-  - vertical slip from `ωx` / `ωy`.
-- `tp73_geometric_vertical_plane_spin_delta(...)` is the explicit TP 7.3-style geometric `a`
+- `RailCollisionConfig::tangential_friction_coefficient` models the tangential rail-friction term
+  `μ`.
+- `spin_aware_ball_rail_collision_on_table(...)` now runs a reduced Mathavan-style impact solve in
+  the local cushion frame, including:
+  - along-rail slip from tangential velocity and `ωz`,
+  - vertical slip from `ωx` / `ωy`, and
+  - a fixed typical ball-cloth sliding-friction term during the rail contact interval.
+- `tp73_geometric_vertical_plane_spin_delta(...)` remains the explicit TP 7.3-style geometric `a`
   contribution for vertical-plane-spin conversion.
 
-### Intentional realism guards currently layered on top
+### Intentional realism guards still layered on top
 
-The current reduced horizontal on-table model also adds guards to keep ordinary rail exits in
-believable bounds:
+The reduced horizontal on-table model still keeps two small guardrails for ordinary exits:
 
 - `rail_running_english_generation_scale(...)`
-- `rail_side_spin_retention_scale(...)`
 - `rail_rebound_horizontal_spin_blend(...)`
 - `clamp_rail_rebound_horizontal_spin_to_slip_limit(...)`
 
-These are not direct TP 7.3 formulas. They are pragmatic controls added because the state model does
-not include full cushion compression, vertical center-of-mass motion, or richer post-rail contact
-history.
+These are not direct TP 7.3 or Mathavan formulas. They remain pragmatic controls because the state
+model still does not include full cushion compression, vertical center-of-mass motion, or richer
+post-rail contact history.
 
 The rolling-settle controls are also now capped so they can pull a reverse-spin overspin rebound
 back toward **stun**, but not all the way through stun into fresh forward roll; TP 7.3's slight-
@@ -74,38 +74,33 @@ TP 7.3's worked example uses roughly `a = 0.08 R`.
 
 The current code uses:
 
-- `TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO = 0.02`
+- `TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO = 0.04`
 
-This is intentionally smaller to avoid double-counting cushion effects already partly captured by
-other reduced-model terms.
+This is still intentionally smaller than the TP 7.3 worked-case `a ≈ 0.08R`, but it is no longer
+as aggressively reduced as the earlier `0.02R` stopgap. The simultaneous rail+cloth solve now
+carries more of the burden, while this geometric term restores some of the missing forward-roll
+pickup for stun-like entries.
 
-Likely consequence:
+### 2. Cushion compliance is still only implicit
 
-- the model is less likely to over-flip ordinary rolling entries,
-- but it probably also **under-predicts how much fresh forward vertical-plane roll a pure stun rail
-  impact should gain** relative to the TP 7.3 worked example.
-
-### 2. Cushion compliance is represented only as an effective torque lever
-
-The code uses:
+The current solver now includes simultaneous rail+cloth friction during impact, but it still does
+not model explicit cushion compression / release. The main remaining cushion-compliance surrogate is
+therefore still the fixed contact-height geometry:
 
 - `THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO = 2/5`
-- `CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO = 0.65`
+- `TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO = 0.04`
 
-This is a reduced surrogate for a compliant cushion patch. It is useful, but it is not a full
-cushion deformation model.
+That is a useful reduced model, but it is not a full compliant cushion patch solve.
 
-### 3. Rail-entry rolling states are deliberately damped
+### 3. Rail-entry rolling states still get a small pragmatic nudge
 
-Ordinary rolling entries without explicit side spin are currently nudged toward more realistic exits
-by suppressing some:
+Ordinary rolling entries without explicit side spin are still nudged toward more realistic exits by:
 
-- fresh running-english generation,
-- carried side-spin retention,
-- post-rail horizontal-spin mismatch.
+- suppressing some fresh running-english generation,
+- blending horizontal spin somewhat back toward the post-rail rolling target, and
+- clamping excessive outgoing cloth-slip mismatch.
 
-This is motivated by observed over-curve after rail contact, but it is not directly derived from TP
-7.3.
+This remains a pragmatic correction for the reduced horizontal state, not a paper-derived result.
 
 ### 4. The current state does not include airborne / vertical post-impact motion
 
@@ -121,10 +116,12 @@ problem.
 
 ## What is already covered well enough
 
-At a qualitative level, the current model does capture the most important TP 7.3 behaviors:
+At a qualitative level, the current model now captures the most important local rail behaviors:
 
+- simultaneous rail+cloth friction acts during impact rather than only after the fact;
 - rolling entries rebound much closer to **stun** than a pure mirror rebound would;
 - strong overspin / follow-style entries can leave with **reverse** vertical-plane spin;
+- pure stun entries can pick up a small amount of forward vertical-plane roll;
 - pure rolling rail rebounds generally leave the ball in a **sliding** phase, not rolling;
 - explicit side spin and horizontal cloth-slip are kept from exploding after rail contact.
 
@@ -135,23 +132,23 @@ At a qualitative level, the current model does capture the most important TP 7.3
 1. **A single durable note mapping TP 7.3 to the code**
    - this file is intended to fill that gap.
 
-2. **Canonical TP 7.3 regression tests**
+2. **Canonical TP 7.3 / Mathavan regression tests**
    - especially the qualitative rolling / stun / overspin / draw entry cases.
 
 3. **Explicit statement that some rail guards are heuristic, not paper-derived**
-   - especially the rolling-entry side-spin scrub / blend / clamp helpers.
+   - especially the rolling-entry running-english scale / blend / clamp helpers.
 
 ### Still-open physics questions
 
-1. Should the effective `a` term be made **speed-dependent** rather than fixed?
-2. Should cushion compliance / penetration depth vary with impact speed and rail?
-3. Should the rail model expose an internal trace of:
+1. Should the fixed impact-time cloth-friction coefficient be exposed and calibrated rather than
+   hard-coded?
+2. Should the effective `a` term be made **speed-dependent** rather than fixed?
+3. Should cushion compliance / penetration depth vary with impact speed and rail?
+4. Should the rail model expose an internal trace of:
    - tangential contact slip,
-   - vertical contact slip,
-   - friction-limited vs no-slip regime,
+   - cloth-contact slip,
+   - compression / restitution work,
    so scenario debugging can distinguish paper-backed response from guardrail clamps?
-4. Do we want a stricter TP 7.3 calibration mode for isolated rail studies, separate from the more
-   conservative whole-table realism defaults?
 
 ## Pointers into the code
 

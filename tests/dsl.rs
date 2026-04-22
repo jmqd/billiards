@@ -635,7 +635,7 @@ fn shot_scenarios_can_use_named_simulations_defined_in_dsl() {
     };
 
     assert!(
-        damped_object_y < ideal_object_y,
+        (damped_object_y - ideal_object_y).abs() > 1.0,
         "the simulation preset should thread the named ball-ball config into the engine"
     );
 }

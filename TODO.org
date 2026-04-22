@@ -20,12 +20,13 @@ shoot(9).angle(-60).draw(max).speed(max)
   pocket entry angle and speed, but it still does not model explicit jaw contacts, rattles, or the
   later fall / reject dynamics once a ball reaches the pocket mouth.
 
-* TODO Revisit rail-generated running english with a fuller TP 7.3 / compliant-contact solve
-  The current =RailModel::SpinAware= now includes a reduced TP 7.3-style contact-height term, a
-  compliant effective torque lever, and extra damping for ordinary rolling / no-english entries.
-  This is more believable than the old direct tangential-slip -> =ωz= coupling, but the reduced
-  on-table model still does not solve the full simultaneous rail+cloth contact problem or calibrate
-  post-rail running english against measured data.
+* TODO Calibrate spin-aware rail exits against measured data / compliant-cushion cases
+  =RailModel::SpinAware= now uses a reduced Mathavan-style simultaneous rail+cloth impact solve,
+  plus a TP 7.3-style geometric lift term and small rolling-entry guardrails to keep ordinary exits
+  believable in the reduced horizontal model. The remaining gap is no longer “missing rail+cloth
+  coupling” so much as calibration: the fixed impact-time cloth friction, fixed contact-height term,
+  and no explicit cushion-compression / airborne response are still approximations that should be
+  checked against measured rebound-spin data.
 
 * TODO Update in-repo references to renamed whitepapers
   The whitepaper history rewrite changed many files from ad hoc names to title-based

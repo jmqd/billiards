@@ -6399,52 +6399,270 @@ fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Veloc
     restitution_aware_ball_rail_collision_velocity(velocity, rail, 1.0)
 }
 
-// TP 7.3 quotes an effective cushion-geometry term around `a ≈ 0.08R` for the vertical-plane
-// spin response. Our reduced horizontal rail model already captures part of the cushion response
-// through the friction/slip coupling, so we use a smaller effective term here to avoid
-// double-counting while still moving ordinary rolling rail contacts toward the near-stun behavior
-// discussed in the note.
-//
-// Important limitation: shrinking the effective `a` term this way likely also under-represents how
-// much new forward vertical-plane roll a pure stun rail impact should pick up in the TP 7.3 worked
-// example. See `whitepapers/rail_rebound.md` for the current mapping and open questions.
-const TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.02;
+// The current `SpinAware` rail model now uses a reduced Mathavan-style impact solve in the local
+// cushion frame. That explicitly includes both rail friction and a typical ball-cloth sliding
+// friction term during the short cushion-contact interval, which replaces the earlier heuristic
+// running-english damping helpers.
 const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
-// The local cushion-impact references treat the rail contact as a compliant patch rather than a
-// rigid point impulse at the side equator. In the reduced on-table model we therefore use a
-// smaller effective torque lever for the friction-generated spin response than the raw geometric
-// contact lever alone would suggest.
-const CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO: f64 = 0.65;
+const TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.04;
+const RAIL_IMPACT_TABLE_FRICTION_COEFFICIENT: f64 = 0.20;
+const RAIL_IMPACT_SOLVE_MAX_STEPS: usize = 1_000;
+const RAIL_IMPACT_MIN_IMPULSE_STEP: f64 = 1e-4;
+const RAIL_IMPACT_REFINEMENT_STEPS: usize = 8;
 const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.10;
-const RAIL_SIDE_SPIN_RETENTION_ROLLING_MIN_SCALE: f64 = 0.55;
 const RAIL_ROLLING_REBOUND_HORIZONTAL_SPIN_BLEND: f64 = 0.35;
 const RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 1.15;
 const RAIL_ROLLING_REBOUND_LOW_ENGLISH_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 0.8;
 const RAIL_RUNNING_ENGLISH_ROLLING_SLIP_RATIO_FOR_FULL_SCALE: f64 = 0.10;
 const RAIL_RUNNING_ENGLISH_SIDE_SPIN_RATIO_FOR_FULL_SCALE: f64 = 0.25;
 
-fn theoretical_cushion_contact_normal_lever_ratio() -> f64 {
-    (1.0 - THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO.powi(2)).sqrt()
+#[derive(Clone, Copy, Debug)]
+struct RailImpactFrameState {
+    tangent_speed: f64,
+    normal_speed_toward_cushion: f64,
+    angular_tangent: f64,
+    angular_normal_toward_cushion: f64,
+    angular_vertical: f64,
 }
 
-fn effective_cushion_spin_torque_lever(ball_radius: f64) -> f64 {
-    ball_radius
-        * theoretical_cushion_contact_normal_lever_ratio()
-        * CUSHION_COMPLIANCE_EFFECTIVE_TORQUE_RATIO
+fn cushion_contact_sin_theta() -> f64 {
+    THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO
 }
 
-fn cushion_angular_response_coefficient(ball_radius: f64) -> f64 {
-    5.0 * effective_cushion_spin_torque_lever(ball_radius) / (2.0 * ball_radius * ball_radius)
+fn cushion_contact_cos_theta() -> f64 {
+    (1.0 - cushion_contact_sin_theta().powi(2)).sqrt()
 }
 
-fn rail_vertical_contact_slip(
-    angular_velocity: &AngularVelocity3,
-    normal_x: f64,
-    normal_y: f64,
-    contact_normal_lever: f64,
+fn rail_impact_frame_slip_angles(
+    state: RailImpactFrameState,
+    ball_radius: f64,
+    sin_theta: f64,
+    cos_theta: f64,
+) -> (f64, f64) {
+    let cushion_contact_tangent_speed = state.tangent_speed
+        + state.angular_normal_toward_cushion * ball_radius * sin_theta
+        - state.angular_vertical * ball_radius * cos_theta;
+    let cushion_contact_vertical_speed =
+        -state.normal_speed_toward_cushion * sin_theta + state.angular_tangent * ball_radius;
+    let cloth_contact_tangent_speed =
+        state.tangent_speed - state.angular_normal_toward_cushion * ball_radius;
+    let cloth_contact_normal_speed =
+        state.normal_speed_toward_cushion + state.angular_tangent * ball_radius;
+
+    (
+        cushion_contact_vertical_speed.atan2(cushion_contact_tangent_speed),
+        cloth_contact_normal_speed.atan2(cloth_contact_tangent_speed),
+    )
+}
+
+fn advance_rail_impact_frame_by_impulse_step(
+    state: RailImpactFrameState,
+    ball_radius: f64,
+    sin_theta: f64,
+    cos_theta: f64,
+    table_friction: f64,
+    cushion_friction: f64,
+    delta_p: f64,
+) -> RailImpactFrameState {
+    let (cushion_slip_angle, cloth_slip_angle) =
+        rail_impact_frame_slip_angles(state, ball_radius, sin_theta, cos_theta);
+    let coupling_term = sin_theta + cushion_friction * cushion_slip_angle.sin() * cos_theta;
+    let tangential_impulse = cushion_friction * cushion_slip_angle.cos()
+        + table_friction * cloth_slip_angle.cos() * coupling_term;
+    let normal_impulse = cos_theta - cushion_friction * sin_theta * cushion_slip_angle.sin()
+        + table_friction * cloth_slip_angle.sin() * coupling_term;
+    let angular_scale = 5.0 / (2.0 * ball_radius);
+
+    RailImpactFrameState {
+        tangent_speed: state.tangent_speed - tangential_impulse * delta_p,
+        normal_speed_toward_cushion: state.normal_speed_toward_cushion - normal_impulse * delta_p,
+        angular_tangent: state.angular_tangent
+            - angular_scale
+                * (cushion_friction * cushion_slip_angle.sin()
+                    + table_friction * cloth_slip_angle.sin() * coupling_term)
+                * delta_p,
+        angular_normal_toward_cushion: state.angular_normal_toward_cushion
+            - angular_scale
+                * (cushion_friction * cushion_slip_angle.cos() * sin_theta
+                    - table_friction * cloth_slip_angle.cos() * coupling_term)
+                * delta_p,
+        angular_vertical: state.angular_vertical
+            + angular_scale * cushion_friction * cushion_slip_angle.cos() * cos_theta * delta_p,
+    }
+}
+
+fn rail_impact_work_increment(
+    normal_speed_toward_cushion: f64,
+    cos_theta: f64,
+    delta_p: f64,
 ) -> f64 {
-    contact_normal_lever
-        * (normal_x * angular_velocity.y().as_f64() - normal_y * angular_velocity.x().as_f64())
+    delta_p * normal_speed_toward_cushion.abs() * cos_theta
+}
+
+fn solve_rail_impact_compression_phase(
+    mut state: RailImpactFrameState,
+    ball_radius: f64,
+    sin_theta: f64,
+    cos_theta: f64,
+    table_friction: f64,
+    cushion_friction: f64,
+) -> (RailImpactFrameState, f64) {
+    let mut work = 0.0;
+    let mut step_count = 0usize;
+    let delta_p = (state.normal_speed_toward_cushion / RAIL_IMPACT_SOLVE_MAX_STEPS as f64)
+        .max(RAIL_IMPACT_MIN_IMPULSE_STEP);
+
+    while state.normal_speed_toward_cushion > f64::EPSILON {
+        let next = advance_rail_impact_frame_by_impulse_step(
+            state,
+            ball_radius,
+            sin_theta,
+            cos_theta,
+            table_friction,
+            cushion_friction,
+            delta_p,
+        );
+
+        if next.normal_speed_toward_cushion <= 0.0 {
+            let mut refined = state;
+            let mut refined_work = work;
+            let mut refined_delta_p = delta_p;
+
+            for _ in 0..RAIL_IMPACT_REFINEMENT_STEPS {
+                refined_delta_p *= 0.5;
+                let candidate = advance_rail_impact_frame_by_impulse_step(
+                    refined,
+                    ball_radius,
+                    sin_theta,
+                    cos_theta,
+                    table_friction,
+                    cushion_friction,
+                    refined_delta_p,
+                );
+                if candidate.normal_speed_toward_cushion <= 0.0 {
+                    continue;
+                }
+                refined = candidate;
+                refined_work += rail_impact_work_increment(
+                    refined.normal_speed_toward_cushion,
+                    cos_theta,
+                    refined_delta_p,
+                );
+            }
+
+            return (refined, refined_work);
+        }
+
+        state = next;
+        work += rail_impact_work_increment(state.normal_speed_toward_cushion, cos_theta, delta_p);
+        step_count += 1;
+        assert!(
+            step_count <= 10 * RAIL_IMPACT_SOLVE_MAX_STEPS,
+            "rail-impact compression phase failed to converge"
+        );
+    }
+
+    (state, work)
+}
+
+fn solve_rail_impact_restitution_phase(
+    mut state: RailImpactFrameState,
+    compression_work: f64,
+    ball_radius: f64,
+    sin_theta: f64,
+    cos_theta: f64,
+    normal_restitution: f64,
+    table_friction: f64,
+    cushion_friction: f64,
+) -> RailImpactFrameState {
+    let target_work = normal_restitution * normal_restitution * compression_work;
+    if target_work <= f64::EPSILON {
+        return state;
+    }
+
+    let mut work = 0.0;
+    let mut step_count = 0usize;
+    let delta_p =
+        (target_work / RAIL_IMPACT_SOLVE_MAX_STEPS as f64).max(RAIL_IMPACT_MIN_IMPULSE_STEP);
+
+    while work < target_work {
+        let next_work =
+            rail_impact_work_increment(state.normal_speed_toward_cushion, cos_theta, delta_p);
+        if work + next_work > target_work {
+            let remaining_work = target_work - work;
+            let refined_delta_p = remaining_work
+                / (state.normal_speed_toward_cushion.abs() * cos_theta).max(f64::EPSILON);
+            return advance_rail_impact_frame_by_impulse_step(
+                state,
+                ball_radius,
+                sin_theta,
+                cos_theta,
+                table_friction,
+                cushion_friction,
+                refined_delta_p,
+            );
+        }
+
+        state = advance_rail_impact_frame_by_impulse_step(
+            state,
+            ball_radius,
+            sin_theta,
+            cos_theta,
+            table_friction,
+            cushion_friction,
+            delta_p,
+        );
+        work += rail_impact_work_increment(state.normal_speed_toward_cushion, cos_theta, delta_p);
+        step_count += 1;
+        assert!(
+            step_count <= 10 * RAIL_IMPACT_SOLVE_MAX_STEPS,
+            "rail-impact restitution phase failed to converge"
+        );
+    }
+
+    state
+}
+
+fn solve_spin_aware_rail_impact_in_frame(
+    state: RailImpactFrameState,
+    ball_radius: f64,
+    normal_restitution: f64,
+    cushion_friction: f64,
+) -> RailImpactFrameState {
+    if state.normal_speed_toward_cushion <= f64::EPSILON {
+        return state;
+    }
+
+    let sin_theta = cushion_contact_sin_theta();
+    let cos_theta = cushion_contact_cos_theta();
+    let table_friction = RAIL_IMPACT_TABLE_FRICTION_COEFFICIENT;
+    let (compressed, compression_work) = solve_rail_impact_compression_phase(
+        state,
+        ball_radius,
+        sin_theta,
+        cos_theta,
+        table_friction,
+        cushion_friction,
+    );
+
+    solve_rail_impact_restitution_phase(
+        compressed,
+        compression_work,
+        ball_radius,
+        sin_theta,
+        cos_theta,
+        normal_restitution,
+        table_friction,
+        cushion_friction,
+    )
+}
+
+fn clean_small_f64(value: f64) -> f64 {
+    if value.abs() <= 1e-12 {
+        0.0
+    } else {
+        value
+    }
 }
 
 fn tp73_geometric_vertical_plane_spin_delta(
@@ -6460,11 +6678,6 @@ fn tp73_geometric_vertical_plane_spin_delta(
         return (0.0, 0.0);
     }
 
-    // `whitepapers/tp_7_3_ball_rail_interaction_and_the_effects_on_vertical_plane_spin.pdf`
-    // models the vertical-plane spin response with an additional small cushion-geometry term `a`
-    // beyond the pure frictional torque term. In the reduced on-table model we treat that as an
-    // extra angular-velocity increment along the rail-tangent spin axis, proportional to the
-    // incoming normal impulse magnitude `(1 + e) v_n`.
     let tangent_axis_delta = (5.0 * TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO / (2.0 * ball_radius))
         * (1.0 + normal_restitution)
         * approaching_normal_speed
@@ -6495,12 +6708,6 @@ fn rail_running_english_generation_scale(state: &BallState, ball_radius: f64) ->
         return 1.0;
     }
 
-    // Ordinary no-english rolling entries should not leave the rail with as much fresh running
-    // english as a full rigid point-contact model predicts. The local rail references instead point
-    // toward a closer-to-stun rebound for those shots once cushion compliance and the remaining
-    // ball-cloth interaction are accounted for. We therefore only suppress `ωz` generation when the
-    // incoming state is already close to cloth rolling equilibrium and lacks explicit side spin;
-    // sliding entries or deliberate side-spin shots still use the full coupling below.
     let rolling_proximity = rail_rolling_proximity(state, ball_radius);
     let side_spin_ratio =
         (ball_radius * state.angular_velocity.z().as_f64()).abs() / speed.max(f64::EPSILON);
@@ -6510,11 +6717,6 @@ fn rail_running_english_generation_scale(state: &BallState, ball_radius: f64) ->
     1.0 - (1.0 - RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE)
         * rolling_proximity
         * (1.0 - explicit_side_spin_scale)
-}
-
-fn rail_side_spin_retention_scale(state: &BallState, ball_radius: f64) -> f64 {
-    1.0 - (1.0 - RAIL_SIDE_SPIN_RETENTION_ROLLING_MIN_SCALE)
-        * rail_rolling_proximity(state, ball_radius)
 }
 
 fn rail_rebound_horizontal_spin_blend(state: &BallState, ball_radius: f64) -> f64 {
@@ -6675,50 +6877,35 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
     );
 
     let state_ref = state.as_ball_state();
-    let normal_component = project_velocity_on_basis(&state_ref.velocity, normal_x, normal_y);
-    let tangent_component = project_velocity_on_basis(&state_ref.velocity, tangent_x, tangent_y);
-    let contact_normal_lever = ball_radius * theoretical_cushion_contact_normal_lever_ratio();
-    let contact_x = -contact_normal_lever * normal_x;
-    let contact_y = -contact_normal_lever * normal_y;
-    let tangential_spin_scale = contact_x * tangent_y - contact_y * tangent_x;
-    let tangential_contact_slip =
-        tangent_component + state_ref.angular_velocity.z().as_f64() * tangential_spin_scale;
-    let vertical_contact_slip = rail_vertical_contact_slip(
-        &state_ref.angular_velocity,
-        normal_x,
-        normal_y,
-        contact_normal_lever,
-    );
-    let contact_slip_norm = tangential_contact_slip.hypot(vertical_contact_slip);
-    let coupling_scale = if contact_slip_norm <= f64::EPSILON {
-        0.0
-    } else {
-        let no_slip_scale: f64 = 2.0 / 7.0;
-        let friction_limited_scale = tangential_friction_coefficient
-            * (1.0 + normal_restitution)
-            * (-normal_component).max(0.0)
-            / contact_slip_norm;
-        no_slip_scale.min(friction_limited_scale)
+    let inward_normal_x = -normal_x;
+    let inward_normal_y = -normal_y;
+    let frame_state = RailImpactFrameState {
+        tangent_speed: project_velocity_on_basis(&state_ref.velocity, tangent_x, tangent_y),
+        normal_speed_toward_cushion: project_velocity_on_basis(
+            &state_ref.velocity,
+            inward_normal_x,
+            inward_normal_y,
+        ),
+        angular_tangent: state_ref.angular_velocity.x().as_f64() * tangent_x
+            + state_ref.angular_velocity.y().as_f64() * tangent_y,
+        angular_normal_toward_cushion: state_ref.angular_velocity.x().as_f64() * inward_normal_x
+            + state_ref.angular_velocity.y().as_f64() * inward_normal_y,
+        angular_vertical: state_ref.angular_velocity.z().as_f64(),
     };
-    let tangential_delta = -coupling_scale * tangential_contact_slip;
-    let vertical_contact_delta = -coupling_scale * vertical_contact_slip;
-    let tangential_after = tangent_component + tangential_delta;
-    let velocity = rebuild_velocity_from_basis(
-        -normal_restitution * normal_component,
-        tangential_after,
-        normal_x,
-        normal_y,
-        tangent_x,
-        tangent_y,
+    let solved = solve_spin_aware_rail_impact_in_frame(
+        frame_state,
+        ball_radius,
+        normal_restitution,
+        tangential_friction_coefficient,
     );
-    let normal_cross_tangent_z = normal_x * tangent_y - normal_y * tangent_x;
-    let angular_response = cushion_angular_response_coefficient(ball_radius);
-    let delta_wz = -angular_response
-        * rail_running_english_generation_scale(state_ref, ball_radius)
-        * normal_cross_tangent_z
-        * tangential_delta;
-    let delta_wx = -angular_response * vertical_contact_delta * normal_y;
-    let delta_wy = angular_response * vertical_contact_delta * normal_x;
+    let velocity = Velocity2::new(
+        Inches::from_f64(clean_small_f64(
+            solved.tangent_speed * tangent_x + solved.normal_speed_toward_cushion * inward_normal_x,
+        )),
+        Inches::from_f64(clean_small_f64(
+            solved.tangent_speed * tangent_y + solved.normal_speed_toward_cushion * inward_normal_y,
+        )),
+    );
     let (geom_delta_wx, geom_delta_wy) = tp73_geometric_vertical_plane_spin_delta(
         normal_x,
         normal_y,
@@ -6726,12 +6913,17 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
         tangent_y,
         ball_radius,
         normal_restitution,
-        (-normal_component).max(0.0),
+        frame_state.normal_speed_toward_cushion.max(0.0),
     );
-    let outgoing_wz = (state_ref.angular_velocity.z().as_f64() + delta_wz)
-        * rail_side_spin_retention_scale(state_ref, ball_radius);
-    let mut outgoing_wx = state_ref.angular_velocity.x().as_f64() + delta_wx + geom_delta_wx;
-    let mut outgoing_wy = state_ref.angular_velocity.y().as_f64() + delta_wy + geom_delta_wy;
+    let outgoing_wz = state_ref.angular_velocity.z().as_f64()
+        + rail_running_english_generation_scale(state_ref, ball_radius)
+            * (solved.angular_vertical - state_ref.angular_velocity.z().as_f64());
+    let mut outgoing_wx = solved.angular_tangent * tangent_x
+        + solved.angular_normal_toward_cushion * inward_normal_x
+        + geom_delta_wx;
+    let mut outgoing_wy = solved.angular_tangent * tangent_y
+        + solved.angular_normal_toward_cushion * inward_normal_y
+        + geom_delta_wy;
     // The rolling-settle heuristics were introduced for ordinary rolling-style rail entries. If
     // the incoming state is already true overspin beyond cloth rolling, TP 7.3 says the rebound can
     // legitimately cross into reverse spin, so the heuristics may scrub that exit toward stun but
@@ -6771,7 +6963,11 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
         &mut outgoing_wx,
         &mut outgoing_wy,
     );
-    let angular_velocity = AngularVelocity3::new(outgoing_wx, outgoing_wy, outgoing_wz);
+    let angular_velocity = AngularVelocity3::new(
+        clean_small_f64(outgoing_wx),
+        clean_small_f64(outgoing_wy),
+        clean_small_f64(outgoing_wz),
+    );
 
     build_on_table_ball_state(state_ref.position.clone(), velocity, angular_velocity)
 }
@@ -6860,12 +7056,12 @@ fn collide_ball_jaw_on_table_with_radius_and_profile(
 /// coefficient of elasticity `N` in the cushion-normal direction while leaving the tangential speed
 /// and angular velocity unchanged.
 ///
-/// `RailModel::SpinAware` currently implements the smallest useful richer slice: the same
-/// configurable normal restitution plus a tunable cushion-friction response for the full rail-face
-/// contact-slip vector. Running / reverse english (`ωz`) changes the returned tangential speed and
-/// z-spin, while top / draw (`ωx`, `ωy`) changes the vertical slip component and therefore the
-/// horizontal spin carried away from the cushion. The current TP 7.3 mapping, worked-case notes,
-/// and known simplifications are summarized in `whitepapers/rail_rebound.md`.
+/// `RailModel::SpinAware` now uses a reduced Mathavan-style impact solve in the local cushion
+/// frame: configurable normal restitution plus tunable cushion friction at the rail contact, while
+/// also including a fixed typical ball-cloth sliding-friction term during the short impact. A
+/// small TP 7.3-style geometric lift term and a couple of rolling-entry guardrails are layered on
+/// top to keep ordinary exits believable in the reduced horizontal model. The current mapping,
+/// worked-case notes, and known simplifications are summarized in `whitepapers/rail_rebound.md`.
 ///
 /// A rolling ball that rebounds from a rail will generally leave the cushion in a `Sliding` phase,
 /// not `Rolling`: the pre-impact rolling spin is still present after the bounce, but the reversed

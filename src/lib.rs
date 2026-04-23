@@ -1350,9 +1350,9 @@ impl PocketAwareEventCache {
 
 /// The result of advancing two on-table balls to the next currently supported event.
 ///
-/// `event` records the chosen primary event, if any. Because the current scheduler intentionally
-/// breaks ties deterministically instead of merging simultaneous events, the returned states can be
-/// exactly on additional event boundaries that are not separately represented here.
+/// `event` records the chosen primary event, if any. Execution can still resolve additional
+/// disjoint same-time ball-ball collisions on the same step, so the returned states may reflect
+/// more contact resolution than the single reported primary event encodes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TwoBallOnTableAdvance {
     pub a: OnTableBallState,
@@ -1363,9 +1363,9 @@ pub struct TwoBallOnTableAdvance {
 
 /// The result of advancing any number of on-table balls to the next currently supported event.
 ///
-/// `event` records the chosen indexed primary event, if any. Because the current scheduler still
-/// breaks ties deterministically instead of merging simultaneous contacts, the returned states can
-/// land exactly on additional event boundaries that are not separately represented here.
+/// `event` records the chosen indexed primary event, if any. Execution can still resolve
+/// additional disjoint same-time ball-ball collisions on the same step, so the returned states may
+/// encode more contact resolution than the single reported primary event does.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NBallOnTableAdvance {
     pub states: Vec<OnTableBallState>,
@@ -1474,6 +1474,9 @@ impl NBallSystemEvent {
 }
 
 /// The result of advancing the richer indexed N-ball system to the next supported event.
+///
+/// `event` records the chosen primary event, if any. As with the on-table N-ball advance helpers,
+/// execution can still resolve additional disjoint same-time ball-ball collisions on the same step.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NBallSystemAdvance {
     pub states: Vec<NBallSystemState>,
@@ -4343,6 +4346,49 @@ fn advance_n_on_table_balls_without_event(
         .collect()
 }
 
+const SIMULTANEOUS_EVENT_TOLERANCE_SECONDS: f64 = 1e-12;
+
+fn simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
+    state_refs: &[Option<&OnTableBallState>],
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> Vec<(usize, usize, PredictedBallBallCollision)> {
+    let mut selected = Vec::new();
+    let mut occupied = vec![false; state_refs.len()];
+
+    for first_ball_index in 0..state_refs.len() {
+        let Some(first_state) = state_refs[first_ball_index] else {
+            continue;
+        };
+
+        for second_ball_index in first_ball_index + 1..state_refs.len() {
+            if occupied[first_ball_index] || occupied[second_ball_index] {
+                continue;
+            }
+            let Some(second_state) = state_refs[second_ball_index] else {
+                continue;
+            };
+            let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
+                first_state,
+                second_state,
+                ball,
+                motion,
+            ) else {
+                continue;
+            };
+            if collision.time_until_impact.as_f64() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+                continue;
+            }
+
+            occupied[first_ball_index] = true;
+            occupied[second_ball_index] = true;
+            selected.push((first_ball_index, second_ball_index, collision));
+        }
+    }
+
+    selected
+}
+
 fn advance_to_next_n_ball_event_with_scheduler<FindNextEvent>(
     states: &[OnTableBallState],
     ball: &BallSetPhysicsSpec,
@@ -4372,13 +4418,31 @@ where
             second_ball_index,
             collision,
         } => {
-            let (first_after, second_after) = collide_ball_ball_on_table(
-                &collision.a_at_impact,
-                &collision.b_at_impact,
-                collision_model,
+            let simultaneous_collisions = simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
+                &states_after.iter().map(|state| Some(state)).collect::<Vec<_>>(),
+                ball,
+                motion,
             );
-            states_after[*first_ball_index] = first_after;
-            states_after[*second_ball_index] = second_after;
+
+            if simultaneous_collisions.is_empty() {
+                let (first_after, second_after) = collide_ball_ball_on_table(
+                    &collision.a_at_impact,
+                    &collision.b_at_impact,
+                    collision_model,
+                );
+                states_after[*first_ball_index] = first_after;
+                states_after[*second_ball_index] = second_after;
+            } else {
+                for (first_ball_index, second_ball_index, collision) in simultaneous_collisions {
+                    let (first_after, second_after) = collide_ball_ball_on_table(
+                        &collision.a_at_impact,
+                        &collision.b_at_impact,
+                        collision_model,
+                    );
+                    states_after[first_ball_index] = first_after;
+                    states_after[second_ball_index] = second_after;
+                }
+            }
         }
         NBallOnTableEvent::BallRailImpact { ball_index, impact } => {
             let (rail_model, rail_profile) = rail_response
@@ -5192,14 +5256,34 @@ fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
             second_ball_index,
             collision,
         } => {
-            let (first_after, second_after) = collide_ball_ball_on_table_with_config(
-                &collision.a_at_impact,
-                &collision.b_at_impact,
-                collision_model,
-                collision_config,
-            );
-            states_after[*first_ball_index] = NBallSystemState::OnTable(first_after);
-            states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
+            let simultaneous_collisions =
+                simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
+                    &states_after.iter().map(|state| state.as_on_table()).collect::<Vec<_>>(),
+                    ball,
+                    motion,
+                );
+
+            if simultaneous_collisions.is_empty() {
+                let (first_after, second_after) = collide_ball_ball_on_table_with_config(
+                    &collision.a_at_impact,
+                    &collision.b_at_impact,
+                    collision_model,
+                    collision_config,
+                );
+                states_after[*first_ball_index] = NBallSystemState::OnTable(first_after);
+                states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
+            } else {
+                for (first_ball_index, second_ball_index, collision) in simultaneous_collisions {
+                    let (first_after, second_after) = collide_ball_ball_on_table_with_config(
+                        &collision.a_at_impact,
+                        &collision.b_at_impact,
+                        collision_model,
+                        collision_config,
+                    );
+                    states_after[first_ball_index] = NBallSystemState::OnTable(first_after);
+                    states_after[second_ball_index] = NBallSystemState::OnTable(second_after);
+                }
+            }
         }
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {
             let state_after_jaw = collide_ball_jaw_on_table_with_radius_and_profile(

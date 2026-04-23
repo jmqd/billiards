@@ -164,6 +164,48 @@ fn advancing_to_a_ball_ball_collision_only_resolves_the_participating_pair() {
 }
 
 #[test]
+fn advancing_simultaneous_disjoint_pair_collisions_resolves_both_pairs_in_one_step() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let a = on_table(BallState::on_table(
+        inches2(0.0, -(2.0 * radius + 7.5)),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let b = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let c = on_table(BallState::on_table(
+        inches2(20.0, -(2.0 * radius + 7.5)),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let d = on_table(BallState::resting_at(inches2(20.0, 0.0)));
+
+    let advanced = advance_to_next_n_ball_event_on_table(
+        &[a, b, c, d],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::Ideal,
+    );
+
+    match advanced.event.expect("an event should be reported") {
+        billiards::NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((first_ball_index, second_ball_index), (0, 1));
+            assert_close(collision.time_until_impact.as_f64(), 1.0);
+        }
+        other => panic!("expected primary ball-ball collision, got {other:?}"),
+    }
+
+    assert_close(advanced.elapsed.as_f64(), 1.0);
+    assert_close(advanced.states[0].as_ball_state().speed().as_f64(), 0.0);
+    assert_close(advanced.states[1].as_ball_state().velocity.y().as_f64(), 5.0);
+    assert_close(advanced.states[2].as_ball_state().speed().as_f64(), 0.0);
+    assert_close(advanced.states[3].as_ball_state().velocity.y().as_f64(), 5.0);
+}
+
+#[test]
 fn advancing_to_a_rail_impact_only_resolves_the_impacted_ball() {
     let table = TableSpec::default();
     let radius = TYPICAL_BALL_RADIUS.as_f64();

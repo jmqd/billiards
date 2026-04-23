@@ -302,6 +302,64 @@ fn a_ball_heading_cleanly_into_a_corner_pocket_still_predicts_capture() {
 }
 
 #[test]
+fn pocket_aware_advancing_also_batches_disjoint_same_time_ball_ball_collisions() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let a = NBallSystemState::from(on_table(BallState::on_table(
+        inches2(0.0, -(2.0 * radius + 7.5)),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    )));
+    let b = NBallSystemState::from(on_table(BallState::resting_at(inches2(0.0, 0.0))));
+    let c = NBallSystemState::from(on_table(BallState::on_table(
+        inches2(20.0, -(2.0 * radius + 7.5)),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    )));
+    let d = NBallSystemState::from(on_table(BallState::resting_at(inches2(20.0, 0.0))));
+
+    let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &[a, b, c, d],
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+        CollisionModel::Ideal,
+        billiards::RailModel::Mirror,
+    );
+
+    match advanced.event.expect("an event should be reported") {
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((first_ball_index, second_ball_index), (0, 1));
+            assert_close(collision.time_until_impact.as_f64(), 1.0);
+        }
+        other => panic!("expected primary ball-ball collision, got {other:?}"),
+    }
+    match &advanced.states[0] {
+        NBallSystemState::OnTable(state) => assert_close(state.as_ball_state().speed().as_f64(), 0.0),
+        other => panic!("expected first ball to remain on table, got {other:?}"),
+    }
+    match &advanced.states[1] {
+        NBallSystemState::OnTable(state) => {
+            assert_close(state.as_ball_state().velocity.y().as_f64(), 5.0)
+        }
+        other => panic!("expected second ball to remain on table, got {other:?}"),
+    }
+    match &advanced.states[2] {
+        NBallSystemState::OnTable(state) => assert_close(state.as_ball_state().speed().as_f64(), 0.0),
+        other => panic!("expected third ball to remain on table, got {other:?}"),
+    }
+    match &advanced.states[3] {
+        NBallSystemState::OnTable(state) => {
+            assert_close(state.as_ball_state().velocity.y().as_f64(), 5.0)
+        }
+        other => panic!("expected fourth ball to remain on table, got {other:?}"),
+    }
+}
+
+#[test]
 fn advancing_to_a_pocket_capture_marks_that_ball_pocketed_and_advances_other_balls() {
     let table = TableSpec::default();
     let a = NBallSystemState::from(rolling_toward_center_right_side_pocket());

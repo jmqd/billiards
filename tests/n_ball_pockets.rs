@@ -194,6 +194,46 @@ fn advancing_a_near_jaw_side_pocket_entry_prefers_the_explicit_jaw_over_capture(
 }
 
 #[test]
+fn a_near_jaw_entry_can_late_drop_on_the_same_jaw_impact_step() {
+    let table = TableSpec::default();
+    let state = on_table(BallState::on_table(
+        inches2(43.0, 57.0),
+        Velocity2::new("12", "-10"),
+        AngularVelocity3::zero(),
+    ));
+
+    let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &[NBallSystemState::from(state)],
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        billiards::RailModel::Mirror,
+    );
+
+    match advanced.event.expect("a first event should be predicted") {
+        NBallSystemEvent::BallJawImpact { ball_index, impact } => {
+            assert_eq!(ball_index, 0);
+            assert_eq!(impact.pocket, Pocket::CenterRight);
+        }
+        other => panic!("expected jaw impact, got {other:?}"),
+    }
+    match &advanced.states[0] {
+        NBallSystemState::Pocketed {
+            pocket,
+            state_at_capture,
+        } => {
+            assert_eq!(*pocket, Pocket::CenterRight);
+            assert!(
+                state_at_capture.as_ball_state().speed().as_f64() > 0.0,
+                "the late-drop path should preserve a meaningful post-jaw capture state"
+            );
+        }
+        other => panic!("expected the jaw impact to resolve into a late drop, got {other:?}"),
+    }
+}
+
+#[test]
 fn injected_pocket_shape_changes_the_predicted_jaw_impact_time() {
     let state = on_table(BallState::on_table(
         inches2(44.0, 58.0),

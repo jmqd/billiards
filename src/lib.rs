@@ -3701,6 +3701,50 @@ fn pocket_acceptance_gap_raw(state: RawOnTableBallState, pocket: Pocket, table: 
     entry_angle - pocket_capture_max_entry_angle_degrees(pocket, speed, table)
 }
 
+fn on_table_state_is_within_pocket_capture_region(
+    state: &OnTableBallState,
+    pocket: Pocket,
+    table: &TableSpec,
+) -> bool {
+    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+    let state = state.as_ball_state();
+    let dx = state.position.x().as_f64() - pocket_x;
+    let dy = state.position.y().as_f64() - pocket_y;
+
+    dx.hypot(dy) <= pocket_capture_radius_in_inches(pocket, table) + 1e-9
+}
+
+fn on_table_state_velocity_points_toward_pocket_center(
+    state: &OnTableBallState,
+    pocket: Pocket,
+    table: &TableSpec,
+) -> bool {
+    let state = state.as_ball_state();
+    let speed = ball_speed(state).as_f64();
+    if speed <= f64::EPSILON {
+        return false;
+    }
+
+    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+    let to_pocket_x = pocket_x - state.position.x().as_f64();
+    let to_pocket_y = pocket_y - state.position.y().as_f64();
+    let to_pocket_norm = to_pocket_x.hypot(to_pocket_y);
+    if to_pocket_norm <= f64::EPSILON {
+        return true;
+    }
+
+    state.velocity.x().as_f64() * to_pocket_x + state.velocity.y().as_f64() * to_pocket_y > 0.0
+}
+
+fn should_capture_after_jaw_impact(
+    state: &OnTableBallState,
+    pocket: Pocket,
+    table: &TableSpec,
+) -> bool {
+    on_table_state_is_within_pocket_capture_region(state, pocket, table)
+        && on_table_state_velocity_points_toward_pocket_center(state, pocket, table)
+}
+
 fn pocket_capture_gap_during_current_phase_raw(
     state: RawOnTableBallState,
     phase: MotionPhase,
@@ -5158,15 +5202,26 @@ fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
             states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
         }
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {
-            states_after[*ball_index] =
-                NBallSystemState::OnTable(collide_ball_jaw_on_table_with_radius_and_profile(
-                    &impact.state_at_impact,
-                    impact,
-                    table,
-                    ball.radius.clone(),
-                    rail_model,
-                    rail_profile,
-                ));
+            let state_after_jaw = collide_ball_jaw_on_table_with_radius_and_profile(
+                &impact.state_at_impact,
+                impact,
+                table,
+                ball.radius.clone(),
+                rail_model,
+                rail_profile,
+            );
+            states_after[*ball_index] = if should_capture_after_jaw_impact(
+                &state_after_jaw,
+                impact.pocket,
+                table,
+            ) {
+                NBallSystemState::Pocketed {
+                    pocket: impact.pocket,
+                    state_at_capture: state_after_jaw,
+                }
+            } else {
+                NBallSystemState::OnTable(state_after_jaw)
+            };
         }
         NBallSystemEvent::BallPocketCapture {
             ball_index,

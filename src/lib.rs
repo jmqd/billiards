@@ -4020,13 +4020,262 @@ fn on_table_state_velocity_points_toward_pocket_center(
     state.velocity.x().as_f64() * to_pocket_x + state.velocity.y().as_f64() * to_pocket_y > 0.0
 }
 
+fn side_pocket_centerline_gap_during_current_phase_raw(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket: Pocket,
+    t_seconds: f64,
+    radius: f64,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> f64 {
+    debug_assert!(matches!(table.pocket_spec(pocket).ty, PocketType::Side));
+
+    let at_t = raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config);
+    let (_, pocket_y) = pocket_center_in_inches(pocket, table);
+
+    at_t.y - pocket_y
+}
+
+fn refine_side_pocket_centerline_crossing_time_during_current_phase_raw(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket: Pocket,
+    initial_gap_sign: f64,
+    mut left: f64,
+    mut right: f64,
+    radius: f64,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> Seconds {
+    for _ in 0..60 {
+        let midpoint = 0.5 * (left + right);
+        let gap = side_pocket_centerline_gap_during_current_phase_raw(
+            state,
+            phase.clone(),
+            pocket,
+            midpoint,
+            radius,
+            table,
+            config,
+        );
+
+        if gap.abs() <= 1e-9 || initial_gap_sign * gap <= 0.0 {
+            right = midpoint;
+        } else {
+            left = midpoint;
+        }
+    }
+
+    Seconds::new(right)
+}
+
+// Side-pocket late-drops are allowed only if the post-jaw path can stay inside the effective
+// mouth long enough to reach the pocket centerline. Shallow glances that rebound back out before
+// then stay on the table, but this check intentionally continues across the small number of normal
+// on-table phase transitions so a valid slide→roll continuation still falls.
+fn side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
+    state: &OnTableBallState,
+    pocket: Pocket,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    config: &OnTableMotionConfig,
+) -> bool {
+    debug_assert!(matches!(table.pocket_spec(pocket).ty, PocketType::Side));
+
+    const SIDE_POCKET_LATE_DROP_CENTERLINE_SCAN_STEPS: usize = 128;
+    const SIDE_POCKET_LATE_DROP_MAX_PHASES: usize = 4;
+
+    let radius = ball.radius.as_f64();
+    let mut current_state = state.clone();
+
+    for _ in 0..SIDE_POCKET_LATE_DROP_MAX_PHASES {
+        let phase = classify_motion_phase(current_state.as_ball_state(), ball, &config.phase);
+        let raw_state = RawOnTableBallState::from_on_table(&current_state);
+        let initial_gap = side_pocket_centerline_gap_during_current_phase_raw(
+            raw_state,
+            phase.clone(),
+            pocket,
+            0.0,
+            radius,
+            table,
+            config,
+        );
+        if initial_gap.abs() <= 1e-9 {
+            return true;
+        }
+
+        let Some(next_transition) =
+            raw_compute_next_transition_on_table(raw_state, phase.clone(), radius, config)
+        else {
+            return false;
+        };
+        let horizon = next_transition.time_until_transition.as_f64();
+        if horizon <= f64::EPSILON {
+            return false;
+        }
+
+        let initial_gap_sign = initial_gap.signum();
+        let mut previous_t = 0.0;
+        let mut previous_gap = initial_gap;
+
+        for step in 1..=SIDE_POCKET_LATE_DROP_CENTERLINE_SCAN_STEPS {
+            let t = horizon * step as f64 / SIDE_POCKET_LATE_DROP_CENTERLINE_SCAN_STEPS as f64;
+            let gap = side_pocket_centerline_gap_during_current_phase_raw(
+                raw_state,
+                phase.clone(),
+                pocket,
+                t,
+                radius,
+                table,
+                config,
+            );
+
+            if previous_gap.abs() <= 1e-9
+                || gap.abs() <= 1e-9
+                || previous_gap.signum() != gap.signum()
+            {
+                let time_until_centerline =
+                    refine_side_pocket_centerline_crossing_time_during_current_phase_raw(
+                        raw_state,
+                        phase.clone(),
+                        pocket,
+                        initial_gap_sign,
+                        previous_t,
+                        t,
+                        radius,
+                        table,
+                        config,
+                    );
+                let state_at_centerline = raw_advance_within_phase_on_table(
+                    raw_state,
+                    phase,
+                    time_until_centerline.as_f64(),
+                    radius,
+                    config,
+                )
+                .into_on_table_state();
+
+                return on_table_state_is_within_pocket_capture_region(
+                    &state_at_centerline,
+                    pocket,
+                    table,
+                );
+            }
+
+            previous_t = t;
+            previous_gap = gap;
+        }
+
+        let state_at_phase_end = advance_within_phase_on_table(
+            &current_state,
+            phase,
+            next_transition.time_until_transition,
+            ball,
+            config,
+        );
+        if !on_table_state_is_within_pocket_capture_region(&state_at_phase_end, pocket, table) {
+            return false;
+        }
+        current_state = state_at_phase_end;
+    }
+
+    false
+}
+
 fn should_capture_after_jaw_impact(
     state: &OnTableBallState,
     pocket: Pocket,
+    ball: &BallSetPhysicsSpec,
     table: &TableSpec,
+    config: &OnTableMotionConfig,
 ) -> bool {
     on_table_state_is_within_pocket_capture_region(state, pocket, table)
         && on_table_state_velocity_points_toward_pocket_center(state, pocket, table)
+        && match table.pocket_spec(pocket).ty {
+            PocketType::Corner => true,
+            PocketType::Side => side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
+                state, pocket, ball, table, config,
+            ),
+        }
+}
+
+#[cfg(test)]
+mod pocket_mouth_tests {
+    use super::*;
+
+    fn motion_config_with_sliding_acceleration(sliding_acceleration: f64) -> OnTableMotionConfig {
+        MotionTransitionConfig {
+            phase: MotionPhaseConfig::default(),
+            sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+                acceleration_magnitude: InchesPerSecondSq::new(Inches::from_f64(
+                    sliding_acceleration,
+                )),
+            },
+            spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+                angular_deceleration: RadiansPerSecondSq::new(2.0),
+            },
+            rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+                linear_deceleration: InchesPerSecondSq::new("5"),
+            },
+        }
+    }
+
+    fn on_table_state(x: f64, y: f64, vx: f64, vy: f64) -> OnTableBallState {
+        OnTableBallState::try_from(BallState::on_table(
+            Inches2::new(Inches::from_f64(x), Inches::from_f64(y)),
+            Velocity2::new(Inches::from_f64(vx), Inches::from_f64(vy)),
+            AngularVelocity3::zero(),
+        ))
+        .expect("test state should stay on table")
+    }
+
+    #[test]
+    fn side_pocket_post_jaw_late_drop_gate_continues_across_slide_to_roll_transition() {
+        let table = TableSpec::default();
+        let ball = BallSetPhysicsSpec::default();
+        let default_motion = motion_config_with_sliding_acceleration(5.0);
+        let fast_post_jaw_motion = motion_config_with_sliding_acceleration(25.0);
+        let incoming = on_table_state(43.0, 57.0, 12.0, -10.0);
+        let impact = compute_next_ball_jaw_impact_on_table(&incoming, &ball, &table, &default_motion)
+            .expect("the reproducer should strike the side jaw first");
+        let post_jaw = collide_ball_jaw_on_table_with_radius_and_profile(
+            &impact.state_at_impact,
+            &impact,
+            &table,
+            ball.radius.clone(),
+            RailModel::Mirror,
+            &RailCollisionProfile::human_tuned(),
+        );
+        let (_, pocket_y) = pocket_center_in_inches(Pocket::CenterRight, &table);
+        let centerline_time_lower_bound = (post_jaw.as_ball_state().position.y().as_f64() - pocket_y)
+            .abs()
+            / post_jaw.as_ball_state().velocity.y().as_f64().abs();
+        let next_transition = compute_next_transition_on_table(&post_jaw, &ball, &fast_post_jaw_motion)
+            .expect("the synthetic post-jaw state should still be transitioning");
+
+        assert!(on_table_state_is_within_pocket_capture_region(
+            &post_jaw,
+            Pocket::CenterRight,
+            &table,
+        ));
+        assert!(on_table_state_velocity_points_toward_pocket_center(
+            &post_jaw,
+            Pocket::CenterRight,
+            &table,
+        ));
+        assert!(
+            next_transition.time_until_transition.as_f64() < centerline_time_lower_bound,
+            "the test needs the side-pocket centerline crossing to happen after slide→roll"
+        );
+        assert!(side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
+            &post_jaw,
+            Pocket::CenterRight,
+            &ball,
+            &table,
+            &fast_post_jaw_motion,
+        ));
+    }
 }
 
 fn pocket_capture_gap_during_current_phase_raw(
@@ -5578,7 +5827,9 @@ fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
             states_after[*ball_index] = if should_capture_after_jaw_impact(
                 &state_after_jaw,
                 impact.pocket,
+                ball,
                 table,
+                motion,
             ) {
                 NBallSystemState::Pocketed {
                     pocket: impact.pocket,

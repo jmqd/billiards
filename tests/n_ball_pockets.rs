@@ -234,6 +234,75 @@ fn a_near_jaw_entry_can_late_drop_on_the_same_jaw_impact_step() {
 }
 
 #[test]
+fn a_shallow_side_jaw_glance_is_rejected_instead_of_late_dropping() {
+    let table = TableSpec::default();
+    let state = on_table(BallState::on_table(
+        inches2(40.5, 56.0),
+        Velocity2::new("13", "-6"),
+        AngularVelocity3::zero(),
+    ));
+
+    let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &[NBallSystemState::from(state.clone())],
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        billiards::RailModel::Mirror,
+    );
+
+    match advanced.event.expect("a first event should be predicted") {
+        NBallSystemEvent::BallJawImpact { ball_index, impact } => {
+            assert_eq!(ball_index, 0);
+            assert_eq!(impact.pocket, Pocket::CenterRight);
+        }
+        other => panic!("expected jaw impact, got {other:?}"),
+    }
+    match &advanced.states[0] {
+        NBallSystemState::OnTable(state_after_jaw) => {
+            assert!(
+                state_after_jaw.as_ball_state().speed().as_f64() > 0.0,
+                "the rejected jaw-glance should remain a live on-table state"
+            );
+        }
+        other => panic!("expected the shallow jaw glance to stay on-table, got {other:?}"),
+    }
+
+    let simulated = simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+        &[state],
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        billiards::RailModel::Mirror,
+    );
+
+    assert!(matches!(
+        simulated.events.first(),
+        Some(NBallSystemEvent::BallJawImpact { ball_index: 0, impact })
+            if impact.pocket == Pocket::CenterRight
+    ));
+    assert!(!simulated.events.iter().any(|event| matches!(
+        event,
+        NBallSystemEvent::BallPocketCapture {
+            ball_index: 0,
+            capture,
+        } if capture.pocket == Pocket::CenterRight
+    )));
+    match &simulated.states[0] {
+        NBallSystemState::OnTable(state) => assert_eq!(
+            state
+                .as_ball_state()
+                .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+            MotionPhase::Rest
+        ),
+        other => panic!(
+            "expected the rejected jaw-glance to roll back out and stop on table, got {other:?}"
+        ),
+    }
+}
+
+#[test]
 fn injected_pocket_shape_changes_the_predicted_jaw_impact_time() {
     let state = on_table(BallState::on_table(
         inches2(44.0, 58.0),

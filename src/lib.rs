@@ -6019,10 +6019,11 @@ fn spin_post_impact_cue_state_from_tp_a8_a24(
     Some((velocity, angular_x, angular_y))
 }
 
-fn throw_aware_collision_outcome_on_table_with_config(
+fn frictional_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
     config: &BallBallCollisionConfig,
+    require_stationary_object_ball: bool,
 ) -> CollisionOutcome {
     let ideal = ideal_collision_outcome_on_table_with_config(a, b, config);
     let a_state = a.as_ball_state();
@@ -6032,7 +6033,7 @@ fn throw_aware_collision_outcome_on_table_with_config(
 
     // TODO(physics): model the later post-contact cue-ball bend caused by residual follow / draw /
     // side spin interacting with the cloth after impact.
-    if ball_speed(b_state).as_f64() > 1e-9 {
+    if require_stationary_object_ball && ball_speed(b_state).as_f64() > 1e-9 {
         return ideal;
     }
 
@@ -6163,12 +6164,29 @@ fn throw_aware_collision_outcome_on_table_with_config(
     }
 }
 
+fn throw_aware_collision_outcome_on_table_with_config(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    config: &BallBallCollisionConfig,
+) -> CollisionOutcome {
+    frictional_collision_outcome_on_table_with_config(a, b, config, true)
+}
+
+fn spin_friction_collision_outcome_on_table_with_config(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    config: &BallBallCollisionConfig,
+) -> CollisionOutcome {
+    frictional_collision_outcome_on_table_with_config(a, b, config, false)
+}
+
 /// Resolve an instantaneous ball-ball collision for two validated on-table states and return the
 /// detailed post-impact outcome.
 ///
 /// `CollisionModel::ThrowAware` currently implements a first-pass tangential-slip throw model for
-/// the common case of a cut shot into an initially stationary object ball. The sign and zero-slip
-/// condition are grounded in the local references:
+/// the common case of a cut shot into an initially stationary object ball. `CollisionModel::SpinFriction`
+/// extends the same frictional/slip picture to moving object-ball states instead of falling back to
+/// the ideal response there. The sign and zero-slip condition are grounded in the local references:
 ///
 /// - `whitepapers/Alciatore_pool_physics_article.pdf`, Section VI "Throw", describes the throw
 ///   term as proportional to `(v sin(φ) - R ω_z)`.
@@ -6180,8 +6198,10 @@ fn throw_aware_collision_outcome_on_table_with_config(
 /// z-spin increment for the stationary-object equal-ball case. For the common case of a cut shot
 /// into a stationary object ball with residual cue-ball spin, the cue-ball branch also seeds its
 /// immediate post-impact velocity / horizontal spin state from a broader local TP A.8 / A.24-style
-/// shot-basis model before the on-cloth sliding solver takes over. Exact throw magnitudes and
-/// richer transferred-spin components remain future work.
+/// shot-basis model before the on-cloth sliding solver takes over. In the broader `SpinFriction`
+/// mode that special cue-ball branch is still limited to the stationary-object case, but the
+/// friction-limited throw and transferred-spin terms are applied to moving object-ball collisions
+/// too. Exact throw magnitudes and richer transferred-spin components remain future work.
 pub fn collide_ball_ball_detailed_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -6194,7 +6214,7 @@ pub fn collide_ball_ball_detailed_on_table_with_config(
             throw_aware_collision_outcome_on_table_with_config(a, b, config)
         }
         CollisionModel::SpinFriction => {
-            todo!("spin-friction ball-ball collisions are not implemented yet")
+            spin_friction_collision_outcome_on_table_with_config(a, b, config)
         }
     }
 }

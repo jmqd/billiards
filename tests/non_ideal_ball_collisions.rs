@@ -104,6 +104,75 @@ fn throw_aware_head_on_collision_matches_ideal_and_reports_zero_throw() {
 }
 
 #[test]
+fn spin_friction_matches_throw_aware_for_a_stationary_object_ball_cut() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, -6.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let throw_aware =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let spin_friction =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::SpinFriction);
+
+    assert_eq!(spin_friction, throw_aware);
+}
+
+#[test]
+fn spin_friction_can_apply_non_ideal_throw_to_a_moving_object_ball() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::zero(),
+    ));
+    let object_ball = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        Velocity2::new("2", "0"),
+        AngularVelocity3::zero(),
+    ));
+
+    let ideal = collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
+    let throw_aware =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let spin_friction =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::SpinFriction);
+
+    assert_eq!(throw_aware.a_after, ideal.a_after);
+    assert_eq!(throw_aware.b_after, ideal.b_after);
+    assert!(throw_aware.transferred_spin.is_none());
+    assert!(
+        spin_friction
+            .throw_angle_degrees
+            .expect("spin-friction collisions should report a throw angle")
+            .abs()
+            > 1e-9,
+        "moving-object spin-friction collisions should no longer silently reduce to ideal"
+    );
+    assert!(spin_friction.transferred_spin.is_some());
+
+    let ideal_heading = ideal
+        .b_after
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("ideal moving object ball should still have an outgoing heading");
+    let spin_friction_heading = spin_friction
+        .b_after
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("spin-friction moving object ball should still have an outgoing heading");
+    assert!(
+        smallest_angle_distance_degrees(spin_friction_heading, ideal_heading) > 1e-6,
+        "spin-friction should deflect the moving object ball away from the ideal departure heading"
+    );
+}
+
+#[test]
 fn a_nearly_head_on_rolling_collision_does_not_pick_up_throw_from_tiny_tangent_noise() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

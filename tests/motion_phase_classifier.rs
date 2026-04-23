@@ -131,6 +131,27 @@ fn a_ball_with_vertical_state_is_classified_as_airborne() {
 }
 
 #[test]
+fn tiny_vertical_noise_below_the_airborne_threshold_is_still_classified_from_on_table_contact() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = BallState::new(
+        Inches2::new("1", "2"),
+        "0.0000000001",
+        Velocity2::new("6", "8"),
+        "0.0000000001",
+        AngularVelocity3::new(-8.0 / radius.as_f64(), 6.0 / radius.as_f64(), 0.0),
+    );
+
+    assert_eq!(
+        classify_motion_phase(
+            &state,
+            &BallSetPhysicsSpec { radius },
+            &MotionPhaseConfig::default()
+        ),
+        MotionPhase::Rolling
+    );
+}
+
+#[test]
 fn projected_position_free_function_round_trips_through_table_inches() {
     let table = TableSpec::default();
     let position = Position::new("2.75", "5.5");

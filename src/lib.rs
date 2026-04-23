@@ -2003,12 +2003,30 @@ impl BallState {
         ball_speed(self)
     }
 
+    pub fn try_cloth_contact_velocity(
+        &self,
+        radius: Inches,
+    ) -> Result<Velocity2, OnTableStateError> {
+        try_cloth_contact_velocity_on_table(self, radius)
+    }
+
     pub fn cloth_contact_velocity(&self, radius: Inches) -> Velocity2 {
-        cloth_contact_velocity_on_table(self, radius)
+        self.try_cloth_contact_velocity(radius).expect(
+            "cloth-contact velocity is only defined for on-table ball states; use try_cloth_contact_velocity for airborne inputs",
+        )
+    }
+
+    pub fn try_cloth_contact_speed(
+        &self,
+        radius: Inches,
+    ) -> Result<InchesPerSecond, OnTableStateError> {
+        try_cloth_contact_speed_on_table(self, radius)
     }
 
     pub fn cloth_contact_speed(&self, radius: Inches) -> InchesPerSecond {
-        cloth_contact_speed_on_table(self, radius)
+        self.try_cloth_contact_speed(radius).expect(
+            "cloth-contact speed is only defined for on-table ball states; use try_cloth_contact_speed for airborne inputs",
+        )
     }
 
     pub fn motion_phase(&self, radius: Inches) -> MotionPhase {
@@ -2833,7 +2851,9 @@ fn raw_advance_within_phase_on_table(
             wz: advance_vertical_axis_spin_f64(state.wz, dt_seconds, config),
             ..state
         },
-        MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
+        MotionPhase::Airborne => {
+            unreachable!("on-table motion helpers cannot advance airborne phases")
+        }
     }
 }
 
@@ -2880,7 +2900,9 @@ fn raw_compute_next_transition_on_table(
                     .expect("spinning balls should have non-zero z-spin"),
             ),
         }),
-        MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
+        MotionPhase::Airborne => {
+            unreachable!("on-table motion helpers cannot predict airborne transitions")
+        }
     }
 }
 
@@ -2893,27 +2915,45 @@ fn raw_compute_next_transition_on_table(
 /// and explicitly notes that z-axis spin does not affect this contact-point velocity. This helper
 /// implements that table-contact velocity model directly for the current coordinate conventions.
 ///
-/// Calling this helper for an airborne ball state is intentionally left as `todo!()` for now.
-pub fn cloth_contact_velocity_on_table(state: &BallState, radius: Inches) -> Velocity2 {
-    if state.height.as_f64() > 0.0 || state.vertical_velocity.as_f64().abs() > 0.0 {
-        todo!("cloth-contact velocity for airborne ball states is not implemented yet")
-    }
-
+/// Use `try_cloth_contact_velocity_on_table(...)` when the input might be airborne.
+pub fn try_cloth_contact_velocity_on_table(
+    state: &BallState,
+    radius: Inches,
+) -> Result<Velocity2, OnTableStateError> {
+    let state = OnTableBallState::try_from(state)?;
+    let state = state.as_ball_state();
     let vx = state.velocity.x().as_f64();
     let vy = state.velocity.y().as_f64();
     let wx = state.angular_velocity.x().as_f64();
     let wy = state.angular_velocity.y().as_f64();
     let radius = radius.as_f64();
 
-    Velocity2::from_components(
+    Ok(Velocity2::from_components(
         InchesPerSecond::new(Inches::from_f64(vx - radius * wy)),
         InchesPerSecond::new(Inches::from_f64(vy + radius * wx)),
+    ))
+}
+
+/// Compute the cloth-contact slip velocity for an on-table ball.
+pub fn cloth_contact_velocity_on_table(state: &BallState, radius: Inches) -> Velocity2 {
+    try_cloth_contact_velocity_on_table(state, radius).expect(
+        "cloth-contact velocity is only defined for on-table ball states; use try_cloth_contact_velocity_on_table for airborne inputs",
     )
 }
 
 /// Compute the cloth-contact slip-speed magnitude for an on-table ball.
+pub fn try_cloth_contact_speed_on_table(
+    state: &BallState,
+    radius: Inches,
+) -> Result<InchesPerSecond, OnTableStateError> {
+    Ok(try_cloth_contact_velocity_on_table(state, radius)?.speed())
+}
+
+/// Compute the cloth-contact slip-speed magnitude for an on-table ball.
 pub fn cloth_contact_speed_on_table(state: &BallState, radius: Inches) -> InchesPerSecond {
-    cloth_contact_velocity_on_table(state, radius).speed()
+    try_cloth_contact_speed_on_table(state, radius).expect(
+        "cloth-contact speed is only defined for on-table ball states; use try_cloth_contact_speed_on_table for airborne inputs",
+    )
 }
 
 /// Classify a ball's qualitative motion regime from its kinematic state and configurable
@@ -2967,7 +3007,10 @@ pub fn classify_motion_phase(
         return MotionPhase::Spinning;
     }
 
-    let contact_speed = cloth_contact_speed_on_table(state, ball.radius.clone()).as_f64();
+    let on_table_state = try_on_table_state(state, config)
+        .expect("states classified as non-airborne should normalize to on-table state");
+    let contact_speed =
+        cloth_contact_speed_on_table(on_table_state.as_ball_state(), ball.radius.clone()).as_f64();
     let is_rolling = match &config.sliding_to_rolling {
         SlidingToRollingModel::ExactNoSlip => contact_speed <= f64::EPSILON,
         SlidingToRollingModel::Thresholded {
@@ -3027,10 +3070,11 @@ fn rolling_linear_deceleration(config: &MotionTransitionConfig) -> f64 {
     linear_deceleration
 }
 
-fn require_on_table_state(state: &BallState, config: &MotionPhaseConfig) -> OnTableBallState {
-    OnTableBallState::try_new_with_thresholds(state.clone(), &config.thresholds).expect(
-        "on-table motion requires height and vertical velocity to remain within on-table thresholds",
-    )
+fn try_on_table_state(
+    state: &BallState,
+    config: &MotionPhaseConfig,
+) -> Result<OnTableBallState, OnTableStateError> {
+    OnTableBallState::try_new_with_thresholds(state.clone(), &config.thresholds)
 }
 
 /// Compute the next qualitative motion transition for a single ball under the current on-table
@@ -3051,8 +3095,9 @@ fn require_on_table_state(state: &BallState, config: &MotionPhaseConfig) -> OnTa
 ///   decreased linearly with time while the ball rolled to a stop, which makes a constant linear
 ///   rolling deceleration a reasonable first configurable approximation.
 ///
-/// Airborne transition prediction is intentionally left as `todo!()` for now so the transition API
-/// can stabilize before those richer branches are implemented.
+/// This on-table API remains total because `OnTableBallState` excludes airborne input; callers
+/// starting from a general `BallState` can use `try_compute_next_transition(...)` to detect
+/// unsupported airborne states cleanly.
 pub fn compute_next_transition_on_table(
     state: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
@@ -3067,20 +3112,25 @@ pub fn compute_next_transition_on_table(
     )
 }
 
+/// Fallible motion-transition query for callers that may encounter unsupported airborne input.
+pub fn try_compute_next_transition(
+    state: &BallState,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> Result<Option<NextTransition>, OnTableStateError> {
+    let state = try_on_table_state(state, &config.phase)?;
+    Ok(compute_next_transition_on_table(&state, ball, config))
+}
+
 /// Compatibility wrapper for the older motion API name.
 pub fn compute_next_transition(
     state: &BallState,
     ball: &BallSetPhysicsSpec,
     config: &MotionTransitionConfig,
 ) -> Option<NextTransition> {
-    match classify_motion_phase(state, ball, &config.phase) {
-        MotionPhase::Airborne => todo!("airborne transition prediction is not implemented yet"),
-        _ => compute_next_transition_on_table(
-            &require_on_table_state(state, &config.phase),
-            ball,
-            config,
-        ),
-    }
+    try_compute_next_transition(state, ball, config).expect(
+        "motion transition prediction is only supported for on-table ball states; use try_compute_next_transition for airborne inputs",
+    )
 }
 
 /// Advance an on-table state within a known qualitative motion phase.
@@ -3174,6 +3224,17 @@ pub fn advance_motion_on_table(
     }
 }
 
+/// Fallible motion advance for callers that may encounter unsupported airborne input.
+pub fn try_advance_ball_state(
+    state: &BallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> Result<BallState, OnTableStateError> {
+    let state = try_on_table_state(state, &config.phase)?;
+    Ok(advance_motion_on_table(&state, dt, ball, config).state)
+}
+
 /// Compatibility wrapper for the older motion API name.
 pub fn advance_ball_state(
     state: &BallState,
@@ -3181,18 +3242,9 @@ pub fn advance_ball_state(
     ball: &BallSetPhysicsSpec,
     config: &MotionTransitionConfig,
 ) -> BallState {
-    match classify_motion_phase(state, ball, &config.phase) {
-        MotionPhase::Airborne => todo!("airborne state advance is not implemented yet"),
-        _ => {
-            advance_motion_on_table(
-                &require_on_table_state(state, &config.phase),
-                dt,
-                ball,
-                config,
-            )
-            .state
-        }
-    }
+    try_advance_ball_state(state, dt, ball, config).expect(
+        "motion advance is only supported for on-table ball states; use try_advance_ball_state for airborne inputs",
+    )
 }
 
 /// Advance the total on-table angular velocity implied by the current motion model.
@@ -3212,6 +3264,17 @@ pub fn advance_spin_on_table(
         .angular_velocity
 }
 
+/// Fallible angular-velocity helper for callers that may encounter unsupported airborne input.
+pub fn try_advance_angular_velocity_on_table(
+    state: &BallState,
+    dt: Seconds,
+    ball: &BallSetPhysicsSpec,
+    config: &MotionTransitionConfig,
+) -> Result<AngularVelocity3, OnTableStateError> {
+    let state = try_on_table_state(state, &config.phase)?;
+    Ok(advance_spin_on_table(&state, dt, ball, config))
+}
+
 /// Compatibility wrapper for the older angular-velocity helper name.
 pub fn advance_angular_velocity_on_table(
     state: &BallState,
@@ -3219,11 +3282,8 @@ pub fn advance_angular_velocity_on_table(
     ball: &BallSetPhysicsSpec,
     config: &MotionTransitionConfig,
 ) -> AngularVelocity3 {
-    advance_spin_on_table(
-        &require_on_table_state(state, &config.phase),
-        dt,
-        ball,
-        config,
+    try_advance_angular_velocity_on_table(state, dt, ball, config).expect(
+        "angular-velocity advance is only supported for on-table ball states; use try_advance_angular_velocity_on_table for airborne inputs",
     )
 }
 

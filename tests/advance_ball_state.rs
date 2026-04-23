@@ -1,10 +1,12 @@
 use billiards::{
     advance_ball_state, advance_motion_on_table, advance_spin_on_table,
     advance_within_phase_on_table, compute_next_transition_on_table,
-    estimate_post_contact_cue_ball_curve_on_table, AngularVelocity3, BallSetPhysicsSpec, BallState,
-    Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
-    OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, RollingResistanceModel, Seconds,
-    SlidingFrictionModel, SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
+    estimate_post_contact_cue_ball_curve_on_table, try_advance_angular_velocity_on_table,
+    try_advance_ball_state, try_compute_next_transition, AngularVelocity3, BallSetPhysicsSpec,
+    BallState, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
+    OnTableBallState, OnTableMotionConfig, OnTableStateError, RadiansPerSecondSq,
+    RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -96,6 +98,41 @@ fn advancing_a_resting_ball_leaves_it_unchanged() {
     );
 
     assert_eq!(advanced, state);
+}
+
+#[test]
+fn airborne_inputs_are_rejected_by_try_motion_helpers() {
+    let state = BallState::airborne(
+        Inches2::new("10", "20"),
+        "0.5",
+        Velocity2::new("0", "10"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let config = motion_config();
+
+    assert!(matches!(
+        try_compute_next_transition(&state, &BallSetPhysicsSpec::default(), &config),
+        Err(OnTableStateError::HeightAboveTablePlane { .. })
+    ));
+    assert!(matches!(
+        try_advance_ball_state(
+            &state,
+            Seconds::new(1.0),
+            &BallSetPhysicsSpec::default(),
+            &config,
+        ),
+        Err(OnTableStateError::HeightAboveTablePlane { .. })
+    ));
+    assert!(matches!(
+        try_advance_angular_velocity_on_table(
+            &state,
+            Seconds::new(1.0),
+            &BallSetPhysicsSpec::default(),
+            &config,
+        ),
+        Err(OnTableStateError::HeightAboveTablePlane { .. })
+    ));
 }
 
 #[test]

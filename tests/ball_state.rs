@@ -1,6 +1,7 @@
 use billiards::{
     AngularVelocity3, BallState, Inches2, MotionPhase, MotionPhaseThresholds, OnTableBallState,
-    Position, RestingOnTableBallState, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    OnTableStateError, Position, RestingOnTableBallState, TableSpec, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -212,6 +213,41 @@ fn a_stationary_ball_with_only_vertical_axis_spin_classifies_as_spinning() {
         state.motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Spinning
     );
+}
+
+#[test]
+fn try_cloth_contact_helpers_reject_airborne_ball_states() {
+    let by_height = BallState::airborne(
+        Inches2::new("1", "2"),
+        "0.5",
+        Velocity2::new("3", "4"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let by_vertical_velocity = BallState::new(
+        Inches2::new("1", "2"),
+        "0",
+        Velocity2::new("3", "4"),
+        "1.25",
+        AngularVelocity3::zero(),
+    );
+
+    assert!(matches!(
+        by_height.try_cloth_contact_velocity(TYPICAL_BALL_RADIUS.clone()),
+        Err(OnTableStateError::HeightAboveTablePlane { .. })
+    ));
+    assert!(matches!(
+        by_height.try_cloth_contact_speed(TYPICAL_BALL_RADIUS.clone()),
+        Err(OnTableStateError::HeightAboveTablePlane { .. })
+    ));
+    assert!(matches!(
+        by_vertical_velocity.try_cloth_contact_velocity(TYPICAL_BALL_RADIUS.clone()),
+        Err(OnTableStateError::VerticalVelocityPresent { .. })
+    ));
+    assert!(matches!(
+        by_vertical_velocity.try_cloth_contact_speed(TYPICAL_BALL_RADIUS.clone()),
+        Err(OnTableStateError::VerticalVelocityPresent { .. })
+    ));
 }
 
 #[test]

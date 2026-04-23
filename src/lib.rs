@@ -693,6 +693,8 @@ pub enum RailModel {
 
 const HUMAN_TUNED_RAIL_NORMAL_RESTITUTION: f64 = 0.70;
 const HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.17;
+const HUMAN_TUNED_RAIL_IMPACT_CLOTH_FRICTION_COEFFICIENT: f64 = 0.20;
+const HUMAN_TUNED_RAIL_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.04;
 
 /// Configurable coefficients for the current ball-rail response helpers.
 ///
@@ -705,20 +707,50 @@ const HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.17;
 ///   `e = 0.7` and `μ = 0.17` for ball-rail interaction with vertical-plane spin.
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.1, models the rail friction term
 ///   with the same `fi`-style friction-limited contact-slip structure used here.
+///
+/// The last two fields tune only the richer `RailModel::SpinAware` path:
+///
+/// - `impact_cloth_friction_coefficient` controls the short simultaneous rail+cloth slip solve
+///   during impact.
+/// - `effective_contact_height_ratio` is the reduced TP 7.3-style geometric `a / R` term used for
+///   vertical-plane-spin pickup.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RailCollisionConfig {
     pub normal_restitution: Scale,
     pub tangential_friction_coefficient: Scale,
+    pub impact_cloth_friction_coefficient: Scale,
+    pub effective_contact_height_ratio: Scale,
 }
 
 impl RailCollisionConfig {
-    pub fn human_tuned() -> Self {
+    pub fn new(normal_restitution: Scale, tangential_friction_coefficient: Scale) -> Self {
         Self {
-            normal_restitution: Scale::from_f64(HUMAN_TUNED_RAIL_NORMAL_RESTITUTION),
-            tangential_friction_coefficient: Scale::from_f64(
-                HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT,
+            normal_restitution,
+            tangential_friction_coefficient,
+            impact_cloth_friction_coefficient: Scale::from_f64(
+                HUMAN_TUNED_RAIL_IMPACT_CLOTH_FRICTION_COEFFICIENT,
+            ),
+            effective_contact_height_ratio: Scale::from_f64(
+                HUMAN_TUNED_RAIL_EFFECTIVE_CONTACT_HEIGHT_RATIO,
             ),
         }
+    }
+
+    pub fn human_tuned() -> Self {
+        Self::new(
+            Scale::from_f64(HUMAN_TUNED_RAIL_NORMAL_RESTITUTION),
+            Scale::from_f64(HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT),
+        )
+    }
+
+    pub fn with_impact_cloth_friction_coefficient(mut self, coefficient: Scale) -> Self {
+        self.impact_cloth_friction_coefficient = coefficient;
+        self
+    }
+
+    pub fn with_effective_contact_height_ratio(mut self, ratio: Scale) -> Self {
+        self.effective_contact_height_ratio = ratio;
+        self
     }
 }
 
@@ -6358,6 +6390,24 @@ fn validated_rail_tangential_friction_coefficient(config: &RailCollisionConfig) 
     friction
 }
 
+fn validated_rail_impact_cloth_friction_coefficient(config: &RailCollisionConfig) -> f64 {
+    let friction = config.impact_cloth_friction_coefficient.as_f64();
+    assert!(
+        friction >= 0.0,
+        "rail impact cloth friction coefficient must be non-negative"
+    );
+    friction
+}
+
+fn validated_rail_effective_contact_height_ratio(config: &RailCollisionConfig) -> f64 {
+    let ratio = config.effective_contact_height_ratio.as_f64();
+    assert!(
+        (0.0..=1.0).contains(&ratio),
+        "rail effective contact height ratio must lie in [0, 1]"
+    );
+    ratio
+}
+
 fn restitution_aware_ball_cushion_collision_velocity_from_basis(
     velocity: &Velocity2,
     normal_x: f64,
@@ -6404,8 +6454,6 @@ fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Veloc
 // friction term during the short cushion-contact interval, which replaces the earlier heuristic
 // running-english damping helpers.
 const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
-const TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.04;
-const RAIL_IMPACT_TABLE_FRICTION_COEFFICIENT: f64 = 0.20;
 const RAIL_IMPACT_SOLVE_MAX_STEPS: usize = 1_000;
 const RAIL_IMPACT_MIN_IMPULSE_STEP: f64 = 1e-4;
 const RAIL_IMPACT_REFINEMENT_STEPS: usize = 8;
@@ -6627,6 +6675,7 @@ fn solve_spin_aware_rail_impact_in_frame(
     state: RailImpactFrameState,
     ball_radius: f64,
     normal_restitution: f64,
+    table_friction: f64,
     cushion_friction: f64,
 ) -> RailImpactFrameState {
     if state.normal_speed_toward_cushion <= f64::EPSILON {
@@ -6635,7 +6684,6 @@ fn solve_spin_aware_rail_impact_in_frame(
 
     let sin_theta = cushion_contact_sin_theta();
     let cos_theta = cushion_contact_cos_theta();
-    let table_friction = RAIL_IMPACT_TABLE_FRICTION_COEFFICIENT;
     let (compressed, compression_work) = solve_rail_impact_compression_phase(
         state,
         ball_radius,
@@ -6672,13 +6720,14 @@ fn tp73_geometric_vertical_plane_spin_delta(
     tangent_y: f64,
     ball_radius: f64,
     normal_restitution: f64,
+    effective_contact_height_ratio: f64,
     approaching_normal_speed: f64,
 ) -> (f64, f64) {
     if approaching_normal_speed <= f64::EPSILON {
         return (0.0, 0.0);
     }
 
-    let tangent_axis_delta = (5.0 * TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO / (2.0 * ball_radius))
+    let tangent_axis_delta = (5.0 * effective_contact_height_ratio / (2.0 * ball_radius))
         * (1.0 + normal_restitution)
         * approaching_normal_speed
         * (normal_x * tangent_y - normal_y * tangent_x);
@@ -6870,6 +6919,8 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
     ball_radius: f64,
     normal_restitution: f64,
     tangential_friction_coefficient: f64,
+    impact_cloth_friction_coefficient: f64,
+    effective_contact_height_ratio: f64,
 ) -> OnTableBallState {
     assert!(
         ball_radius > f64::EPSILON,
@@ -6896,6 +6947,7 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
         frame_state,
         ball_radius,
         normal_restitution,
+        impact_cloth_friction_coefficient,
         tangential_friction_coefficient,
     );
     let velocity = Velocity2::new(
@@ -6913,6 +6965,7 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
         tangent_y,
         ball_radius,
         normal_restitution,
+        effective_contact_height_ratio,
         frame_state.normal_speed_toward_cushion.max(0.0),
     );
     let outgoing_wz = state_ref.angular_velocity.z().as_f64()
@@ -6978,6 +7031,8 @@ fn spin_aware_ball_rail_collision_on_table(
     ball_radius: f64,
     normal_restitution: f64,
     tangential_friction_coefficient: f64,
+    impact_cloth_friction_coefficient: f64,
+    effective_contact_height_ratio: f64,
 ) -> OnTableBallState {
     let (normal_x, normal_y, tangent_x, tangent_y) = rail_collision_basis(rail);
     spin_aware_ball_cushion_collision_on_table_from_basis(
@@ -6989,6 +7044,8 @@ fn spin_aware_ball_rail_collision_on_table(
         ball_radius,
         normal_restitution,
         tangential_friction_coefficient,
+        impact_cloth_friction_coefficient,
+        effective_contact_height_ratio,
     )
 }
 
@@ -7039,6 +7096,8 @@ fn collide_ball_jaw_on_table_with_radius_and_profile(
             ball_radius.as_f64(),
             validated_rail_normal_restitution(config),
             validated_rail_tangential_friction_coefficient(config),
+            validated_rail_impact_cloth_friction_coefficient(config),
+            validated_rail_effective_contact_height_ratio(config),
         ),
     }
 }
@@ -7098,6 +7157,8 @@ pub fn collide_ball_rail_on_table_with_radius_and_profile(
             ball_radius.as_f64(),
             validated_rail_normal_restitution(config),
             validated_rail_tangential_friction_coefficient(config),
+            validated_rail_impact_cloth_friction_coefficient(config),
+            validated_rail_effective_contact_height_ratio(config),
         ),
     }
 }

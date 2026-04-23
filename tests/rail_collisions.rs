@@ -80,10 +80,7 @@ fn a_restitution_only_rail_collision_reduces_the_outgoing_normal_speed() {
         Velocity2::new("5", "5"),
         AngularVelocity3::new(1.0, 2.0, 3.0),
     ));
-    let config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(1.0),
-    };
+    let config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0));
 
     let reflected = collide_ball_rail_on_table_with_radius_and_config(
         &state,
@@ -110,14 +107,8 @@ fn a_spin_aware_rail_collision_with_high_cushion_friction_trades_more_tangential
         Velocity2::new("5", "5"),
         AngularVelocity3::zero(),
     ));
-    let high_friction = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(1.0),
-    };
-    let low_friction = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(0.1),
-    };
+    let high_friction = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0));
+    let low_friction = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.1));
 
     let high = collide_ball_rail_on_table_with_radius_and_config(
         &state,
@@ -154,10 +145,7 @@ fn a_spin_aware_rail_collision_exhibits_partial_slip_when_friction_is_low() {
         Velocity2::new("5", "5"),
         AngularVelocity3::zero(),
     ));
-    let config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(0.1),
-    };
+    let config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.1));
 
     let reflected = collide_ball_rail_on_table_with_radius_and_config(
         &state,
@@ -190,10 +178,7 @@ fn a_spin_aware_rail_collision_with_topspin_reduces_vertical_plane_spin() {
         Velocity2::new("0", "5"),
         AngularVelocity3::new(4.0, 0.0, 0.0),
     ));
-    let config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(1.0),
-    };
+    let config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0));
 
     let reflected = collide_ball_rail_on_table_with_radius_and_config(
         &state,
@@ -239,10 +224,7 @@ fn a_spin_aware_rail_collision_with_topspin_reduces_vertical_plane_spin() {
 fn an_ordinary_no_english_rolling_entry_seeds_less_running_english_than_a_sliding_entry() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();
-    let config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(1.0),
-    };
+    let config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0));
     let sliding = on_table(BallState::on_table(
         inches2(10.0, 20.0),
         Velocity2::new("5", "5"),
@@ -285,10 +267,7 @@ fn a_rolling_entry_with_carried_side_spin_scrubs_some_of_that_spin_at_the_rail()
         Velocity2::new("5", "5"),
         AngularVelocity3::new(-5.0 / radius_value, 5.0 / radius_value, -8.0),
     ));
-    let config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(1.0),
-    };
+    let config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0));
 
     let reflected = collide_ball_rail_on_table_with_radius_and_config(
         &state,
@@ -378,6 +357,102 @@ fn a_spin_aware_stun_entry_picks_up_some_forward_vertical_plane_roll_from_tp73_g
 }
 
 #[test]
+fn a_larger_effective_contact_height_ratio_seeds_more_forward_roll_for_a_stun_entry() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let stun = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("0", "5"),
+        AngularVelocity3::zero(),
+    ));
+    let no_geometry = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.0))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+    let stronger_geometry = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.0))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.08));
+
+    let without_geometry = collide_ball_rail_on_table_with_radius_and_config(
+        &stun,
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &no_geometry,
+    );
+    let with_geometry = collide_ball_rail_on_table_with_radius_and_config(
+        &stun,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &stronger_geometry,
+    );
+
+    assert!(
+        with_geometry.as_ball_state().angular_velocity.x().as_f64()
+            > without_geometry.as_ball_state().angular_velocity.x().as_f64() + 1e-9,
+        "a larger TP 7.3-style effective contact height should seed more forward vertical-plane roll"
+    );
+}
+
+#[test]
+fn a_higher_impact_cloth_friction_coefficient_reduces_post_rail_cloth_slip_for_rolling_entries() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let rolling = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("0", "5"),
+        AngularVelocity3::new(-5.0 / radius_value, 0.0, 0.0),
+    ));
+    let low_impact_cloth_friction = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.0))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+    let high_impact_cloth_friction = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.4))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+
+    let low_friction_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &rolling,
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &low_impact_cloth_friction,
+    );
+    let high_friction_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &rolling,
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &high_impact_cloth_friction,
+    );
+    let low_slip = cloth_contact_velocity_on_table(
+        low_friction_rebound.as_ball_state(),
+        radius.clone(),
+    )
+    .x()
+    .as_f64()
+    .hypot(
+        cloth_contact_velocity_on_table(low_friction_rebound.as_ball_state(), radius.clone())
+            .y()
+            .as_f64(),
+    );
+    let high_slip = cloth_contact_velocity_on_table(
+        high_friction_rebound.as_ball_state(),
+        radius.clone(),
+    )
+    .x()
+    .as_f64()
+    .hypot(
+        cloth_contact_velocity_on_table(high_friction_rebound.as_ball_state(), radius)
+            .y()
+            .as_f64(),
+    );
+
+    assert!(
+        high_slip < low_slip,
+        "stronger impact-time cloth friction should leave a rolling-style rebound closer to stun / lower cloth slip"
+    );
+}
+
+#[test]
 fn a_spin_aware_overspin_entry_can_leave_with_reverse_vertical_plane_spin() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();
@@ -460,10 +535,7 @@ fn gearing_english_preserves_side_spin_better_than_tangential_speed_under_table_
         Velocity2::new("5", "5"),
         AngularVelocity3::new(0.0, 0.0, geared_spin),
     ));
-    let config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(0.1),
-    };
+    let config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.1));
 
     let reflected = collide_ball_rail_on_table_with_radius_and_config(
         &state,
@@ -492,14 +564,14 @@ fn a_rail_profile_can_make_different_rails_play_differently() {
         AngularVelocity3::zero(),
     ));
     let profile = RailCollisionProfile::human_tuned()
-        .with_top(RailCollisionConfig {
-            normal_restitution: Scale::from_f64(0.6),
-            tangential_friction_coefficient: Scale::from_f64(1.0),
-        })
-        .with_right(RailCollisionConfig {
-            normal_restitution: Scale::from_f64(0.9),
-            tangential_friction_coefficient: Scale::from_f64(1.0),
-        });
+        .with_top(RailCollisionConfig::new(
+            Scale::from_f64(0.6),
+            Scale::from_f64(1.0),
+        ))
+        .with_right(RailCollisionConfig::new(
+            Scale::from_f64(0.9),
+            Scale::from_f64(1.0),
+        ));
 
     let top_reflected = collide_ball_rail_on_table_with_radius_and_profile(
         &state,

@@ -179,10 +179,7 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_configured_restitution_and_spi
     let ball = BallSetPhysicsSpec::default();
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
-    let rail_config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(0.1),
-    };
+    let rail_config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.1));
     let a = on_table(BallState::on_table(
         inches2(10.0, top_plane - 7.5),
         Velocity2::new("5", "10"),
@@ -239,10 +236,7 @@ fn advancing_to_a_restitution_only_rail_impact_uses_the_configured_restitution()
     let ball = BallSetPhysicsSpec::default();
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
-    let rail_config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(1.0),
-    };
+    let rail_config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0));
     let a = on_table(BallState::on_table(
         inches2(10.0, top_plane - 7.5),
         Velocity2::new("0", "10"),
@@ -289,10 +283,7 @@ fn simulating_with_configured_restitution_records_the_rail_impact() {
     let config = motion_config();
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
-    let rail_config = RailCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(1.0),
-    };
+    let rail_config = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0));
     let a = on_table(BallState::on_table(
         inches2(10.0, top_plane - 7.5),
         Velocity2::new("0", "10"),

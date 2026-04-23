@@ -42,11 +42,15 @@ Qualitatively, the note says:
 - `RailCollisionConfig::normal_restitution` models the TP 7.3 `e` term.
 - `RailCollisionConfig::tangential_friction_coefficient` models the tangential rail-friction term
   `μ`.
+- `RailCollisionConfig::impact_cloth_friction_coefficient` now exposes the reduced simultaneous
+  rail+cloth slip solve's impact-time cloth-friction term instead of hard-coding it.
+- `RailCollisionConfig::effective_contact_height_ratio` now exposes the reduced TP 7.3-style
+  geometric `a / R` term instead of hard-coding it.
 - `spin_aware_ball_rail_collision_on_table(...)` now runs a reduced Mathavan-style impact solve in
   the local cushion frame, including:
   - along-rail slip from tangential velocity and `ωz`,
   - vertical slip from `ωx` / `ωy`, and
-  - a fixed typical ball-cloth sliding-friction term during the rail contact interval.
+  - a configurable impact-time ball-cloth sliding-friction term during the rail contact interval.
 - `tp73_geometric_vertical_plane_spin_delta(...)` remains the explicit TP 7.3-style geometric `a`
   contribution for vertical-plane-spin conversion.
 
@@ -72,9 +76,9 @@ overspin cases should still be able to leave the rail with reverse vertical-plan
 
 TP 7.3's worked example uses roughly `a = 0.08 R`.
 
-The current code uses:
+The current default code path uses:
 
-- `TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO = 0.04`
+- `RailCollisionConfig::effective_contact_height_ratio = 0.04`
 
 This is still intentionally smaller than the TP 7.3 worked-case `a ≈ 0.08R`, but it is no longer
 as aggressively reduced as the earlier `0.02R` stopgap. The simultaneous rail+cloth solve now
@@ -88,7 +92,7 @@ not model explicit cushion compression / release. The main remaining cushion-com
 therefore still the fixed contact-height geometry:
 
 - `THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO = 2/5`
-- `TP73_EFFECTIVE_CONTACT_HEIGHT_RATIO = 0.04`
+- `RailCollisionConfig::effective_contact_height_ratio = 0.04` by default
 
 That is a useful reduced model, but it is not a full compliant cushion patch solve.
 
@@ -140,9 +144,11 @@ At a qualitative level, the current model now captures the most important local 
 
 ### Still-open physics questions
 
-1. Should the fixed impact-time cloth-friction coefficient be exposed and calibrated rather than
-   hard-coded?
-2. Should the effective `a` term be made **speed-dependent** rather than fixed?
+1. The fixed impact-time cloth-friction coefficient is now exposed via
+   `RailCollisionConfig::impact_cloth_friction_coefficient`; it still needs measured calibration.
+2. The effective `a` term is now exposed via
+   `RailCollisionConfig::effective_contact_height_ratio`; it may still want a **speed-dependent**
+   model rather than a fixed value.
 3. Should cushion compliance / penetration depth vary with impact speed and rail?
 4. Should the rail model expose an internal trace of:
    - tangential contact slip,

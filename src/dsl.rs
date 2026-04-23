@@ -1746,20 +1746,20 @@ fn build_rail_response(def: &RailResponseDef) -> Result<RailCollisionConfig, Dsl
             method: "tangential_friction".to_string(),
         })?;
 
-    Ok(RailCollisionConfig {
-        normal_restitution: validate_unit_interval_physics_value(
+    Ok(RailCollisionConfig::new(
+        validate_unit_interval_physics_value(
             PhysicsConfigKind::RailResponse,
             &def.name,
             "normal_restitution",
             normal_restitution,
         )?,
-        tangential_friction_coefficient: validate_non_negative_physics_value(
+        validate_non_negative_physics_value(
             PhysicsConfigKind::RailResponse,
             &def.name,
             "tangential_friction",
             tangential_friction,
         )?,
-    })
+    ))
 }
 
 fn build_rail_profiles(

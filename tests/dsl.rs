@@ -8,8 +8,9 @@ use billiards::{
     visualization::{BallPathRenderOptions, PathColorMode},
     Angle, BallSetPhysicsSpec, BallType, CollisionModel, Diamond, HumanShotSpeedBand,
     InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
-    NBallSystemState, OnTableMotionConfig, Pocket, RadiansPerSecondSq, RailCollisionProfile,
-    RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TYPICAL_BALL_RADIUS,
+    NBallSystemState, OnTableMotionConfig, PlayingConditions, Pocket, RadiansPerSecondSq,
+    RailCollisionProfile, RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
+    TYPICAL_BALL_RADIUS,
 };
 use image::load_from_memory;
 
@@ -617,13 +618,11 @@ fn shot_scenarios_can_use_named_simulations_defined_in_dsl() {
         .expect("expected damped simulation to succeed")
         .expect("scenario should contain a shot");
 
-    assert_eq!(
-        scenario
-            .simulation_named("human_table")
-            .expect("named simulation")
-            .ball_ball_name,
-        "human"
-    );
+    let preset = scenario
+        .simulation_named("human_table")
+        .expect("named simulation");
+    assert_eq!(preset.ball_ball_name, "human");
+    assert_eq!(preset.conditions, PlayingConditions::neutral());
 
     let ideal_object_y = match &ideal.states[1] {
         NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
@@ -637,6 +636,60 @@ fn shot_scenarios_can_use_named_simulations_defined_in_dsl() {
     assert!(
         (damped_object_y - ideal_object_y).abs() > 1.0,
         "the simulation preset should thread the named ball-ball config into the engine"
+    );
+}
+
+#[test]
+fn shot_scenarios_can_apply_named_playing_conditions_from_simulation_presets() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.0, 4.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
+         rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)\n\
+         rails(table).default(clean)\n\
+         simulation(neutral_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table)\n\
+         simulation(humid_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).conditions(humid_dirty)\n\
+         shot(cue).heading(0deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+    let neutral = scenario
+        .simulate_shot_system_with_simulation_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            "neutral_table",
+        )
+        .expect("expected neutral simulation to succeed")
+        .expect("scenario should contain a shot");
+    let humid = scenario
+        .simulate_shot_system_with_simulation_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            "humid_table",
+        )
+        .expect("expected humid simulation to succeed")
+        .expect("scenario should contain a shot");
+
+    assert_eq!(
+        scenario
+            .simulation_named("humid_table")
+            .expect("named simulation")
+            .conditions,
+        PlayingConditions::humid_dirty()
+    );
+
+    let neutral_object_y = match &neutral.states[1] {
+        NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
+        other => panic!("expected object ball to remain on-table, got {other:?}"),
+    };
+    let humid_object_y = match &humid.states[1] {
+        NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
+        other => panic!("expected object ball to remain on-table, got {other:?}"),
+    };
+
+    assert!(
+        humid_object_y < neutral_object_y - 0.5,
+        "humid conditions should shorten the post-collision travel; got neutral y {neutral_object_y} vs humid y {humid_object_y}"
     );
 }
 
@@ -671,6 +724,25 @@ fn a_single_named_simulation_becomes_the_preferred_cli_physics_path() {
 
     assert_eq!(scenario.preferred_simulation_name(), Some("human_table"));
     assert_eq!(preferred, explicit);
+}
+
+#[test]
+fn rejects_unknown_playing_conditions_presets_in_simulations() {
+    let err = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
+         rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)\n\
+         rails(table).default(clean)\n\
+         simulation(trace).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).conditions(swampy)\n\
+         shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect_err("expected build failure");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::UnknownPlayingConditionsPreset(name)) if name == "swampy"
+    ));
 }
 
 #[test]

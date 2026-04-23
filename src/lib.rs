@@ -879,6 +879,47 @@ pub struct PlayingConditions {
     pub rail_impact_cloth_friction_scale: Scale,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum PlayingConditionsPreset {
+    #[default]
+    Neutral,
+    HumidDirty,
+    FastClean,
+}
+
+impl PlayingConditionsPreset {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "neutral" => Some(Self::Neutral),
+            "humid_dirty" | "humid-dirty" => Some(Self::HumidDirty),
+            "fast_clean" | "fast-clean" => Some(Self::FastClean),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Neutral => "neutral",
+            Self::HumidDirty => "humid_dirty",
+            Self::FastClean => "fast_clean",
+        }
+    }
+
+    pub fn conditions(self) -> PlayingConditions {
+        match self {
+            Self::Neutral => PlayingConditions::neutral(),
+            Self::HumidDirty => PlayingConditions::humid_dirty(),
+            Self::FastClean => PlayingConditions::fast_clean(),
+        }
+    }
+}
+
+impl From<PlayingConditionsPreset> for PlayingConditions {
+    fn from(value: PlayingConditionsPreset) -> Self {
+        value.conditions()
+    }
+}
+
 impl PlayingConditions {
     pub fn neutral() -> Self {
         Self {

@@ -1,7 +1,7 @@
 use billiards::{
     human_tuned_preview_motion_config, BallBallCollisionConfig, PlayingConditions,
-    RailCollisionConfig, RailCollisionProfile, RollingResistanceModel, SlidingFrictionModel,
-    SpinDecayModel,
+    PlayingConditionsPreset, RailCollisionConfig, RailCollisionProfile, RollingResistanceModel,
+    SlidingFrictionModel, SpinDecayModel,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -30,10 +30,28 @@ fn spin_decay(config: &billiards::MotionTransitionConfig) -> f64 {
 
 fn rolling_decel(config: &billiards::MotionTransitionConfig) -> f64 {
     match &config.rolling_resistance {
-        RollingResistanceModel::ConstantDeceleration { linear_deceleration } => {
-            linear_deceleration.as_f64()
-        }
+        RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration,
+        } => linear_deceleration.as_f64(),
     }
+}
+
+#[test]
+fn named_conditions_presets_resolve_to_builtin_profiles() {
+    assert_eq!(
+        PlayingConditionsPreset::from_name("neutral"),
+        Some(PlayingConditionsPreset::Neutral)
+    );
+    assert_eq!(
+        PlayingConditionsPreset::from_name("humid_dirty"),
+        Some(PlayingConditionsPreset::HumidDirty)
+    );
+    assert_eq!(PlayingConditionsPreset::HumidDirty.name(), "humid_dirty");
+    assert_eq!(
+        PlayingConditions::from(PlayingConditionsPreset::FastClean),
+        PlayingConditions::fast_clean()
+    );
+    assert_eq!(PlayingConditionsPreset::from_name("bogus"), None);
 }
 
 #[test]
@@ -91,9 +109,10 @@ fn humid_dirty_conditions_increase_motion_damping_and_deaden_contacts() {
 fn conditions_apply_across_each_rail_in_a_profile() {
     let conditions = PlayingConditions::humid_dirty();
     let profile = RailCollisionProfile::human_tuned()
-        .with_top(RailCollisionConfig::human_tuned().with_effective_contact_height_ratio(
-            billiards::Scale::from_f64(0.08),
-        ))
+        .with_top(
+            RailCollisionConfig::human_tuned()
+                .with_effective_contact_height_ratio(billiards::Scale::from_f64(0.08)),
+        )
         .with_right(
             RailCollisionConfig::human_tuned()
                 .with_impact_cloth_friction_coefficient(billiards::Scale::from_f64(0.3)),

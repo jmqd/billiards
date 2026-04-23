@@ -18,10 +18,11 @@ use crate::{
     BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
     CueTipContact, Diamond, GameState, HumanShotSpeedValidation, Inches, InchesPerSecond,
     MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
-    OnTableMotionConfig, Pocket, PocketJaw, Position, Rail, RailCollisionConfig,
-    RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError,
-    TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND,
-    CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
+    OnTableMotionConfig, PlayingConditions, PlayingConditionsPreset, Pocket, PocketJaw, Position,
+    Rail, RailCollisionConfig, RailCollisionProfile, RailModel, RestingOnTableBallState, Scale,
+    Seconds, Shot, ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND,
+    CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND,
+    TOP_RIGHT_DIAMOND,
 };
 use image::Rgba;
 use winnow::ascii::{float, line_ending, till_line_ending};
@@ -57,6 +58,14 @@ pub struct DslScenario {
     pub rail_responses: HashMap<String, RailCollisionConfig>,
     pub rail_profiles: HashMap<String, RailCollisionProfile>,
     pub simulations: HashMap<String, SimulationPreset>,
+}
+
+struct EffectiveSimulationPhysics {
+    motion: OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: BallBallCollisionConfig,
+    rail_model: RailModel,
+    rail_profile: RailCollisionProfile,
 }
 
 impl DslScenario {
@@ -97,20 +106,41 @@ impl DslScenario {
         }
     }
 
+    fn effective_simulation_physics(
+        &self,
+        motion: &OnTableMotionConfig,
+        simulation_name: &str,
+    ) -> Result<EffectiveSimulationPhysics, DslBuildError> {
+        let simulation = self.simulation_named(simulation_name)?;
+        let conditions = &simulation.conditions;
+
+        Ok(EffectiveSimulationPhysics {
+            motion: motion.applying_conditions(conditions),
+            collision_model: simulation.collision_model,
+            collision_config: self
+                .ball_ball_config_named(&simulation.ball_ball_name)?
+                .applying_conditions(conditions),
+            rail_model: simulation.rail_model,
+            rail_profile: self
+                .rail_profile_named(&simulation.rails_name)?
+                .applying_conditions(conditions),
+        })
+    }
+
     pub fn simulate_shot_system_with_simulation_on_table_until_rest(
         &self,
         ball_set: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
         simulation_name: &str,
     ) -> Result<Option<NBallSystemSimulation>, DslBuildError> {
-        let simulation = self.simulation_named(simulation_name)?;
+        let simulation = self.effective_simulation_physics(motion, simulation_name)?;
         self.simulate_shot_system_with_physics_on_table_until_rest(
             ball_set,
-            motion,
+            &simulation.motion,
             simulation.collision_model,
-            self.ball_ball_config_named(&simulation.ball_ball_name)?,
+            &simulation.collision_config,
             simulation.rail_model,
-            self.rail_profile_named(&simulation.rails_name)?,
+            &simulation.rail_profile,
         )
     }
 
@@ -120,14 +150,14 @@ impl DslScenario {
         motion: &OnTableMotionConfig,
         simulation_name: &str,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        let simulation = self.simulation_named(simulation_name)?;
+        let simulation = self.effective_simulation_physics(motion, simulation_name)?;
         self.simulate_shot_trace_with_physics_on_table_until_rest(
             ball_set,
-            motion,
+            &simulation.motion,
             simulation.collision_model,
-            self.ball_ball_config_named(&simulation.ball_ball_name)?,
+            &simulation.collision_config,
             simulation.rail_model,
-            self.rail_profile_named(&simulation.rails_name)?,
+            &simulation.rail_profile,
         )
     }
 
@@ -138,13 +168,13 @@ impl DslScenario {
         motion: &OnTableMotionConfig,
         simulation_name: &str,
     ) -> Result<Option<BallPath>, DslBuildError> {
-        let simulation = self.simulation_named(simulation_name)?;
+        let simulation = self.effective_simulation_physics(motion, simulation_name)?;
         self.trace_shot_path_with_rail_profile_on_table(
             stop,
             ball_set,
-            motion,
+            &simulation.motion,
             simulation.rail_model,
-            self.rail_profile_named(&simulation.rails_name)?,
+            &simulation.rail_profile,
         )
     }
 
@@ -1089,6 +1119,7 @@ pub enum SimulationMethodExpr {
     BallBall(String),
     RailModel(RailModel),
     Rails(String),
+    Conditions(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1097,6 +1128,7 @@ pub struct SimulationPreset {
     pub ball_ball_name: String,
     pub rail_model: RailModel,
     pub rails_name: String,
+    pub conditions: PlayingConditions,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1292,6 +1324,7 @@ pub enum DslBuildError {
     UnknownRailResponse(String),
     UnknownRailProfile(String),
     UnknownSimulation(String),
+    UnknownPlayingConditionsPreset(String),
     MultipleShotsNotSupported {
         count: usize,
     },
@@ -1408,6 +1441,9 @@ impl std::fmt::Display for DslBuildError {
             Self::UnknownRailResponse(name) => write!(f, "unknown rail_response '{name}'"),
             Self::UnknownRailProfile(name) => write!(f, "unknown rails '{name}'"),
             Self::UnknownSimulation(name) => write!(f, "unknown simulation '{name}'"),
+            Self::UnknownPlayingConditionsPreset(name) => {
+                write!(f, "unknown playing conditions preset '{name}'")
+            }
             Self::MultipleShotsNotSupported { count } => write!(
                 f,
                 "the current DSL supports at most one shot statement, but found {count}"
@@ -1893,6 +1929,7 @@ fn build_simulation(
     let mut ball_ball_name = None;
     let mut rail_model = None;
     let mut rails_name = None;
+    let mut conditions_name = None;
 
     for method in &def.methods {
         match method {
@@ -1928,6 +1965,14 @@ fn build_simulation(
                     }
                 })?;
             }
+            SimulationMethodExpr::Conditions(name) => {
+                set_once(&mut conditions_name, name.clone(), || {
+                    DslBuildError::DuplicateSimulationMethod {
+                        name: def.name.clone(),
+                        method: "conditions".to_string(),
+                    }
+                })?;
+            }
         }
     }
 
@@ -1948,6 +1993,15 @@ fn build_simulation(
         name: def.name.clone(),
         method: "rails".to_string(),
     })?;
+    let conditions = conditions_name
+        .as_deref()
+        .map(|name| {
+            PlayingConditionsPreset::from_name(name)
+                .map(PlayingConditions::from)
+                .ok_or_else(|| DslBuildError::UnknownPlayingConditionsPreset(name.to_string()))
+        })
+        .transpose()?
+        .unwrap_or_default();
 
     if !ball_ball_configs.contains_key(&ball_ball_name) {
         return Err(DslBuildError::UnknownBallBallConfig(ball_ball_name));
@@ -1961,6 +2015,7 @@ fn build_simulation(
         ball_ball_name,
         rail_model,
         rails_name,
+        conditions,
     })
 }
 
@@ -2625,6 +2680,7 @@ fn simulation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, SimulationMe
         preceded(peek("ball_ball"), cut_err(simulation_ball_ball_method)),
         preceded(peek("rail_model"), cut_err(simulation_rail_model_method)),
         preceded(peek("rails"), cut_err(simulation_rails_method)),
+        preceded(peek("conditions"), cut_err(simulation_conditions_method)),
     ))
     .parse_next(input)
 }
@@ -2658,6 +2714,14 @@ fn simulation_rails_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, Simula
     let _ = "rails".parse_next(input)?;
     let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
     Ok(SimulationMethodExpr::Rails(name.to_string()))
+}
+
+fn simulation_conditions_method<'a>(
+    input: &mut Stream<'a>,
+) -> ParseResult<'a, SimulationMethodExpr> {
+    let _ = "conditions".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    Ok(SimulationMethodExpr::Conditions(name.to_string()))
 }
 
 fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -3153,6 +3217,7 @@ mod tests {
         assert_eq!(preset.ball_ball_name, "ideal");
         assert_eq!(preset.rails_name, "table");
         assert_eq!(preset.rail_model, RailModel::SpinAware);
+        assert_eq!(preset.conditions, PlayingConditions::neutral());
     }
 
     #[test]

@@ -1,4 +1,5 @@
 # Named physics preset example: human-tuned ball-ball response with a reusable simulation preset.
+# This one also opts into the built-in humid_dirty playing-conditions preset.
 ball cue at (1.0, 4.0)
 ball one at (2.0, 4.0)
 ball two at (3.6, 4.0)
@@ -14,5 +15,6 @@ simulation(human_pinball)
   .ball_ball(human)
   .rail_model(spin_aware)
   .rails(table)
+  .conditions(humid_dirty)
 
 shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)

@@ -42,7 +42,7 @@ ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)
 rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)
 rail_response(dead).normal_restitution(0.6).tangential_friction(1.0)
 rails(pinball).default(clean).top(dead).right(dead)
-simulation(human_pinball).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(pinball)
+simulation(human_pinball).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(pinball).conditions(humid_dirty)
 shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)
 ```
 
@@ -52,12 +52,13 @@ Main knobs:
 - `ball_ball(name)` → ball-ball restitution + tangential friction
 - `rail_response(name)` → single-rail rebound config
 - `rails(name)` → per-rail profile built from named rail responses
-- `simulation(name)` → reusable preset bundling collision model, ball-ball config, rail model, rail profile
+- `simulation(name)` → reusable preset bundling collision model, ball-ball config, rail model, rail profile, and optional built-in playing conditions
 - `shot(cue)` → one declarative shot in document
 
 For more:
 
 - full syntax: [DSL_SHOT_MINI_SPEC.md](./DSL_SHOT_MINI_SPEC.md)
+- built-in `simulation(...).conditions(...)` presets: `neutral` (default), `humid_dirty`, `fast_clean`
 - ready examples: [examples/scenarios/](./examples/scenarios/)
 - named-preset example: [examples/scenarios/named_physics_pinball.billiards](./examples/scenarios/named_physics_pinball.billiards)
 

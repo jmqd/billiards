@@ -11,6 +11,7 @@ This slice supports:
 - named per-rail response configs
 - named rail profiles built from those responses
 - named simulation presets that bundle the physics knobs
+- optional built-in playing-conditions presets on simulation presets
 - one optional declarative shot per document
 - lowering to validated physics-domain types and scenario helpers
 
@@ -51,6 +52,7 @@ simulation(human_pinball)
   .ball_ball(human)
   .rail_model(spin_aware)
   .rails(pinball)
+  .conditions(humid_dirty)
 
 shot(cue)
   .heading(90deg)
@@ -66,7 +68,7 @@ cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
 ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)
 rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)
 rails(pinball).default(clean).top(dead).right(dead)
-simulation(human_pinball).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(pinball)
+simulation(human_pinball).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(pinball).conditions(humid_dirty)
 shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)
 ```
 
@@ -142,6 +144,10 @@ Required methods, each exactly once:
 - `.rail_model(model)`
 - `.rails(profile_name)`
 
+Optional methods, each at most once:
+
+- `.conditions(preset_name)`
+
 Supported collision-model literals:
 
 - `ideal`
@@ -153,6 +159,12 @@ Supported rail-model literals:
 - `mirror`
 - `restitution_only`
 - `spin_aware`
+
+Supported built-in playing-conditions preset literals:
+
+- `neutral` (default when `.conditions(...)` is omitted)
+- `humid_dirty`
+- `fast_clean`
 
 ### `shot(cue)`
 
@@ -203,8 +215,8 @@ Method order within a chain is semantically irrelevant.
 These are equivalent:
 
 ```text
-simulation(match).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(pinball)
-simulation(match).rails(pinball).rail_model(spin_aware).ball_ball(human).collision_model(throw_aware)
+simulation(match).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(pinball).conditions(humid_dirty)
+simulation(match).conditions(humid_dirty).rails(pinball).rail_model(spin_aware).ball_ball(human).collision_model(throw_aware)
 ```
 
 However, duplicate methods are rejected during lowering.
@@ -214,6 +226,8 @@ However, duplicate methods are rejected during lowering.
 The DSL lowers to a scenario-level value:
 
 - `DslScenario { game_state, shot, ball_ball_configs, rail_responses, rail_profiles, simulations }`
+
+Each `SimulationPreset` carries its resolved built-in `PlayingConditions`, defaulting to neutral when omitted.
 
 where the named config maps already contain validated domain-level physics configs and `shot`, when
 present, is already constructed from validated domain types.

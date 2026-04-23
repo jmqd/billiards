@@ -752,6 +752,24 @@ impl RailCollisionConfig {
         self.effective_contact_height_ratio = ratio;
         self
     }
+
+    pub fn applying_conditions(&self, conditions: &PlayingConditions) -> Self {
+        Self {
+            normal_restitution: Scale::from_f64(scaled_unit_interval_f64(
+                self.normal_restitution.as_f64(),
+                &conditions.rail_restitution_scale,
+            )),
+            tangential_friction_coefficient: Scale::from_f64(scaled_non_negative_f64(
+                self.tangential_friction_coefficient.as_f64(),
+                &conditions.rail_cushion_friction_scale,
+            )),
+            impact_cloth_friction_coefficient: Scale::from_f64(scaled_non_negative_f64(
+                self.impact_cloth_friction_coefficient.as_f64(),
+                &conditions.rail_impact_cloth_friction_scale,
+            )),
+            effective_contact_height_ratio: self.effective_contact_height_ratio.clone(),
+        }
+    }
 }
 
 impl Default for RailCollisionConfig {
@@ -815,11 +833,96 @@ impl RailCollisionProfile {
         self.left = config;
         self
     }
+
+    pub fn applying_conditions(&self, conditions: &PlayingConditions) -> Self {
+        Self {
+            top: self.top.applying_conditions(conditions),
+            right: self.right.applying_conditions(conditions),
+            bottom: self.bottom.applying_conditions(conditions),
+            left: self.left.applying_conditions(conditions),
+        }
+    }
 }
 
 impl Default for RailCollisionProfile {
     fn default() -> Self {
         Self::human_tuned()
+    }
+}
+
+fn scaled_non_negative_f64(value: f64, scale: &Scale) -> f64 {
+    assert!(value.is_finite(), "scaled value input must be finite");
+    assert!(scale.as_f64().is_finite(), "scale factor must be finite");
+    assert!(scale.as_f64() >= 0.0, "scale factor must be non-negative");
+
+    (value * scale.as_f64()).max(0.0)
+}
+
+fn scaled_unit_interval_f64(value: f64, scale: &Scale) -> f64 {
+    scaled_non_negative_f64(value, scale).clamp(0.0, 1.0)
+}
+
+/// First-pass environmental / table-condition scales for tuning the current reduced physics model.
+///
+/// These are intentionally pragmatic coefficient multipliers, not a claim that humidity, dirt,
+/// cloth age, and ball cleanliness are already being modeled from first principles. They provide a
+/// declarative way to move several existing calibration knobs together.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlayingConditions {
+    pub sliding_friction_scale: Scale,
+    pub rolling_resistance_scale: Scale,
+    pub spin_decay_scale: Scale,
+    pub ball_ball_restitution_scale: Scale,
+    pub ball_ball_friction_scale: Scale,
+    pub rail_restitution_scale: Scale,
+    pub rail_cushion_friction_scale: Scale,
+    pub rail_impact_cloth_friction_scale: Scale,
+}
+
+impl PlayingConditions {
+    pub fn neutral() -> Self {
+        Self {
+            sliding_friction_scale: Scale::from_f64(1.0),
+            rolling_resistance_scale: Scale::from_f64(1.0),
+            spin_decay_scale: Scale::from_f64(1.0),
+            ball_ball_restitution_scale: Scale::from_f64(1.0),
+            ball_ball_friction_scale: Scale::from_f64(1.0),
+            rail_restitution_scale: Scale::from_f64(1.0),
+            rail_cushion_friction_scale: Scale::from_f64(1.0),
+            rail_impact_cloth_friction_scale: Scale::from_f64(1.0),
+        }
+    }
+
+    pub fn humid_dirty() -> Self {
+        Self {
+            sliding_friction_scale: Scale::from_f64(1.20),
+            rolling_resistance_scale: Scale::from_f64(1.15),
+            spin_decay_scale: Scale::from_f64(1.20),
+            ball_ball_restitution_scale: Scale::from_f64(0.98),
+            ball_ball_friction_scale: Scale::from_f64(1.10),
+            rail_restitution_scale: Scale::from_f64(0.95),
+            rail_cushion_friction_scale: Scale::from_f64(1.10),
+            rail_impact_cloth_friction_scale: Scale::from_f64(1.15),
+        }
+    }
+
+    pub fn fast_clean() -> Self {
+        Self {
+            sliding_friction_scale: Scale::from_f64(0.90),
+            rolling_resistance_scale: Scale::from_f64(0.95),
+            spin_decay_scale: Scale::from_f64(0.90),
+            ball_ball_restitution_scale: Scale::from_f64(1.0),
+            ball_ball_friction_scale: Scale::from_f64(0.95),
+            rail_restitution_scale: Scale::from_f64(1.0),
+            rail_cushion_friction_scale: Scale::from_f64(0.95),
+            rail_impact_cloth_friction_scale: Scale::from_f64(0.95),
+        }
+    }
+}
+
+impl Default for PlayingConditions {
+    fn default() -> Self {
+        Self::neutral()
     }
 }
 
@@ -839,22 +942,38 @@ pub struct BallBallCollisionConfig {
 }
 
 impl BallBallCollisionConfig {
-    pub fn ideal() -> Self {
+    pub fn new(normal_restitution: Scale, tangential_friction_coefficient: Scale) -> Self {
         Self {
-            normal_restitution: Scale::from_f64(IDEAL_BALL_BALL_NORMAL_RESTITUTION),
-            tangential_friction_coefficient: Scale::from_f64(
-                DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT,
-            ),
+            normal_restitution,
+            tangential_friction_coefficient,
         }
     }
 
+    pub fn ideal() -> Self {
+        Self::new(
+            Scale::from_f64(IDEAL_BALL_BALL_NORMAL_RESTITUTION),
+            Scale::from_f64(DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT),
+        )
+    }
+
     pub fn human_tuned() -> Self {
-        Self {
-            normal_restitution: Scale::from_f64(HUMAN_TUNED_BALL_BALL_NORMAL_RESTITUTION),
-            tangential_friction_coefficient: Scale::from_f64(
-                DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT,
-            ),
-        }
+        Self::new(
+            Scale::from_f64(HUMAN_TUNED_BALL_BALL_NORMAL_RESTITUTION),
+            Scale::from_f64(DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT),
+        )
+    }
+
+    pub fn applying_conditions(&self, conditions: &PlayingConditions) -> Self {
+        Self::new(
+            Scale::from_f64(scaled_unit_interval_f64(
+                self.normal_restitution.as_f64(),
+                &conditions.ball_ball_restitution_scale,
+            )),
+            Scale::from_f64(scaled_non_negative_f64(
+                self.tangential_friction_coefficient.as_f64(),
+                &conditions.ball_ball_friction_scale,
+            )),
+        )
     }
 }
 
@@ -1635,6 +1754,21 @@ impl Default for MotionPhaseConfig {
     }
 }
 
+pub fn human_tuned_preview_motion_config() -> OnTableMotionConfig {
+    MotionTransitionConfig {
+        phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("15"),
+        },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(10.9),
+        },
+        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new("5"),
+        },
+    }
+}
+
 /// The sliding-friction model used when computing the next motion transition for a sliding ball.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SlidingFrictionModel {
@@ -1675,6 +1809,52 @@ pub struct MotionTransitionConfig {
     pub sliding_friction: SlidingFrictionModel,
     pub spin_decay: SpinDecayModel,
     pub rolling_resistance: RollingResistanceModel,
+}
+
+impl MotionTransitionConfig {
+    pub fn applying_conditions(&self, conditions: &PlayingConditions) -> Self {
+        let sliding_friction = match &self.sliding_friction {
+            SlidingFrictionModel::ConstantAcceleration {
+                acceleration_magnitude,
+            } => SlidingFrictionModel::ConstantAcceleration {
+                acceleration_magnitude: InchesPerSecondSq::new(Inches::from_f64(
+                    scaled_non_negative_f64(
+                        acceleration_magnitude.as_f64(),
+                        &conditions.sliding_friction_scale,
+                    ),
+                )),
+            },
+        };
+        let spin_decay = match &self.spin_decay {
+            SpinDecayModel::ConstantAngularDeceleration {
+                angular_deceleration,
+            } => SpinDecayModel::ConstantAngularDeceleration {
+                angular_deceleration: RadiansPerSecondSq::new(scaled_non_negative_f64(
+                    angular_deceleration.as_f64(),
+                    &conditions.spin_decay_scale,
+                )),
+            },
+        };
+        let rolling_resistance = match &self.rolling_resistance {
+            RollingResistanceModel::ConstantDeceleration { linear_deceleration } => {
+                RollingResistanceModel::ConstantDeceleration {
+                    linear_deceleration: InchesPerSecondSq::new(Inches::from_f64(
+                        scaled_non_negative_f64(
+                            linear_deceleration.as_f64(),
+                            &conditions.rolling_resistance_scale,
+                        ),
+                    )),
+                }
+            }
+        };
+
+        Self {
+            phase: self.phase.clone(),
+            sliding_friction,
+            spin_decay,
+            rolling_resistance,
+        }
+    }
 }
 
 /// Preferred public name for the current on-table single-ball motion config.

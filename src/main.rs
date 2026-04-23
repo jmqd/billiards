@@ -1,28 +1,16 @@
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioTraceRenderOptions};
 use billiards::{
+    human_tuned_preview_motion_config,
     visualization::{BallPathRenderOptions, PathColorMode},
     write_png_to_file, BallSetPhysicsSpec, CollisionModel, DiagramBackground, DiagramRenderOptions,
-    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableMotionConfig,
-    RadiansPerSecondSq, RailModel, RollingResistanceModel, Seconds, SlidingFrictionModel,
-    SpinDecayModel,
+    OnTableMotionConfig, RailModel, Seconds,
 };
 use clap::{Parser, ValueEnum};
 use std::fs;
 use std::path::PathBuf;
 
 fn shot_preview_motion_config() -> OnTableMotionConfig {
-    MotionTransitionConfig {
-        phase: MotionPhaseConfig::default(),
-        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
-            acceleration_magnitude: InchesPerSecondSq::new("15"),
-        },
-        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
-            angular_deceleration: RadiansPerSecondSq::new(10.9),
-        },
-        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
-            linear_deceleration: InchesPerSecondSq::new("5"),
-        },
-    }
+    human_tuned_preview_motion_config()
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]

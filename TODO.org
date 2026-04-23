@@ -14,6 +14,9 @@ shoot(9).angle(-60).draw(max).speed(max)
 #+END_CODE
 
 * TODO Add facilities to change the conditions -- humidity, dirt on table, dirt on balls, etc.
+  A first-pass =PlayingConditions= scale profile now exists for motion, ball-ball, and rail
+  coefficients, but it still needs broader plumbing (e.g. DSL / scenario surface area and better
+  empirical mappings from specific condition names to coefficient changes).
 
 * TODO Model full pocket jaw / rattle collisions explicitly
   The current pocket capture model now includes a first-pass jaw-aware acceptance gate based on

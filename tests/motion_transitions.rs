@@ -1,8 +1,9 @@
 use billiards::{
-    compute_next_transition_on_table, AngularVelocity3, BallSetPhysicsSpec, BallState, Inches2,
-    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, OnTableBallState, OnTableMotionConfig,
-    RadiansPerSecondSq, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    advance_motion_on_table, compute_next_transition_on_table, human_tuned_preview_motion_config,
+    AngularVelocity3, BallSetPhysicsSpec, BallState, Inches, Inches2, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq,
+    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2,
+    STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -45,6 +46,79 @@ fn calibrated_transition_config() -> OnTableMotionConfig {
 
 fn on_table(state: BallState) -> OnTableBallState {
     OnTableBallState::try_from(state).expect("test states should validate as on-table")
+}
+
+fn sliding_acceleration(config: &OnTableMotionConfig) -> f64 {
+    match &config.sliding_friction {
+        SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude,
+        } => acceleration_magnitude.as_f64(),
+    }
+}
+
+fn rolling_deceleration(config: &OnTableMotionConfig) -> f64 {
+    match &config.rolling_resistance {
+        RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration,
+        } => linear_deceleration.as_f64(),
+    }
+}
+
+fn spin_deceleration(config: &OnTableMotionConfig) -> f64 {
+    match &config.spin_decay {
+        SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration,
+        } => angular_deceleration.as_f64(),
+    }
+}
+
+#[test]
+fn human_tuned_preview_motion_uses_explicit_dr_dave_cloth_coefficients() {
+    let config = human_tuned_preview_motion_config();
+
+    assert_close(
+        sliding_acceleration(&config),
+        0.20 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
+    );
+    assert_close(
+        rolling_deceleration(&config),
+        0.01 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
+    );
+    assert_close(spin_deceleration(&config), 10.0);
+}
+
+#[test]
+fn a_seven_mph_stun_shot_reaches_roll_at_the_tp41_typical_cloth_distance() {
+    let config = human_tuned_preview_motion_config();
+    let ball = BallSetPhysicsSpec::default();
+    let speed = 7.0 * 17.6;
+    let sliding_acceleration = 0.20 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED;
+    let state = on_table(BallState::on_table(
+        Inches2::new("0", "0"),
+        Velocity2::new(Inches::from_f64(speed), Inches::zero()),
+        AngularVelocity3::zero(),
+    ));
+
+    let transition = compute_next_transition_on_table(&state, &ball, &config)
+        .expect("a stun shot should slide before reaching natural roll");
+    let advanced = advance_motion_on_table(
+        &state,
+        transition.time_until_transition.clone(),
+        &ball,
+        &config,
+    );
+
+    assert_eq!(transition.phase_before, MotionPhase::Sliding);
+    assert_eq!(transition.phase_after, MotionPhase::Rolling);
+    assert_close(
+        transition.time_until_transition.as_f64(),
+        (2.0 / 7.0) * speed / sliding_acceleration,
+    );
+    assert_close(
+        advanced.state.position.x().as_f64(),
+        12.0 * speed * speed / (49.0 * sliding_acceleration),
+    );
+    assert_close(advanced.state.speed().as_f64(), (5.0 / 7.0) * speed);
 }
 
 #[test]

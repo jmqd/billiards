@@ -1796,17 +1796,36 @@ impl Default for MotionPhaseConfig {
     }
 }
 
+/// Standard gravity in inches per second squared (`9.80665 m/s²`).
+pub const STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED: f64 = 386.088_582_677_165_35;
+
+const DR_DAVE_TYPICAL_SLIDING_FRICTION_COEFFICIENT: f64 = 0.20;
+const DR_DAVE_TYPICAL_ROLLING_RESISTANCE_COEFFICIENT: f64 = 0.01;
+const DR_DAVE_TYPICAL_SPIN_DECELERATION_RADIANS_PER_SECOND_SQ: f64 = 10.0;
+
+fn friction_coefficient_to_acceleration(coefficient: f64) -> InchesPerSecondSq {
+    InchesPerSecondSq::new(Inches::from_f64(
+        coefficient * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
+    ))
+}
+
 pub fn human_tuned_preview_motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
         sliding_friction: SlidingFrictionModel::ConstantAcceleration {
-            acceleration_magnitude: InchesPerSecondSq::new("15"),
+            acceleration_magnitude: friction_coefficient_to_acceleration(
+                DR_DAVE_TYPICAL_SLIDING_FRICTION_COEFFICIENT,
+            ),
         },
         spin_decay: SpinDecayModel::ConstantAngularDeceleration {
-            angular_deceleration: RadiansPerSecondSq::new(10.9),
+            angular_deceleration: RadiansPerSecondSq::new(
+                DR_DAVE_TYPICAL_SPIN_DECELERATION_RADIANS_PER_SECOND_SQ,
+            ),
         },
         rolling_resistance: RollingResistanceModel::ConstantDeceleration {
-            linear_deceleration: InchesPerSecondSq::new("5"),
+            linear_deceleration: friction_coefficient_to_acceleration(
+                DR_DAVE_TYPICAL_ROLLING_RESISTANCE_COEFFICIENT,
+            ),
         },
     }
 }

@@ -182,18 +182,36 @@ Current v1 restriction:
 - only `shot(cue)` is supported
 - at most one `shot(...)` statement may appear in a document
 
-## Units
+## Units and shot-speed aliases
 
-The DSL currently requires explicit units on shot values:
+Numeric shot values use explicit units:
 
 - angles: `deg`
-- cue speed: `ips`
+- cue speed: `ips`, `mph`, or `kph`
 - cue-tip offsets: `R` (ball-radius units)
+
+In the current DSL, `.speed(...)` is cue-stick speed at impact. It also accepts Dr. Dave-style shot-speed aliases:
+
+- `touch` = 1.5 mph = 26.4 ips
+- `slow` = 3 mph = 52.8 ips
+- `medium-soft` = 5 mph = 88.0 ips
+- `medium` = 7 mph = 123.2 ips
+- `medium-fast` = 8 mph = 140.8 ips
+- `fast` = 12 mph = 211.2 ips
+- `power` = 20 mph = 352.0 ips
+- `typical-power-break` = 27.5 mph = 484.0 ips
+- `exceptional-power-break` = 35 mph = 616.0 ips
+
+Numbered stroke aliases are also accepted: `0`/`touch`, `1`/`slow`, `2`/`medium`, `3`/`fast`, `4`/`power`.
+Underscore spellings like `medium_soft` are accepted, but the canonical display form is kebab-case.
 
 Examples:
 
 - `30deg`
 - `128ips`
+- `10mph`
+- `medium`
+- `3`
 - `0.4R`
 - `-0.25R`
 

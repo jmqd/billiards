@@ -2510,6 +2510,167 @@ impl HumanShotSpeedBand {
     }
 }
 
+/// Dr. Dave's named shot-speed ladder with exact representative speeds.
+///
+/// `whitepapers/tp_b_5_rolling_cb_direct_hit_hop_and_ball_travel_distances.pdf` and
+/// `whitepapers/tp_b_6_cue_ball_table_lengths_of_travel_for_different_speeds_accounting_for_rail_rebound_and_drag_losses.pdf`
+/// define the ordinary table-shot speeds as touch, slow, medium-soft, medium, medium-fast, fast,
+/// and power. The break-shot entries use nearby Dr. Dave guidance that very good power breaks are
+/// typically 25--30 mph and exceptional breaks approach 35 mph.
+///
+/// These presets are exact speed magnitudes for human-facing input and display. In the current
+/// `Shot` and DSL APIs, they are interpreted as cue-stick speed at impact; use
+/// `HumanShotSpeedBand` when classifying an arbitrary measured speed into a threshold band.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ShotSpeedPreset {
+    Touch,
+    Slow,
+    MediumSoft,
+    Medium,
+    MediumFast,
+    Fast,
+    Power,
+    TypicalPowerBreak,
+    ExceptionalPowerBreak,
+}
+
+impl ShotSpeedPreset {
+    pub const ALL: [Self; 9] = [
+        Self::Touch,
+        Self::Slow,
+        Self::MediumSoft,
+        Self::Medium,
+        Self::MediumFast,
+        Self::Fast,
+        Self::Power,
+        Self::TypicalPowerBreak,
+        Self::ExceptionalPowerBreak,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Touch => "touch",
+            Self::Slow => "slow",
+            Self::MediumSoft => "medium-soft",
+            Self::Medium => "medium",
+            Self::MediumFast => "medium-fast",
+            Self::Fast => "fast",
+            Self::Power => "power",
+            Self::TypicalPowerBreak => "typical-power-break",
+            Self::ExceptionalPowerBreak => "exceptional-power-break",
+        }
+    }
+
+    pub fn human_label(self) -> &'static str {
+        match self {
+            Self::Touch => "touch speed",
+            Self::Slow => "slow speed",
+            Self::MediumSoft => "medium-soft speed",
+            Self::Medium => "medium speed",
+            Self::MediumFast => "medium-fast speed",
+            Self::Fast => "fast speed",
+            Self::Power => "power speed",
+            Self::TypicalPowerBreak => "typical power-break speed",
+            Self::ExceptionalPowerBreak => "exceptional power-break speed",
+        }
+    }
+
+    pub fn mph(self) -> f64 {
+        match self {
+            Self::Touch => 1.5,
+            Self::Slow => 3.0,
+            Self::MediumSoft => 5.0,
+            Self::Medium => 7.0,
+            Self::MediumFast => 8.0,
+            Self::Fast => 12.0,
+            Self::Power => 20.0,
+            Self::TypicalPowerBreak => 27.5,
+            Self::ExceptionalPowerBreak => 35.0,
+        }
+    }
+
+    pub fn inches_per_second(self) -> InchesPerSecond {
+        InchesPerSecond::from_mph(self.mph())
+    }
+
+    pub fn nearest_to_speed(speed: &InchesPerSecond) -> Self {
+        let mph = speed.as_mph();
+        Self::ALL
+            .into_iter()
+            .min_by(|a, b| {
+                (a.mph() - mph)
+                    .abs()
+                    .partial_cmp(&(b.mph() - mph).abs())
+                    .expect("finite shot speeds should compare")
+            })
+            .expect("shot speed preset table should not be empty")
+    }
+}
+
+impl fmt::Display for ShotSpeedPreset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<ShotSpeedPreset> for InchesPerSecond {
+    fn from(preset: ShotSpeedPreset) -> Self {
+        preset.inches_per_second()
+    }
+}
+
+impl FromStr for ShotSpeedPreset {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let normalized = input
+            .trim()
+            .to_ascii_lowercase()
+            .replace('_', "-")
+            .replace(' ', "-");
+        let normalized = normalized
+            .strip_prefix("speed-")
+            .or_else(|| normalized.strip_prefix("speed"))
+            .unwrap_or(normalized.as_str());
+        let normalized = normalized.strip_suffix("-speed").unwrap_or(normalized);
+
+        match normalized {
+            "0" | "touch" => Ok(Self::Touch),
+            "1" | "slow" | "quarter" | "quarter-stroke" | "one-quarter" => Ok(Self::Slow),
+            "medium-soft" | "mediumsoft" | "medium-slow" => Ok(Self::MediumSoft),
+            "2" | "medium" | "half" | "half-stroke" | "one-half" => Ok(Self::Medium),
+            "medium-fast" | "mediumfast" => Ok(Self::MediumFast),
+            "3" | "fast" | "three-quarter" | "three-quarters" | "three-quarter-stroke" => {
+                Ok(Self::Fast)
+            }
+            "4" | "power" | "full" | "full-stroke" => Ok(Self::Power),
+            "break" | "power-break" | "typical-power-break" | "good-break" => {
+                Ok(Self::TypicalPowerBreak)
+            }
+            "exceptional-break" | "exceptional-power-break" => Ok(Self::ExceptionalPowerBreak),
+            _ => Err(format!("unknown shot-speed preset '{input}'")),
+        }
+    }
+}
+
+fn format_compact_decimal(value: f64) -> String {
+    if (value - value.round()).abs() <= 1e-9 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.1}")
+    }
+}
+
+/// Format a speed with its nearest Dr. Dave shot-speed preset, e.g. `128 ips (~medium speed)`.
+pub fn format_shot_speed(speed: &InchesPerSecond) -> String {
+    let preset = ShotSpeedPreset::nearest_to_speed(speed);
+    format!(
+        "{} ips (~{})",
+        format_compact_decimal(speed.as_f64()),
+        preset.human_label()
+    )
+}
+
 /// A human-facing speed report for a shot intent under the current cue-strike model.
 ///
 /// `cue_speed_at_impact` is the raw `Shot` input. `estimated_cue_ball_speed_after_impact` is the

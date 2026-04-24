@@ -43,8 +43,12 @@ rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)
 rail_response(dead).normal_restitution(0.6).tangential_friction(1.0)
 rails(pinball).default(clean).top(dead).right(dead)
 simulation(human_pinball).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(pinball).conditions(humid_dirty)
-shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)
+shot(cue).heading(90deg).speed(medium).tip(side: 0.0R, height: 0.0R).using(default)
 ```
+
+`.speed(...)` is cue-stick speed at impact. It accepts explicit units (`128ips`, `10mph`, `16.09344kph`)
+or Dr. Dave-style aliases: `touch`, `slow`, `medium-soft`, `medium`, `medium-fast`, `fast`,
+`power`, plus break-speed aliases. Numbered stroke aliases `0`..`4` map to touch/slow/medium/fast/power.
 
 Main knobs:
 

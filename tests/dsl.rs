@@ -9,8 +9,8 @@ use billiards::{
     Angle, BallSetPhysicsSpec, BallType, CollisionModel, Diamond, HumanShotSpeedBand,
     InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
     NBallSystemState, OnTableMotionConfig, PlayingConditions, Pocket, RadiansPerSecondSq,
-    RailCollisionProfile, RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
-    TYPICAL_BALL_RADIUS,
+    RailCollisionProfile, RailModel, RollingResistanceModel, ShotSpeedPreset, SlidingFrictionModel,
+    SpinDecayModel, TYPICAL_BALL_RADIUS,
 };
 use image::load_from_memory;
 
@@ -213,6 +213,43 @@ fn shot_speed_literals_accept_mph_and_kph() {
             .cue_speed()
             .as_f64(),
         176.0,
+    );
+}
+
+#[test]
+fn shot_speed_literals_accept_dr_dave_named_and_numbered_presets() {
+    let named = parse_dsl_to_scenario(
+        "ball cue at (0, 0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(90deg).speed(medium-fast).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected named speed preset to build");
+    let numbered = parse_dsl_to_scenario(
+        "ball cue at (0, 0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(90deg).speed(3).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected numbered speed preset to build");
+
+    assert_close(
+        named
+            .shot
+            .as_ref()
+            .expect("named speed shot")
+            .shot
+            .cue_speed()
+            .as_f64(),
+        ShotSpeedPreset::MediumFast.inches_per_second().as_f64(),
+    );
+    assert_close(
+        numbered
+            .shot
+            .as_ref()
+            .expect("numbered speed shot")
+            .shot
+            .cue_speed()
+            .as_f64(),
+        ShotSpeedPreset::Fast.inches_per_second().as_f64(),
     );
 }
 

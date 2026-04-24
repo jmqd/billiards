@@ -1,5 +1,8 @@
+use std::str::FromStr;
+
 use billiards::{
-    CueStrikeConfig, CueTipContact, HumanShotSpeedBand, InchesPerSecond, Scale, Shot, ShotError,
+    format_shot_speed, CueStrikeConfig, CueTipContact, HumanShotSpeedBand, InchesPerSecond, Scale,
+    Shot, ShotError, ShotSpeedPreset,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -7,6 +10,39 @@ fn assert_close(actual: f64, expected: f64) {
     assert!(
         delta < 1e-9,
         "expected {expected}, got {actual} (delta {delta})"
+    );
+}
+
+#[test]
+fn dr_dave_shot_speed_presets_round_trip_and_format_nearest_speed() {
+    assert_eq!(ShotSpeedPreset::Medium.as_str(), "medium");
+    assert_eq!(ShotSpeedPreset::Medium.to_string(), "medium");
+    assert_eq!(ShotSpeedPreset::Medium.human_label(), "medium speed");
+    assert_close(ShotSpeedPreset::Medium.mph(), 7.0);
+    assert_close(
+        ShotSpeedPreset::Medium.inches_per_second().as_f64(),
+        7.0 * 17.6,
+    );
+
+    assert_eq!(
+        ShotSpeedPreset::from_str("medium_soft").expect("underscore alias should parse"),
+        ShotSpeedPreset::MediumSoft
+    );
+    assert_eq!(
+        ShotSpeedPreset::from_str("speed2").expect("numbered speed alias should parse"),
+        ShotSpeedPreset::Medium
+    );
+    assert_eq!(
+        ShotSpeedPreset::from_str("three-quarter").expect("stroke-length alias should parse"),
+        ShotSpeedPreset::Fast
+    );
+    assert_eq!(
+        ShotSpeedPreset::nearest_to_speed(&InchesPerSecond::new("128")),
+        ShotSpeedPreset::Medium
+    );
+    assert_eq!(
+        format_shot_speed(&InchesPerSecond::new("128")),
+        "128 ips (~medium speed)"
     );
 }
 

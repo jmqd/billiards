@@ -111,8 +111,8 @@ fn main() {
         shot.heading().as_degrees()
     );
     println!(
-        "Cue speed: {:.1} in/s; tip contact: side {:.2}R, height {:.2}R",
-        shot.cue_speed().as_f64(),
+        "Cue speed: {}; tip contact: side {:.2}R, height {:.2}R",
+        format_shot_speed(shot.cue_speed()),
         shot.tip_contact().side_offset().as_f64(),
         shot.tip_contact().height_offset().as_f64(),
     );

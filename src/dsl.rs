@@ -20,9 +20,9 @@ use crate::{
     MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
     OnTableMotionConfig, PlayingConditions, PlayingConditionsPreset, Pocket, PocketJaw, Position,
     Rail, RailCollisionConfig, RailCollisionProfile, RailModel, RestingOnTableBallState, Scale,
-    Seconds, Shot, ShotError, TableSpec, BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND,
-    CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND,
-    TOP_RIGHT_DIAMOND,
+    Seconds, Shot, ShotError, ShotSpeedPreset, TableSpec, BOTTOM_LEFT_DIAMOND,
+    BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT,
+    TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use image::Rgba;
 use winnow::ascii::{float, line_ending, till_line_ending};
@@ -2893,12 +2893,20 @@ fn degrees_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
     terminated(float, "deg").parse_next(input)
 }
 
+fn shot_speed_preset_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotSpeedPreset> {
+    let checkpoint = input.clone();
+    let name = alt((identifier, "0", "1", "2", "3", "4")).parse_next(input)?;
+    name.parse::<ShotSpeedPreset>()
+        .map_err(|_| ErrMode::Backtrack(InputError::at(checkpoint)))
+}
+
 fn speed_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
     alt((
         terminated(float, "ips"),
         terminated(float, "mph").map(|mph: f64| InchesPerSecond::from_mph(mph).as_f64()),
         terminated(float, "kph")
             .map(|kph: f64| InchesPerSecond::from_mph(kph / 1.609_344).as_f64()),
+        shot_speed_preset_literal.map(|preset| preset.inches_per_second().as_f64()),
     ))
     .parse_next(input)
 }

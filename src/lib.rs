@@ -1965,13 +1965,13 @@ pub enum RestingOnTableStateError {
 /// The local references in `whitepapers/` consistently model each ball using center-of-mass
 /// translational velocity together with angular velocity:
 ///
-/// - `whitepapers/Collision_of_Billiard_Balls_in_3D_with_Spin_and_Friction.pdf` uses a full
+/// - `whitepapers/collision_of_billiard_balls_in_3d_with_spin_and_friction.pdf` uses a full
 ///   translational velocity `U = (U, V, W)` and angular velocity `Ω = (Ωx, Ωy, Ωz)`, and in its
 ///   on-table rolling special case has `(u, v, 0)` with `Ω = (-v, u, 0) / r`.
-/// - `whitepapers/Alciatore_pool_physics_article.pdf` distinguishes sidespin and massé spin
+/// - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf` distinguishes sidespin and massé spin
 ///   components, so we keep the full 3-axis angular-velocity vector even though most early motion
 ///   simulation work is planar.
-/// - `whitepapers/motions_of_ball_after_stroke.pdf` likewise summarizes the struck ball by its
+/// - `whitepapers/motions_of_a_billiard_ball_after_a_cue_stroke.pdf` likewise summarizes the struck ball by its
 ///   translational velocity and rotational angular velocity after impact.
 ///
 /// `height` is measured relative to the resting on-table center plane, so an ordinary cloth-bound
@@ -2969,7 +2969,7 @@ fn raw_compute_next_transition_on_table(
 
 /// Compute the cloth-contact slip velocity for an on-table ball.
 ///
-/// `whitepapers/TP_A-4.pdf`, Eq. (3), gives the contact-point velocity at the cloth as
+/// `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`, Eq. (3), gives the contact-point velocity at the cloth as
 ///
 /// `v_C = (v_x - R ω_y, v_y + R ω_x)`
 ///
@@ -3022,12 +3022,12 @@ pub fn cloth_contact_speed_on_table(state: &BallState, radius: Inches) -> Inches
 ///
 /// The classification logic follows the local technical proofs and supporting article notes:
 ///
-/// - `whitepapers/TP_A-4.pdf`, Eqs. (3), (10), and (12), defines the cloth contact-point slip
+/// - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`, Eqs. (3), (10), and (12), defines the cloth contact-point slip
 ///   velocity and shows that this slip speed decays to zero, after which the cue ball rolls
 ///   without slipping.
-/// - `whitepapers/TP_4-2.pdf`, Eq. (3), gives the straight-line special case `v = ωR` for
+/// - `whitepapers/tp_4_2_center_of_percussion_of_the_cue_ball.pdf`, Eq. (3), gives the straight-line special case `v = ωR` for
 ///   immediate rolling without slipping.
-/// - `whitepapers/Alciatore_pool_physics_article.pdf` explains that both draw (bottom spin) and
+/// - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf` explains that both draw (bottom spin) and
 ///   over-spin are still sliding states until rolling develops, so the rolling/sliding distinction
 ///   is based on cloth-contact slip, not merely on the presence or direction of spin.
 pub fn classify_motion_phase(
@@ -3152,7 +3152,7 @@ fn try_on_table_state(
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.5, Eqs. (M13) through (M14''),
 ///   shows that vertical-axis spin decays linearly with time during both sliding and rolling, so a
 ///   rolling ball with residual z-spin can transition to `Spinning` when translation stops.
-/// - `whitepapers/55. RollingBall.pdf` reports experimental cases where both `v` and `ω`
+/// - `whitepapers/rolling_motion_of_a_ball_spinning_about_a_near_vertical_axis.pdf` reports experimental cases where both `v` and `ω`
 ///   decreased linearly with time while the ball rolled to a stop, which makes a constant linear
 ///   rolling deceleration a reasonable first configurable approximation.
 ///
@@ -3677,7 +3677,7 @@ fn ideal_ball_ball_collision_velocities(
 ///
 /// The local references ground the collision geometry itself:
 ///
-/// - `whitepapers/Physics Of Billiards.html` describes the struck ball moving along the line
+/// - `whitepapers/the_physics_of_billiards.html` describes the struck ball moving along the line
 ///   joining the ball centers at contact, which implies impact occurs when the center distance first
 ///   reaches `2R`.
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html` treats the ball-ball event as an
@@ -3745,7 +3745,7 @@ fn ball_ball_approaching_normal_speed(a: &OnTableBallState, b: &OnTableBallState
 ///
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3 and §7.5, provide the current
 ///   within-phase sliding, rolling, and z-spin evolution used by `advance_within_phase_on_table(...)`.
-/// - `whitepapers/Physics Of Billiards.html` describes the ball-ball impact geometry through the
+/// - `whitepapers/the_physics_of_billiards.html` describes the ball-ball impact geometry through the
 ///   line of centers, so first contact still occurs when the center distance reaches `2R`.
 ///
 /// Rather than extrapolating with constant translational velocity, this predictor uses the current
@@ -6796,7 +6796,7 @@ fn spin_friction_collision_outcome_on_table_with_config(
 /// the same impulse solve to moving object-ball states instead of falling back to the ideal response
 /// there. The sign, gearing condition, and no-slip cap are grounded in the local references:
 ///
-/// - `whitepapers/Alciatore_pool_physics_article.pdf`, Section VI "Throw", describes the throw
+/// - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf`, Section VI "Throw", describes the throw
 ///   term as proportional to `(v sin(φ) - R ω_z)`.
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C6'), (C11), and (C13),
 ///   express the same contact-patch tangential slip and the equal-sphere no-slip impulse limit.
@@ -8190,12 +8190,12 @@ impl Position {
 /// The local references in `whitepapers/` all encode gearing as the no-slip / no-throw
 /// condition at the cue-ball/object-ball contact patch:
 ///
-/// - `whitepapers/Alciatore_pool_physics_article.pdf`, Section VI "Throw", gives a throw term
+/// - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf`, Section VI "Throw", gives a throw term
 ///   proportional to `(v sin(φ) - R ω_z)`, so zero throw occurs when that factor is zero.
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C6'), (C11), and (C13),
 ///   defines the relative tangential contact velocity `WCa` and the adherence condition
 ///   `WCi = 0`, which is the same zero-relative-motion condition at impact.
-/// - `whitepapers/billiards_ball_collisions.pdf`, Eq. (26), gives the no-slip condition at the
+/// - `whitepapers/non_smooth_modelling_of_billiard_and_superbilliard_ball_collisions.pdf`, Eq. (26), gives the no-slip condition at the
 ///   impact point in terms of tangential center-of-mass velocity and spin.
 ///
 /// Under the common pool-shot simplifications used here — object ball initially at rest,
@@ -8751,10 +8751,10 @@ impl Ball {
     ///
     /// Local references in `whitepapers/` describe the same center-of-centers construction:
     ///
-    /// - `whitepapers/Alciatore_pool_physics_article.pdf`, Section II "Terminology", states that
+    /// - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf`, Section II "Terminology", states that
     ///   the object ball heads along the impact line / line of centers, and that the ghost ball is
     ///   where the cue ball must be to send the object ball in the desired direction.
-    /// - `whitepapers/Physics Of Billiards.html` states that after impact, the struck ball moves in
+    /// - `whitepapers/the_physics_of_billiards.html` states that after impact, the struck ball moves in
     ///   the direction of the line joining the centers of the two balls.
     ///
     /// Under that ideal equal-ball-size, no-throw model, the cue-ball center must therefore sit one

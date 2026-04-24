@@ -221,7 +221,7 @@ fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_aft
     //
     // - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`
     //   for the post-impact cue-ball path basis,
-    // - `whitepapers/tp_a_8_the_effects_of_english_on_the_30_degree_rule.pdf` for English on the
+    // - `whitepapers/tp_a_8_the_effects_of_sidespin_on_the_30_degree_rule.pdf` for English on the
     //   cue-ball departure, and
     // - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` for the
     //   combined follow/draw + English slip decomposition used by the current cue-ball seed model.

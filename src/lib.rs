@@ -3774,6 +3774,22 @@ pub fn compute_next_ball_rail_impact_on_table(
             config,
         );
         if initial_gap <= 0.0 {
+            let (normal_x, normal_y, _, _) = rail_collision_basis(rail);
+            let normal_speed =
+                project_velocity_on_basis(&state.as_ball_state().velocity, normal_x, normal_y);
+            if normal_speed < -f64::EPSILON {
+                let impact = PredictedBallRailImpact {
+                    rail,
+                    time_until_impact: Seconds::zero(),
+                    state_at_impact: state.clone(),
+                };
+
+                if best.as_ref().is_none_or(|current| {
+                    impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
+                }) {
+                    best = Some(impact);
+                }
+            }
             continue;
         }
 

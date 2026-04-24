@@ -660,10 +660,11 @@ impl Default for BallSetPhysicsSpec {
 /// - The same reference also states that when the struck ball is initially stationary, the moving
 ///   ball departs along the tangent line at contact.
 ///
-/// `ThrowAware` adds a first-pass non-ideal tangential-slip model for cut-induced and spin-induced
-/// throw while preserving `Ideal` as the zero-throw limiting case. It currently models only the
-/// immediate post-impact translational deflection, not transferred spin or the later post-contact
-/// cue-ball bend caused by residual top / bottom / side spin on the cloth.
+/// `ThrowAware` adds a frictional equal-ball contact impulse for cut-induced and spin-induced throw
+/// against an initially stationary object ball while preserving `Ideal` as the zero-throw limiting
+/// case. `SpinFriction` applies the same impulse calculation even when the object ball is already
+/// moving. Both non-ideal modes update transferred spin; later cloth-driven cue-ball bend is handled
+/// by the post-contact motion helpers rather than the instantaneous collision itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CollisionModel {
     Ideal,
@@ -3419,7 +3420,6 @@ fn refine_ball_ball_collision_time_during_current_phases_raw(
     Seconds::new(right)
 }
 
-const THROW_AWARE_MAX_ANGLE_DEGREES: f64 = 5.0;
 const THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO: f64 = 1e-12;
 
 fn collision_contact_basis(a: &OnTableBallState, b: &OnTableBallState) -> (f64, f64, f64, f64) {
@@ -6445,126 +6445,51 @@ fn ideal_collision_outcome_on_table_with_config(
     }
 }
 
-fn transferred_spin_from_contact_slip(
-    tangent_x: f64,
-    tangent_y: f64,
+fn contact_friction_impulse_per_mass(
     tangential_contact_slip: f64,
     vertical_contact_slip: f64,
-    normal_relative_speed: f64,
+    normal_impulse_per_mass: f64,
     tangential_friction_coefficient: f64,
-    ball_radius: f64,
-) -> Option<AngularVelocity3> {
-    // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C10), (C11), and (C13),
-    // support the same qualitative structure we already use for spin-aware rails: the no-slip
-    // spin-change limit is proportional to the contact-slip vector, but the realized change is
-    // capped by a friction-limited impulse scale. The earlier helper applied only the no-slip
-    // limit, which substantially over-seeded cue-ball `ωz` for ordinary no-English cut shots.
-    // Here we therefore scale that same limit by a first-pass friction cap based on the current
-    // ball-ball friction coefficient and the closing normal speed.
+) -> (f64, f64) {
+    // TP A.14/A.24 and the local Coriolis article compute throw from the actual tangential
+    // impulse: it is friction-limited by `mu * Jn`, but it is also capped at the impulse that would
+    // drive the relative contact slip to zero. For equal solid spheres, that no-slip cap is 1/7 of
+    // the current contact-slip vector.
     let contact_slip_norm = tangential_contact_slip.hypot(vertical_contact_slip);
-    if contact_slip_norm <= f64::EPSILON || normal_relative_speed <= f64::EPSILON {
-        return None;
+    if contact_slip_norm <= f64::EPSILON
+        || normal_impulse_per_mass <= f64::EPSILON
+        || tangential_friction_coefficient <= f64::EPSILON
+    {
+        return (0.0, 0.0);
     }
 
-    let no_slip_delta_scale = 5.0 / (14.0 * ball_radius);
-    let friction_limited_scale = (tangential_friction_coefficient * normal_relative_speed
-        / contact_slip_norm)
-        .clamp(0.0, 1.0);
-    let spin_gain_scale = no_slip_delta_scale * friction_limited_scale;
-    let delta_x = -spin_gain_scale * vertical_contact_slip * tangent_x;
-    let delta_y = -spin_gain_scale * vertical_contact_slip * tangent_y;
-    let delta_z = spin_gain_scale * tangential_contact_slip;
+    let no_slip_impulse = contact_slip_norm / 7.0;
+    let friction_limited_impulse = tangential_friction_coefficient * normal_impulse_per_mass;
+    let impulse_scale = no_slip_impulse.min(friction_limited_impulse) / contact_slip_norm;
+
+    (
+        impulse_scale * tangential_contact_slip,
+        impulse_scale * vertical_contact_slip,
+    )
+}
+
+fn transferred_spin_from_contact_impulse(
+    tangent_x: f64,
+    tangent_y: f64,
+    tangential_impulse_per_mass: f64,
+    vertical_impulse_per_mass: f64,
+    ball_radius: f64,
+) -> Option<AngularVelocity3> {
+    let angular_impulse_scale = 5.0 / (2.0 * ball_radius);
+    let delta_x = -angular_impulse_scale * vertical_impulse_per_mass * tangent_x;
+    let delta_y = -angular_impulse_scale * vertical_impulse_per_mass * tangent_y;
+    let delta_z = angular_impulse_scale * tangential_impulse_per_mass;
 
     if delta_x.abs() <= 1e-9 && delta_y.abs() <= 1e-9 && delta_z.abs() <= 1e-9 {
         None
     } else {
         Some(AngularVelocity3::new(delta_x, delta_y, delta_z))
     }
-}
-
-fn spin_post_impact_cue_state_from_tp_a8_a24(
-    a: &OnTableBallState,
-    b: &OnTableBallState,
-    tangential_friction_coefficient: f64,
-    ball_radius: f64,
-) -> Option<(Velocity2, f64, f64)> {
-    let a_state = a.as_ball_state();
-    let b_state = b.as_ball_state();
-    if ball_speed(b_state).as_f64() > 1e-9 {
-        return None;
-    }
-
-    let shot_speed = ball_speed(a_state).as_f64();
-    if shot_speed <= f64::EPSILON {
-        return None;
-    }
-    let (normal_x, normal_y, _, _) = collision_contact_basis(a, b);
-    let shot_heading = a_state.velocity.angle_from_north()?;
-    let object_heading = Angle::from_north(normal_x, normal_y);
-    let cut_angle = CutAngle::from_headings(shot_heading, object_heading);
-    if cut_angle.as_degrees() <= 1e-9 {
-        return None;
-    }
-
-    let shot_x = a_state.velocity.x().as_f64() / shot_speed;
-    let shot_y = a_state.velocity.y().as_f64() / shot_speed;
-    let shot_right_x = shot_y;
-    let shot_right_y = -shot_x;
-    let signed_cut =
-        cut_angle.as_degrees().to_radians() * (shot_x * normal_y - shot_y * normal_x).signum();
-    if signed_cut.abs() <= 1e-9 {
-        return None;
-    }
-
-    let local_pre_angular_x = shot_right_x * a_state.angular_velocity.x().as_f64()
-        + shot_right_y * a_state.angular_velocity.y().as_f64();
-    let local_pre_angular_y = shot_x * a_state.angular_velocity.x().as_f64()
-        + shot_y * a_state.angular_velocity.y().as_f64();
-    let english = a_state.angular_velocity.z().as_f64();
-    let mu_balls = tangential_friction_coefficient;
-    let cos_phi = signed_cut.cos();
-    let sin_phi = signed_cut.sin();
-
-    // `whitepapers/tp_a_8_the_effects_of_english_on_the_30_degree_rule.pdf` derives the shot-
-    // aligned contact-point slip geometry for cut shots with English, while
-    // `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` makes the
-    // same tangential / vertical slip decomposition explicit for combined follow/draw (`ωx`) and
-    // side spin (`ωz`). We therefore seed the common cut-shot cue-ball branch from those two slip
-    // components in the shot basis, using the current local horizontal spin components instead of
-    // assuming only natural roll.
-    let tangential_contact_slip = shot_speed * sin_phi - ball_radius * english;
-    let vertical_contact_slip =
-        ball_radius * (local_pre_angular_x * cos_phi + local_pre_angular_y * sin_phi);
-    if tangential_contact_slip.abs() <= f64::EPSILON && vertical_contact_slip.abs() <= f64::EPSILON
-    {
-        return None;
-    }
-    let contact_slip_denominator =
-        (tangential_contact_slip.powi(2) + vertical_contact_slip.powi(2)).sqrt();
-    if contact_slip_denominator <= f64::EPSILON {
-        return None;
-    }
-
-    let tangential_impulse_per_mass =
-        -mu_balls * shot_speed * cos_phi * tangential_contact_slip / contact_slip_denominator;
-    let vertical_impulse_per_mass =
-        -mu_balls * shot_speed * cos_phi * vertical_contact_slip / contact_slip_denominator;
-    let local_tangential_velocity = shot_speed * sin_phi + tangential_impulse_per_mass;
-    let local_velocity_x = local_tangential_velocity * cos_phi;
-    let local_velocity_y = local_tangential_velocity * sin_phi;
-    let local_angular_x =
-        local_pre_angular_x + (5.0 / (2.0 * ball_radius)) * cos_phi * vertical_impulse_per_mass;
-    let local_angular_y =
-        local_pre_angular_y + (5.0 / (2.0 * ball_radius)) * sin_phi * vertical_impulse_per_mass;
-
-    let velocity = Velocity2::new(
-        Inches::from_f64(shot_right_x * local_velocity_x + shot_x * local_velocity_y),
-        Inches::from_f64(shot_right_y * local_velocity_x + shot_y * local_velocity_y),
-    );
-    let angular_x = shot_right_x * local_angular_x + shot_x * local_angular_y;
-    let angular_y = shot_right_y * local_angular_x + shot_y * local_angular_y;
-
-    Some((velocity, angular_x, angular_y))
 }
 
 fn frictional_collision_outcome_on_table_with_config(
@@ -6576,24 +6501,27 @@ fn frictional_collision_outcome_on_table_with_config(
     let ideal = ideal_collision_outcome_on_table_with_config(a, b, config);
     let a_state = a.as_ball_state();
     let b_state = b.as_ball_state();
-    let tangential_friction_coefficient =
-        validated_ball_ball_tangential_friction_coefficient(config);
 
-    // TODO(physics): model the later post-contact cue-ball bend caused by residual follow / draw /
-    // side spin interacting with the cloth after impact.
+    // `ThrowAware` is intentionally limited to the common cut-shot case. `SpinFriction` uses the
+    // same impulse solve for moving-object-ball contacts too.
     if require_stationary_object_ball && ball_speed(b_state).as_f64() > 1e-9 {
         return ideal;
     }
 
     let (normal_x, normal_y, tangent_x, tangent_y) = collision_contact_basis(a, b);
+    let normal_restitution = validated_ball_ball_normal_restitution(config);
+    let tangential_friction_coefficient =
+        validated_ball_ball_tangential_friction_coefficient(config);
     let ball_radius = 0.5 * center_distance_squared(a, b).sqrt();
-    let tangential_relative_speed =
-        project_velocity_on_basis(&a_state.velocity, tangent_x, tangent_y)
-            - project_velocity_on_basis(&b_state.velocity, tangent_x, tangent_y);
-    let normal_relative_speed = (project_velocity_on_basis(&a_state.velocity, normal_x, normal_y)
-        - project_velocity_on_basis(&b_state.velocity, normal_x, normal_y))
-    .max(0.0);
-    let tangential_contact_slip = tangential_relative_speed
+
+    let a_normal_before = project_velocity_on_basis(&a_state.velocity, normal_x, normal_y);
+    let b_normal_before = project_velocity_on_basis(&b_state.velocity, normal_x, normal_y);
+    let a_tangent_before = project_velocity_on_basis(&a_state.velocity, tangent_x, tangent_y);
+    let b_tangent_before = project_velocity_on_basis(&b_state.velocity, tangent_x, tangent_y);
+    let normal_relative_speed = (a_normal_before - b_normal_before).max(0.0);
+    let normal_impulse_per_mass = 0.5 * (1.0 + normal_restitution) * normal_relative_speed;
+
+    let tangential_contact_slip = (a_tangent_before - b_tangent_before)
         - ball_radius
             * (a_state.angular_velocity.z().as_f64() + b_state.angular_velocity.z().as_f64());
     let vertical_contact_slip = ball_radius
@@ -6601,57 +6529,54 @@ fn frictional_collision_outcome_on_table_with_config(
             * (a_state.angular_velocity.x().as_f64() + b_state.angular_velocity.x().as_f64())
             - normal_x
                 * (a_state.angular_velocity.y().as_f64() + b_state.angular_velocity.y().as_f64()));
-    let tangential_slip_scale = tangential_relative_speed.abs()
-        + ball_radius
-            * (a_state.angular_velocity.z().as_f64().abs()
-                + b_state.angular_velocity.z().as_f64().abs());
     let numerical_zero_slip =
         THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO * normal_relative_speed.max(1.0);
-    let throw_direction_scale = tangential_slip_scale.hypot(vertical_contact_slip.abs());
-    let throw_angle_degrees = if tangential_slip_scale <= numerical_zero_slip
-        || throw_direction_scale <= numerical_zero_slip
-    {
-        0.0
-    } else {
-        // `whitepapers/amateur_physics_for_the_amateur_pool_player.pdf`, Sec. 4.3, resolves the
-        // ball-ball contact slip into a horizontal throw component `Vcpy` and a vertical
-        // follow/draw component `Vcpz`, with the throw-producing fraction scaled by
-        // `Vcpy / sqrt(Vcpy^2 + Vcpz^2)`. Keep the existing tangential-source scaling for
-        // no-slip / gearing cancellation, but reduce the realized throw when the contact-slip
-        // direction tilts into the vertical plane.
-        THROW_AWARE_MAX_ANGLE_DEGREES
-            * (tangential_contact_slip / throw_direction_scale).clamp(-1.0, 1.0)
-    };
+    let (tangential_impulse_per_mass, vertical_impulse_per_mass) =
+        if tangential_contact_slip.hypot(vertical_contact_slip) <= numerical_zero_slip {
+            (0.0, 0.0)
+        } else {
+            contact_friction_impulse_per_mass(
+                tangential_contact_slip,
+                vertical_contact_slip,
+                normal_impulse_per_mass,
+                tangential_friction_coefficient,
+            )
+        };
 
-    let object_speed = ball_speed(ideal.b_after.as_ball_state()).as_f64();
-    let throw_radians = throw_angle_degrees.to_radians();
+    let a_velocity = Velocity2::new(
+        Inches::from_f64(
+            a_state.velocity.x().as_f64()
+                - normal_impulse_per_mass * normal_x
+                - tangential_impulse_per_mass * tangent_x,
+        ),
+        Inches::from_f64(
+            a_state.velocity.y().as_f64()
+                - normal_impulse_per_mass * normal_y
+                - tangential_impulse_per_mass * tangent_y,
+        ),
+    );
     let b_velocity = Velocity2::new(
         Inches::from_f64(
-            object_speed * (throw_radians.cos() * normal_x + throw_radians.sin() * tangent_x),
+            b_state.velocity.x().as_f64()
+                + normal_impulse_per_mass * normal_x
+                + tangential_impulse_per_mass * tangent_x,
         ),
         Inches::from_f64(
-            object_speed * (throw_radians.cos() * normal_y + throw_radians.sin() * tangent_y),
+            b_state.velocity.y().as_f64()
+                + normal_impulse_per_mass * normal_y
+                + tangential_impulse_per_mass * tangent_y,
         ),
     );
-    let total_momentum_x = a_state.velocity.x().as_f64() + b_state.velocity.x().as_f64();
-    let total_momentum_y = a_state.velocity.y().as_f64() + b_state.velocity.y().as_f64();
-    let a_velocity_from_momentum = Velocity2::new(
-        Inches::from_f64(total_momentum_x - b_velocity.x().as_f64()),
-        Inches::from_f64(total_momentum_y - b_velocity.y().as_f64()),
-    );
 
-    // `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C11) and (C13), imply that in
-    // the equal-ball adherence / no-slip limit the collision-induced spin increment is proportional
-    // to `x* × WCa`. Using our on-table basis, `WCa` has an in-plane tangential component driven by
-    // cut / side-spin slip and a vertical component driven by top / bottom spin, which lets this
-    // first-pass model transfer both z-spin and the horizontal spin component aligned with the shot.
-    let transferred_spin = transferred_spin_from_contact_slip(
+    // The same contact impulse changes both balls' angular velocity by the same amount. This is the
+    // equal-sphere angular impulse relation used in Peskin and in the local TP A.27 spin-transfer
+    // proof; applying it to both branches keeps the response tied to one contact impulse instead of
+    // mixing independent cue-ball and object-ball heuristics.
+    let transferred_spin = transferred_spin_from_contact_impulse(
         tangent_x,
         tangent_y,
-        tangential_contact_slip,
-        vertical_contact_slip,
-        normal_relative_speed,
-        tangential_friction_coefficient,
+        tangential_impulse_per_mass,
+        vertical_impulse_per_mass,
         ball_radius,
     );
     let spin_delta_x = transferred_spin
@@ -6666,35 +6591,25 @@ fn frictional_collision_outcome_on_table_with_config(
         .as_ref()
         .map(|spin| spin.z().as_f64())
         .unwrap_or(0.0);
-    let tp_a8_cue_state = spin_post_impact_cue_state_from_tp_a8_a24(
-        a,
-        b,
-        tangential_friction_coefficient,
-        ball_radius,
+    let a_angular_velocity = AngularVelocity3::new(
+        a_state.angular_velocity.x().as_f64() + spin_delta_x,
+        a_state.angular_velocity.y().as_f64() + spin_delta_y,
+        a_state.angular_velocity.z().as_f64() + spin_delta_z,
     );
-    let (a_velocity, a_angular_velocity) = match tp_a8_cue_state {
-        Some((velocity, angular_x, angular_y)) => (
-            velocity,
-            AngularVelocity3::new(
-                angular_x,
-                angular_y,
-                a_state.angular_velocity.z().as_f64() + spin_delta_z,
-            ),
-        ),
-        None => (
-            a_velocity_from_momentum,
-            AngularVelocity3::new(
-                a_state.angular_velocity.x().as_f64() + spin_delta_x,
-                a_state.angular_velocity.y().as_f64() + spin_delta_y,
-                a_state.angular_velocity.z().as_f64() + spin_delta_z,
-            ),
-        ),
-    };
     let b_angular_velocity = AngularVelocity3::new(
         b_state.angular_velocity.x().as_f64() + spin_delta_x,
         b_state.angular_velocity.y().as_f64() + spin_delta_y,
         b_state.angular_velocity.z().as_f64() + spin_delta_z,
     );
+
+    let b_normal_after = project_velocity_on_basis(&b_velocity, normal_x, normal_y);
+    let b_tangent_after = project_velocity_on_basis(&b_velocity, tangent_x, tangent_y);
+    let throw_angle_degrees =
+        if b_normal_after.abs() <= f64::EPSILON && b_tangent_after.abs() <= f64::EPSILON {
+            0.0
+        } else {
+            b_tangent_after.atan2(b_normal_after).to_degrees()
+        };
 
     CollisionOutcome {
         a_after: build_on_table_ball_state(
@@ -6731,25 +6646,23 @@ fn spin_friction_collision_outcome_on_table_with_config(
 /// Resolve an instantaneous ball-ball collision for two validated on-table states and return the
 /// detailed post-impact outcome.
 ///
-/// `CollisionModel::ThrowAware` currently implements a first-pass tangential-slip throw model for
-/// the common case of a cut shot into an initially stationary object ball. `CollisionModel::SpinFriction`
-/// extends the same frictional/slip picture to moving object-ball states instead of falling back to
-/// the ideal response there. The sign and zero-slip condition are grounded in the local references:
+/// `CollisionModel::ThrowAware` applies a frictional equal-ball contact impulse for the common case
+/// of a cut shot into an initially stationary object ball. `CollisionModel::SpinFriction` extends
+/// the same impulse solve to moving object-ball states instead of falling back to the ideal response
+/// there. The sign, gearing condition, and no-slip cap are grounded in the local references:
 ///
 /// - `whitepapers/Alciatore_pool_physics_article.pdf`, Section VI "Throw", describes the throw
 ///   term as proportional to `(v sin(φ) - R ω_z)`.
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C6'), (C11), and (C13),
-///   express the same contact-patch tangential slip and the no-slip / gearing condition.
+///   express the same contact-patch tangential slip and the equal-sphere no-slip impulse limit.
+/// - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` decomposes
+///   the contact slip into horizontal throw and vertical follow/draw components.
 ///
-/// This first slice keeps the ideal equal-mass line-of-centers speed transfer, maps the signed
-/// tangential contact slip to a bounded signed deflection angle, and adds a first-pass transferred
-/// z-spin increment for the stationary-object equal-ball case. For the common case of a cut shot
-/// into a stationary object ball with residual cue-ball spin, the cue-ball branch also seeds its
-/// immediate post-impact velocity / horizontal spin state from a broader local TP A.8 / A.24-style
-/// shot-basis model before the on-cloth sliding solver takes over. In the broader `SpinFriction`
-/// mode that special cue-ball branch is still limited to the stationary-object case, but the
-/// friction-limited throw and transferred-spin terms are applied to moving object-ball collisions
-/// too. Exact throw magnitudes and richer transferred-spin components remain future work.
+/// The friction impulse is capped by both `mu * Jn` and the equal-solid-sphere no-slip value
+/// `|slip| / 7`, then applied consistently to both balls' horizontal velocity and angular velocity.
+/// This keeps horizontal momentum conserved and makes reported throw the object-ball departure
+/// angle implied by that contact impulse. Vertical center-of-mass hop/swerve remains outside this
+/// on-table 2D state model.
 pub fn collide_ball_ball_detailed_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,

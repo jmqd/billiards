@@ -66,15 +66,23 @@ fn expected_spin_seed_for_north_shot(
     let tangential_contact_slip = speed * phi_radians.sin() - radius * wz;
     let vertical_contact_slip = radius * (wx * phi_radians.cos() + wy * phi_radians.sin());
     let denominator = (tangential_contact_slip.powi(2) + vertical_contact_slip.powi(2)).sqrt();
-    let tangential_impulse_per_mass =
-        -mu_balls * speed * phi_radians.cos() * tangential_contact_slip / denominator;
-    let vertical_impulse_per_mass =
-        -mu_balls * speed * phi_radians.cos() * vertical_contact_slip / denominator;
-    let local_tangential_velocity = speed * phi_radians.sin() + tangential_impulse_per_mass;
+    let normal_impulse_per_mass = speed * phi_radians.cos().abs();
+    let impulse_magnitude = (denominator / 7.0).min(mu_balls * normal_impulse_per_mass);
+    let tangential_impulse_per_mass = if denominator <= f64::EPSILON {
+        0.0
+    } else {
+        tangential_contact_slip * impulse_magnitude / denominator
+    };
+    let vertical_impulse_per_mass = if denominator <= f64::EPSILON {
+        0.0
+    } else {
+        vertical_contact_slip * impulse_magnitude / denominator
+    };
+    let local_tangential_velocity = speed * phi_radians.sin() - tangential_impulse_per_mass;
     let velocity_x = local_tangential_velocity * phi_radians.cos();
     let velocity_y = local_tangential_velocity * phi_radians.sin();
-    let angular_x = wx + (5.0 / (2.0 * radius)) * phi_radians.cos() * vertical_impulse_per_mass;
-    let angular_y = wy + (5.0 / (2.0 * radius)) * phi_radians.sin() * vertical_impulse_per_mass;
+    let angular_x = wx - (5.0 / (2.0 * radius)) * phi_radians.cos() * vertical_impulse_per_mass;
+    let angular_y = wy - (5.0 / (2.0 * radius)) * phi_radians.sin() * vertical_impulse_per_mass;
 
     (velocity_x, velocity_y, angular_x, angular_y)
 }
@@ -173,6 +181,65 @@ fn spin_friction_can_apply_non_ideal_throw_to_a_moving_object_ball() {
 }
 
 #[test]
+fn throw_magnitude_follows_the_contact_impulse_instead_of_a_fixed_angle() {
+    fn abs_throw_for_cut_degrees(cut_degrees: f64) -> f64 {
+        let radius = TYPICAL_BALL_RADIUS.as_f64();
+        let cut_radians = cut_degrees.to_radians();
+        let cue_ball = on_table(BallState::on_table(
+            inches2(
+                -2.0 * radius * cut_radians.sin(),
+                -2.0 * radius * cut_radians.cos(),
+            ),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::zero(),
+        ));
+        let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware)
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle")
+            .abs()
+    }
+
+    let near_head_on_throw = abs_throw_for_cut_degrees(5.0);
+    let medium_cut_throw = abs_throw_for_cut_degrees(30.0);
+
+    assert!(
+        near_head_on_throw < 1.5,
+        "a small cut should no longer be mapped to the old fixed 5° throw cap; got {near_head_on_throw}°"
+    );
+    assert!(
+        medium_cut_throw > 2.0 * near_head_on_throw,
+        "larger cut/slip should produce materially more throw than a near-head-on cut; got {medium_cut_throw}° vs {near_head_on_throw}°"
+    );
+}
+
+#[test]
+fn throw_aware_impulses_conserve_horizontal_momentum() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(6.0, 0.0, -6.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let before_x = cue_ball.as_ball_state().velocity.x().as_f64()
+        + object_ball.as_ball_state().velocity.x().as_f64();
+    let before_y = cue_ball.as_ball_state().velocity.y().as_f64()
+        + object_ball.as_ball_state().velocity.y().as_f64();
+    let after_x = outcome.a_after.as_ball_state().velocity.x().as_f64()
+        + outcome.b_after.as_ball_state().velocity.x().as_f64();
+    let after_y = outcome.a_after.as_ball_state().velocity.y().as_f64()
+        + outcome.b_after.as_ball_state().velocity.y().as_f64();
+
+    assert_close(after_x, before_x);
+    assert_close(after_y, before_y);
+}
+
+#[test]
 fn a_nearly_head_on_rolling_collision_does_not_pick_up_throw_from_tiny_tangent_noise() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
@@ -200,7 +267,7 @@ fn a_nearly_head_on_rolling_collision_does_not_pick_up_throw_from_tiny_tangent_n
 }
 
 #[test]
-fn follow_and_draw_sharply_reduce_near_head_on_throw_relative_to_stun() {
+fn follow_and_draw_reduce_near_head_on_throw_relative_to_stun() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cut_angle_radians = 5.0_f64.to_radians();
     let cue_position = inches2(
@@ -240,18 +307,16 @@ fn follow_and_draw_sharply_reduce_near_head_on_throw_relative_to_stun() {
             .expect("throw-aware collisions should report a throw angle")
             .abs();
 
-    // For a 5° cut with full rolling follow/draw at impact, the APAPP Sec. 4.3 horizontal
-    // throw-efficiency term is on the order of `sin(5°) / sqrt(sin²(5°) + 1) ≈ 0.086`, so a 20%
-    // cap leaves comfortable tolerance while still catching the old bug where follow/draw left the
-    // near-head-on throw unchanged from stun.
-    let strong_reduction_limit = 0.2 * stun_throw;
+    // Follow/draw push much of the contact slip into the vertical plane. With the impulse model,
+    // the reduced horizontal fraction must still produce less throw than the comparable stun hit.
+    let reduction_limit = 0.5 * stun_throw;
     assert!(
-        follow_throw < strong_reduction_limit,
-        "near-head-on follow should sharply reduce throw; got follow {follow_throw} vs stun {stun_throw}"
+        follow_throw < reduction_limit,
+        "near-head-on follow should reduce throw; got follow {follow_throw} vs stun {stun_throw}"
     );
     assert!(
-        draw_throw < strong_reduction_limit,
-        "near-head-on draw should sharply reduce throw; got draw {draw_throw} vs stun {stun_throw}"
+        draw_throw < reduction_limit,
+        "near-head-on draw should reduce throw; got draw {draw_throw} vs stun {stun_throw}"
     );
     assert_close(follow_throw, draw_throw);
 }

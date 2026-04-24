@@ -221,6 +221,41 @@ fn the_phase_aware_predictor_uses_the_current_rolling_model_before_contact() {
 }
 
 #[test]
+fn the_phase_aware_predictor_finds_a_grazing_collision_between_fixed_scan_samples() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let contact_distance = 2.0 * radius;
+    let rolling_speed = 120.0;
+    let rolling_deceleration = 5.0;
+    let object_x = 60.0;
+    let object_y = contact_distance - 0.0001;
+    let contact_x_clearance = (contact_distance * contact_distance - object_y * object_y).sqrt();
+    let contact_travel = object_x - contact_x_clearance;
+    let expected_time = (rolling_speed
+        - (rolling_speed * rolling_speed - 2.0 * rolling_deceleration * contact_travel).sqrt())
+        / rolling_deceleration;
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        velocity2(rolling_speed, 0.0),
+        AngularVelocity3::new(0.0, rolling_speed / radius, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(object_x, object_y)));
+
+    let predicted = compute_next_ball_ball_collision_during_current_phases_on_table(
+        &cue_ball,
+        &object_ball,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("a near-tangent contact should be found even when it falls between coarse samples");
+
+    assert_close(predicted.time_until_impact.as_f64(), expected_time);
+    assert_close(
+        center_distance(&predicted.a_at_impact, &predicted.b_at_impact),
+        contact_distance,
+    );
+}
+
+#[test]
 fn the_phase_aware_predictor_returns_none_when_the_ball_stops_before_contact() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

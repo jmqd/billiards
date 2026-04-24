@@ -3370,54 +3370,204 @@ fn raw_ball_ball_collision_search_horizon(
         .unwrap_or(f64::INFINITY)
 }
 
-fn collision_gap_during_current_phases_raw(
-    a: RawOnTableBallState,
-    a_phase: MotionPhase,
-    b: RawOnTableBallState,
-    b_phase: MotionPhase,
-    t_seconds: f64,
+fn raw_planar_acceleration_during_phase(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
     radius: f64,
     config: &OnTableMotionConfig,
-) -> f64 {
-    let a_at_t = raw_advance_within_phase_on_table(a, a_phase, t_seconds, radius, config);
-    let b_at_t = raw_advance_within_phase_on_table(b, b_phase, t_seconds, radius, config);
-    let dx = b_at_t.x - a_at_t.x;
-    let dy = b_at_t.y - a_at_t.y;
-    let contact_distance = 2.0 * radius;
-
-    dx * dx + dy * dy - contact_distance * contact_distance
+) -> (f64, f64) {
+    match phase {
+        MotionPhase::Rest | MotionPhase::Spinning => (0.0, 0.0),
+        MotionPhase::Sliding => {
+            let (contact_vx, contact_vy) = state.cloth_contact_velocity(radius);
+            let contact_speed = contact_vx.hypot(contact_vy);
+            if contact_speed <= f64::EPSILON {
+                (0.0, 0.0)
+            } else {
+                let acceleration = sliding_friction_acceleration(config);
+                (
+                    -acceleration * contact_vx / contact_speed,
+                    -acceleration * contact_vy / contact_speed,
+                )
+            }
+        }
+        MotionPhase::Rolling => {
+            let speed = state.speed();
+            if speed <= f64::EPSILON {
+                (0.0, 0.0)
+            } else {
+                let acceleration = rolling_linear_deceleration(config);
+                (
+                    -acceleration * state.vx / speed,
+                    -acceleration * state.vy / speed,
+                )
+            }
+        }
+        MotionPhase::Airborne => {
+            unreachable!("on-table motion helpers cannot advance airborne phases")
+        }
+    }
 }
 
-fn refine_ball_ball_collision_time_during_current_phases_raw(
-    a: RawOnTableBallState,
-    a_phase: MotionPhase,
-    b: RawOnTableBallState,
-    b_phase: MotionPhase,
+#[derive(Clone, Copy, Debug)]
+struct RelativeQuadraticMotion {
+    rx: f64,
+    ry: f64,
+    rvx: f64,
+    rvy: f64,
+    rax: f64,
+    ray: f64,
+    contact_distance: f64,
+}
+
+impl RelativeQuadraticMotion {
+    fn gap_at(self, t_seconds: f64) -> f64 {
+        let dx = self.rx + self.rvx * t_seconds + 0.5 * self.rax * t_seconds * t_seconds;
+        let dy = self.ry + self.rvy * t_seconds + 0.5 * self.ray * t_seconds * t_seconds;
+
+        dx * dx + dy * dy - self.contact_distance * self.contact_distance
+    }
+
+    fn derivative_roots(self) -> Vec<f64> {
+        // The relative center path is quadratic in each coordinate during a single motion phase:
+        // r(t) = r0 + v0*t + 1/2*a*t^2. The derivative of the squared contact gap is therefore a
+        // cubic proportional to r(t)·r'(t). Its real roots partition the horizon into monotonic gap
+        // intervals, so checking those intervals finds grazing contacts that a fixed step scan can
+        // jump over.
+        let cubic = 0.5 * (self.rax * self.rax + self.ray * self.ray);
+        let quadratic = 1.5 * (self.rvx * self.rax + self.rvy * self.ray);
+        let linear = self.rx * self.rax
+            + self.ry * self.ray
+            + self.rvx * self.rvx
+            + self.rvy * self.rvy;
+        let constant = self.rx * self.rvx + self.ry * self.rvy;
+
+        real_roots_cubic(cubic, quadratic, linear, constant)
+    }
+}
+
+fn real_roots_quadratic(a: f64, b: f64, c: f64) -> Vec<f64> {
+    let scale = a.abs().max(b.abs()).max(c.abs()).max(1.0);
+    let eps = 1e-12 * scale;
+    if a.abs() <= eps {
+        if b.abs() <= eps {
+            Vec::new()
+        } else {
+            vec![-c / b]
+        }
+    } else {
+        let discriminant = b * b - 4.0 * a * c;
+        if discriminant < -eps {
+            Vec::new()
+        } else if discriminant.abs() <= eps {
+            vec![-b / (2.0 * a)]
+        } else {
+            let sqrt_discriminant = discriminant.sqrt();
+            vec![
+                (-b - sqrt_discriminant) / (2.0 * a),
+                (-b + sqrt_discriminant) / (2.0 * a),
+            ]
+        }
+    }
+}
+
+fn real_roots_cubic(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
+    let scale = a.abs().max(b.abs()).max(c.abs()).max(d.abs()).max(1.0);
+    let eps = 1e-12 * scale;
+    if a.abs() <= eps {
+        return real_roots_quadratic(b, c, d);
+    }
+
+    let normalized_b = b / a;
+    let normalized_c = c / a;
+    let normalized_d = d / a;
+    let p = normalized_c - normalized_b * normalized_b / 3.0;
+    let q = 2.0 * normalized_b * normalized_b * normalized_b / 27.0
+        - normalized_b * normalized_c / 3.0
+        + normalized_d;
+    let discriminant = 0.25 * q * q + (p / 3.0).powi(3);
+    let root_offset = normalized_b / 3.0;
+
+    if discriminant > eps {
+        let sqrt_discriminant = discriminant.sqrt();
+        vec![
+            (-0.5 * q + sqrt_discriminant).cbrt()
+                + (-0.5 * q - sqrt_discriminant).cbrt()
+                - root_offset,
+        ]
+    } else if discriminant.abs() <= eps {
+        let u = (-0.5 * q).cbrt();
+        vec![2.0 * u - root_offset, -u - root_offset]
+    } else {
+        let radius = 2.0 * (-p / 3.0).sqrt();
+        let acos_argument = (-0.5 * q / (-p / 3.0).powf(1.5)).clamp(-1.0, 1.0);
+        let angle = acos_argument.acos();
+
+        (0..3)
+            .map(|index| {
+                radius * ((angle + 2.0 * std::f64::consts::PI * index as f64) / 3.0).cos()
+                    - root_offset
+            })
+            .collect()
+    }
+}
+
+fn first_ball_ball_contact_time_for_relative_motion(
+    motion: RelativeQuadraticMotion,
+    horizon: f64,
+) -> Option<f64> {
+    let mut boundaries = vec![0.0, horizon];
+    for root in motion.derivative_roots() {
+        if root.is_finite() && root > 0.0 && root < horizon {
+            boundaries.push(root);
+        }
+    }
+    boundaries.sort_by(|a, b| a.partial_cmp(b).expect("finite contact-search times should sort"));
+
+    let dedup_tolerance = 1e-10 * horizon.max(1.0);
+    let mut deduped_boundaries: Vec<f64> = Vec::with_capacity(boundaries.len());
+    for boundary in boundaries {
+        if deduped_boundaries
+            .last()
+            .map(|previous| (boundary - *previous).abs() > dedup_tolerance)
+            .unwrap_or(true)
+        {
+            deduped_boundaries.push(boundary);
+        }
+    }
+
+    let mut left = deduped_boundaries[0];
+    let mut left_gap = motion.gap_at(left);
+    for right in deduped_boundaries.into_iter().skip(1) {
+        let right_gap = motion.gap_at(right);
+        if left_gap > 0.0 && right_gap <= 0.0 {
+            return Some(refine_ball_ball_collision_time_for_relative_motion(
+                motion, left, right,
+            ));
+        }
+
+        left = right;
+        left_gap = right_gap;
+    }
+
+    None
+}
+
+fn refine_ball_ball_collision_time_for_relative_motion(
+    motion: RelativeQuadraticMotion,
     mut left: f64,
     mut right: f64,
-    radius: f64,
-    config: &OnTableMotionConfig,
-) -> Seconds {
-    for _ in 0..60 {
+) -> f64 {
+    for _ in 0..80 {
         let midpoint = 0.5 * (left + right);
-        let gap = collision_gap_during_current_phases_raw(
-            a,
-            a_phase.clone(),
-            b,
-            b_phase.clone(),
-            midpoint,
-            radius,
-            config,
-        );
-
-        if gap <= 0.0 {
+        if motion.gap_at(midpoint) <= 0.0 {
             right = midpoint;
         } else {
             left = midpoint;
         }
     }
 
-    Seconds::new(right)
+    right
 }
 
 const THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO: f64 = 1e-12;
@@ -3579,11 +3729,13 @@ fn ball_ball_approaching_normal_speed(a: &OnTableBallState, b: &OnTableBallState
 /// - `whitepapers/Physics Of Billiards.html` describes the ball-ball impact geometry through the
 ///   line of centers, so first contact still occurs when the center distance reaches `2R`.
 ///
-/// Rather than extrapolating with constant translational velocity, this predictor advances each ball
-/// with the current within-phase motion model and numerically locates the first contact time, if
-/// any, over the interval from `t = 0` up to the earliest upcoming single-ball motion transition.
-/// If no contact occurs before that phase boundary, the caller should let the earlier transition
-/// happen first and then recompute collision timing from the new states.
+/// Rather than extrapolating with constant translational velocity, this predictor uses the current
+/// within-phase constant-acceleration motion for each ball. The relative center path is quadratic,
+/// so the squared contact gap is quartic; the predictor evaluates the cubic critical points of that
+/// gap and then bisects the first monotonic interval that reaches contact. This finds narrow
+/// grazing contacts without relying on a fixed time-step scan. If no contact occurs before the next
+/// phase boundary, the caller should let the earlier transition happen first and then recompute
+/// collision timing from the new states.
 pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -3622,63 +3774,31 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
         return None;
     }
 
-    const COLLISION_SCAN_STEPS: usize = 512;
-    let mut previous_t = 0.0;
-    let mut previous_gap = initial_gap;
-
-    for step in 1..=COLLISION_SCAN_STEPS {
-        let t = horizon * step as f64 / COLLISION_SCAN_STEPS as f64;
-        let gap = collision_gap_during_current_phases_raw(
-            a_raw,
-            a_phase.clone(),
-            b_raw,
-            b_phase.clone(),
-            t,
-            radius,
-            config,
-        );
-
-        if previous_gap > 0.0 && gap <= 0.0 {
-            let time_until_impact = refine_ball_ball_collision_time_during_current_phases_raw(
-                a_raw,
-                a_phase.clone(),
-                b_raw,
-                b_phase.clone(),
-                previous_t,
-                t,
-                radius,
-                config,
-            );
-            let dt_seconds = time_until_impact.as_f64();
-            let a_at_impact = raw_advance_within_phase_on_table(
-                a_raw,
-                a_phase.clone(),
-                dt_seconds,
-                radius,
-                config,
-            )
+    let (a_ax, a_ay) = raw_planar_acceleration_during_phase(a_raw, a_phase.clone(), radius, config);
+    let (b_ax, b_ay) = raw_planar_acceleration_during_phase(b_raw, b_phase.clone(), radius, config);
+    let relative_motion = RelativeQuadraticMotion {
+        rx: dx,
+        ry: dy,
+        rvx: b_raw.vx - a_raw.vx,
+        rvy: b_raw.vy - a_raw.vy,
+        rax: b_ax - a_ax,
+        ray: b_ay - a_ay,
+        contact_distance,
+    };
+    let dt_seconds = first_ball_ball_contact_time_for_relative_motion(relative_motion, horizon)?;
+    let time_until_impact = Seconds::new(dt_seconds);
+    let a_at_impact =
+        raw_advance_within_phase_on_table(a_raw, a_phase, dt_seconds, radius, config)
             .into_on_table_state();
-            let b_at_impact = raw_advance_within_phase_on_table(
-                b_raw,
-                b_phase.clone(),
-                dt_seconds,
-                radius,
-                config,
-            )
+    let b_at_impact =
+        raw_advance_within_phase_on_table(b_raw, b_phase, dt_seconds, radius, config)
             .into_on_table_state();
 
-            return Some(PredictedBallBallCollision {
-                time_until_impact,
-                a_at_impact,
-                b_at_impact,
-            });
-        }
-
-        previous_t = t;
-        previous_gap = gap;
-    }
-
-    None
+    Some(PredictedBallBallCollision {
+        time_until_impact,
+        a_at_impact,
+        b_at_impact,
+    })
 }
 
 fn rail_collision_gap_during_current_phase_raw(
@@ -5260,6 +5380,7 @@ where
             a_state = a_after;
             b_state = b_after;
             elapsed = Seconds::new(elapsed.as_f64() + remaining);
+            remaining = 0.0;
             break;
         };
 
@@ -5275,6 +5396,7 @@ where
             a_state = a_after;
             b_state = b_after;
             elapsed = Seconds::new(elapsed.as_f64() + remaining);
+            remaining = 0.0;
             break;
         }
 
@@ -5293,6 +5415,10 @@ where
         if let Some(event) = advanced.event {
             events.push(event);
         }
+    }
+
+    if remaining.abs() <= 1e-12 * dt.as_f64().max(1.0) {
+        elapsed = dt;
     }
 
     TwoBallOnTableSimulation {

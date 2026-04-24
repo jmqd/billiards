@@ -181,6 +181,39 @@ fn simultaneous_pair_collisions_break_ties_by_lowest_index_pair() {
 }
 
 #[test]
+fn shared_simultaneous_ball_ball_contacts_are_reported_as_unsupported() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let contact_y = -3.0_f64.sqrt() * radius;
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, contact_y - 7.5),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let left_object = on_table(BallState::resting_at(inches2(-radius, 0.0)));
+    let right_object = on_table(BallState::resting_at(inches2(radius, 0.0)));
+
+    let event = compute_next_n_ball_event_on_table(
+        &[&cue_ball, &left_object, &right_object],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("the symmetric double hit should be detected");
+
+    match event {
+        NBallOnTableEvent::UnsupportedSharedBallBallContact {
+            time_until_contact,
+            ball_indices,
+            ball_ball_pairs,
+        } => {
+            assert_close(time_until_contact.as_f64(), 1.0);
+            assert_eq!(ball_indices, vec![0, 1, 2]);
+            assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
+        }
+        other => panic!("expected unsupported shared contact, got {other:?}"),
+    }
+}
+
+#[test]
 fn touching_follow_on_collision_is_scheduled_immediately_after_a_frozen_cluster_tie_break() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let a = on_table(BallState::on_table(

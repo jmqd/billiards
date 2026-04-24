@@ -1179,12 +1179,15 @@ impl TwoBallOnTableEvent {
 /// The next predicted event among an indexed set of on-table balls under the currently
 /// implemented predictors.
 ///
-/// This is the indexed / N-ball analogue of `TwoBallOnTableEvent`. Simultaneous events are
-/// currently broken deterministically in this order:
+/// This is the indexed / N-ball analogue of `TwoBallOnTableEvent`. Disjoint simultaneous events are
+/// broken deterministically in this order:
 ///
 /// 1. ball-ball collision, ordered lexicographically by `(first_ball_index, second_ball_index)`
 /// 2. ball-rail impact, ordered by `ball_index`
 /// 3. motion transition, ordered by `ball_index`
+///
+/// Shared simultaneous ball-ball contacts are reported explicitly because this pairwise event model
+/// does not yet include a coupled multi-contact impulse solver.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NBallOnTableEvent {
     BallBallCollision {
@@ -1195,6 +1198,11 @@ pub enum NBallOnTableEvent {
     BallRailImpact {
         ball_index: usize,
         impact: PredictedBallRailImpact,
+    },
+    UnsupportedSharedBallBallContact {
+        time_until_contact: Seconds,
+        ball_indices: Vec<usize>,
+        ball_ball_pairs: Vec<(usize, usize)>,
     },
     MotionTransition {
         ball_index: usize,
@@ -1208,6 +1216,10 @@ impl NBallOnTableEvent {
         match self {
             NBallOnTableEvent::BallBallCollision { collision, .. } => collision.time_until_impact,
             NBallOnTableEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
+            NBallOnTableEvent::UnsupportedSharedBallBallContact {
+                time_until_contact,
+                ..
+            } => *time_until_contact,
             NBallOnTableEvent::MotionTransition { transition, .. } => {
                 transition.time_until_transition
             }
@@ -1220,7 +1232,8 @@ impl NBallOnTableEvent {
     /// impacts and motion transitions identify the affected ball and return `Some(ball_index)`.
     pub fn primary_ball(&self) -> Option<usize> {
         match self {
-            NBallOnTableEvent::BallBallCollision { .. } => None,
+            NBallOnTableEvent::BallBallCollision { .. }
+            | NBallOnTableEvent::UnsupportedSharedBallBallContact { .. } => None,
             NBallOnTableEvent::BallRailImpact { ball_index, .. }
             | NBallOnTableEvent::MotionTransition { ball_index, .. } => Some(*ball_index),
         }
@@ -1526,7 +1539,8 @@ pub struct TwoBallOnTableAdvance {
 ///
 /// `event` records the chosen indexed primary event, if any. Execution can still resolve
 /// additional disjoint same-time ball-ball collisions on the same step, so the returned states may
-/// encode more contact resolution than the single reported primary event does.
+/// encode more contact resolution than the single reported primary event does. Unsupported shared
+/// contact events advance to the contact time but intentionally leave collision response unresolved.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NBallOnTableAdvance {
     pub states: Vec<OnTableBallState>,
@@ -4816,6 +4830,9 @@ fn two_ball_event_from_n_ball_event(event: NBallOnTableEvent) -> TwoBallOnTableE
             ball: two_ball_event_ball_from_index(ball_index),
             impact,
         },
+        NBallOnTableEvent::UnsupportedSharedBallBallContact { .. } => {
+            panic!("two-ball scheduler cannot produce shared multi-contact events")
+        }
         NBallOnTableEvent::MotionTransition {
             ball_index,
             transition,
@@ -4837,13 +4854,77 @@ fn earlier_n_ball_event_candidate(
         || ((candidate_time - current_time).abs() <= 1e-12 && candidate.source < current.source)
 }
 
+fn unsupported_shared_ball_ball_contact_from_candidates(
+    candidates: &[NBallSystemEventCandidate],
+) -> Option<NBallOnTableEvent> {
+    let earliest_time = candidates
+        .iter()
+        .map(|candidate| candidate.event.time().as_f64())
+        .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
+    let ball_ball_pairs = candidates
+        .iter()
+        .filter_map(|candidate| match &candidate.event {
+            NBallOnTableEvent::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                ..
+            } if (candidate.event.time().as_f64() - earliest_time).abs()
+                <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS =>
+            {
+                Some((*first_ball_index, *second_ball_index))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if ball_ball_pairs.len() < 2 {
+        return None;
+    }
+
+    let mut ball_indices = ball_ball_pairs
+        .iter()
+        .flat_map(|(first, second)| [*first, *second])
+        .collect::<Vec<_>>();
+    ball_indices.sort_unstable();
+    ball_indices.dedup();
+
+    if ball_indices.len() == 2 * ball_ball_pairs.len() {
+        return None;
+    }
+
+    Some(NBallOnTableEvent::UnsupportedSharedBallBallContact {
+        time_until_contact: Seconds::new(earliest_time),
+        ball_indices,
+        ball_ball_pairs,
+    })
+}
+
+fn select_earliest_n_ball_event_candidate(
+    candidates: Vec<NBallSystemEventCandidate>,
+) -> Option<NBallOnTableEvent> {
+    if let Some(unsupported) = unsupported_shared_ball_ball_contact_from_candidates(&candidates) {
+        return Some(unsupported);
+    }
+
+    candidates
+        .into_iter()
+        .reduce(|current, candidate| {
+            if earlier_n_ball_event_candidate(&candidate, &current) {
+                candidate
+            } else {
+                current
+            }
+        })
+        .map(|candidate| candidate.event)
+}
+
 fn select_earliest_n_ball_event_from_states(
     states: &[&OnTableBallState],
     ball: &BallSetPhysicsSpec,
     table: Option<&TableSpec>,
     config: &OnTableMotionConfig,
 ) -> Option<NBallOnTableEvent> {
-    let mut next: Option<NBallSystemEventCandidate> = None;
+    let mut candidates = Vec::new();
 
     for first_ball_index in 0..states.len() {
         for second_ball_index in first_ball_index + 1..states.len() {
@@ -4855,7 +4936,7 @@ fn select_earliest_n_ball_event_from_states(
             ) else {
                 continue;
             };
-            let candidate = NBallSystemEventCandidate {
+            candidates.push(NBallSystemEventCandidate {
                 source: NBallSystemEventSource::BallBallCollision {
                     first_ball_index,
                     second_ball_index,
@@ -4865,14 +4946,7 @@ fn select_earliest_n_ball_event_from_states(
                     second_ball_index,
                     collision,
                 },
-            };
-
-            if next
-                .as_ref()
-                .is_none_or(|current| earlier_n_ball_event_candidate(&candidate, current))
-            {
-                next = Some(candidate);
-            }
+            });
         }
     }
 
@@ -4882,17 +4956,10 @@ fn select_earliest_n_ball_event_from_states(
             else {
                 continue;
             };
-            let candidate = NBallSystemEventCandidate {
+            candidates.push(NBallSystemEventCandidate {
                 source: NBallSystemEventSource::BallRailImpact { ball_index },
                 event: NBallOnTableEvent::BallRailImpact { ball_index, impact },
-            };
-
-            if next
-                .as_ref()
-                .is_none_or(|current| earlier_n_ball_event_candidate(&candidate, current))
-            {
-                next = Some(candidate);
-            }
+            });
         }
     }
 
@@ -4900,23 +4967,16 @@ fn select_earliest_n_ball_event_from_states(
         let Some(transition) = compute_next_transition_on_table(state, ball, config) else {
             continue;
         };
-        let candidate = NBallSystemEventCandidate {
+        candidates.push(NBallSystemEventCandidate {
             source: NBallSystemEventSource::MotionTransition { ball_index },
             event: NBallOnTableEvent::MotionTransition {
                 ball_index,
                 transition,
             },
-        };
-
-        if next
-            .as_ref()
-            .is_none_or(|current| earlier_n_ball_event_candidate(&candidate, current))
-        {
-            next = Some(candidate);
-        }
+        });
     }
 
-    next.map(|candidate| candidate.event)
+    select_earliest_n_ball_event_candidate(candidates)
 }
 
 /// Compute the earliest currently supported future event among any number of on-table balls.
@@ -5097,7 +5157,8 @@ where
     let elapsed = event.time();
     let mut states_after = advance_n_on_table_balls_without_event(states, elapsed, ball, motion);
     match &event {
-        NBallOnTableEvent::MotionTransition { .. } => {}
+        NBallOnTableEvent::MotionTransition { .. }
+        | NBallOnTableEvent::UnsupportedSharedBallBallContact { .. } => {}
         NBallOnTableEvent::BallBallCollision {
             first_ball_index,
             second_ball_index,
@@ -5609,7 +5670,14 @@ where
 
         states = advanced.states;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
+        let unsupported_shared_contact = matches!(
+            event,
+            NBallOnTableEvent::UnsupportedSharedBallBallContact { .. }
+        );
         events.push(event);
+        if unsupported_shared_contact {
+            break;
+        }
     }
 
     NBallOnTableSimulation {

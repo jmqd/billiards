@@ -1714,20 +1714,20 @@ fn build_ball_ball_config(def: &BallBallDef) -> Result<BallBallCollisionConfig, 
             method: "tangential_friction".to_string(),
         })?;
 
-    Ok(BallBallCollisionConfig {
-        normal_restitution: validate_unit_interval_physics_value(
+    Ok(BallBallCollisionConfig::new(
+        validate_unit_interval_physics_value(
             PhysicsConfigKind::BallBall,
             &def.name,
             "normal_restitution",
             normal_restitution,
         )?,
-        tangential_friction_coefficient: validate_non_negative_physics_value(
+        validate_non_negative_physics_value(
             PhysicsConfigKind::BallBall,
             &def.name,
             "tangential_friction",
             tangential_friction,
         )?,
-    })
+    ))
 }
 
 fn build_rail_responses(

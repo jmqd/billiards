@@ -192,10 +192,7 @@ fn a_restitution_tuned_head_on_collision_is_less_lively_than_the_ideal_limit() {
         AngularVelocity3::zero(),
     ));
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
-    let human_tuned = BallBallCollisionConfig {
-        normal_restitution: Scale::from_f64(0.8),
-        tangential_friction_coefficient: Scale::from_f64(0.06),
-    };
+    let human_tuned = BallBallCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.06));
 
     let (cue_after, object_after) = collide_ball_ball_on_table_with_config(
         &cue_ball,

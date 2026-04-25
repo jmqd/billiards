@@ -974,23 +974,101 @@ impl Default for PlayingConditions {
 const IDEAL_BALL_BALL_NORMAL_RESTITUTION: f64 = 1.0;
 const HUMAN_TUNED_BALL_BALL_NORMAL_RESTITUTION: f64 = 0.95;
 const DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.06;
+const MARLOW_BALL_BALL_FRICTION_A: f64 = 9.951e-3;
+const MARLOW_BALL_BALL_FRICTION_B: f64 = 0.108;
+const MARLOW_BALL_BALL_FRICTION_C_PER_METER_PER_SECOND: f64 = 1.088;
+const INCHES_PER_SECOND_TO_METERS_PER_SECOND: f64 = 0.0254;
+
+/// How the ball-ball contact friction coefficient is chosen for throw / spin transfer.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BallBallFrictionModel {
+    /// Use one constant coefficient for all contact-slip speeds.
+    Constant { coefficient: Scale },
+    /// Use the TP A.14 / Marlow exponential fit, scaled by `scale`.
+    ///
+    /// The fit is `μ(v) = 0.009951 + 0.108 exp(-1.088 v)`, with `v` in m/s. The Rust engine stores
+    /// velocities in inches/second, so contact-slip speed is converted before applying the fit.
+    MarlowSpeedFit { scale: Scale },
+}
+
+impl BallBallFrictionModel {
+    pub fn constant(coefficient: Scale) -> Self {
+        Self::Constant { coefficient }
+    }
+
+    pub fn marlow_speed_fit(scale: Scale) -> Self {
+        Self::MarlowSpeedFit { scale }
+    }
+
+    pub fn reference_coefficient(&self) -> Scale {
+        match self {
+            Self::Constant { coefficient } => coefficient.clone(),
+            Self::MarlowSpeedFit { scale } => scale.clone(),
+        }
+    }
+
+    pub fn applying_conditions(&self, conditions: &PlayingConditions) -> Self {
+        match self {
+            Self::Constant { coefficient } => Self::Constant {
+                coefficient: Scale::from_f64(scaled_non_negative_f64(
+                    coefficient.as_f64(),
+                    &conditions.ball_ball_friction_scale,
+                )),
+            },
+            Self::MarlowSpeedFit { scale } => Self::MarlowSpeedFit {
+                scale: Scale::from_f64(scaled_non_negative_f64(
+                    scale.as_f64(),
+                    &conditions.ball_ball_friction_scale,
+                )),
+            },
+        }
+    }
+
+    fn coefficient_for_contact_slip_speed(&self, contact_slip_speed_ips: f64) -> f64 {
+        match self {
+            Self::Constant { coefficient } => coefficient.as_f64(),
+            Self::MarlowSpeedFit { scale } => {
+                let speed_mps =
+                    contact_slip_speed_ips.abs() * INCHES_PER_SECOND_TO_METERS_PER_SECOND;
+                scale.as_f64()
+                    * (MARLOW_BALL_BALL_FRICTION_A
+                        + MARLOW_BALL_BALL_FRICTION_B
+                            * (-MARLOW_BALL_BALL_FRICTION_C_PER_METER_PER_SECOND * speed_mps).exp())
+            }
+        }
+    }
+}
 
 /// Configurable coefficients for the current ball-ball response helpers.
 ///
-/// `ideal()` preserves the existing equal-mass perfectly elastic limit. `human_tuned()` is a first
-/// pragmatic step toward less pinball-like contacts by reducing the normal restitution while
-/// keeping the current first-pass tangential friction coefficient.
+/// `ideal()` preserves the existing equal-mass perfectly elastic normal limit and the historical
+/// constant-friction throw approximation. `human_tuned()` uses a less lively normal restitution and
+/// the TP A.14 / Marlow speed-dependent friction curve for throw / spin transfer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BallBallCollisionConfig {
     pub normal_restitution: Scale,
     pub tangential_friction_coefficient: Scale,
+    pub friction_model: BallBallFrictionModel,
 }
 
 impl BallBallCollisionConfig {
     pub fn new(normal_restitution: Scale, tangential_friction_coefficient: Scale) -> Self {
         Self {
             normal_restitution,
+            tangential_friction_coefficient: tangential_friction_coefficient.clone(),
+            friction_model: BallBallFrictionModel::constant(tangential_friction_coefficient),
+        }
+    }
+
+    pub fn new_with_friction_model(
+        normal_restitution: Scale,
+        friction_model: BallBallFrictionModel,
+    ) -> Self {
+        let tangential_friction_coefficient = friction_model.reference_coefficient();
+        Self {
+            normal_restitution,
             tangential_friction_coefficient,
+            friction_model,
         }
     }
 
@@ -1002,23 +1080,30 @@ impl BallBallCollisionConfig {
     }
 
     pub fn human_tuned() -> Self {
-        Self::new(
+        Self::new_with_friction_model(
             Scale::from_f64(HUMAN_TUNED_BALL_BALL_NORMAL_RESTITUTION),
-            Scale::from_f64(DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT),
+            BallBallFrictionModel::marlow_speed_fit(Scale::from_f64(1.0)),
         )
     }
 
+    pub fn with_friction_model(mut self, friction_model: BallBallFrictionModel) -> Self {
+        self.tangential_friction_coefficient = friction_model.reference_coefficient();
+        self.friction_model = friction_model;
+        self
+    }
+
     pub fn applying_conditions(&self, conditions: &PlayingConditions) -> Self {
-        Self::new(
-            Scale::from_f64(scaled_unit_interval_f64(
+        Self {
+            normal_restitution: Scale::from_f64(scaled_unit_interval_f64(
                 self.normal_restitution.as_f64(),
                 &conditions.ball_ball_restitution_scale,
             )),
-            Scale::from_f64(scaled_non_negative_f64(
+            tangential_friction_coefficient: Scale::from_f64(scaled_non_negative_f64(
                 self.tangential_friction_coefficient.as_f64(),
                 &conditions.ball_ball_friction_scale,
             )),
-        )
+            friction_model: self.friction_model.applying_conditions(conditions),
+        }
     }
 }
 
@@ -6851,6 +6936,20 @@ fn validated_ball_ball_tangential_friction_coefficient(config: &BallBallCollisio
     friction
 }
 
+fn validated_ball_ball_contact_friction_coefficient(
+    config: &BallBallCollisionConfig,
+    contact_slip_speed: f64,
+) -> f64 {
+    let friction = config
+        .friction_model
+        .coefficient_for_contact_slip_speed(contact_slip_speed);
+    assert!(
+        friction >= 0.0,
+        "ball-ball contact friction coefficient must be non-negative"
+    );
+    friction
+}
+
 fn ideal_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -6948,7 +7047,7 @@ fn frictional_collision_outcome_on_table_with_config(
 
     let (normal_x, normal_y, tangent_x, tangent_y) = collision_contact_basis(a, b);
     let normal_restitution = validated_ball_ball_normal_restitution(config);
-    let tangential_friction_coefficient =
+    let _configured_reference_friction =
         validated_ball_ball_tangential_friction_coefficient(config);
     let ball_radius = 0.5 * center_distance_squared(a, b).sqrt();
 
@@ -6967,10 +7066,13 @@ fn frictional_collision_outcome_on_table_with_config(
             * (a_state.angular_velocity.x().as_f64() + b_state.angular_velocity.x().as_f64())
             - normal_x
                 * (a_state.angular_velocity.y().as_f64() + b_state.angular_velocity.y().as_f64()));
+    let contact_slip_speed = tangential_contact_slip.hypot(vertical_contact_slip);
+    let tangential_friction_coefficient =
+        validated_ball_ball_contact_friction_coefficient(config, contact_slip_speed);
     let numerical_zero_slip =
         THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO * normal_relative_speed.max(1.0);
     let (tangential_impulse_per_mass, vertical_impulse_per_mass) =
-        if tangential_contact_slip.hypot(vertical_contact_slip) <= numerical_zero_slip {
+        if contact_slip_speed <= numerical_zero_slip {
             (0.0, 0.0)
         } else {
             contact_friction_impulse_per_mass(
@@ -7043,7 +7145,16 @@ fn frictional_collision_outcome_on_table_with_config(
     let b_normal_after = project_velocity_on_basis(&b_velocity, normal_x, normal_y);
     let b_tangent_after = project_velocity_on_basis(&b_velocity, tangent_x, tangent_y);
     let throw_angle_degrees =
-        if b_normal_after.abs() <= f64::EPSILON && b_tangent_after.abs() <= f64::EPSILON {
+        if !require_stationary_object_ball && ball_speed(b_state).as_f64() > 1e-9 {
+            let ideal_heading = ideal.b_after.as_ball_state().velocity.angle_from_north();
+            let actual_heading = b_velocity.angle_from_north();
+            match (ideal_heading, actual_heading) {
+                (Some(ideal_heading), Some(actual_heading)) => {
+                    signed_angle_difference_degrees(ideal_heading, actual_heading)
+                }
+                _ => 0.0,
+            }
+        } else if b_normal_after.abs() <= f64::EPSILON && b_tangent_after.abs() <= f64::EPSILON {
             0.0
         } else {
             b_tangent_after.atan2(b_normal_after).to_degrees()
@@ -8505,11 +8616,20 @@ impl Position {
 ///   appropriate outside-english convention.
 ///
 /// Returns the required outside angular velocity magnitude as `RadiansPerSecond`.
-pub fn gearing_english(cut_angle: CutAngle, shot_speed: InchesPerSecond) -> RadiansPerSecond {
+pub fn gearing_english_for_radius(
+    cut_angle: CutAngle,
+    shot_speed: InchesPerSecond,
+    radius: Inches,
+) -> RadiansPerSecond {
     let omega = shot_speed.inches.magnitude.to_f64().unwrap()
         * cut_angle.as_degrees().to_radians().sin()
-        / TYPICAL_BALL_RADIUS.magnitude.to_f64().unwrap();
+        / radius.magnitude.to_f64().unwrap();
     RadiansPerSecond::new(omega)
+}
+
+/// Compute the gearing-english spin magnitude for a default-size pool ball.
+pub fn gearing_english(cut_angle: CutAngle, shot_speed: InchesPerSecond) -> RadiansPerSecond {
+    gearing_english_for_radius(cut_angle, shot_speed, TYPICAL_BALL_RADIUS.clone())
 }
 
 /// A displacement indicating a direction and distance.

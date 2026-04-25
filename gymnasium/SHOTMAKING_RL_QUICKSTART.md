@@ -109,7 +109,21 @@ for episode in range(1000):
     # useful debug fields: info["target_pocketed"], info["cue_pocketed"], info["events"]
 ```
 
-## 5. Included baseline: NumPy CEM
+## 5. Batched rollouts
+
+For throughput, pack many independent one-shot episodes into one native call:
+
+```python
+from billiards_gymnasium import layouts_and_shots_to_batch_arrays, simulate_shots_batch
+
+layouts = [info["balls"] for _ in range(128)]
+shots = [{"heading_degrees": 90.0, "speed_ips": 128.0, "speed_semantics": "cue_ball_launch"} for _ in layouts]
+ball_ids, ball_xs, ball_ys, shot_values = layouts_and_shots_to_batch_arrays(layouts, shots)
+out = simulate_shots_batch(ball_ids, ball_xs, ball_ys, shot_values)
+rewards = out["pocketed_mask"][:, 1].astype(float)  # one ball pocketed
+```
+
+## 6. Included baseline: NumPy CEM
 
 A dependency-light Cross-Entropy Method baseline is included:
 

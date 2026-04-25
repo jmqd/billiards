@@ -15,5 +15,6 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 billiards = { path = "../.." }
 pyo3 = { version = "0.23", features = ["abi3-py39"] }
+rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

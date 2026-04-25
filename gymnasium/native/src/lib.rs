@@ -11,9 +11,13 @@ use billiards::{
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDict};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+const ABSENT_BALL_ID: u8 = 255;
+const STANDARD_BALL_COUNT: usize = 10;
 
 #[derive(Debug, Deserialize)]
 struct SimRequest {
@@ -60,7 +64,7 @@ struct RenderBallInput {
     units: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct ShotInput {
     heading_degrees: f64,
     speed_ips: f64,
@@ -72,7 +76,7 @@ struct ShotInput {
     speed_semantics: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct SimConfig {
     #[serde(default = "default_cue_mass_ratio")]
     cue_mass_ratio: f64,
@@ -175,6 +179,23 @@ struct BallStateOutput {
     pocket: Option<String>,
 }
 
+#[derive(Debug)]
+struct BatchSimRow {
+    elapsed_seconds: f64,
+    cue_pocketed: bool,
+    nine_pocketed: bool,
+    legal_nine_pocketed: bool,
+    first_cue_contact: i16,
+    lowest_object_ball: i16,
+    first_contact_lowest_object_ball: bool,
+    event_count: i32,
+    pocketed_mask: Vec<bool>,
+    final_state: Vec<i16>,
+    final_x: Vec<f64>,
+    final_y: Vec<f64>,
+    final_pocket: Vec<i16>,
+}
+
 fn default_units() -> String {
     "inches".to_string()
 }
@@ -247,6 +268,286 @@ fn render_shot_trace_png_json_inner(request_json: &str) -> Result<Vec<u8>, Strin
     let request: RenderShotTraceRequest = serde_json::from_str(request_json)
         .map_err(|err| format!("invalid render_shot_trace request JSON: {err}"))?;
     render_shot_trace_request(request)
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    ball_ids,
+    ball_xs,
+    ball_ys,
+    shot_values,
+    speed_semantics = "cue_ball_launch",
+    cue_mass_ratio = 1.0,
+    collision_energy_loss = 0.1
+))]
+fn simulate_shots_batch<'py>(
+    py: Python<'py>,
+    ball_ids: Vec<Vec<u8>>,
+    ball_xs: Vec<Vec<f64>>,
+    ball_ys: Vec<Vec<f64>>,
+    shot_values: Vec<Vec<f64>>,
+    speed_semantics: &str,
+    cue_mass_ratio: f64,
+    collision_energy_loss: f64,
+) -> PyResult<Bound<'py, PyDict>> {
+    simulate_shots_batch_inner(
+        py,
+        ball_ids,
+        ball_xs,
+        ball_ys,
+        shot_values,
+        speed_semantics,
+        cue_mass_ratio,
+        collision_energy_loss,
+    )
+    .map_err(PyValueError::new_err)
+}
+
+fn simulate_shots_batch_inner<'py>(
+    py: Python<'py>,
+    ball_ids: Vec<Vec<u8>>,
+    ball_xs: Vec<Vec<f64>>,
+    ball_ys: Vec<Vec<f64>>,
+    shot_values: Vec<Vec<f64>>,
+    speed_semantics: &str,
+    cue_mass_ratio: f64,
+    collision_energy_loss: f64,
+) -> Result<Bound<'py, PyDict>, String> {
+    let batch_size = ball_ids.len();
+    let max_balls = ball_ids.first().map_or(0, Vec::len);
+    if max_balls == 0 && batch_size > 0 {
+        return Err("ball_ids must have at least one ball slot per row".to_string());
+    }
+    require_rectangular_u8(&ball_ids, "ball_ids", max_balls)?;
+    require_rectangular_f64(&ball_xs, "ball_xs", batch_size, max_balls)?;
+    require_rectangular_f64(&ball_ys, "ball_ys", batch_size, max_balls)?;
+    if shot_values.len() != batch_size {
+        return Err(format!(
+            "shot_values row count {} must match ball_ids batch size {batch_size}",
+            shot_values.len()
+        ));
+    }
+    let shot_cols = shot_values.first().map_or(0, Vec::len);
+    if shot_cols < 2 {
+        return Err("shot_values must have at least heading_degrees and speed_ips columns".into());
+    }
+    require_rectangular_f64(&shot_values, "shot_values", batch_size, shot_cols)?;
+
+    let config = SimConfig {
+        cue_mass_ratio,
+        collision_energy_loss,
+    };
+    let speed_semantics = speed_semantics.to_string();
+    let rows = py.allow_threads(move || {
+        (0..batch_size)
+            .into_par_iter()
+            .map(|batch_index| {
+                simulate_batch_row(
+                    batch_index,
+                    max_balls,
+                    shot_cols,
+                    &ball_ids,
+                    &ball_xs,
+                    &ball_ys,
+                    &shot_values,
+                    &speed_semantics,
+                    &config,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+    })?;
+
+    let mut elapsed_seconds = Vec::with_capacity(batch_size);
+    let mut cue_pocketed = Vec::with_capacity(batch_size);
+    let mut nine_pocketed = Vec::with_capacity(batch_size);
+    let mut legal_nine_pocketed = Vec::with_capacity(batch_size);
+    let mut first_cue_contact = Vec::with_capacity(batch_size);
+    let mut lowest_object_ball = Vec::with_capacity(batch_size);
+    let mut first_contact_lowest_object_ball = Vec::with_capacity(batch_size);
+    let mut event_count = Vec::with_capacity(batch_size);
+    let mut pocketed_mask = Vec::with_capacity(batch_size);
+    let mut final_state = Vec::with_capacity(batch_size);
+    let mut final_x = Vec::with_capacity(batch_size);
+    let mut final_y = Vec::with_capacity(batch_size);
+    let mut final_pocket = Vec::with_capacity(batch_size);
+
+    for row in rows {
+        elapsed_seconds.push(row.elapsed_seconds);
+        cue_pocketed.push(row.cue_pocketed);
+        nine_pocketed.push(row.nine_pocketed);
+        legal_nine_pocketed.push(row.legal_nine_pocketed);
+        first_cue_contact.push(row.first_cue_contact);
+        lowest_object_ball.push(row.lowest_object_ball);
+        first_contact_lowest_object_ball.push(row.first_contact_lowest_object_ball);
+        event_count.push(row.event_count);
+        pocketed_mask.push(row.pocketed_mask);
+        final_state.push(row.final_state);
+        final_x.push(row.final_x);
+        final_y.push(row.final_y);
+        final_pocket.push(row.final_pocket);
+    }
+
+    let numpy = py.import("numpy").map_err(|err| err.to_string())?;
+    let output = PyDict::new(py);
+    set_numpy_array(&output, &numpy, "elapsed_seconds", elapsed_seconds)?;
+    set_numpy_array(&output, &numpy, "cue_pocketed", cue_pocketed)?;
+    set_numpy_array(&output, &numpy, "nine_pocketed", nine_pocketed)?;
+    set_numpy_array(&output, &numpy, "legal_nine_pocketed", legal_nine_pocketed)?;
+    set_numpy_array(&output, &numpy, "first_cue_contact", first_cue_contact)?;
+    set_numpy_array(&output, &numpy, "lowest_object_ball", lowest_object_ball)?;
+    set_numpy_array(
+        &output,
+        &numpy,
+        "first_contact_lowest_object_ball",
+        first_contact_lowest_object_ball,
+    )?;
+    set_numpy_array(&output, &numpy, "event_count", event_count)?;
+    set_numpy_array(&output, &numpy, "pocketed_mask", pocketed_mask)?;
+    set_numpy_array(&output, &numpy, "final_state", final_state)?;
+    set_numpy_array(&output, &numpy, "final_x", final_x)?;
+    set_numpy_array(&output, &numpy, "final_y", final_y)?;
+    set_numpy_array(&output, &numpy, "final_pocket", final_pocket)?;
+    Ok(output)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn simulate_batch_row(
+    batch_index: usize,
+    max_balls: usize,
+    shot_cols: usize,
+    ball_ids: &[Vec<u8>],
+    ball_xs: &[Vec<f64>],
+    ball_ys: &[Vec<f64>],
+    shot_values: &[Vec<f64>],
+    speed_semantics: &str,
+    config: &SimConfig,
+) -> Result<BatchSimRow, String> {
+    let mut balls = Vec::new();
+    for ball_slot in 0..max_balls {
+        let ball_id = ball_ids[batch_index][ball_slot];
+        if ball_id == ABSENT_BALL_ID {
+            continue;
+        }
+        balls.push(BallInput {
+            ball: ball_name_from_id(ball_id)?.to_string(),
+            x: ball_xs[batch_index][ball_slot],
+            y: ball_ys[batch_index][ball_slot],
+            units: "inches".to_string(),
+        });
+    }
+
+    let shot = ShotInput {
+        heading_degrees: shot_values[batch_index][0],
+        speed_ips: shot_values[batch_index][1],
+        tip_side_r: if shot_cols > 2 {
+            shot_values[batch_index][2]
+        } else {
+            0.0
+        },
+        tip_height_r: if shot_cols > 3 {
+            shot_values[batch_index][3]
+        } else {
+            0.0
+        },
+        speed_semantics: speed_semantics.to_string(),
+    };
+    let outcome = simulate_request(SimRequest {
+        balls,
+        shot,
+        config: config.clone(),
+    })?;
+
+    let mut pocketed_mask = vec![false; STANDARD_BALL_COUNT];
+    let mut final_state = vec![0i16; STANDARD_BALL_COUNT];
+    let mut final_x = vec![f64::NAN; STANDARD_BALL_COUNT];
+    let mut final_y = vec![f64::NAN; STANDARD_BALL_COUNT];
+    let mut final_pocket = vec![-1i16; STANDARD_BALL_COUNT];
+    for ball in outcome.final_balls {
+        let ball_id = optional_ball_name_to_id(Some(&ball.ball));
+        if ball_id < 0 {
+            continue;
+        }
+        let index = ball_id as usize;
+        final_state[index] = if ball.state == "pocketed" { 2 } else { 1 };
+        final_x[index] = ball.x;
+        final_y[index] = ball.y;
+        if ball.state == "pocketed" {
+            pocketed_mask[index] = true;
+        }
+        if let Some(pocket) = ball.pocket.as_deref() {
+            final_pocket[index] = pocket_id_from_name(pocket);
+        }
+    }
+
+    Ok(BatchSimRow {
+        elapsed_seconds: outcome.elapsed_seconds,
+        cue_pocketed: outcome.cue_pocketed,
+        nine_pocketed: outcome.nine_pocketed,
+        legal_nine_pocketed: outcome.legal_nine_pocketed,
+        first_cue_contact: optional_ball_name_to_id(outcome.first_cue_contact.as_deref()),
+        lowest_object_ball: optional_ball_name_to_id(outcome.lowest_object_ball.as_deref()),
+        first_contact_lowest_object_ball: outcome.first_contact_lowest_object_ball.unwrap_or(false),
+        event_count: outcome.events.len() as i32,
+        pocketed_mask,
+        final_state,
+        final_x,
+        final_y,
+        final_pocket,
+    })
+}
+
+fn require_rectangular_u8(
+    values: &[Vec<u8>],
+    name: &str,
+    expected_cols: usize,
+) -> Result<(), String> {
+    for (row_index, row) in values.iter().enumerate() {
+        if row.len() != expected_cols {
+            return Err(format!(
+                "{name} row {row_index} has {} columns, expected {expected_cols}",
+                row.len()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn require_rectangular_f64(
+    values: &[Vec<f64>],
+    name: &str,
+    expected_rows: usize,
+    expected_cols: usize,
+) -> Result<(), String> {
+    if values.len() != expected_rows {
+        return Err(format!(
+            "{name} has {} rows, expected {expected_rows}",
+            values.len()
+        ));
+    }
+    for (row_index, row) in values.iter().enumerate() {
+        if row.len() != expected_cols {
+            return Err(format!(
+                "{name} row {row_index} has {} columns, expected {expected_cols}",
+                row.len()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn set_numpy_array<'py, T>(
+    dict: &Bound<'py, PyDict>,
+    numpy: &Bound<'py, PyAny>,
+    key: &str,
+    values: T,
+) -> Result<(), String>
+where
+    T: IntoPyObject<'py>,
+{
+    let array = numpy
+        .call_method1("array", (values,))
+        .map_err(|err| err.to_string())?;
+    dict.set_item(key, array).map_err(|err| err.to_string())
 }
 
 fn simulate_request(request: SimRequest) -> Result<SimOutcome, String> {
@@ -762,6 +1063,48 @@ fn ball_type_name(ball: &BallType) -> &'static str {
     }
 }
 
+fn ball_id(ball: &BallType) -> u8 {
+    match ball {
+        BallType::Cue => 0,
+        BallType::One => 1,
+        BallType::Two => 2,
+        BallType::Three => 3,
+        BallType::Four => 4,
+        BallType::Five => 5,
+        BallType::Six => 6,
+        BallType::Seven => 7,
+        BallType::Eight => 8,
+        BallType::Nine => 9,
+    }
+}
+
+fn ball_name_from_id(ball_id: u8) -> Result<&'static str, String> {
+    let ball_type = match ball_id {
+        0 => BallType::Cue,
+        1 => BallType::One,
+        2 => BallType::Two,
+        3 => BallType::Three,
+        4 => BallType::Four,
+        5 => BallType::Five,
+        6 => BallType::Six,
+        7 => BallType::Seven,
+        8 => BallType::Eight,
+        9 => BallType::Nine,
+        other => {
+            return Err(format!(
+                "unknown ball id {other}; expected 0..9 or {ABSENT_BALL_ID} for absent"
+            ))
+        }
+    };
+    Ok(ball_type_name(&ball_type))
+}
+
+fn optional_ball_name_to_id(name: Option<&str>) -> i16 {
+    name.and_then(|name| parse_ball_type(name).ok())
+        .map(|ball_type| ball_id(&ball_type) as i16)
+        .unwrap_or(-1)
+}
+
 fn ball_number(ball: &BallType) -> Option<u8> {
     match ball {
         BallType::Cue => None,
@@ -803,6 +1146,18 @@ fn pocket_name(pocket: Pocket) -> &'static str {
     }
 }
 
+fn pocket_id_from_name(name: &str) -> i16 {
+    match normalize_token(name).as_str() {
+        "top-right" => 0,
+        "center-right" => 1,
+        "bottom-right" => 2,
+        "bottom-left" => 3,
+        "center-left" => 4,
+        "top-left" => 5,
+        _ => -1,
+    }
+}
+
 fn rail_name(rail: Rail) -> &'static str {
     match rail {
         Rail::Top => "top",
@@ -826,6 +1181,7 @@ fn normalize_token(input: &str) -> String {
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(simulate_shot_json, m)?)?;
+    m.add_function(wrap_pyfunction!(simulate_shots_batch, m)?)?;
     m.add_function(wrap_pyfunction!(render_board_png_json, m)?)?;
     m.add_function(wrap_pyfunction!(render_shot_trace_png_json, m)?)?;
     Ok(())

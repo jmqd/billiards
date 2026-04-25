@@ -73,6 +73,20 @@ bundle = render_step_pngs(
 )
 ```
 
+For faster training rollouts, batch many layouts/actions into one native call:
+
+```python
+from billiards_gymnasium import layouts_and_shots_to_batch_arrays, simulate_shots_batch
+
+layouts = [balls] * 128
+shots = [shot] * 128
+ball_ids, ball_xs, ball_ys, shot_values = layouts_and_shots_to_batch_arrays(layouts, shots)
+batch = simulate_shots_batch(ball_ids, ball_xs, ball_ys, shot_values)
+
+print(batch["pocketed_mask"].shape)   # (128, 10), columns cue + one..nine
+print(batch["final_state"].shape)     # 0=absent, 1=on_table, 2=pocketed
+```
+
 Coordinates are table inches on the default 9ft Brunswick GC4 coordinate frame:
 `x = 0..50`, `y = 0..100`.
 

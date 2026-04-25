@@ -6,11 +6,15 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import numpy as np
+
 from . import _native
+from .spaces import BALL_INDEX, BALL_ORDER
 
 BallInput = Mapping[str, Any]
 ShotInput = Mapping[str, Any]
 PathLike = str | bytes | Path
+ABSENT_BALL_ID = 255
 
 
 def _write_optional(path: PathLike | None, data: bytes) -> None:
@@ -60,6 +64,113 @@ def simulate_shot(
     if config is not None:
         payload["config"] = dict(config)
     return json.loads(_native.simulate_shot_json(json.dumps(payload)))
+
+
+def layouts_and_shots_to_batch_arrays(
+    layouts: Sequence[Sequence[BallInput]],
+    shots: Sequence[ShotInput],
+    *,
+    max_balls: int = 10,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Pack Python layouts/shots into compact arrays for `simulate_shots_batch`.
+
+    Ball ids are `cue=0, one=1, ..., nine=9`; absent slots are `255`. `shot_values` columns are
+    `[heading_degrees, speed_ips, tip_side_r, tip_height_r]`.
+    """
+
+    if len(layouts) != len(shots):
+        raise ValueError("layouts and shots must have the same batch length")
+    if max_balls <= 0:
+        raise ValueError("max_balls must be positive")
+
+    batch_size = len(layouts)
+    ball_ids = np.full((batch_size, max_balls), ABSENT_BALL_ID, dtype=np.uint8)
+    ball_xs = np.zeros((batch_size, max_balls), dtype=np.float64)
+    ball_ys = np.zeros((batch_size, max_balls), dtype=np.float64)
+    shot_values = np.zeros((batch_size, 4), dtype=np.float64)
+
+    for batch_index, (layout, shot) in enumerate(zip(layouts, shots, strict=True)):
+        if len(layout) > max_balls:
+            raise ValueError(f"layout {batch_index} has {len(layout)} balls, max_balls={max_balls}")
+        for slot, ball in enumerate(layout):
+            name = str(ball["ball"])
+            if name not in BALL_INDEX:
+                raise ValueError(f"unknown ball name {name!r}")
+            ball_ids[batch_index, slot] = BALL_INDEX[name]
+            ball_xs[batch_index, slot] = float(ball["x"])
+            ball_ys[batch_index, slot] = float(ball["y"])
+
+        shot_values[batch_index, 0] = float(shot["heading_degrees"])
+        shot_values[batch_index, 1] = float(shot["speed_ips"])
+        shot_values[batch_index, 2] = float(shot.get("tip_side_r", 0.0))
+        shot_values[batch_index, 3] = float(shot.get("tip_height_r", 0.0))
+
+    return ball_ids, ball_xs, ball_ys, shot_values
+
+
+def simulate_shots_batch(
+    ball_ids: Any,
+    ball_xs: Any,
+    ball_ys: Any,
+    shot_values: Any,
+    *,
+    speed_semantics: str = "cue_ball_launch",
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, np.ndarray]:
+    """Simulate a batch of shots through the compact native array API.
+
+    Inputs are array-like:
+
+    - `ball_ids`: `(batch, max_balls)` uint8, using `cue=0, one=1, ..., nine=9`, `255=absent`
+    - `ball_xs`, `ball_ys`: `(batch, max_balls)` float64 table-inch coordinates
+    - `shot_values`: `(batch, 2..4)` float64 columns
+      `[heading_degrees, speed_ips, optional tip_side_r, optional tip_height_r]`
+
+    Returns a dict of NumPy arrays with batch-major flags and final states. `final_state` uses
+    `0=absent, 1=on_table, 2=pocketed`; ball columns use `billiards_gymnasium.spaces.BALL_ORDER`.
+    """
+
+    config = dict(config or {})
+    packed_ball_ids = np.ascontiguousarray(ball_ids, dtype=np.uint8)
+    packed_ball_xs = np.ascontiguousarray(ball_xs, dtype=np.float64)
+    packed_ball_ys = np.ascontiguousarray(ball_ys, dtype=np.float64)
+    packed_shot_values = np.ascontiguousarray(shot_values, dtype=np.float64)
+    return _native.simulate_shots_batch(
+        packed_ball_ids.tolist(),
+        packed_ball_xs.tolist(),
+        packed_ball_ys.tolist(),
+        packed_shot_values.tolist(),
+        speed_semantics,
+        float(config.get("cue_mass_ratio", 1.0)),
+        float(config.get("collision_energy_loss", 0.1)),
+    )
+
+
+def simulate_shots(
+    layouts: Sequence[Sequence[BallInput]],
+    shots: Sequence[ShotInput],
+    *,
+    speed_semantics: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    max_balls: int = 10,
+) -> dict[str, np.ndarray]:
+    """Convenience wrapper: pack Python layouts/shots, then call `simulate_shots_batch`."""
+
+    if speed_semantics is None:
+        speed_semantics = str(shots[0].get("speed_semantics", "cue_ball_launch")) if shots else "cue_ball_launch"
+    ball_ids, ball_xs, ball_ys, shot_values = layouts_and_shots_to_batch_arrays(
+        layouts,
+        shots,
+        max_balls=max_balls,
+    )
+    return simulate_shots_batch(
+        ball_ids,
+        ball_xs,
+        ball_ys,
+        shot_values,
+        speed_semantics=speed_semantics,
+        config=config,
+    )
 
 
 def render_board_png(

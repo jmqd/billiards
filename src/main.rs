@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pocketed,
             remaining
         );
-        trace.rendered_final_layout_with_trace_options(&scenario, &trace_render, &ball_set, &motion)
+        trace.rendered_final_layout_with_trace_options(&scenario, &trace_render)
     } else {
         scenario.game_state
     };

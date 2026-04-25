@@ -389,8 +389,6 @@ fn run_probe_case(
                 path_color_mode: billiards::visualization::PathColorMode::MotionPhase,
                 ..ScenarioTraceRenderOptions::rich_defaults()
             },
-            ball_set,
-            motion,
         );
         let image = render_state.draw_2d_diagram_with_options(&DiagramRenderOptions {
             scale_factor: args.scale_factor.max(1),

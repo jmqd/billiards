@@ -349,6 +349,8 @@ impl DslScenario {
             simulation,
             event_log,
             ball_traces,
+            ball_set: ball_set.clone(),
+            motion: motion.clone(),
         }))
     }
 
@@ -451,7 +453,7 @@ impl DslScenario {
 
         for event in &simulation.events {
             let step_time = event.time();
-            for (trace, state) in traces.iter_mut().zip(&current_states) {
+            for (ball_index, (trace, state)) in traces.iter_mut().zip(&current_states).enumerate() {
                 let Some(start) = state.as_on_table() else {
                     continue;
                 };
@@ -459,7 +461,13 @@ impl DslScenario {
                     advance_motion_on_table(start, step_time, ball_set, motion).state,
                 )
                 .expect("shot trace sub-advance should preserve on-table invariants");
-                push_visible_trace_segment(&mut trace.segments, start, &end, step_time);
+                push_visible_trace_segment(
+                    &mut trace.segments,
+                    start,
+                    &end,
+                    step_time,
+                    scenario_event_involves_ball(event, ball_index),
+                );
             }
 
             current_states = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
@@ -549,6 +557,8 @@ pub struct ScenarioShotTrace {
     pub simulation: NBallSystemSimulation,
     pub event_log: Vec<ScenarioShotTraceEvent>,
     pub ball_traces: Vec<ScenarioBallTrace>,
+    pub ball_set: BallSetPhysicsSpec,
+    pub motion: OnTableMotionConfig,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -622,8 +632,6 @@ impl ScenarioShotTrace {
         &self,
         scenario: &DslScenario,
         max_time_step: Seconds,
-        ball_set: &BallSetPhysicsSpec,
-        motion: &OnTableMotionConfig,
     ) -> GameState {
         self.rendered_final_layout_with_trace_options(
             scenario,
@@ -634,8 +642,6 @@ impl ScenarioShotTrace {
                 },
                 ..ScenarioTraceRenderOptions::default()
             },
-            ball_set,
-            motion,
         )
     }
 
@@ -643,8 +649,6 @@ impl ScenarioShotTrace {
         &self,
         scenario: &DslScenario,
         options: &ScenarioTraceRenderOptions,
-        ball_set: &BallSetPhysicsSpec,
-        motion: &OnTableMotionConfig,
     ) -> GameState {
         let mut game_state = scenario.game_state_for_system_states(&self.simulation.states);
         for ball_trace in &self.ball_traces {
@@ -672,8 +676,8 @@ impl ScenarioShotTrace {
             if let Some(path) = ball_trace.as_ball_path() {
                 game_state.add_rendered_ball_path_styled(
                     &path,
-                    ball_set,
-                    motion,
+                    &self.ball_set,
+                    &self.motion,
                     &path_render,
                     &path_style,
                 );
@@ -915,12 +919,14 @@ fn push_visible_trace_segment(
     start: &OnTableBallState,
     end: &OnTableBallState,
     duration: Seconds,
+    event_marker_at_end: bool,
 ) {
     if trace_segment_has_visible_displacement(start, end) {
         segments.push(BallPathSegment {
             start: start.clone(),
             end: end.clone(),
             duration,
+            event_marker_at_end,
         });
     }
 }
@@ -950,6 +956,35 @@ fn scenario_event_log_from_simulation(
             }
         })
         .collect()
+}
+
+fn scenario_event_involves_ball(event: &NBallSystemEvent, ball_index: usize) -> bool {
+    match event {
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            ..
+        } => *first_ball_index == ball_index || *second_ball_index == ball_index,
+        NBallSystemEvent::UnsupportedSharedBallBallContact { ball_indices, .. } => {
+            ball_indices.contains(&ball_index)
+        }
+        NBallSystemEvent::BallPocketCapture {
+            ball_index: event_ball,
+            ..
+        }
+        | NBallSystemEvent::BallRailImpact {
+            ball_index: event_ball,
+            ..
+        }
+        | NBallSystemEvent::BallJawImpact {
+            ball_index: event_ball,
+            ..
+        }
+        | NBallSystemEvent::MotionTransition {
+            ball_index: event_ball,
+            ..
+        } => *event_ball == ball_index,
+    }
 }
 
 fn scenario_event_kind_from_system_event(

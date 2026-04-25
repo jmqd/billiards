@@ -830,12 +830,8 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
         )
         .expect("expected full traced system simulation to succeed")
         .expect("scenario should contain a shot");
-    let rendered = trace.rendered_final_layout_with_traces(
-        &scenario,
-        billiards::Seconds::new(0.02),
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
-    );
+    let rendered =
+        trace.rendered_final_layout_with_traces(&scenario, billiards::Seconds::new(0.02));
     let rendered_via_default_options = trace.rendered_final_layout_with_trace_options(
         &scenario,
         &ScenarioTraceRenderOptions {
@@ -845,8 +841,6 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
             },
             ..ScenarioTraceRenderOptions::default()
         },
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
     );
     let rendered_with_rich_overlays = trace.rendered_final_layout_with_trace_options(
         &scenario,
@@ -855,8 +849,6 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
             path_color_mode: PathColorMode::FadeByTime,
             ..ScenarioTraceRenderOptions::rich_defaults()
         },
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
     );
 
     assert_eq!(

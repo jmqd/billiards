@@ -365,6 +365,40 @@ fn event_output(
             phase_before: None,
             phase_after: None,
         },
+        NBallSystemEvent::UnsupportedSharedBallBallContact {
+            ball_indices,
+            ball_ball_pairs,
+            ..
+        } => EventOutput {
+            time_seconds,
+            kind: "unsupported_shared_ball_ball_contact".to_string(),
+            ball: Some(
+                ball_indices
+                    .iter()
+                    .map(|index| ball_type_name(&ball_types[*index]))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+            first_ball: None,
+            second_ball: None,
+            pocket: None,
+            rail: None,
+            jaw: Some(
+                ball_ball_pairs
+                    .iter()
+                    .map(|(first, second)| {
+                        format!(
+                            "{}-{}",
+                            ball_type_name(&ball_types[*first]),
+                            ball_type_name(&ball_types[*second])
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+            phase_before: None,
+            phase_after: None,
+        },
         NBallSystemEvent::BallJawImpact { ball_index, impact } => EventOutput {
             time_seconds,
             kind: "ball_jaw_impact".to_string(),

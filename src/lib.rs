@@ -1406,28 +1406,6 @@ impl PocketAwareEventCache {
         cache
     }
 
-    fn shift_event_times(&mut self, elapsed: Seconds) {
-        let shift = |time: &mut Seconds| {
-            *time = Seconds::new((time.as_f64() - elapsed.as_f64()).max(0.0));
-        };
-
-        for collision in self.ball_ball.values_mut() {
-            shift(&mut collision.time_until_impact);
-        }
-        for impact in self.jaw_impacts.iter_mut().flatten() {
-            shift(&mut impact.time_until_impact);
-        }
-        for capture in self.pocket_captures.iter_mut().flatten() {
-            shift(&mut capture.time_until_capture);
-        }
-        for impact in self.rail_impacts.iter_mut().flatten() {
-            shift(&mut impact.time_until_impact);
-        }
-        for transition in self.transitions.iter_mut().flatten() {
-            shift(&mut transition.time_until_transition);
-        }
-    }
-
     fn refresh_ball(
         &mut self,
         ball_index: usize,
@@ -1486,37 +1464,11 @@ impl PocketAwareEventCache {
         }
     }
 
-    fn refresh_affected_balls(
-        &mut self,
-        event: &NBallSystemEvent,
-        states: &[NBallSystemState],
-        ball: &BallSetPhysicsSpec,
-        table: &TableSpec,
-        config: &OnTableMotionConfig,
-    ) {
-        let mut affected = match event {
-            NBallSystemEvent::BallBallCollision {
-                first_ball_index,
-                second_ball_index,
-                ..
-            } => vec![*first_ball_index, *second_ball_index],
-            NBallSystemEvent::BallJawImpact { ball_index, .. }
-            | NBallSystemEvent::BallPocketCapture { ball_index, .. }
-            | NBallSystemEvent::BallRailImpact { ball_index, .. }
-            | NBallSystemEvent::MotionTransition { ball_index, .. } => vec![*ball_index],
-        };
-        affected.sort_unstable();
-        affected.dedup();
-        for ball_index in affected {
-            self.refresh_ball(ball_index, states, ball, table, config);
-        }
-    }
-
     fn next_event(&self) -> Option<NBallSystemEvent> {
-        let mut next: Option<NBallPocketAwareSystemEventCandidate> = None;
+        let mut candidates = Vec::new();
 
         for (&(first_ball_index, second_ball_index), collision) in &self.ball_ball {
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::BallBallCollision {
                     first_ball_index,
                     second_ball_index,
@@ -1526,87 +1478,62 @@ impl PocketAwareEventCache {
                     second_ball_index,
                     collision: collision.clone(),
                 },
-            };
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
         for (ball_index, impact) in self.jaw_impacts.iter().enumerate() {
             let Some(impact) = impact else {
                 continue;
             };
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::BallJawImpact { ball_index },
                 event: NBallSystemEvent::BallJawImpact {
                     ball_index,
                     impact: impact.clone(),
                 },
-            };
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
         for (ball_index, capture) in self.pocket_captures.iter().enumerate() {
             let Some(capture) = capture else {
                 continue;
             };
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::BallPocketCapture { ball_index },
                 event: NBallSystemEvent::BallPocketCapture {
                     ball_index,
                     capture: capture.clone(),
                 },
-            };
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
         for (ball_index, impact) in self.rail_impacts.iter().enumerate() {
             let Some(impact) = impact else {
                 continue;
             };
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::BallRailImpact { ball_index },
                 event: NBallSystemEvent::BallRailImpact {
                     ball_index,
                     impact: impact.clone(),
                 },
-            };
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
         for (ball_index, transition) in self.transitions.iter().enumerate() {
             let Some(transition) = transition else {
                 continue;
             };
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::MotionTransition { ball_index },
                 event: NBallSystemEvent::MotionTransition {
                     ball_index,
                     transition: transition.clone(),
                 },
-            };
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
-        next.map(|candidate| candidate.event)
+        select_earliest_n_ball_pocket_aware_event_candidate(candidates)
     }
 }
 
@@ -1694,6 +1621,11 @@ pub enum NBallSystemEvent {
         second_ball_index: usize,
         collision: PredictedBallBallCollision,
     },
+    UnsupportedSharedBallBallContact {
+        time_until_contact: Seconds,
+        ball_indices: Vec<usize>,
+        ball_ball_pairs: Vec<(usize, usize)>,
+    },
     BallJawImpact {
         ball_index: usize,
         impact: PredictedBallJawImpact,
@@ -1716,6 +1648,9 @@ impl NBallSystemEvent {
     pub fn time(&self) -> Seconds {
         match self {
             NBallSystemEvent::BallBallCollision { collision, .. } => collision.time_until_impact,
+            NBallSystemEvent::UnsupportedSharedBallBallContact {
+                time_until_contact, ..
+            } => *time_until_contact,
             NBallSystemEvent::BallJawImpact { impact, .. } => impact.time_until_impact,
             NBallSystemEvent::BallPocketCapture { capture, .. } => capture.time_until_capture,
             NBallSystemEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
@@ -1727,7 +1662,8 @@ impl NBallSystemEvent {
 
     pub fn primary_ball(&self) -> Option<usize> {
         match self {
-            NBallSystemEvent::BallBallCollision { .. } => None,
+            NBallSystemEvent::BallBallCollision { .. }
+            | NBallSystemEvent::UnsupportedSharedBallBallContact { .. } => None,
             NBallSystemEvent::BallJawImpact { ball_index, .. }
             | NBallSystemEvent::BallPocketCapture { ball_index, .. }
             | NBallSystemEvent::BallRailImpact { ball_index, .. }
@@ -5195,6 +5131,72 @@ fn select_earliest_n_ball_event_candidate(
         .map(|candidate| candidate.event)
 }
 
+fn unsupported_shared_ball_ball_contact_from_pocket_candidates(
+    candidates: &[NBallPocketAwareSystemEventCandidate],
+) -> Option<NBallSystemEvent> {
+    let earliest_time = candidates
+        .iter()
+        .map(|candidate| candidate.event.time().as_f64())
+        .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
+    let ball_ball_pairs = candidates
+        .iter()
+        .filter_map(|candidate| match &candidate.event {
+            NBallSystemEvent::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                ..
+            } if (candidate.event.time().as_f64() - earliest_time).abs()
+                <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS =>
+            {
+                Some((*first_ball_index, *second_ball_index))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if ball_ball_pairs.len() < 2 {
+        return None;
+    }
+
+    let mut ball_indices = ball_ball_pairs
+        .iter()
+        .flat_map(|(first, second)| [*first, *second])
+        .collect::<Vec<_>>();
+    ball_indices.sort_unstable();
+    ball_indices.dedup();
+
+    if ball_indices.len() == 2 * ball_ball_pairs.len() {
+        return None;
+    }
+
+    Some(NBallSystemEvent::UnsupportedSharedBallBallContact {
+        time_until_contact: Seconds::new(earliest_time),
+        ball_indices,
+        ball_ball_pairs,
+    })
+}
+
+fn select_earliest_n_ball_pocket_aware_event_candidate(
+    candidates: Vec<NBallPocketAwareSystemEventCandidate>,
+) -> Option<NBallSystemEvent> {
+    if let Some(unsupported) =
+        unsupported_shared_ball_ball_contact_from_pocket_candidates(&candidates)
+    {
+        return Some(unsupported);
+    }
+
+    candidates
+        .into_iter()
+        .reduce(|current, candidate| {
+            if earlier_n_ball_pocket_aware_event_candidate(&candidate, &current) {
+                candidate
+            } else {
+                current
+            }
+        })
+        .map(|candidate| candidate.event)
+}
+
 fn select_earliest_n_ball_event_from_states(
     states: &[&OnTableBallState],
     ball: &BallSetPhysicsSpec,
@@ -6147,7 +6149,7 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<NBallSystemEvent> {
-    let mut next: Option<NBallPocketAwareSystemEventCandidate> = None;
+    let mut candidates = Vec::new();
 
     for first_ball_index in 0..states.len() {
         let Some(first_state) = states[first_ball_index].as_on_table() else {
@@ -6168,7 +6170,7 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
             ) else {
                 continue;
             };
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::BallBallCollision {
                     first_ball_index,
                     second_ball_index,
@@ -6178,19 +6180,13 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
                     second_ball_index,
                     collision,
                 },
-            };
-
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
         if let Some(impact) =
             compute_next_ball_jaw_impact_on_table(first_state, ball, table, config)
         {
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::BallJawImpact {
                     ball_index: first_ball_index,
                 },
@@ -6198,19 +6194,13 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
                     ball_index: first_ball_index,
                     impact,
                 },
-            };
-
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
         if let Some(capture) =
             compute_next_ball_pocket_capture_on_table(first_state, ball, table, config)
         {
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::BallPocketCapture {
                     ball_index: first_ball_index,
                 },
@@ -6218,19 +6208,13 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
                     ball_index: first_ball_index,
                     capture,
                 },
-            };
-
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
         if let Some(impact) =
             compute_next_ball_rail_impact_on_table(first_state, ball, table, config)
         {
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::BallRailImpact {
                     ball_index: first_ball_index,
                 },
@@ -6238,17 +6222,11 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
                     ball_index: first_ball_index,
                     impact,
                 },
-            };
-
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
 
         if let Some(transition) = compute_next_transition_on_table(first_state, ball, config) {
-            let candidate = NBallPocketAwareSystemEventCandidate {
+            candidates.push(NBallPocketAwareSystemEventCandidate {
                 source: NBallPocketAwareSystemEventSource::MotionTransition {
                     ball_index: first_ball_index,
                 },
@@ -6256,17 +6234,11 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
                     ball_index: first_ball_index,
                     transition,
                 },
-            };
-
-            if next.as_ref().is_none_or(|current| {
-                earlier_n_ball_pocket_aware_event_candidate(&candidate, current)
-            }) {
-                next = Some(candidate);
-            }
+            });
         }
     }
 
-    next.map(|candidate| candidate.event)
+    select_earliest_n_ball_pocket_aware_event_candidate(candidates)
 }
 
 /// Advance the richer indexed N-ball system to a supplied event and resolve that event.
@@ -6288,7 +6260,8 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
     let elapsed = event.time();
     let mut states_after = advance_n_ball_system_without_event(states, elapsed, ball, motion);
     match event {
-        NBallSystemEvent::MotionTransition { .. } => {}
+        NBallSystemEvent::MotionTransition { .. }
+        | NBallSystemEvent::UnsupportedSharedBallBallContact { .. } => {}
         NBallSystemEvent::BallBallCollision {
             first_ball_index,
             second_ball_index,
@@ -6513,15 +6486,16 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
         events.push(event.clone());
 
-        cache.shift_event_times(Seconds::new(step_elapsed));
-        if matches!(event, NBallSystemEvent::BallBallCollision { .. }) {
-            // Ball-ball event execution can batch additional disjoint same-time collisions that are
-            // not represented in the primary event. Those hidden contacts can put other balls in
-            // motion, so rebuild the whole cache after any ball-ball event.
-            cache = PocketAwareEventCache::build(&states, ball, table, motion);
-        } else {
-            cache.refresh_affected_balls(&event, &states, ball, table, motion);
+        if matches!(
+            event,
+            NBallSystemEvent::UnsupportedSharedBallBallContact { .. }
+        ) {
+            break;
         }
+
+        // Rebuild after every resolved event so cached event times and hidden simultaneous-contact
+        // side effects stay exactly aligned with manual step-and-recompute simulation.
+        cache = PocketAwareEventCache::build(&states, ball, table, motion);
     }
 
     NBallSystemSimulation {

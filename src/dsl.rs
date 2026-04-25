@@ -730,6 +730,10 @@ pub enum ScenarioShotTraceEventKind {
         first_ball: BallType,
         second_ball: BallType,
     },
+    UnsupportedSharedBallBallContact {
+        balls: Vec<BallType>,
+        ball_ball_pairs: Vec<(BallType, BallType)>,
+    },
     BallPocketCapture {
         ball: BallType,
         pocket: Pocket,
@@ -760,6 +764,26 @@ impl ScenarioShotTraceEventKind {
                 "{} -> {} collision",
                 ball_type_name(first_ball),
                 ball_type_name(second_ball)
+            ),
+            ScenarioShotTraceEventKind::UnsupportedSharedBallBallContact {
+                balls,
+                ball_ball_pairs,
+            } => format!(
+                "unsupported shared contact among [{}]: {}",
+                balls
+                    .iter()
+                    .map(ball_type_name)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                ball_ball_pairs
+                    .iter()
+                    .map(|(first, second)| format!(
+                        "{}-{}",
+                        ball_type_name(first),
+                        ball_type_name(second)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             ScenarioShotTraceEventKind::BallPocketCapture { ball, pocket } => format!(
                 "{} pocketed in {}",
@@ -940,6 +964,20 @@ fn scenario_event_kind_from_system_event(
         } => ScenarioShotTraceEventKind::BallBallCollision {
             first_ball: balls[*first_ball_index].ty.clone(),
             second_ball: balls[*second_ball_index].ty.clone(),
+        },
+        NBallSystemEvent::UnsupportedSharedBallBallContact {
+            ball_indices,
+            ball_ball_pairs,
+            ..
+        } => ScenarioShotTraceEventKind::UnsupportedSharedBallBallContact {
+            balls: ball_indices
+                .iter()
+                .map(|ball_index| balls[*ball_index].ty.clone())
+                .collect(),
+            ball_ball_pairs: ball_ball_pairs
+                .iter()
+                .map(|(first, second)| (balls[*first].ty.clone(), balls[*second].ty.clone()))
+                .collect(),
         },
         NBallSystemEvent::BallPocketCapture {
             ball_index,

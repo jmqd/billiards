@@ -21,6 +21,13 @@
           rustc = rustToolchain;
         };
 
+        pythonEnv = pkgs.python3.withPackages (ps: with ps; [
+          gymnasium
+          numpy
+          pip
+          pytest
+        ]);
+
         billiards = rustPlatform.buildRustPackage {
           pname = "billiards";
           version = "0.1.0";
@@ -38,6 +45,8 @@
             rustToolchain
             openssl
             llvmPackages.bolt
+            pythonEnv
+            maturin
 
             # Cargo checks / lints / tools
             cargo-audit
@@ -52,6 +61,10 @@
           ];
 
           shellHook = ''
+            # Prefer the flake-owned Python toolchain over user pyenv/asdf shims.
+            export PATH=${pythonEnv}/bin:${pkgs.maturin}/bin:$PATH
+            hash -r 2>/dev/null || true
+
             # Tells rust-analyzer where the stdlib sources are
             export RUST_SRC_PATH=${rustToolchain}/lib/rustlib/src/rust/library
           '';

@@ -692,20 +692,23 @@ pub enum RailModel {
     SpinAware,
 }
 
-const HUMAN_TUNED_RAIL_NORMAL_RESTITUTION: f64 = 0.70;
+const HUMAN_TUNED_RAIL_NORMAL_RESTITUTION: f64 = 0.68;
 const HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.17;
 const HUMAN_TUNED_RAIL_IMPACT_CLOTH_FRICTION_COEFFICIENT: f64 = 0.20;
 const HUMAN_TUNED_RAIL_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.04;
 
 /// Configurable coefficients for the current ball-rail response helpers.
 ///
-/// `human_tuned()` is the current default. It now follows the local rail references more closely
-/// than the earlier placeholder values by using a less lively cushion-normal restitution and a much
+/// `human_tuned()` is the current default. It follows the local rail references more closely than
+/// the earlier placeholder values by using a less lively cushion-normal restitution and a much
 /// smaller tangential friction coefficient, in line with the representative values surfaced in the
 /// local whitepaper notes:
 ///
 /// - `agent_knowledge/whitepapers_formula_candidates.txt` (`TP 7.3`) includes the worked example
 ///   `e = 0.7` and `μ = 0.17` for ball-rail interaction with vertical-plane spin.
+/// - The current effective normal restitution is tuned slightly lower (`0.68`) so the richer
+///   `SpinAware` rail model matches the adjusted TP B.6 rolling-lag speed benchmark from the
+///   second diamond.
 /// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.1, models the rail friction term
 ///   with the same `fi`-style friction-limited contact-slip structure used here.
 ///

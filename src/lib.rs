@@ -6208,10 +6208,12 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
     next.map(|candidate| candidate.event)
 }
 
-/// Advance the richer indexed N-ball system to the next supported event while also resolving rail
-/// impacts using explicit rail-response coefficients and pocket captures against the current table
-/// geometry.
-fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
+/// Advance the richer indexed N-ball system to a supplied event and resolve that event.
+///
+/// This is the execution half of the pocket-aware event scheduler. It is useful when callers have
+/// already recorded the event stream and need to replay the same state sequence exactly, without
+/// re-querying the scheduler and risking divergence from cached simultaneous-event decisions.
+pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
     states: &[NBallSystemState],
     event: &NBallSystemEvent,
     ball: &BallSetPhysicsSpec,
@@ -6451,7 +6453,14 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
         events.push(event.clone());
 
         cache.shift_event_times(Seconds::new(step_elapsed));
-        cache.refresh_affected_balls(&event, &states, ball, table, motion);
+        if matches!(event, NBallSystemEvent::BallBallCollision { .. }) {
+            // Ball-ball event execution can batch additional disjoint same-time collisions that are
+            // not represented in the primary event. Those hidden contacts can put other balls in
+            // motion, so rebuild the whole cache after any ball-ball event.
+            cache = PocketAwareEventCache::build(&states, ball, table, motion);
+        } else {
+            cache.refresh_affected_balls(&event, &states, ball, table, motion);
+        }
     }
 
     NBallSystemSimulation {

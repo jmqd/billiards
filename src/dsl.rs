@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    advance_motion_on_table, advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
+    advance_motion_on_table, resolve_n_ball_system_event_with_physics_and_pockets_on_table,
     simulate_n_balls_with_physics_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
     trace_ball_path_with_rail_profile_on_table,
     visualization::{
@@ -462,8 +462,9 @@ impl DslScenario {
                 push_visible_trace_segment(&mut trace.segments, start, &end, step_time);
             }
 
-            let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+            current_states = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
                 &current_states,
+                event,
                 ball_set,
                 &self.game_state.table_spec,
                 motion,
@@ -472,7 +473,6 @@ impl DslScenario {
                 rail_model,
                 rail_profile,
             );
-            current_states = advanced.states;
         }
 
         for (trace, final_state) in traces.iter_mut().zip(&simulation.states) {

@@ -66,6 +66,8 @@ Shot speed semantics:
 
 ## Gymnasium environments
 
+For a one-page shotmaking RL walkthrough, see [SHOTMAKING_RL_QUICKSTART.md](./SHOTMAKING_RL_QUICKSTART.md).
+
 ```python
 import gymnasium as gym
 import billiards_gymnasium

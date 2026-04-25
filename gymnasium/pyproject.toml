@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.7,<2"]
+requires = ["maturin>=1.10,<2"]
 build-backend = "maturin"
 
 [project]
@@ -7,15 +7,18 @@ name = "billiards-gymnasium"
 version = "0.1.0"
 description = "Gymnasium environments backed by the Rust billiards physics engine"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [{ name = "billiards contributors" }]
 dependencies = [
-  "gymnasium>=0.29",
-  "numpy>=1.23",
+  "gymnasium>=1.2,<2",
+  "numpy>=2,<3",
 ]
 
-[project.optional-dependencies]
-test = ["pytest>=7"]
+[dependency-groups]
+dev = [
+  "maturin>=1.10,<2",
+  "pytest>=8,<9",
+]
 
 [tool.maturin]
 manifest-path = "native/Cargo.toml"

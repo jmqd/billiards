@@ -21,12 +21,7 @@
           rustc = rustToolchain;
         };
 
-        pythonEnv = pkgs.python3.withPackages (ps: with ps; [
-          gymnasium
-          numpy
-          pip
-          pytest
-        ]);
+        python = pkgs.python313;
 
         billiards = rustPlatform.buildRustPackage {
           pname = "billiards";
@@ -45,8 +40,8 @@
             rustToolchain
             openssl
             llvmPackages.bolt
-            pythonEnv
-            maturin
+            python
+            uv
 
             # Cargo checks / lints / tools
             cargo-audit
@@ -61,8 +56,15 @@
           ];
 
           shellHook = ''
-            # Prefer the flake-owned Python toolchain over user pyenv/asdf shims.
-            export PATH=${pythonEnv}/bin:${pkgs.maturin}/bin:$PATH
+            # Keep Python dependencies owned by gymnasium/pyproject.toml + gymnasium/uv.lock.
+            export UV_PYTHON=${python}/bin/python
+            export UV_PYTHON_DOWNLOADS=never
+            export UV_PROJECT_ENVIRONMENT=$PWD/gymnasium/.venv
+            export UV_LINK_MODE=copy
+
+            # Prefer the uv-managed project venv once synced; otherwise prefer Nix Python/tools
+            # over user pyenv/asdf shims.
+            export PATH=$PWD/gymnasium/.venv/bin:${python}/bin:${pkgs.uv}/bin:$PATH
             hash -r 2>/dev/null || true
 
             # Tells rust-analyzer where the stdlib sources are

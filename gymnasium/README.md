@@ -8,17 +8,29 @@ and Python receives events, final ball states, pocketing results, and a `legal_n
 
 ## Install for local development
 
-From this directory:
+Python dependencies are owned by `pyproject.toml` and pinned in `uv.lock`. The repository flake
+provides `uv`, Rust, and a Nix-managed Python; `uv` creates the project venv at `gymnasium/.venv`.
+
+From the repository root:
 
 ```bash
-python -m pip install -U maturin
-python -m pip install -e .
+nix develop
+cd gymnasium
+uv sync --dev
+uv run pytest -q
 ```
 
-or, if you already have maturin:
+For one-off commands without entering an interactive shell:
 
 ```bash
-maturin develop
+nix develop -c bash -c 'eval "$shellHook"; cd gymnasium; uv sync --locked --dev; uv run pytest -q'
+```
+
+To build a wheel:
+
+```bash
+cd gymnasium
+uv build
 ```
 
 ## Native one-shot API

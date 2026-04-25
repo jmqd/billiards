@@ -2126,7 +2126,7 @@ fn build_shot(
     }
 
     let mut aim = None;
-    let mut speed_ips = None;
+    let mut cue_ball_launch_speed_ips = None;
     let mut tip = None;
     let mut cue_strike_name = None;
 
@@ -2160,7 +2160,7 @@ fn build_shot(
                 "cut",
             )?,
             ShotMethodExpr::SpeedIps(value) => {
-                set_once(&mut speed_ips, *value, || {
+                set_once(&mut cue_ball_launch_speed_ips, *value, || {
                     DslBuildError::DuplicateShotMethod {
                         method: "speed".to_string(),
                     }
@@ -2184,9 +2184,10 @@ fn build_shot(
     }
 
     let (aim, _) = aim.ok_or(DslBuildError::MissingShotAimMethod)?;
-    let speed_ips = speed_ips.ok_or_else(|| DslBuildError::MissingShotMethod {
-        method: "speed".to_string(),
-    })?;
+    let cue_ball_launch_speed_ips =
+        cue_ball_launch_speed_ips.ok_or_else(|| DslBuildError::MissingShotMethod {
+            method: "speed".to_string(),
+        })?;
     let (side, height) = tip.ok_or_else(|| DslBuildError::MissingShotMethod {
         method: "tip".to_string(),
     })?;
@@ -2200,10 +2201,11 @@ fn build_shot(
         .ok_or(DslBuildError::UnknownCueStrike(cue_strike_name))?;
     let tip_contact = CueTipContact::new(Scale::from_f64(side), Scale::from_f64(height))
         .map_err(DslBuildError::InvalidShot)?;
-    let shot = Shot::new(
+    let shot = Shot::new_for_cue_ball_launch_speed(
         resolve_shot_heading(aim, game_state)?,
-        InchesPerSecond::new(Inches::from_f64(speed_ips)),
+        InchesPerSecond::new(Inches::from_f64(cue_ball_launch_speed_ips)),
         tip_contact,
+        &cue_strike,
     )
     .map_err(DslBuildError::InvalidShot)?;
 

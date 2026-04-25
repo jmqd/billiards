@@ -187,10 +187,10 @@ Current v1 restriction:
 Numeric shot values use explicit units:
 
 - angles: `deg`
-- cue speed: `ips`, `mph`, or `kph`
+- cue-ball launch speed: `ips`, `mph`, or `kph`
 - cue-tip offsets: `R` (ball-radius units)
 
-In the current DSL, `.speed(...)` is cue-stick speed at impact. It also accepts Dr. Dave-style shot-speed aliases:
+In the current DSL, `.speed(...)` is the cue ball's immediate post-strike translational launch speed, before cloth drag, sliding-to-rolling transition losses, cushion losses, or collisions. It also accepts Dr. Dave-style shot-speed aliases:
 
 - `touch` = 1.5 mph = 26.4 ips
 - `slow` = 3 mph = 52.8 ips
@@ -208,8 +208,8 @@ Underscore spellings like `medium_soft` are accepted, but the canonical display 
 Examples:
 
 - `30deg`
-- `128ips`
-- `10mph`
+- `128ips` (128 ips cue-ball launch speed)
+- `10mph` (10 mph cue-ball launch speed)
 - `medium`
 - `3`
 - `0.4R`

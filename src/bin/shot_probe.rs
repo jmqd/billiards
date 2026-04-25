@@ -74,7 +74,7 @@ struct Args {
     #[arg(long)]
     output_dir: Option<PathBuf>,
 
-    /// Comma-separated cue-speed inputs in inches per second.
+    /// Comma-separated cue-ball launch-speed inputs in inches per second.
     #[arg(long, default_value = "64,80,96,112,128")]
     speeds: String,
 
@@ -546,7 +546,7 @@ fn build_probe_case(
         slug_number(requested_cut_deg)
     );
     let dsl = format!(
-        "# Generated follow/draw/stun cut-shot probe\n# style: {}\n# requested cut angle: {} deg\n# cue speed input: {} ips\n# side offset: {}R\nball cue at ({}, {})\nball one at ({}, {})\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading({}deg).speed({}ips).tip(side: {}R, height: {}R).using(default)\n",
+        "# Generated follow/draw/stun cut-shot probe\n# style: {}\n# requested cut angle: {} deg\n# cue-ball launch-speed input: {} ips\n# side offset: {}R\nball cue at ({}, {})\nball one at ({}, {})\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading({}deg).speed({}ips).tip(side: {}R, height: {}R).using(default)\n",
         style.label(),
         format_decimal(requested_cut_deg),
         format_decimal(shot_speed_ips),
@@ -631,7 +631,7 @@ fn per_case_log(
     );
     let _ = writeln!(
         out,
-        "shot_speed_input_ips: {}",
+        "shot_launch_speed_input_ips: {}",
         format_decimal(result.shot_speed_ips)
     );
     let _ = writeln!(
@@ -775,7 +775,7 @@ fn summary_csv(results: &[ProbeResult], args: &Args) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "style,side_offset_r,sliding_friction_accel_ips2,rolling_resistance_accel_ips2,spin_decay_radps2,effective_mu_s,effective_mu_r,shot_speed_ips,cue_launch_speed_ips,requested_cut_deg,actual_cut_deg,shot_heading_deg,first_collision_time_s,cue_impact_speed_ips,simulation_elapsed_s,cue_post_contact_speed_ips,cue_post_contact_heading_deg,throw_angle_deg,cue_bend_deg,cue_bend_duration_s,cue_heading_after_bend_deg,next_rail,time_to_next_rail_s,cue_rail_hits,cue_path_length_inches,object_final,cue_final,scenario_file,image_file,log_file"
+        "style,side_offset_r,sliding_friction_accel_ips2,rolling_resistance_accel_ips2,spin_decay_radps2,effective_mu_s,effective_mu_r,shot_launch_speed_input_ips,cue_launch_speed_ips,requested_cut_deg,actual_cut_deg,shot_heading_deg,first_collision_time_s,cue_impact_speed_ips,simulation_elapsed_s,cue_post_contact_speed_ips,cue_post_contact_heading_deg,throw_angle_deg,cue_bend_deg,cue_bend_duration_s,cue_heading_after_bend_deg,next_rail,time_to_next_rail_s,cue_rail_hits,cue_path_length_inches,object_final,cue_final,scenario_file,image_file,log_file"
     );
     for result in results {
         let _ = writeln!(

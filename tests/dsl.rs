@@ -168,7 +168,11 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
     assert_close(cue.position.y.magnitude.to_f64().expect("cue y"), 4.0);
     assert_eq!(shot.ball, BallType::Cue);
     assert_close(shot.shot.heading().as_degrees(), 30.0);
-    assert_close(shot.shot.cue_speed().as_f64(), 128.0);
+    assert!(
+        shot.shot.cue_speed().as_f64() > 128.0,
+        "DSL speed is cue-ball launch speed, so off-center hits require more cue-stick speed"
+    );
+    assert_close(seeded.as_ball_state().speed().as_f64(), 128.0);
     assert_close(shot.shot.tip_contact().side_offset().as_f64(), 0.0);
     assert_close(shot.shot.tip_contact().height_offset().as_f64(), 0.4);
     assert_close(shot.cue_strike.cue_mass_ratio().as_f64(), 1.0);
@@ -197,20 +201,20 @@ fn shot_speed_literals_accept_mph_and_kph() {
     .expect("expected kph shot DSL to build");
 
     assert_close(
-        mph.shot
-            .as_ref()
-            .expect("mph shot")
-            .shot
-            .cue_speed()
+        mph.strike_shot_on_table(&BallSetPhysicsSpec::default())
+            .expect("mph shot should strike")
+            .expect("mph scenario should contain a shot")
+            .as_ball_state()
+            .speed()
             .as_f64(),
         176.0,
     );
     assert_close(
-        kph.shot
-            .as_ref()
-            .expect("kph shot")
-            .shot
-            .cue_speed()
+        kph.strike_shot_on_table(&BallSetPhysicsSpec::default())
+            .expect("kph shot should strike")
+            .expect("kph scenario should contain a shot")
+            .as_ball_state()
+            .speed()
             .as_f64(),
         176.0,
     );
@@ -233,21 +237,21 @@ fn shot_speed_literals_accept_dr_dave_named_and_numbered_presets() {
 
     assert_close(
         named
-            .shot
-            .as_ref()
-            .expect("named speed shot")
-            .shot
-            .cue_speed()
+            .strike_shot_on_table(&BallSetPhysicsSpec::default())
+            .expect("named speed shot should strike")
+            .expect("named scenario should contain a shot")
+            .as_ball_state()
+            .speed()
             .as_f64(),
         ShotSpeedPreset::MediumFast.inches_per_second().as_f64(),
     );
     assert_close(
         numbered
-            .shot
-            .as_ref()
-            .expect("numbered speed shot")
-            .shot
-            .cue_speed()
+            .strike_shot_on_table(&BallSetPhysicsSpec::default())
+            .expect("numbered speed shot should strike")
+            .expect("numbered scenario should contain a shot")
+            .as_ball_state()
+            .speed()
             .as_f64(),
         ShotSpeedPreset::Fast.inches_per_second().as_f64(),
     );
@@ -449,7 +453,14 @@ fn shot_scenarios_can_report_human_speed_validation() {
         .expect("scenario should contain a shot");
 
     assert_eq!(validation.cue_speed_band, HumanShotSpeedBand::MediumFast);
-    assert_eq!(validation.cue_ball_speed_band, HumanShotSpeedBand::Medium);
+    assert_eq!(
+        validation.cue_ball_speed_band,
+        HumanShotSpeedBand::MediumFast
+    );
+    assert_close(
+        validation.estimated_cue_ball_speed_after_impact.as_f64(),
+        128.0,
+    );
     assert!(validation.is_typical_table_shot());
 }
 
@@ -680,14 +691,13 @@ fn shot_scenarios_can_use_named_simulations_defined_in_dsl() {
 fn shot_scenarios_can_apply_named_playing_conditions_from_simulation_presets() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at (2.0, 3.0)\n\
-         ball one at (2.0, 4.0)\n\
          cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
          ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
          rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)\n\
          rails(table).default(clean)\n\
          simulation(neutral_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table)\n\
          simulation(humid_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).conditions(humid_dirty)\n\
-         shot(cue).heading(0deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+         shot(cue).heading(0deg).speed(20ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
     )
     .expect("expected shot DSL to build");
     let neutral = scenario
@@ -715,18 +725,18 @@ fn shot_scenarios_can_apply_named_playing_conditions_from_simulation_presets() {
         PlayingConditions::humid_dirty()
     );
 
-    let neutral_object_y = match &neutral.states[1] {
+    let neutral_cue_y = match &neutral.states[0] {
         NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
-        other => panic!("expected object ball to remain on-table, got {other:?}"),
+        other => panic!("expected cue ball to remain on-table, got {other:?}"),
     };
-    let humid_object_y = match &humid.states[1] {
+    let humid_cue_y = match &humid.states[0] {
         NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
-        other => panic!("expected object ball to remain on-table, got {other:?}"),
+        other => panic!("expected cue ball to remain on-table, got {other:?}"),
     };
 
     assert!(
-        humid_object_y < neutral_object_y - 0.5,
-        "humid conditions should shorten the post-collision travel; got neutral y {neutral_object_y} vs humid y {humid_object_y}"
+        humid_cue_y < neutral_cue_y - 0.5,
+        "humid conditions should shorten cue-ball travel before any rail contact; got neutral y {neutral_cue_y} vs humid y {humid_cue_y}"
     );
 }
 

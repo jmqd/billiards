@@ -2431,6 +2431,23 @@ impl Shot {
         })
     }
 
+    /// Construct a shot from the desired immediate cue-ball launch speed.
+    ///
+    /// The stored `Shot` remains the lower-level cue-stick-speed input required by the current
+    /// cue-strike transfer model. This helper inverts that transfer for callers working in the
+    /// more common human-facing convention where shot speed means the cue ball's speed just after
+    /// tip contact.
+    pub fn new_for_cue_ball_launch_speed(
+        heading: Angle,
+        cue_ball_launch_speed: InchesPerSecond,
+        tip_contact: CueTipContact,
+        cue: &CueStrikeConfig,
+    ) -> Result<Self, ShotError> {
+        let cue_speed =
+            cue_speed_required_for_post_strike_speed(cue_ball_launch_speed, &tip_contact, cue)?;
+        Self::new(heading, cue_speed, tip_contact)
+    }
+
     pub fn heading(&self) -> Angle {
         self.heading
     }
@@ -2510,7 +2527,7 @@ impl HumanShotSpeedBand {
     }
 }
 
-/// Dr. Dave's named shot-speed ladder with exact representative speeds.
+/// Dr. Dave's named cue-ball shot-speed ladder with exact representative speeds.
 ///
 /// `whitepapers/tp_b_5_rolling_cb_direct_hit_hop_and_ball_travel_distances.pdf` and
 /// `whitepapers/tp_b_6_cue_ball_table_lengths_of_travel_for_different_speeds_accounting_for_rail_rebound_and_drag_losses.pdf`
@@ -2518,9 +2535,11 @@ impl HumanShotSpeedBand {
 /// and power. The break-shot entries use nearby Dr. Dave guidance that very good power breaks are
 /// typically 25--30 mph and exceptional breaks approach 35 mph.
 ///
-/// These presets are exact speed magnitudes for human-facing input and display. In the current
-/// `Shot` and DSL APIs, they are interpreted as cue-stick speed at impact; use
-/// `HumanShotSpeedBand` when classifying an arbitrary measured speed into a threshold band.
+/// These presets are exact cue-ball launch-speed magnitudes for human-facing input and display:
+/// the cue ball's translational speed immediately after cue-tip contact, before cloth drag, roll
+/// transition, cushion losses, or collisions. Programmatic `Shot` values still store cue-stick
+/// speed at impact; use `Shot::new_for_cue_ball_launch_speed(...)` when constructing a `Shot` from
+/// one of these cue-ball speed presets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShotSpeedPreset {
     Touch,
@@ -2785,14 +2804,17 @@ impl CueStrikeConfig {
     }
 }
 
-fn validate_shot_and_cue_for_strike(shot: &Shot, cue: &CueStrikeConfig) -> Result<(), ShotError> {
+fn validate_tip_contact_and_cue_for_strike(
+    tip_contact: &CueTipContact,
+    cue: &CueStrikeConfig,
+) -> Result<(), ShotError> {
     let cue_mass_ratio = cue.cue_mass_ratio.as_f64();
     let collision_energy_loss = cue.collision_energy_loss.as_f64();
-    let offset_radius = shot.tip_contact.offset_radius().as_f64();
+    let offset_radius = tip_contact.offset_radius().as_f64();
     let offset_radius_squared = offset_radius * offset_radius;
     if offset_radius > cue.miscue_offset_limit.as_f64() + 1e-12 {
         return Err(ShotError::Miscue {
-            tip_contact: shot.tip_contact.clone(),
+            tip_contact: tip_contact.clone(),
             miscue_offset_limit: cue.miscue_offset_limit.clone(),
         });
     }
@@ -2803,7 +2825,7 @@ fn validate_shot_and_cue_for_strike(shot: &Shot, cue: &CueStrikeConfig) -> Resul
         || offset_radius_squared >= automatic_split_limit_squared
     {
         return Err(ShotError::CueBallDoesNotSeparateFromCue {
-            tip_contact: shot.tip_contact.clone(),
+            tip_contact: tip_contact.clone(),
             cue_mass_ratio: cue.cue_mass_ratio.clone(),
             collision_energy_loss: cue.collision_energy_loss.clone(),
         });
@@ -2812,23 +2834,53 @@ fn validate_shot_and_cue_for_strike(shot: &Shot, cue: &CueStrikeConfig) -> Resul
     Ok(())
 }
 
+fn post_strike_speed_ratio(
+    tip_contact: &CueTipContact,
+    cue: &CueStrikeConfig,
+) -> Result<f64, ShotError> {
+    validate_tip_contact_and_cue_for_strike(tip_contact, cue)?;
+
+    let cue_mass_ratio = cue.cue_mass_ratio.as_f64();
+    let collision_energy_loss = cue.collision_energy_loss.as_f64();
+    let offset_radius_squared = tip_contact.offset_radius().as_f64().powi(2);
+    let k2 = 1.0 + 2.5 * offset_radius_squared;
+
+    Ok(
+        (1.0 + (1.0 - collision_energy_loss - collision_energy_loss * k2 * cue_mass_ratio).sqrt())
+            / (k2 + 1.0 / cue_mass_ratio),
+    )
+}
+
 fn compute_post_strike_speed(
     shot: &Shot,
     cue: &CueStrikeConfig,
 ) -> Result<InchesPerSecond, ShotError> {
-    validate_shot_and_cue_for_strike(shot, cue)?;
-
-    let cue_mass_ratio = cue.cue_mass_ratio.as_f64();
-    let collision_energy_loss = cue.collision_energy_loss.as_f64();
-    let offset_radius_squared = shot.tip_contact.offset_radius().as_f64().powi(2);
-    let k2 = 1.0 + 2.5 * offset_radius_squared;
-    let cue_speed = shot.cue_speed.as_f64();
-    let post_strike_speed = cue_speed
-        * (1.0
-            + (1.0 - collision_energy_loss - collision_energy_loss * k2 * cue_mass_ratio).sqrt())
-        / (k2 + 1.0 / cue_mass_ratio);
+    let post_strike_speed =
+        shot.cue_speed.as_f64() * post_strike_speed_ratio(&shot.tip_contact, cue)?;
 
     Ok(InchesPerSecond::new(Inches::from_f64(post_strike_speed)))
+}
+
+/// Convert a desired immediate cue-ball launch speed into the cue-stick speed required by the
+/// current cue-strike transfer model.
+///
+/// This is useful at human-facing API seams because Dr. Dave-style shot-speed references describe
+/// cue-ball speed just after tip contact, while the lower-level `Shot` model stores cue-stick speed
+/// at impact.
+pub fn cue_speed_required_for_post_strike_speed(
+    cue_ball_launch_speed: InchesPerSecond,
+    tip_contact: &CueTipContact,
+    cue: &CueStrikeConfig,
+) -> Result<InchesPerSecond, ShotError> {
+    if cue_ball_launch_speed.as_f64() < 0.0 {
+        return Err(ShotError::NegativeCueSpeed {
+            cue_speed: cue_ball_launch_speed,
+        });
+    }
+
+    Ok(InchesPerSecond::new(Inches::from_f64(
+        cue_ball_launch_speed.as_f64() / post_strike_speed_ratio(tip_contact, cue)?,
+    )))
 }
 
 /// Validate a shot's raw cue speed and estimated cue-ball launch speed against human-play ranges.

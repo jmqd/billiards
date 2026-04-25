@@ -46,9 +46,10 @@ simulation(human_pinball).collision_model(throw_aware).ball_ball(human).rail_mod
 shot(cue).heading(90deg).speed(medium).tip(side: 0.0R, height: 0.0R).using(default)
 ```
 
-`.speed(...)` is cue-stick speed at impact. It accepts explicit units (`128ips`, `10mph`, `16.09344kph`)
-or Dr. Dave-style aliases: `touch`, `slow`, `medium-soft`, `medium`, `medium-fast`, `fast`,
-`power`, plus break-speed aliases. Numbered stroke aliases `0`..`4` map to touch/slow/medium/fast/power.
+`.speed(...)` is the cue ball's immediate post-strike launch speed, before cloth drag, roll-transition
+losses, cushion losses, or collisions. It accepts explicit units (`128ips`, `10mph`, `16.09344kph`) or
+Dr. Dave-style aliases: `touch`, `slow`, `medium-soft`, `medium`, `medium-fast`, `fast`, `power`, plus
+break-speed aliases. Numbered stroke aliases `0`..`4` map to touch/slow/medium/fast/power.
 
 Main knobs:
 

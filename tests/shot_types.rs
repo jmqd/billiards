@@ -95,6 +95,31 @@ fn shot_accepts_nonnegative_cue_speed_and_preserves_inputs() {
 }
 
 #[test]
+fn shot_can_be_constructed_from_a_cue_ball_launch_speed() {
+    let cue = CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.1))
+        .expect("cue config should validate");
+    let shot = Shot::new_for_cue_ball_launch_speed(
+        billiards::Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("128"),
+        CueTipContact::center(),
+        &cue,
+    )
+    .expect("launch-speed shot should validate");
+
+    assert_close(
+        shot.cue_speed().as_f64(),
+        128.0 / ((1.0 + 0.8_f64.sqrt()) / 2.0),
+    );
+    assert_close(
+        shot.human_speed_validation(&cue)
+            .expect("human speed validation should succeed")
+            .estimated_cue_ball_speed_after_impact
+            .as_f64(),
+        128.0,
+    );
+}
+
+#[test]
 fn shot_rejects_negative_cue_speed() {
     let error = Shot::new(
         billiards::Angle::from_north(1.0, 0.0),

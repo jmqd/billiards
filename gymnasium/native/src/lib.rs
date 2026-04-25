@@ -1,14 +1,19 @@
+use billiards::dsl::{BallRef, DslScenario, ScenarioShot, ScenarioTraceRenderOptions};
+use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     human_tuned_preview_motion_config,
     simulate_n_balls_with_physics_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
     Angle, Ball, BallBallCollisionConfig, BallSetPhysicsSpec, BallSpec, BallState, BallType,
-    CollisionModel, CueStrikeConfig, CueTipContact, Inches, InchesPerSecond, NBallSystemEvent,
-    NBallSystemSimulation, NBallSystemState, Pocket, Position, Rail, RailCollisionProfile,
-    RailModel, RestingOnTableBallState, Scale, Shot, TableSpec,
+    CollisionModel, CueStrikeConfig, CueTipContact, DiagramBackground, DiagramRenderOptions,
+    GameState, Inches, InchesPerSecond, NBallSystemEvent, NBallSystemSimulation,
+    NBallSystemState, OnTableBallState, Pocket, Position, Rail, RailCollisionProfile, RailModel,
+    RestingOnTableBallState, Scale, Seconds, Shot, TableSpec,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 struct SimRequest {
@@ -19,10 +24,38 @@ struct SimRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct RenderBoardRequest {
+    balls: Vec<RenderBallInput>,
+    #[serde(default)]
+    render: RenderOptionsInput,
+}
+
+#[derive(Debug, Deserialize)]
+struct RenderShotTraceRequest {
+    balls: Vec<BallInput>,
+    shot: ShotInput,
+    #[serde(default)]
+    config: SimConfig,
+    #[serde(default)]
+    render: RenderOptionsInput,
+}
+
+#[derive(Debug, Deserialize)]
 struct BallInput {
     ball: String,
     x: f64,
     y: f64,
+    #[serde(default = "default_units")]
+    units: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RenderBallInput {
+    ball: String,
+    x: f64,
+    y: f64,
+    #[serde(default)]
+    state: Option<String>,
     #[serde(default = "default_units")]
     units: String,
 }
@@ -52,6 +85,38 @@ impl Default for SimConfig {
         Self {
             cue_mass_ratio: default_cue_mass_ratio(),
             collision_energy_loss: default_collision_energy_loss(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RenderOptionsInput {
+    #[serde(default = "default_scale_factor")]
+    scale_factor: u32,
+    #[serde(default)]
+    transparent_background: bool,
+    #[serde(default = "default_trace_sample_step_seconds")]
+    trace_sample_step_seconds: f64,
+    #[serde(default = "default_trace_color_mode")]
+    trace_color_mode: String,
+    #[serde(default = "default_true")]
+    start_ghosts: bool,
+    #[serde(default = "default_true")]
+    event_markers: bool,
+    #[serde(default)]
+    labels: bool,
+}
+
+impl Default for RenderOptionsInput {
+    fn default() -> Self {
+        Self {
+            scale_factor: default_scale_factor(),
+            transparent_background: false,
+            trace_sample_step_seconds: default_trace_sample_step_seconds(),
+            trace_color_mode: default_trace_color_mode(),
+            start_ghosts: true,
+            event_markers: true,
+            labels: false,
         }
     }
 }
@@ -126,6 +191,22 @@ fn default_collision_energy_loss() -> f64 {
     0.1
 }
 
+fn default_scale_factor() -> u32 {
+    1
+}
+
+fn default_trace_sample_step_seconds() -> f64 {
+    0.02
+}
+
+fn default_trace_color_mode() -> String {
+    "motion_phase".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[pyfunction]
 fn simulate_shot_json(request_json: &str) -> PyResult<String> {
     simulate_shot_json_inner(request_json).map_err(PyValueError::new_err)
@@ -138,6 +219,36 @@ fn simulate_shot_json_inner(request_json: &str) -> Result<String, String> {
     serde_json::to_string(&outcome).map_err(|err| format!("failed to encode outcome JSON: {err}"))
 }
 
+#[pyfunction]
+fn render_board_png_json<'py>(
+    py: Python<'py>,
+    request_json: &str,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let png = render_board_png_json_inner(request_json).map_err(PyValueError::new_err)?;
+    Ok(PyBytes::new(py, &png))
+}
+
+fn render_board_png_json_inner(request_json: &str) -> Result<Vec<u8>, String> {
+    let request: RenderBoardRequest = serde_json::from_str(request_json)
+        .map_err(|err| format!("invalid render_board request JSON: {err}"))?;
+    render_board_request(request)
+}
+
+#[pyfunction]
+fn render_shot_trace_png_json<'py>(
+    py: Python<'py>,
+    request_json: &str,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let png = render_shot_trace_png_json_inner(request_json).map_err(PyValueError::new_err)?;
+    Ok(PyBytes::new(py, &png))
+}
+
+fn render_shot_trace_png_json_inner(request_json: &str) -> Result<Vec<u8>, String> {
+    let request: RenderShotTraceRequest = serde_json::from_str(request_json)
+        .map_err(|err| format!("invalid render_shot_trace request JSON: {err}"))?;
+    render_shot_trace_request(request)
+}
+
 fn simulate_request(request: SimRequest) -> Result<SimOutcome, String> {
     if request.balls.is_empty() {
         return Err("at least one ball is required".to_string());
@@ -145,88 +256,10 @@ fn simulate_request(request: SimRequest) -> Result<SimOutcome, String> {
 
     let table = TableSpec::brunswick_gc4_9ft();
     let ball_set = BallSetPhysicsSpec::default();
-    let cue_strike = CueStrikeConfig::new(
-        Scale::from_f64(request.config.cue_mass_ratio),
-        Scale::from_f64(request.config.collision_energy_loss),
-    )
-    .map_err(|err| format!("invalid cue strike config: {err:?}"))?;
-    let tip_contact = CueTipContact::new(
-        Scale::from_f64(request.shot.tip_side_r),
-        Scale::from_f64(request.shot.tip_height_r),
-    )
-    .map_err(|err| format!("invalid cue-tip contact: {err:?}"))?;
-    let shot_speed = InchesPerSecond::new(Inches::from_f64(request.shot.speed_ips));
-    let shot = match normalize_token(&request.shot.speed_semantics).as_str() {
-        "cue-stick-at-impact" | "cue-stick" | "stick" => Shot::new(
-            angle_from_degrees(request.shot.heading_degrees),
-            shot_speed,
-            tip_contact,
-        ),
-        "cue-ball-launch" | "cue-ball" | "launch" => Shot::new_for_cue_ball_launch_speed(
-            angle_from_degrees(request.shot.heading_degrees),
-            shot_speed,
-            tip_contact,
-            &cue_strike,
-        ),
-        other => {
-            return Err(format!(
-                "unknown speed_semantics '{other}'; expected cue_stick_at_impact or cue_ball_launch"
-            ))
-        }
-    }
-    .map_err(|err| format!("invalid shot: {err:?}"))?;
-
-    let mut balls = Vec::with_capacity(request.balls.len());
-    let mut ball_types = Vec::with_capacity(request.balls.len());
-    let mut cue_indices = Vec::new();
-    for (index, input) in request.balls.iter().enumerate() {
-        if normalize_token(&input.units) != "inches" {
-            return Err(format!(
-                "unsupported units '{}' for ball '{}'; only inches are supported",
-                input.units, input.ball
-            ));
-        }
-        let ball_type = parse_ball_type(&input.ball)?;
-        if ball_type == BallType::Cue {
-            cue_indices.push(index);
-        }
-        let position = position_from_inches(&table, input.x, input.y);
-        balls.push(Ball {
-            ty: ball_type.clone(),
-            position,
-            spec: BallSpec::default(),
-        });
-        ball_types.push(ball_type);
-    }
-
-    let cue_index = match cue_indices.as_slice() {
-        [index] => *index,
-        [] => return Err("exactly one cue ball is required, but none were supplied".to_string()),
-        _ => {
-            return Err("exactly one cue ball is required, but multiple were supplied".to_string())
-        }
-    };
-
-    let mut states = Vec::with_capacity(balls.len());
-    for (index, ball) in balls.iter().enumerate() {
-        let resting = RestingOnTableBallState::try_from(BallState::resting_at_position(
-            &ball.position,
-            &table,
-        ))
-        .map_err(|err| {
-            format!(
-                "ball '{}' is not a resting on-table state: {err:?}",
-                ball_type_name(&ball.ty)
-            )
-        })?;
-        let state = if index == cue_index {
-            strike_resting_ball_on_table(&resting, &shot, &cue_strike, &ball_set)
-                .map_err(|err| format!("failed to strike cue ball: {err:?}"))?
-        } else {
-            resting.into_on_table_ball_state()
-        };
-        states.push(state);
-    }
+    let cue_strike = cue_strike_from_config(&request.config)?;
+    let shot = shot_from_input(&request.shot, &cue_strike)?;
+    let (balls, ball_types, cue_index) = parse_initial_balls(&request.balls, &table)?;
+    let states = initial_states_from_balls(&balls, cue_index, &shot, &cue_strike, &ball_set, &table)?;
 
     let motion = human_tuned_preview_motion_config();
     let collision_config = BallBallCollisionConfig::human_tuned();
@@ -248,6 +281,236 @@ fn simulate_request(request: SimRequest) -> Result<SimOutcome, String> {
         cue_index,
         &table,
     ))
+}
+
+fn cue_strike_from_config(config: &SimConfig) -> Result<CueStrikeConfig, String> {
+    CueStrikeConfig::new(
+        Scale::from_f64(config.cue_mass_ratio),
+        Scale::from_f64(config.collision_energy_loss),
+    )
+    .map_err(|err| format!("invalid cue strike config: {err:?}"))
+}
+
+fn shot_from_input(input: &ShotInput, cue_strike: &CueStrikeConfig) -> Result<Shot, String> {
+    let tip_contact = CueTipContact::new(
+        Scale::from_f64(input.tip_side_r),
+        Scale::from_f64(input.tip_height_r),
+    )
+    .map_err(|err| format!("invalid cue-tip contact: {err:?}"))?;
+    let shot_speed = InchesPerSecond::new(Inches::from_f64(input.speed_ips));
+    match normalize_token(&input.speed_semantics).as_str() {
+        "cue-stick-at-impact" | "cue-stick" | "stick" => Shot::new(
+            angle_from_degrees(input.heading_degrees),
+            shot_speed,
+            tip_contact,
+        ),
+        "cue-ball-launch" | "cue-ball" | "launch" => Shot::new_for_cue_ball_launch_speed(
+            angle_from_degrees(input.heading_degrees),
+            shot_speed,
+            tip_contact,
+            cue_strike,
+        ),
+        other => {
+            return Err(format!(
+                "unknown speed_semantics '{other}'; expected cue_stick_at_impact or cue_ball_launch"
+            ))
+        }
+    }
+    .map_err(|err| format!("invalid shot: {err:?}"))
+}
+
+fn parse_initial_balls(
+    inputs: &[BallInput],
+    table: &TableSpec,
+) -> Result<(Vec<Ball>, Vec<BallType>, usize), String> {
+    let mut balls = Vec::with_capacity(inputs.len());
+    let mut ball_types = Vec::with_capacity(inputs.len());
+    let mut cue_indices = Vec::new();
+    for (index, input) in inputs.iter().enumerate() {
+        if normalize_token(&input.units) != "inches" {
+            return Err(format!(
+                "unsupported units '{}' for ball '{}'; only inches are supported",
+                input.units, input.ball
+            ));
+        }
+        let ball_type = parse_ball_type(&input.ball)?;
+        if ball_type == BallType::Cue {
+            cue_indices.push(index);
+        }
+        let position = position_from_inches(table, input.x, input.y);
+        balls.push(Ball {
+            ty: ball_type.clone(),
+            position,
+            spec: BallSpec::default(),
+        });
+        ball_types.push(ball_type);
+    }
+
+    let cue_index = match cue_indices.as_slice() {
+        [index] => *index,
+        [] => return Err("exactly one cue ball is required, but none were supplied".to_string()),
+        _ => {
+            return Err("exactly one cue ball is required, but multiple were supplied".to_string())
+        }
+    };
+
+    Ok((balls, ball_types, cue_index))
+}
+
+fn initial_states_from_balls(
+    balls: &[Ball],
+    cue_index: usize,
+    shot: &Shot,
+    cue_strike: &CueStrikeConfig,
+    ball_set: &BallSetPhysicsSpec,
+    table: &TableSpec,
+) -> Result<Vec<OnTableBallState>, String> {
+    let mut states = Vec::with_capacity(balls.len());
+    for (index, ball) in balls.iter().enumerate() {
+        let resting = RestingOnTableBallState::try_from(BallState::resting_at_position(
+            &ball.position,
+            table,
+        ))
+        .map_err(|err| {
+            format!(
+                "ball '{}' is not a resting on-table state: {err:?}",
+                ball_type_name(&ball.ty)
+            )
+        })?;
+        let state = if index == cue_index {
+            strike_resting_ball_on_table(&resting, shot, cue_strike, ball_set)
+                .map_err(|err| format!("failed to strike cue ball: {err:?}"))?
+        } else {
+            resting.into_on_table_ball_state()
+        };
+        states.push(state);
+    }
+    Ok(states)
+}
+
+fn render_board_request(request: RenderBoardRequest) -> Result<Vec<u8>, String> {
+    let table = TableSpec::brunswick_gc4_9ft();
+    let balls = parse_render_balls(&request.balls, &table)?;
+    let game_state = GameState::with_balls(table, balls);
+    Ok(game_state.draw_2d_diagram_with_options(&diagram_render_options(&request.render)))
+}
+
+fn render_shot_trace_request(request: RenderShotTraceRequest) -> Result<Vec<u8>, String> {
+    if request.balls.is_empty() {
+        return Err("at least one ball is required".to_string());
+    }
+
+    let table = TableSpec::brunswick_gc4_9ft();
+    let ball_set = BallSetPhysicsSpec::default();
+    let cue_strike = cue_strike_from_config(&request.config)?;
+    let shot = shot_from_input(&request.shot, &cue_strike)?;
+    let (balls, _, _) = parse_initial_balls(&request.balls, &table)?;
+    let mut scenario = DslScenario {
+        game_state: GameState::with_balls(table, balls),
+        shot: Some(ScenarioShot {
+            ball_ref: BallRef::Cue,
+            ball: BallType::Cue,
+            shot,
+            cue_strike,
+        }),
+        ball_ball_configs: HashMap::new(),
+        rail_responses: HashMap::new(),
+        rail_profiles: HashMap::new(),
+        simulations: HashMap::new(),
+    };
+    scenario.game_state.resolve_positions();
+
+    let motion = human_tuned_preview_motion_config();
+    let collision_config = BallBallCollisionConfig::human_tuned();
+    let rail_profile = RailCollisionProfile::default();
+    let trace = scenario
+        .simulate_shot_trace_with_physics_on_table_until_rest(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            &collision_config,
+            RailModel::SpinAware,
+            &rail_profile,
+        )
+        .map_err(|err| format!("failed to simulate shot trace: {err:?}"))?
+        .ok_or_else(|| "shot trace request did not include a shot".to_string())?;
+    let render_state = trace.rendered_final_layout_with_trace_options(
+        &scenario,
+        &scenario_trace_render_options(&request.render)?,
+    );
+    Ok(render_state.draw_2d_diagram_with_options(&diagram_render_options(&request.render)))
+}
+
+fn parse_render_balls(inputs: &[RenderBallInput], table: &TableSpec) -> Result<Vec<Ball>, String> {
+    let mut balls = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        if normalize_token(&input.units) != "inches" {
+            return Err(format!(
+                "unsupported units '{}' for ball '{}'; only inches are supported",
+                input.units, input.ball
+            ));
+        }
+        let state = input
+            .state
+            .as_deref()
+            .map(normalize_token)
+            .unwrap_or_else(|| "on-table".to_string());
+        if matches!(state.as_str(), "pocketed" | "off-table") {
+            continue;
+        }
+        if !matches!(state.as_str(), "on-table" | "resting") {
+            return Err(format!(
+                "unsupported render state '{}' for ball '{}'; expected on_table or pocketed",
+                state, input.ball
+            ));
+        }
+        balls.push(Ball {
+            ty: parse_ball_type(&input.ball)?,
+            position: position_from_inches(table, input.x, input.y),
+            spec: BallSpec::default(),
+        });
+    }
+    Ok(balls)
+}
+
+fn diagram_render_options(input: &RenderOptionsInput) -> DiagramRenderOptions {
+    DiagramRenderOptions {
+        scale_factor: input.scale_factor.max(1),
+        background: if input.transparent_background {
+            DiagramBackground::Transparent
+        } else {
+            DiagramBackground::Table
+        },
+    }
+}
+
+fn scenario_trace_render_options(
+    input: &RenderOptionsInput,
+) -> Result<ScenarioTraceRenderOptions, String> {
+    if !input.trace_sample_step_seconds.is_finite() || input.trace_sample_step_seconds <= 0.0 {
+        return Err("trace_sample_step_seconds must be positive and finite".to_string());
+    }
+    Ok(ScenarioTraceRenderOptions {
+        path_render: BallPathRenderOptions {
+            max_time_step: Seconds::new(input.trace_sample_step_seconds),
+            ..BallPathRenderOptions::default()
+        },
+        start_ghost_balls: input.start_ghosts,
+        event_markers: input.event_markers,
+        labels: input.labels,
+        path_color_mode: parse_path_color_mode(&input.trace_color_mode)?,
+    })
+}
+
+fn parse_path_color_mode(input: &str) -> Result<PathColorMode, String> {
+    match normalize_token(input).as_str() {
+        "solid" => Ok(PathColorMode::Solid),
+        "fade-by-time" | "fade" | "time" => Ok(PathColorMode::FadeByTime),
+        "motion-phase" | "phase" => Ok(PathColorMode::MotionPhase),
+        other => Err(format!(
+            "unknown trace_color_mode '{other}'; expected solid, fade_by_time, or motion_phase"
+        )),
+    }
 }
 
 fn outcome_from_simulation(
@@ -563,6 +826,8 @@ fn normalize_token(input: &str) -> String {
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(simulate_shot_json, m)?)?;
+    m.add_function(wrap_pyfunction!(render_board_png_json, m)?)?;
+    m.add_function(wrap_pyfunction!(render_shot_trace_png_json, m)?)?;
     Ok(())
 }
 
@@ -570,6 +835,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
     #[test]
     fn straight_combo_reports_legal_nine_pocket() {
@@ -605,5 +872,39 @@ mod tests {
                     && event["first_ball"] == "cue"
                     && event["second_ball"] == "one"
             }));
+    }
+
+    #[test]
+    fn board_renderer_returns_png_and_skips_pocketed_final_balls() {
+        let request = json!({
+            "balls": [
+                {"ball": "cue", "state": "on_table", "x": 10.0, "y": 50.0},
+                {"ball": "one", "state": "pocketed", "x": 25.0, "y": 50.0}
+            ],
+            "render": {"scale_factor": 1}
+        });
+
+        let png = render_board_png_json_inner(&request.to_string()).expect("board should render");
+        assert!(png.starts_with(PNG_SIGNATURE));
+    }
+
+    #[test]
+    fn shot_trace_renderer_returns_png() {
+        let request = json!({
+            "balls": [
+                {"ball": "cue", "x": 10.0, "y": 50.0},
+                {"ball": "one", "x": 25.0, "y": 50.0}
+            ],
+            "shot": {
+                "heading_degrees": 90.0,
+                "speed_ips": 128.0,
+                "speed_semantics": "cue_ball_launch"
+            },
+            "render": {"trace_color_mode": "motion_phase", "event_markers": true}
+        });
+
+        let png =
+            render_shot_trace_png_json_inner(&request.to_string()).expect("trace should render");
+        assert!(png.starts_with(PNG_SIGNATURE));
     }
 }

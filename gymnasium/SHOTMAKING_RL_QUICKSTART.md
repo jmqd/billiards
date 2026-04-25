@@ -51,6 +51,17 @@ print(info["pocketed"])            # list of pocketed balls
 print(info["events"][:3])          # collision/rail/pocket event trace for debugging
 ```
 
+To write visual debug PNGs from the same env:
+
+```python
+obs, info = env.reset(seed=1)
+action = np.array([0.25, 0.50], dtype=np.float32)
+env.render_before_png("before.png")          # board before the step
+env.render_action_png(action, "action.png")  # simulated trace/markers for this action
+env.step(action)
+env.render_after_png("after.png")            # board after the step
+```
+
 Coordinate frame: table inches on the default 9ft table, roughly `x=0..50`, `y=0..100`.
 Shot speed defaults to cue-ball launch speed in inches/sec, interpolated from `min_speed_ips` to
 `max_speed_ips` by `speed_norm`.

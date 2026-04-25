@@ -8,7 +8,12 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from .core import simulate_shot
+from .core import (
+    render_board_png,
+    render_shot_trace_png,
+    render_step_pngs as _render_step_pngs,
+    simulate_shot,
+)
 from .layouts import normalize_layout
 from .spaces import ball_matrix_observation
 
@@ -44,7 +49,66 @@ def _ball_pocketed(outcome: dict[str, Any], ball: str) -> bool:
     return any(pocketed["ball"] == ball for pocketed in outcome.get("pocketed", []))
 
 
-class BilliardsNineBallEnv(gym.Env):
+class _ShotRenderMixin:
+    """PNG helpers shared by one-shot billiards envs."""
+
+    def render_before_png(self, path=None, **render_options) -> bytes:
+        """Render the reset layout to PNG bytes, optionally writing `path`."""
+
+        return render_board_png(self._initial_balls, path=path, **render_options)
+
+    def render_after_png(self, path=None, **render_options) -> bytes:
+        """Render the latest post-step layout to PNG bytes."""
+
+        if self._last_outcome is None:
+            raise ValueError("step must be called before render_after_png")
+        return render_board_png(self._last_outcome["final_balls"], path=path, **render_options)
+
+    def render_action_png(self, action=None, path=None, **render_options) -> bytes:
+        """Render an action trace PNG.
+
+        Pass `action` to render a proposed action without stepping. After `step`, omit `action` to
+        render the latest action.
+        """
+
+        shot = self._shot_for_render(action)
+        return render_shot_trace_png(self._initial_balls, shot, path=path, **render_options)
+
+    def render_step_pngs(
+        self,
+        action=None,
+        *,
+        before_path=None,
+        after_path=None,
+        action_path=None,
+        **render_options,
+    ) -> dict[str, Any]:
+        """Render before/after/action PNGs for `action` or the latest stepped action."""
+
+        shot = self._shot_for_render(action)
+        return _render_step_pngs(
+            self._initial_balls,
+            shot,
+            before_path=before_path,
+            after_path=after_path,
+            action_path=action_path,
+            **render_options,
+        )
+
+    def _shot_for_render(self, action) -> dict[str, float | str]:
+        if action is None:
+            if self._last_shot is None:
+                raise ValueError("pass an action or call step before rendering an action trace")
+            return dict(self._last_shot)
+        return _action_to_shot(
+            _normalized_heading_speed_action(action),
+            min_speed_ips=self.min_speed_ips,
+            max_speed_ips=self.max_speed_ips,
+            speed_semantics=self.speed_semantics,
+        )
+
+
+class BilliardsNineBallEnv(_ShotRenderMixin, gym.Env):
     """One-shot nine-ball task.
 
     The MVP episode is a single cue shot. `step(action)` simulates to rest, returns terminal=True,
@@ -94,26 +158,27 @@ class BilliardsNineBallEnv(gym.Env):
         self._initial_balls: list[dict[str, Any]] = []
         self._last_observation = np.zeros((10, 4), dtype=np.float32)
         self._last_outcome: dict[str, Any] | None = None
+        self._last_shot: dict[str, float | str] | None = None
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         super().reset(seed=seed)
         layout = options.get("balls") if options and "balls" in options else self.layout
         self._initial_balls = normalize_layout(layout, rng=self.np_random)
         self._last_outcome = None
+        self._last_shot = None
         self._last_observation = ball_matrix_observation(self._initial_balls)
         return self._last_observation.copy(), {}
 
     def step(self, action):
         action = _normalized_heading_speed_action(action)
-        outcome = simulate_shot(
-            self._initial_balls,
-            _action_to_shot(
-                action,
-                min_speed_ips=self.min_speed_ips,
-                max_speed_ips=self.max_speed_ips,
-                speed_semantics=self.speed_semantics,
-            ),
+        shot = _action_to_shot(
+            action,
+            min_speed_ips=self.min_speed_ips,
+            max_speed_ips=self.max_speed_ips,
+            speed_semantics=self.speed_semantics,
         )
+        outcome = simulate_shot(self._initial_balls, shot)
+        self._last_shot = shot
         self._last_outcome = outcome
         self._last_observation = ball_matrix_observation(outcome["final_balls"])
 
@@ -137,7 +202,7 @@ class BilliardsNineBallEnv(gym.Env):
         return None
 
 
-class BilliardsPocketBallEnv(gym.Env):
+class BilliardsPocketBallEnv(_ShotRenderMixin, gym.Env):
     """One-shot object-ball pocketing task with pure heading/speed control.
 
     The action is deliberately the low-level table heading rather than an aim-helper or cut angle:
@@ -192,6 +257,7 @@ class BilliardsPocketBallEnv(gym.Env):
         self._initial_balls: list[dict[str, Any]] = []
         self._last_observation = np.zeros((10, 4), dtype=np.float32)
         self._last_outcome: dict[str, Any] | None = None
+        self._last_shot: dict[str, float | str] | None = None
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         super().reset(seed=seed)
@@ -202,20 +268,20 @@ class BilliardsPocketBallEnv(gym.Env):
             target_ball=self.target_ball,
         )
         self._last_outcome = None
+        self._last_shot = None
         self._last_observation = ball_matrix_observation(self._initial_balls)
         return self._last_observation.copy(), {"balls": [dict(ball) for ball in self._initial_balls]}
 
     def step(self, action):
         action = _normalized_heading_speed_action(action)
-        outcome = simulate_shot(
-            self._initial_balls,
-            _action_to_shot(
-                action,
-                min_speed_ips=self.min_speed_ips,
-                max_speed_ips=self.max_speed_ips,
-                speed_semantics=self.speed_semantics,
-            ),
+        shot = _action_to_shot(
+            action,
+            min_speed_ips=self.min_speed_ips,
+            max_speed_ips=self.max_speed_ips,
+            speed_semantics=self.speed_semantics,
         )
+        outcome = simulate_shot(self._initial_balls, shot)
+        self._last_shot = shot
         self._last_outcome = outcome
         self._last_observation = ball_matrix_observation(outcome["final_balls"])
 

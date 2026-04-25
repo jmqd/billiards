@@ -38,21 +38,39 @@ uv build
 ```python
 from billiards_gymnasium import simulate_shot
 
-outcome = simulate_shot(
-    [
-        {"ball": "cue", "x": 10.0, "y": 50.0},
-        {"ball": "one", "x": 25.0, "y": 50.0},
-        {"ball": "nine", "x": 37.5, "y": 50.0},
-    ],
-    {
-        "heading_degrees": 90.0,
-        "speed_ips": 180.0,
-        "speed_semantics": "cue_ball_launch",
-    },
-)
+balls = [
+    {"ball": "cue", "x": 10.0, "y": 50.0},
+    {"ball": "one", "x": 25.0, "y": 50.0},
+    {"ball": "nine", "x": 37.5, "y": 50.0},
+]
+shot = {
+    "heading_degrees": 90.0,
+    "speed_ips": 180.0,
+    "speed_semantics": "cue_ball_launch",
+}
+outcome = simulate_shot(balls, shot)
 
 print(outcome["events"])
 print(outcome["legal_nine_pocketed"])
+```
+
+PNG rendering helpers are exposed through the same native module:
+
+```python
+from billiards_gymnasium import render_board_png, render_shot_trace_png, render_step_pngs
+
+render_board_png(balls, path="before.png")
+render_board_png(outcome["final_balls"], path="after.png")
+render_shot_trace_png(balls, shot, path="action.png")
+
+# Or render all three at once and keep the simulated outcome:
+bundle = render_step_pngs(
+    balls,
+    shot,
+    before_path="before.png",
+    after_path="after.png",
+    action_path="action.png",
+)
 ```
 
 Coordinates are table inches on the default 9ft Brunswick GC4 coordinate frame:
@@ -74,7 +92,12 @@ import billiards_gymnasium
 
 env = gym.make("BilliardsNineBall-v0")
 obs, info = env.reset()
-obs, reward, terminated, truncated, info = env.step([0.25, 0.50])  # 90 degrees, mid speed
+action = [0.25, 0.50]  # 90 degrees, mid speed
+
+env.render_before_png("before.png")
+env.render_action_png(action, "action.png")
+obs, reward, terminated, truncated, info = env.step(action)
+env.render_after_png("after.png")
 ```
 
 Current envs are one-shot: `step(...)` simulates a single shot to rest and terminates.

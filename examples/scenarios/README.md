@@ -18,6 +18,23 @@ The CLI will:
 
 ## Included scenarios
 
+### Lag-shot Dr. Dave speed ladder
+
+The `lag_shot_00_touch.billiards` through `lag_shot_08_exceptional_power_break.billiards`
+examples are cue-only lag shots. The cue starts at `(2.0, 2.0)` — centered left/right on the
+second diamond from the bottom — and is hit squarely toward the top rail with `heading(0deg)`.
+They cover the built-in Dr. Dave speed aliases from softest to hardest:
+
+- `lag_shot_00_touch.billiards`
+- `lag_shot_01_slow.billiards`
+- `lag_shot_02_medium_soft.billiards`
+- `lag_shot_03_medium.billiards`
+- `lag_shot_04_medium_fast.billiards`
+- `lag_shot_05_fast.billiards`
+- `lag_shot_06_power.billiards`
+- `lag_shot_07_typical_power_break.billiards`
+- `lag_shot_08_exceptional_power_break.billiards`
+
 ### `straight_in_side_pocket.billiards`
 Cue ball from center, straight into an object ball that goes to the right side pocket.
 

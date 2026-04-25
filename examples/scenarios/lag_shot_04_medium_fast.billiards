@@ -1,0 +1,7 @@
+# Lag shot speed ladder: medium-fast (8 mph / 140.8 ips).
+# Cue starts on the second diamond from the bottom, centered left/right,
+# and is hit perfectly square toward the top rail.
+table brunswick_gc4_9ft
+ball cue at (2.0, 2.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(0deg).speed(medium-fast).tip(side: 0.0R, height: 0.0R).using(default)

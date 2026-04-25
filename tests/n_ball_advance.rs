@@ -212,6 +212,48 @@ fn advancing_simultaneous_disjoint_pair_collisions_resolves_both_pairs_in_one_st
 }
 
 #[test]
+fn advancing_shared_simultaneous_contacts_transfers_motion_into_the_cluster() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let contact_y = -3.0_f64.sqrt() * radius;
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, contact_y - 7.5),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let left_object = on_table(BallState::resting_at(inches2(-radius, 0.0)));
+    let right_object = on_table(BallState::resting_at(inches2(radius, 0.0)));
+
+    let advanced = advance_to_next_n_ball_event_on_table(
+        &[cue_ball, left_object, right_object],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::Ideal,
+    );
+
+    match advanced.event.expect("an event should be reported") {
+        billiards::NBallOnTableEvent::UnsupportedSharedBallBallContact {
+            time_until_contact,
+            ball_indices,
+            ball_ball_pairs,
+        } => {
+            assert_close(time_until_contact.as_f64(), 1.0);
+            assert_eq!(ball_indices, vec![0, 1, 2]);
+            assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
+        }
+        other => panic!("expected shared contact, got {other:?}"),
+    }
+
+    assert!(
+        advanced.states[1].as_ball_state().speed().as_f64() > 0.0,
+        "left object ball should move after the shared contact"
+    );
+    assert!(
+        advanced.states[2].as_ball_state().speed().as_f64() > 0.0,
+        "right object ball should move after the shared contact"
+    );
+}
+
+#[test]
 fn advancing_to_a_rail_impact_only_resolves_the_impacted_ball() {
     let table = TableSpec::default();
     let radius = TYPICAL_BALL_RADIUS.as_f64();

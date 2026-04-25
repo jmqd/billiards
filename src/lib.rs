@@ -5373,6 +5373,8 @@ fn advance_n_on_table_balls_without_event(
 }
 
 const SIMULTANEOUS_EVENT_TOLERANCE_SECONDS: f64 = 1e-12;
+const SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES: usize = 8;
+const SHARED_BALL_BALL_CONTACT_STATE_EPSILON: f64 = 1e-9;
 
 fn simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
     state_refs: &[Option<&OnTableBallState>],
@@ -5415,6 +5417,123 @@ fn simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
     selected
 }
 
+fn on_table_ball_state_collision_delta(before: &OnTableBallState, after: &OnTableBallState) -> f64 {
+    let before_state = before.as_ball_state();
+    let after_state = after.as_ball_state();
+    (before_state.velocity.x().as_f64() - after_state.velocity.x().as_f64()).abs()
+        + (before_state.velocity.y().as_f64() - after_state.velocity.y().as_f64()).abs()
+        + (before_state.angular_velocity.x().as_f64() - after_state.angular_velocity.x().as_f64())
+            .abs()
+        + (before_state.angular_velocity.y().as_f64() - after_state.angular_velocity.y().as_f64())
+            .abs()
+        + (before_state.angular_velocity.z().as_f64() - after_state.angular_velocity.z().as_f64())
+            .abs()
+}
+
+fn resolve_shared_zero_time_ball_ball_contacts_on_table(
+    states_after: &mut [OnTableBallState],
+    ball_ball_pairs: &[(usize, usize)],
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) {
+    let mut pairs = ball_ball_pairs.to_vec();
+    pairs.sort_unstable();
+    pairs.dedup();
+
+    for _ in 0..SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES {
+        let mut changed = false;
+
+        for &(first_ball_index, second_ball_index) in &pairs {
+            let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
+                &states_after[first_ball_index],
+                &states_after[second_ball_index],
+                ball,
+                motion,
+            ) else {
+                continue;
+            };
+            if collision.time_until_impact.as_f64() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+                continue;
+            }
+
+            let first_before = states_after[first_ball_index].clone();
+            let second_before = states_after[second_ball_index].clone();
+            let (first_after, second_after) = collide_ball_ball_on_table_with_config(
+                &collision.a_at_impact,
+                &collision.b_at_impact,
+                collision_model,
+                collision_config,
+            );
+            changed |= on_table_ball_state_collision_delta(&first_before, &first_after)
+                > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
+            changed |= on_table_ball_state_collision_delta(&second_before, &second_after)
+                > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
+            states_after[first_ball_index] = first_after;
+            states_after[second_ball_index] = second_after;
+        }
+
+        if !changed {
+            break;
+        }
+    }
+}
+
+fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
+    states_after: &mut [NBallSystemState],
+    ball_ball_pairs: &[(usize, usize)],
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) {
+    let mut pairs = ball_ball_pairs.to_vec();
+    pairs.sort_unstable();
+    pairs.dedup();
+
+    for _ in 0..SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES {
+        let mut changed = false;
+
+        for &(first_ball_index, second_ball_index) in &pairs {
+            let (Some(first_before), Some(second_before)) = (
+                states_after[first_ball_index].as_on_table().cloned(),
+                states_after[second_ball_index].as_on_table().cloned(),
+            ) else {
+                continue;
+            };
+            let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
+                &first_before,
+                &second_before,
+                ball,
+                motion,
+            ) else {
+                continue;
+            };
+            if collision.time_until_impact.as_f64() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+                continue;
+            }
+
+            let (first_after, second_after) = collide_ball_ball_on_table_with_config(
+                &collision.a_at_impact,
+                &collision.b_at_impact,
+                collision_model,
+                collision_config,
+            );
+            changed |= on_table_ball_state_collision_delta(&first_before, &first_after)
+                > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
+            changed |= on_table_ball_state_collision_delta(&second_before, &second_after)
+                > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
+            states_after[first_ball_index] = NBallSystemState::OnTable(first_after);
+            states_after[second_ball_index] = NBallSystemState::OnTable(second_after);
+        }
+
+        if !changed {
+            break;
+        }
+    }
+}
+
 fn advance_to_next_n_ball_event_with_scheduler<FindNextEvent>(
     states: &[OnTableBallState],
     ball: &BallSetPhysicsSpec,
@@ -5438,8 +5557,19 @@ where
     let elapsed = event.time();
     let mut states_after = advance_n_on_table_balls_without_event(states, elapsed, ball, motion);
     match &event {
-        NBallOnTableEvent::MotionTransition { .. }
-        | NBallOnTableEvent::UnsupportedSharedBallBallContact { .. } => {}
+        NBallOnTableEvent::MotionTransition { .. } => {}
+        NBallOnTableEvent::UnsupportedSharedBallBallContact {
+            ball_ball_pairs, ..
+        } => {
+            resolve_shared_zero_time_ball_ball_contacts_on_table(
+                &mut states_after,
+                ball_ball_pairs,
+                ball,
+                motion,
+                collision_model,
+                &BallBallCollisionConfig::ideal(),
+            );
+        }
         NBallOnTableEvent::BallBallCollision {
             first_ball_index,
             second_ball_index,
@@ -6266,8 +6396,19 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
     let elapsed = event.time();
     let mut states_after = advance_n_ball_system_without_event(states, elapsed, ball, motion);
     match event {
-        NBallSystemEvent::MotionTransition { .. }
-        | NBallSystemEvent::UnsupportedSharedBallBallContact { .. } => {}
+        NBallSystemEvent::MotionTransition { .. } => {}
+        NBallSystemEvent::UnsupportedSharedBallBallContact {
+            ball_ball_pairs, ..
+        } => {
+            resolve_shared_zero_time_ball_ball_contacts_in_system_states(
+                &mut states_after,
+                ball_ball_pairs,
+                ball,
+                motion,
+                collision_model,
+                collision_config,
+            );
+        }
         NBallSystemEvent::BallBallCollision {
             first_ball_index,
             second_ball_index,
@@ -6494,13 +6635,6 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
         );
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
         events.push(event.clone());
-
-        if matches!(
-            event,
-            NBallSystemEvent::UnsupportedSharedBallBallContact { .. }
-        ) {
-            break;
-        }
 
         // Rebuild after every resolved event so cached event times and hidden simultaneous-contact
         // side effects stay exactly aligned with manual step-and-recompute simulation.

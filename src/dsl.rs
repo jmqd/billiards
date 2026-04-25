@@ -773,7 +773,7 @@ impl ScenarioShotTraceEventKind {
                 balls,
                 ball_ball_pairs,
             } => format!(
-                "unsupported shared contact among [{}]: {}",
+                "shared contact among [{}]: {}",
                 balls
                     .iter()
                     .map(ball_type_name)

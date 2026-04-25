@@ -402,12 +402,14 @@ fn a_higher_impact_cloth_friction_coefficient_reduces_post_rail_cloth_slip_for_r
         Velocity2::new("0", "5"),
         AngularVelocity3::new(-5.0 / radius_value, 0.0, 0.0),
     ));
-    let low_impact_cloth_friction = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
-        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.0))
-        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
-    let high_impact_cloth_friction = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
-        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.4))
-        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+    let low_impact_cloth_friction =
+        RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
+            .with_impact_cloth_friction_coefficient(Scale::from_f64(0.0))
+            .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+    let high_impact_cloth_friction =
+        RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
+            .with_impact_cloth_friction_coefficient(Scale::from_f64(0.4))
+            .with_effective_contact_height_ratio(Scale::from_f64(0.0));
 
     let low_friction_rebound = collide_ball_rail_on_table_with_radius_and_config(
         &rolling,
@@ -423,28 +425,27 @@ fn a_higher_impact_cloth_friction_coefficient_reduces_post_rail_cloth_slip_for_r
         RailModel::SpinAware,
         &high_impact_cloth_friction,
     );
-    let low_slip = cloth_contact_velocity_on_table(
-        low_friction_rebound.as_ball_state(),
-        radius.clone(),
-    )
-    .x()
-    .as_f64()
-    .hypot(
+    let low_slip =
         cloth_contact_velocity_on_table(low_friction_rebound.as_ball_state(), radius.clone())
-            .y()
-            .as_f64(),
-    );
-    let high_slip = cloth_contact_velocity_on_table(
-        high_friction_rebound.as_ball_state(),
-        radius.clone(),
-    )
-    .x()
-    .as_f64()
-    .hypot(
-        cloth_contact_velocity_on_table(high_friction_rebound.as_ball_state(), radius)
-            .y()
-            .as_f64(),
-    );
+            .x()
+            .as_f64()
+            .hypot(
+                cloth_contact_velocity_on_table(
+                    low_friction_rebound.as_ball_state(),
+                    radius.clone(),
+                )
+                .y()
+                .as_f64(),
+            );
+    let high_slip =
+        cloth_contact_velocity_on_table(high_friction_rebound.as_ball_state(), radius.clone())
+            .x()
+            .as_f64()
+            .hypot(
+                cloth_contact_velocity_on_table(high_friction_rebound.as_ball_state(), radius)
+                    .y()
+                    .as_f64(),
+            );
 
     assert!(
         high_slip < low_slip,

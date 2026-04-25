@@ -407,7 +407,9 @@ fn pocket_aware_advancing_also_batches_disjoint_same_time_ball_ball_collisions()
         other => panic!("expected primary ball-ball collision, got {other:?}"),
     }
     match &advanced.states[0] {
-        NBallSystemState::OnTable(state) => assert_close(state.as_ball_state().speed().as_f64(), 0.0),
+        NBallSystemState::OnTable(state) => {
+            assert_close(state.as_ball_state().speed().as_f64(), 0.0)
+        }
         other => panic!("expected first ball to remain on table, got {other:?}"),
     }
     match &advanced.states[1] {
@@ -417,7 +419,9 @@ fn pocket_aware_advancing_also_batches_disjoint_same_time_ball_ball_collisions()
         other => panic!("expected second ball to remain on table, got {other:?}"),
     }
     match &advanced.states[2] {
-        NBallSystemState::OnTable(state) => assert_close(state.as_ball_state().speed().as_f64(), 0.0),
+        NBallSystemState::OnTable(state) => {
+            assert_close(state.as_ball_state().speed().as_f64(), 0.0)
+        }
         other => panic!("expected third ball to remain on table, got {other:?}"),
     }
     match &advanced.states[3] {

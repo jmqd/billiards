@@ -1305,8 +1305,7 @@ impl NBallOnTableEvent {
             NBallOnTableEvent::BallBallCollision { collision, .. } => collision.time_until_impact,
             NBallOnTableEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
             NBallOnTableEvent::UnsupportedSharedBallBallContact {
-                time_until_contact,
-                ..
+                time_until_contact, ..
             } => *time_until_contact,
             NBallOnTableEvent::MotionTransition { transition, .. } => {
                 transition.time_until_transition
@@ -1936,16 +1935,16 @@ impl MotionTransitionConfig {
             },
         };
         let rolling_resistance = match &self.rolling_resistance {
-            RollingResistanceModel::ConstantDeceleration { linear_deceleration } => {
-                RollingResistanceModel::ConstantDeceleration {
-                    linear_deceleration: InchesPerSecondSq::new(Inches::from_f64(
-                        scaled_non_negative_f64(
-                            linear_deceleration.as_f64(),
-                            &conditions.rolling_resistance_scale,
-                        ),
-                    )),
-                }
-            }
+            RollingResistanceModel::ConstantDeceleration {
+                linear_deceleration,
+            } => RollingResistanceModel::ConstantDeceleration {
+                linear_deceleration: InchesPerSecondSq::new(Inches::from_f64(
+                    scaled_non_negative_f64(
+                        linear_deceleration.as_f64(),
+                        &conditions.rolling_resistance_scale,
+                    ),
+                )),
+            },
         };
 
         Self {
@@ -3707,10 +3706,8 @@ impl RelativeQuadraticMotion {
         // jump over.
         let cubic = 0.5 * (self.rax * self.rax + self.ray * self.ray);
         let quadratic = 1.5 * (self.rvx * self.rax + self.rvy * self.ray);
-        let linear = self.rx * self.rax
-            + self.ry * self.ray
-            + self.rvx * self.rvx
-            + self.rvy * self.rvy;
+        let linear =
+            self.rx * self.rax + self.ry * self.ray + self.rvx * self.rvx + self.rvy * self.rvy;
         let constant = self.rx * self.rvx + self.ry * self.rvy;
 
         real_roots_cubic(cubic, quadratic, linear, constant)
@@ -3762,8 +3759,7 @@ fn real_roots_cubic(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
     if discriminant > eps {
         let sqrt_discriminant = discriminant.sqrt();
         vec![
-            (-0.5 * q + sqrt_discriminant).cbrt()
-                + (-0.5 * q - sqrt_discriminant).cbrt()
+            (-0.5 * q + sqrt_discriminant).cbrt() + (-0.5 * q - sqrt_discriminant).cbrt()
                 - root_offset,
         ]
     } else if discriminant.abs() <= eps {
@@ -3793,7 +3789,10 @@ fn first_ball_ball_contact_time_for_relative_motion(
             boundaries.push(root);
         }
     }
-    boundaries.sort_by(|a, b| a.partial_cmp(b).expect("finite contact-search times should sort"));
+    boundaries.sort_by(|a, b| {
+        a.partial_cmp(b)
+            .expect("finite contact-search times should sort")
+    });
 
     let dedup_tolerance = 1e-10 * horizon.max(1.0);
     let mut deduped_boundaries: Vec<f64> = Vec::with_capacity(boundaries.len());
@@ -4058,12 +4057,10 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     };
     let dt_seconds = first_ball_ball_contact_time_for_relative_motion(relative_motion, horizon)?;
     let time_until_impact = Seconds::new(dt_seconds);
-    let a_at_impact =
-        raw_advance_within_phase_on_table(a_raw, a_phase, dt_seconds, radius, config)
-            .into_on_table_state();
-    let b_at_impact =
-        raw_advance_within_phase_on_table(b_raw, b_phase, dt_seconds, radius, config)
-            .into_on_table_state();
+    let a_at_impact = raw_advance_within_phase_on_table(a_raw, a_phase, dt_seconds, radius, config)
+        .into_on_table_state();
+    let b_at_impact = raw_advance_within_phase_on_table(b_raw, b_phase, dt_seconds, radius, config)
+        .into_on_table_state();
 
     Some(PredictedBallBallCollision {
         time_until_impact,
@@ -4610,8 +4607,9 @@ mod pocket_mouth_tests {
         let default_motion = motion_config_with_sliding_acceleration(5.0);
         let fast_post_jaw_motion = motion_config_with_sliding_acceleration(25.0);
         let incoming = on_table_state(43.0, 57.0, 12.0, -10.0);
-        let impact = compute_next_ball_jaw_impact_on_table(&incoming, &ball, &table, &default_motion)
-            .expect("the reproducer should strike the side jaw first");
+        let impact =
+            compute_next_ball_jaw_impact_on_table(&incoming, &ball, &table, &default_motion)
+                .expect("the reproducer should strike the side jaw first");
         let post_jaw = collide_ball_jaw_on_table_with_radius_and_profile(
             &impact.state_at_impact,
             &impact,
@@ -4621,11 +4619,12 @@ mod pocket_mouth_tests {
             &RailCollisionProfile::human_tuned(),
         );
         let (_, pocket_y) = pocket_center_in_inches(Pocket::CenterRight, &table);
-        let centerline_time_lower_bound = (post_jaw.as_ball_state().position.y().as_f64() - pocket_y)
-            .abs()
-            / post_jaw.as_ball_state().velocity.y().as_f64().abs();
-        let next_transition = compute_next_transition_on_table(&post_jaw, &ball, &fast_post_jaw_motion)
-            .expect("the synthetic post-jaw state should still be transitioning");
+        let centerline_time_lower_bound =
+            (post_jaw.as_ball_state().position.y().as_f64() - pocket_y).abs()
+                / post_jaw.as_ball_state().velocity.y().as_f64().abs();
+        let next_transition =
+            compute_next_transition_on_table(&post_jaw, &ball, &fast_post_jaw_motion)
+                .expect("the synthetic post-jaw state should still be transitioning");
 
         assert!(on_table_state_is_within_pocket_capture_region(
             &post_jaw,
@@ -4641,13 +4640,15 @@ mod pocket_mouth_tests {
             next_transition.time_until_transition.as_f64() < centerline_time_lower_bound,
             "the test needs the side-pocket centerline crossing to happen after slide→roll"
         );
-        assert!(side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
-            &post_jaw,
-            Pocket::CenterRight,
-            &ball,
-            &table,
-            &fast_post_jaw_motion,
-        ));
+        assert!(
+            side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
+                &post_jaw,
+                Pocket::CenterRight,
+                &ball,
+                &table,
+                &fast_post_jaw_motion,
+            )
+        );
     }
 }
 
@@ -5444,11 +5445,15 @@ where
             second_ball_index,
             collision,
         } => {
-            let simultaneous_collisions = simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
-                &states_after.iter().map(|state| Some(state)).collect::<Vec<_>>(),
-                ball,
-                motion,
-            );
+            let simultaneous_collisions =
+                simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
+                    &states_after
+                        .iter()
+                        .map(|state| Some(state))
+                        .collect::<Vec<_>>(),
+                    ball,
+                    motion,
+                );
 
             if simultaneous_collisions.is_empty() {
                 let (first_after, second_after) = collide_ball_ball_on_table(
@@ -6270,7 +6275,10 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
         } => {
             let simultaneous_collisions =
                 simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
-                    &states_after.iter().map(|state| state.as_on_table()).collect::<Vec<_>>(),
+                    &states_after
+                        .iter()
+                        .map(|state| state.as_on_table())
+                        .collect::<Vec<_>>(),
                     ball,
                     motion,
                 );

@@ -200,9 +200,15 @@ fn advancing_simultaneous_disjoint_pair_collisions_resolves_both_pairs_in_one_st
 
     assert_close(advanced.elapsed.as_f64(), 1.0);
     assert_close(advanced.states[0].as_ball_state().speed().as_f64(), 0.0);
-    assert_close(advanced.states[1].as_ball_state().velocity.y().as_f64(), 5.0);
+    assert_close(
+        advanced.states[1].as_ball_state().velocity.y().as_f64(),
+        5.0,
+    );
     assert_close(advanced.states[2].as_ball_state().speed().as_f64(), 0.0);
-    assert_close(advanced.states[3].as_ball_state().velocity.y().as_f64(), 5.0);
+    assert_close(
+        advanced.states[3].as_ball_state().velocity.y().as_f64(),
+        5.0,
+    );
 }
 
 #[test]

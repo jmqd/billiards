@@ -61,7 +61,6 @@ fn assert_trace_points_stay_within_table_diamonds(scenario_path: &Path) {
             }
         }
     }
-
 }
 
 #[test]

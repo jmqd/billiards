@@ -64,7 +64,7 @@ Shot speed semantics:
 - `cue_ball_launch`: `speed_ips` is inverted through the cue-strike model to target immediate
   cue-ball launch speed. This is the default in the Gymnasium env because it is easier for RL.
 
-## Gymnasium environment
+## Gymnasium environments
 
 ```python
 import gymnasium as gym
@@ -75,13 +75,31 @@ obs, info = env.reset()
 obs, reward, terminated, truncated, info = env.step([0.25, 0.50])  # 90 degrees, mid speed
 ```
 
-The MVP env is one-shot:
+Current envs are one-shot: `step(...)` simulates a single shot to rest and terminates.
+
+- `BilliardsNineBall-v0`: reward is `1.0` only if the nine is legally pocketed.
+- `BilliardsPocketBall-v0`: reward is based on pocketing a target/object ball.
+
+Shared controls:
 
 - action: `[heading_norm, speed_norm]`, both in `[0, 1]`
+- heading is pure absolute table heading over `0..360°` rather than a cut-angle helper, so banks and
+  kicks remain expressible
 - observation: `(10, 4)` matrix for cue + one..nine: `present, x_norm, y_norm, pocketed`
-- reward: `1.0` only if the nine is legally pocketed
-- legal-nine approximation: nine pocketed, cue not pocketed, and first cue/object contact is the
-  lowest-numbered object ball present at reset
 
-Future iterations should add richer action modes, randomized layouts, rendering, vectorized/batched
-simulation, and full nine-ball foul/rule accounting.
+`BilliardsNineBall-v0` legal-nine approximation: nine pocketed, cue not pocketed, and first
+cue/object contact is the lowest-numbered object ball present at reset.
+
+## Tiny training baseline
+
+A NumPy-only Cross-Entropy Method baseline is included so training can run without torch/SB3:
+
+```bash
+cd gymnasium
+uv run python examples/train_pocket_cem.py --iterations 20 --population 64
+```
+
+This trains a small linear policy for `BilliardsPocketBall-v0` and writes `pocket_cem_policy.npz`.
+It is a smoke-testable baseline, not the final RL stack. Future iterations should add richer action
+modes, randomized layouts, rendering, vectorized/batched simulation, and full nine-ball foul/rule
+accounting.

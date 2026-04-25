@@ -4135,61 +4135,78 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     })
 }
 
-fn rail_collision_gap_during_current_phase_raw(
+fn rail_collision_gap_quadratic_coefficients(
     state: RawOnTableBallState,
     phase: MotionPhase,
     rail: Rail,
-    t_seconds: f64,
     radius: f64,
     table: &TableSpec,
     config: &OnTableMotionConfig,
-) -> f64 {
-    let at_t = raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config);
-    let plane = match rail {
-        Rail::Top => table.diamond_to_inches(Diamond::eight()).as_f64() - radius,
-        Rail::Bottom => radius,
-        Rail::Left => radius,
-        Rail::Right => table.diamond_to_inches(Diamond::four()).as_f64() - radius,
-    };
-
+) -> (f64, f64, f64) {
+    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, radius, config);
     match rail {
-        Rail::Top => plane - at_t.y,
-        Rail::Bottom => at_t.y - plane,
-        Rail::Left => at_t.x - plane,
-        Rail::Right => plane - at_t.x,
+        Rail::Top => {
+            let plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+            (-0.5 * ay, -state.vy, plane - state.y)
+        }
+        Rail::Bottom => (0.5 * ay, state.vy, state.y - radius),
+        Rail::Left => (0.5 * ax, state.vx, state.x - radius),
+        Rail::Right => {
+            let plane = table.diamond_to_inches(Diamond::four()).as_f64() - radius;
+            (-0.5 * ax, -state.vx, plane - state.x)
+        }
     }
 }
 
-fn refine_ball_rail_collision_time_during_current_phase_raw(
+fn rail_gap_quadratic_value(a: f64, b: f64, c: f64, t_seconds: f64) -> f64 {
+    a * t_seconds * t_seconds + b * t_seconds + c
+}
+
+fn rail_gap_quadratic_derivative(a: f64, b: f64, t_seconds: f64) -> f64 {
+    2.0 * a * t_seconds + b
+}
+
+fn first_rail_collision_time_during_current_phase_raw(
     state: RawOnTableBallState,
     phase: MotionPhase,
     rail: Rail,
-    mut left: f64,
-    mut right: f64,
+    horizon: f64,
     radius: f64,
     table: &TableSpec,
     config: &OnTableMotionConfig,
-) -> Seconds {
-    for _ in 0..60 {
-        let midpoint = 0.5 * (left + right);
-        let gap = rail_collision_gap_during_current_phase_raw(
-            state,
-            phase.clone(),
-            rail,
-            midpoint,
-            radius,
-            table,
-            config,
-        );
+) -> Option<Seconds> {
+    let (a, b, c) =
+        rail_collision_gap_quadratic_coefficients(state, phase, rail, radius, table, config);
+    let tolerance = 1e-10 * horizon.max(1.0);
 
-        if gap <= 0.0 {
-            right = midpoint;
-        } else {
-            left = midpoint;
+    if c <= tolerance && b < -tolerance {
+        return Some(Seconds::zero());
+    }
+
+    let mut roots = real_roots_quadratic(a, b, c);
+    roots.sort_by(|left, right| {
+        left.partial_cmp(right)
+            .expect("finite rail-collision roots should sort")
+    });
+
+    for root in roots {
+        if !root.is_finite() || root < -tolerance || root > horizon + tolerance {
+            continue;
+        }
+        let t = root.clamp(0.0, horizon);
+        if t <= tolerance {
+            continue;
+        }
+
+        let before_t = (t - tolerance.min(0.5 * t)).max(0.0);
+        let before_gap = rail_gap_quadratic_value(a, b, c, before_t);
+        let derivative = rail_gap_quadratic_derivative(a, b, t);
+        if before_gap > -tolerance && derivative <= tolerance {
+            return Some(Seconds::new(t));
         }
     }
 
-    Seconds::new(right)
+    None
 }
 
 /// Predict the next future rail impact for one on-table ball.
@@ -4214,89 +4231,38 @@ pub fn compute_next_ball_rail_impact_on_table(
         return None;
     }
 
-    const RAIL_COLLISION_SCAN_STEPS: usize = 512;
     let mut best: Option<PredictedBallRailImpact> = None;
 
     for rail in [Rail::Top, Rail::Right, Rail::Bottom, Rail::Left] {
-        let initial_gap = rail_collision_gap_during_current_phase_raw(
+        let Some(time_until_impact) = first_rail_collision_time_during_current_phase_raw(
             raw_state,
             phase.clone(),
             rail,
-            0.0,
+            horizon,
             radius,
             table,
             config,
-        );
-        if initial_gap <= 0.0 {
-            let (normal_x, normal_y, _, _) = rail_collision_basis(rail);
-            let normal_speed =
-                project_velocity_on_basis(&state.as_ball_state().velocity, normal_x, normal_y);
-            if normal_speed < -f64::EPSILON {
-                let impact = PredictedBallRailImpact {
-                    rail,
-                    time_until_impact: Seconds::zero(),
-                    state_at_impact: state.clone(),
-                };
-
-                if best.as_ref().is_none_or(|current| {
-                    impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
-                }) {
-                    best = Some(impact);
-                }
-            }
+        ) else {
             continue;
-        }
+        };
+        let state_at_impact = raw_advance_within_phase_on_table(
+            raw_state,
+            phase.clone(),
+            time_until_impact.as_f64(),
+            radius,
+            config,
+        )
+        .into_on_table_state();
+        let impact = PredictedBallRailImpact {
+            rail,
+            time_until_impact,
+            state_at_impact,
+        };
 
-        let mut previous_t = 0.0;
-        let mut previous_gap = initial_gap;
-
-        for step in 1..=RAIL_COLLISION_SCAN_STEPS {
-            let t = horizon * step as f64 / RAIL_COLLISION_SCAN_STEPS as f64;
-            let gap = rail_collision_gap_during_current_phase_raw(
-                raw_state,
-                phase.clone(),
-                rail,
-                t,
-                radius,
-                table,
-                config,
-            );
-
-            if previous_gap > 0.0 && gap <= 0.0 {
-                let time_until_impact = refine_ball_rail_collision_time_during_current_phase_raw(
-                    raw_state,
-                    phase.clone(),
-                    rail,
-                    previous_t,
-                    t,
-                    radius,
-                    table,
-                    config,
-                );
-                let state_at_impact = raw_advance_within_phase_on_table(
-                    raw_state,
-                    phase.clone(),
-                    time_until_impact.as_f64(),
-                    radius,
-                    config,
-                )
-                .into_on_table_state();
-                let impact = PredictedBallRailImpact {
-                    rail,
-                    time_until_impact,
-                    state_at_impact,
-                };
-
-                if best.as_ref().is_none_or(|current| {
-                    impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
-                }) {
-                    best = Some(impact);
-                }
-                break;
-            }
-
-            previous_t = t;
-            previous_gap = gap;
+        if best.as_ref().is_none_or(|current| {
+            impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
+        }) {
+            best = Some(impact);
         }
     }
 
@@ -4990,6 +4956,16 @@ pub fn compute_next_ball_pocket_capture_on_table(
             config,
         );
         if initial_gap <= 0.0 {
+            let capture = PredictedBallPocketCapture {
+                pocket,
+                time_until_capture: Seconds::zero(),
+                state_at_capture: state.clone(),
+            };
+            if best.as_ref().is_none_or(|current| {
+                capture.time_until_capture.as_f64() < current.time_until_capture.as_f64()
+            }) {
+                best = Some(capture);
+            }
             continue;
         }
 

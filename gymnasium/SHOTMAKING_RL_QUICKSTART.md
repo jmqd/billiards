@@ -47,6 +47,8 @@ obs, reward, terminated, truncated, info = env.step(action)
 print(reward, terminated)          # one-shot env: terminated is always True after step
 print(info["target_pocketed"])     # did the target ball drop?
 print(info["cue_pocketed"])        # did we scratch?
+print(info["fouls"])               # explicit rule fouls, e.g. scratch / no_object_contact
+print(info["game_events"])         # explicit wins, e.g. legal_nine_ball_win
 print(info["pocketed"])            # list of pocketed balls
 print(info["events"][:3])          # collision/rail/pocket event trace for debugging
 ```

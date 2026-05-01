@@ -31,7 +31,70 @@ def test_simulate_shot_reports_events_pockets_and_legal_nine():
     assert outcome["nine_pocketed"] is True
     assert outcome["cue_pocketed"] is False
     assert outcome["first_cue_contact"] == "one"
+    assert outcome["fouls"] == []
+    assert outcome["game_events"] == [{"kind": "legal_nine_ball_win", "ball": "nine"}]
     assert any(event["kind"] == "ball_pocket_capture" for event in outcome["events"])
+
+
+def test_simulate_shot_reports_scratch_foul():
+    outcome = simulate_shot(
+        [{"ball": "cue", "x": 40.0, "y": 50.0}],
+        {
+            "heading_degrees": 90.0,
+            "speed_ips": 60.0,
+            "speed_semantics": "cue_ball_launch",
+        },
+    )
+
+    assert outcome["cue_pocketed"] is True
+    assert outcome["fouls"] == [{"kind": "scratch"}]
+    assert outcome["game_events"] == []
+
+
+def test_simulate_shot_reports_no_object_contact_foul():
+    outcome = simulate_shot(
+        [
+            {"ball": "cue", "x": 10.0, "y": 50.0},
+            {"ball": "one", "x": 25.0, "y": 50.0},
+        ],
+        {
+            "heading_degrees": 0.0,
+            "speed_ips": 10.0,
+            "speed_semantics": "cue_ball_launch",
+        },
+    )
+
+    assert outcome["first_cue_contact"] is None
+    assert outcome["fouls"] == [
+        {"kind": "no_object_contact", "expected_first_contact": "one"}
+    ]
+    assert outcome["game_events"] == []
+
+
+def test_simulate_shot_reports_wrong_first_contact_foul():
+    outcome = simulate_shot(
+        [
+            {"ball": "cue", "x": 10.0, "y": 50.0},
+            {"ball": "nine", "x": 25.0, "y": 50.0},
+            {"ball": "one", "x": 40.0, "y": 50.0},
+        ],
+        {
+            "heading_degrees": 90.0,
+            "speed_ips": 120.0,
+            "speed_semantics": "cue_ball_launch",
+        },
+    )
+
+    assert outcome["first_cue_contact"] == "nine"
+    assert outcome["first_contact_lowest_object_ball"] is False
+    assert outcome["fouls"] == [
+        {
+            "kind": "wrong_first_contact",
+            "first_contact": "nine",
+            "expected_first_contact": "one",
+        }
+    ]
+    assert outcome["game_events"] == []
 
 
 def test_render_helpers_return_and_write_pngs(tmp_path):

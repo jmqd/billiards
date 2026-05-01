@@ -49,6 +49,18 @@ def _ball_pocketed(outcome: dict[str, Any], ball: str) -> bool:
     return any(pocketed["ball"] == ball for pocketed in outcome.get("pocketed", []))
 
 
+def _has_event(events: list[dict[str, Any]], kind: str) -> bool:
+    return any(event.get("kind") == kind for event in events)
+
+
+def _has_foul(outcome: dict[str, Any], kind: str) -> bool:
+    return _has_event(outcome.get("fouls", []), kind)
+
+
+def _has_game_event(outcome: dict[str, Any], kind: str) -> bool:
+    return _has_event(outcome.get("game_events", []), kind)
+
+
 class _ShotRenderMixin:
     """PNG helpers shared by one-shot billiards envs."""
 
@@ -182,7 +194,7 @@ class BilliardsNineBallEnv(_ShotRenderMixin, gym.Env):
         self._last_outcome = outcome
         self._last_observation = ball_matrix_observation(outcome["final_balls"])
 
-        reward = 1.0 if outcome.get("legal_nine_pocketed") else 0.0
+        reward = 1.0 if _has_game_event(outcome, "legal_nine_ball_win") else 0.0
         terminated = True
         truncated = False
         info = outcome
@@ -287,11 +299,11 @@ class BilliardsPocketBallEnv(_ShotRenderMixin, gym.Env):
 
         target_pocketed = _ball_pocketed(outcome, self.target_ball)
         any_object_pocketed = _any_object_pocketed(outcome)
-        cue_pocketed = bool(outcome.get("cue_pocketed"))
+        scratch = _has_foul(outcome, "scratch")
         if self.reward_mode == "any_object_pocketed":
             reward = 1.0 if any_object_pocketed else 0.0
         elif self.reward_mode == "target_pocketed_no_scratch":
-            reward = 1.0 if target_pocketed and not cue_pocketed else 0.0
+            reward = 1.0 if target_pocketed and not scratch else 0.0
         else:
             reward = 1.0 if target_pocketed else 0.0
 

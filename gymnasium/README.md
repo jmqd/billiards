@@ -51,6 +51,8 @@ shot = {
 outcome = simulate_shot(balls, shot)
 
 print(outcome["events"])
+print(outcome["fouls"])        # e.g. scratch, no_object_contact, wrong_first_contact
+print(outcome["game_events"])  # e.g. legal_nine_ball_win
 print(outcome["legal_nine_pocketed"])
 ```
 

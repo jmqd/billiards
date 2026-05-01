@@ -17,6 +17,42 @@ PathLike = str | bytes | Path
 ABSENT_BALL_ID = 255
 
 
+def _rule_events(outcome: dict[str, Any]) -> dict[str, Any]:
+    """Attach explicit one-shot pool rule events inferred from native outcome flags."""
+
+    fouls: list[dict[str, Any]] = []
+    lowest_object_ball = outcome.get("lowest_object_ball")
+    first_cue_contact = outcome.get("first_cue_contact")
+
+    if bool(outcome.get("cue_pocketed")):
+        fouls.append({"kind": "scratch"})
+
+    if lowest_object_ball is not None:
+        if first_cue_contact is None:
+            fouls.append(
+                {
+                    "kind": "no_object_contact",
+                    "expected_first_contact": lowest_object_ball,
+                }
+            )
+        elif outcome.get("first_contact_lowest_object_ball") is False:
+            fouls.append(
+                {
+                    "kind": "wrong_first_contact",
+                    "first_contact": first_cue_contact,
+                    "expected_first_contact": lowest_object_ball,
+                }
+            )
+
+    game_events: list[dict[str, Any]] = []
+    if bool(outcome.get("legal_nine_pocketed")):
+        game_events.append({"kind": "legal_nine_ball_win", "ball": "nine"})
+
+    outcome["fouls"] = fouls
+    outcome["game_events"] = game_events
+    return outcome
+
+
 def _write_optional(path: PathLike | None, data: bytes) -> None:
     if path is not None:
         Path(path).write_bytes(data)
@@ -63,7 +99,7 @@ def simulate_shot(
     payload: dict[str, Any] = {"balls": list(balls), "shot": dict(shot)}
     if config is not None:
         payload["config"] = dict(config)
-    return json.loads(_native.simulate_shot_json(json.dumps(payload)))
+    return _rule_events(json.loads(_native.simulate_shot_json(json.dumps(payload))))
 
 
 def layouts_and_shots_to_batch_arrays(

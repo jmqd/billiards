@@ -22,6 +22,35 @@ def test_default_combo_rewards_legal_nine_when_shot_straight_right():
     assert reward == 1.0
     assert info["legal_nine_pocketed"] is True
     assert info["first_cue_contact"] == "one"
+    assert info["fouls"] == []
+    assert info["game_events"] == [{"kind": "legal_nine_ball_win", "ball": "nine"}]
+
+
+def test_nine_ball_env_reports_wrong_first_contact_foul_and_no_game_event():
+    env = BilliardsNineBallEnv(
+        layout=[
+            {"ball": "cue", "x": 10.0, "y": 50.0},
+            {"ball": "nine", "x": 25.0, "y": 50.0},
+            {"ball": "one", "x": 40.0, "y": 50.0},
+        ],
+        max_speed_ips=120.0,
+        min_speed_ips=120.0 - 1e-6,
+    )
+    env.reset()
+
+    _, reward, terminated, truncated, info = env.step(np.array([0.25, 1.0], dtype=np.float32))
+
+    assert terminated
+    assert not truncated
+    assert reward == 0.0
+    assert info["fouls"] == [
+        {
+            "kind": "wrong_first_contact",
+            "first_contact": "nine",
+            "expected_first_contact": "one",
+        }
+    ]
+    assert info["game_events"] == []
 
 
 def test_pocket_ball_env_rewards_target_pocket_on_direct_shot():
@@ -40,6 +69,7 @@ def test_pocket_ball_env_rewards_target_pocket_on_direct_shot():
     assert info["target_pocketed"] is True
     assert info["any_object_pocketed"] is True
     assert info["cue_pocketed"] is False
+    assert info["fouls"] == []
 
 
 def test_envs_expose_before_after_and_action_png_helpers(tmp_path):

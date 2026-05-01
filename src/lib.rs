@@ -7721,6 +7721,10 @@ const RAIL_IMPACT_SOLVE_MAX_STEPS: usize = 1_000;
 const RAIL_IMPACT_MIN_IMPULSE_STEP: f64 = 1e-4;
 const RAIL_IMPACT_REFINEMENT_STEPS: usize = 8;
 const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.10;
+// Smooth the rail-impact friction direction through true no-slip contact. Without this adherence
+// band, `atan2(0, 0)` picked an arbitrary kinetic-friction direction and a mathematically geared
+// cushion/table contact could receive a finite tangential impulse from an infinitesimal slip.
+const RAIL_IMPACT_ADHERENCE_SLIP_SPEED_INCHES_PER_SECOND: f64 = 1e-3;
 const RAIL_ROLLING_REBOUND_HORIZONTAL_SPIN_BLEND: f64 = 0.35;
 const RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 1.15;
 const RAIL_ROLLING_REBOUND_LOW_ENGLISH_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 0.8;
@@ -7736,6 +7740,12 @@ struct RailImpactFrameState {
     angular_vertical: f64,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RailImpactContactSlipDirection {
+    tangent: f64,
+    normal_or_vertical: f64,
+}
+
 fn cushion_contact_sin_theta() -> f64 {
     THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO
 }
@@ -7744,12 +7754,35 @@ fn cushion_contact_cos_theta() -> f64 {
     (1.0 - cushion_contact_sin_theta().powi(2)).sqrt()
 }
 
-fn rail_impact_frame_slip_angles(
+fn rail_impact_contact_slip_direction(
+    tangent_speed: f64,
+    normal_or_vertical_speed: f64,
+) -> RailImpactContactSlipDirection {
+    let slip_speed = tangent_speed.hypot(normal_or_vertical_speed);
+    if slip_speed <= f64::EPSILON {
+        return RailImpactContactSlipDirection {
+            tangent: 0.0,
+            normal_or_vertical: 0.0,
+        };
+    }
+
+    let adherence_scale =
+        (slip_speed / RAIL_IMPACT_ADHERENCE_SLIP_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
+    RailImpactContactSlipDirection {
+        tangent: adherence_scale * tangent_speed / slip_speed,
+        normal_or_vertical: adherence_scale * normal_or_vertical_speed / slip_speed,
+    }
+}
+
+fn rail_impact_frame_slip_directions(
     state: RailImpactFrameState,
     ball_radius: f64,
     sin_theta: f64,
     cos_theta: f64,
-) -> (f64, f64) {
+) -> (
+    RailImpactContactSlipDirection,
+    RailImpactContactSlipDirection,
+) {
     let cushion_contact_tangent_speed = state.tangent_speed
         + state.angular_normal_toward_cushion * ball_radius * sin_theta
         - state.angular_vertical * ball_radius * cos_theta;
@@ -7761,8 +7794,11 @@ fn rail_impact_frame_slip_angles(
         state.normal_speed_toward_cushion + state.angular_tangent * ball_radius;
 
     (
-        cushion_contact_vertical_speed.atan2(cushion_contact_tangent_speed),
-        cloth_contact_normal_speed.atan2(cloth_contact_tangent_speed),
+        rail_impact_contact_slip_direction(
+            cushion_contact_tangent_speed,
+            cushion_contact_vertical_speed,
+        ),
+        rail_impact_contact_slip_direction(cloth_contact_tangent_speed, cloth_contact_normal_speed),
     )
 }
 
@@ -7775,13 +7811,13 @@ fn advance_rail_impact_frame_by_impulse_step(
     cushion_friction: f64,
     delta_p: f64,
 ) -> RailImpactFrameState {
-    let (cushion_slip_angle, cloth_slip_angle) =
-        rail_impact_frame_slip_angles(state, ball_radius, sin_theta, cos_theta);
-    let coupling_term = sin_theta + cushion_friction * cushion_slip_angle.sin() * cos_theta;
-    let tangential_impulse = cushion_friction * cushion_slip_angle.cos()
-        + table_friction * cloth_slip_angle.cos() * coupling_term;
-    let normal_impulse = cos_theta - cushion_friction * sin_theta * cushion_slip_angle.sin()
-        + table_friction * cloth_slip_angle.sin() * coupling_term;
+    let (cushion_slip, cloth_slip) =
+        rail_impact_frame_slip_directions(state, ball_radius, sin_theta, cos_theta);
+    let coupling_term = sin_theta + cushion_friction * cushion_slip.normal_or_vertical * cos_theta;
+    let tangential_impulse = cushion_friction * cushion_slip.tangent
+        + table_friction * cloth_slip.tangent * coupling_term;
+    let normal_impulse = cos_theta - cushion_friction * sin_theta * cushion_slip.normal_or_vertical
+        + table_friction * cloth_slip.normal_or_vertical * coupling_term;
     let angular_scale = 5.0 / (2.0 * ball_radius);
 
     RailImpactFrameState {
@@ -7789,16 +7825,16 @@ fn advance_rail_impact_frame_by_impulse_step(
         normal_speed_toward_cushion: state.normal_speed_toward_cushion - normal_impulse * delta_p,
         angular_tangent: state.angular_tangent
             - angular_scale
-                * (cushion_friction * cushion_slip_angle.sin()
-                    + table_friction * cloth_slip_angle.sin() * coupling_term)
+                * (cushion_friction * cushion_slip.normal_or_vertical
+                    + table_friction * cloth_slip.normal_or_vertical * coupling_term)
                 * delta_p,
         angular_normal_toward_cushion: state.angular_normal_toward_cushion
             - angular_scale
-                * (cushion_friction * cushion_slip_angle.cos() * sin_theta
-                    - table_friction * cloth_slip_angle.cos() * coupling_term)
+                * (cushion_friction * cushion_slip.tangent * sin_theta
+                    - table_friction * cloth_slip.tangent * coupling_term)
                 * delta_p,
         angular_vertical: state.angular_vertical
-            + angular_scale * cushion_friction * cushion_slip_angle.cos() * cos_theta * delta_p,
+            + angular_scale * cushion_friction * cushion_slip.tangent * cos_theta * delta_p,
     }
 }
 

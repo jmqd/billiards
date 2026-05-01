@@ -14,6 +14,20 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
+fn on_table_state_delta(a: &OnTableBallState, b: &OnTableBallState) -> f64 {
+    let a = a.as_ball_state();
+    let b = b.as_ball_state();
+    [
+        (a.velocity.x().as_f64() - b.velocity.x().as_f64()).abs(),
+        (a.velocity.y().as_f64() - b.velocity.y().as_f64()).abs(),
+        (a.angular_velocity.x().as_f64() - b.angular_velocity.x().as_f64()).abs(),
+        (a.angular_velocity.y().as_f64() - b.angular_velocity.y().as_f64()).abs(),
+        (a.angular_velocity.z().as_f64() - b.angular_velocity.z().as_f64()).abs(),
+    ]
+    .into_iter()
+    .fold(0.0, f64::max)
+}
+
 fn on_table(state: BallState) -> OnTableBallState {
     OnTableBallState::try_from(state).expect("test states should validate as on-table")
 }
@@ -167,6 +181,184 @@ fn a_spin_aware_rail_collision_exhibits_partial_slip_when_friction_is_low() {
             .abs()
             > 1.0,
         "low but nonzero cushion friction should still generate some running english"
+    );
+}
+
+#[test]
+fn zero_cushion_contact_slip_does_not_choose_an_arbitrary_cushion_friction_direction() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let sin_theta = 2.0 / 5.0;
+    let cos_theta = (1.0_f64 - sin_theta * sin_theta).sqrt();
+    let tangent_speed = 4.0;
+    let normal_speed_toward_top = 5.0;
+    let exact_wz = tangent_speed / (radius_value * cos_theta);
+    let state_with_wz = |wz_delta: f64| {
+        on_table(BallState::on_table(
+            inches2(10.0, 20.0),
+            Velocity2::new(
+                Inches::from_f64(tangent_speed),
+                Inches::from_f64(normal_speed_toward_top),
+            ),
+            AngularVelocity3::new(
+                normal_speed_toward_top * sin_theta / radius_value,
+                0.0,
+                exact_wz + wz_delta,
+            ),
+        ))
+    };
+    let grabby_cushion = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.0))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+
+    let exact_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &state_with_wz(0.0),
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &grabby_cushion,
+    );
+    let positive_slip_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &state_with_wz(1e-10),
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &grabby_cushion,
+    );
+    let negative_slip_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &state_with_wz(-1e-10),
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &grabby_cushion,
+    );
+
+    let positive_delta = on_table_state_delta(&exact_rebound, &positive_slip_rebound);
+    let negative_delta = on_table_state_delta(&exact_rebound, &negative_slip_rebound);
+    assert!(
+        positive_delta < 1e-2,
+        "exact cushion no-slip should be continuous from positive slip; delta={positive_delta}"
+    );
+    assert!(
+        negative_delta < 1e-2,
+        "exact cushion no-slip should be continuous from negative slip; delta={negative_delta}"
+    );
+}
+
+#[test]
+fn zero_cloth_contact_slip_does_not_choose_an_arbitrary_table_friction_direction() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let tangent_speed = 4.0;
+    let normal_speed_toward_top = 5.0;
+    let state_with_wy = |wy_delta: f64| {
+        on_table(BallState::on_table(
+            inches2(10.0, 20.0),
+            Velocity2::new(
+                Inches::from_f64(tangent_speed),
+                Inches::from_f64(normal_speed_toward_top),
+            ),
+            AngularVelocity3::new(
+                -normal_speed_toward_top / radius_value,
+                tangent_speed / radius_value + wy_delta,
+                0.0,
+            ),
+        ))
+    };
+    let grabby_table = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(0.0))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(1.0))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+
+    let exact_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &state_with_wy(0.0),
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &grabby_table,
+    );
+    let positive_slip_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &state_with_wy(1e-10),
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &grabby_table,
+    );
+    let negative_slip_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &state_with_wy(-1e-10),
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &grabby_table,
+    );
+
+    let positive_delta = on_table_state_delta(&exact_rebound, &positive_slip_rebound);
+    let negative_delta = on_table_state_delta(&exact_rebound, &negative_slip_rebound);
+    assert!(
+        positive_delta < 1e-2,
+        "exact cloth no-slip should be continuous from positive slip; delta={positive_delta}"
+    );
+    assert!(
+        negative_delta < 1e-2,
+        "exact cloth no-slip should be continuous from negative slip; delta={negative_delta}"
+    );
+}
+
+#[test]
+fn near_zero_cushion_contact_slip_changes_the_rail_response_continuously() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let sin_theta = 2.0 / 5.0;
+    let cos_theta = (1.0_f64 - sin_theta * sin_theta).sqrt();
+    let tangent_speed = 4.0;
+    let normal_speed_toward_top = 5.0;
+    let exact_wz = tangent_speed / (radius_value * cos_theta);
+    let exact = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new(
+            Inches::from_f64(tangent_speed),
+            Inches::from_f64(normal_speed_toward_top),
+        ),
+        AngularVelocity3::new(
+            normal_speed_toward_top * sin_theta / radius_value,
+            0.0,
+            exact_wz,
+        ),
+    ));
+    let almost_exact = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new(
+            Inches::from_f64(tangent_speed),
+            Inches::from_f64(normal_speed_toward_top),
+        ),
+        AngularVelocity3::new(
+            normal_speed_toward_top * sin_theta / radius_value,
+            0.0,
+            exact_wz + 1e-10,
+        ),
+    ));
+    let grabby_cushion = RailCollisionConfig::new(Scale::from_f64(0.8), Scale::from_f64(1.0))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.0))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+
+    let exact_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &exact,
+        Rail::Top,
+        radius.clone(),
+        RailModel::SpinAware,
+        &grabby_cushion,
+    );
+    let almost_exact_rebound = collide_ball_rail_on_table_with_radius_and_config(
+        &almost_exact,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &grabby_cushion,
+    );
+
+    let rebound_delta = on_table_state_delta(&almost_exact_rebound, &exact_rebound);
+    assert!(
+        rebound_delta < 1e-3,
+        "an infinitesimal geared-slip perturbation should not cause a finite kinetic-friction jump; delta={rebound_delta}"
     );
 }
 

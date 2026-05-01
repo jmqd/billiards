@@ -371,6 +371,40 @@ fn a_ball_heading_cleanly_into_a_corner_pocket_still_predicts_capture() {
 }
 
 #[test]
+fn a_fast_corner_pocket_entry_beyond_the_tp38_effective_target_angle_is_rejected() {
+    let table = TableSpec::default();
+    let pocket_center = Pocket::TopRight.aiming_center();
+    let pocket_x = table.diamond_to_inches(pocket_center.x).as_f64();
+    let pocket_y = table.diamond_to_inches(pocket_center.y).as_f64();
+    let tp38_over_limit_angle_degrees = 60.5;
+    let absolute_angle_radians = (45.0_f64 + tp38_over_limit_angle_degrees).to_radians();
+    let distance = 10.0;
+    let speed = 80.0;
+    let state = on_table(BallState::on_table(
+        inches2(
+            pocket_x - distance * absolute_angle_radians.cos(),
+            pocket_y - distance * absolute_angle_radians.sin(),
+        ),
+        Velocity2::new(
+            Inches::from_f64(speed * absolute_angle_radians.cos()),
+            Inches::from_f64(speed * absolute_angle_radians.sin()),
+        ),
+        AngularVelocity3::zero(),
+    ));
+
+    assert!(
+        compute_next_ball_pocket_capture_on_table(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .is_none(),
+        "TP 3.8's fast-corner 59.841° cap should reject a synthetic 60.5° entry"
+    );
+}
+
+#[test]
 fn pocket_aware_advancing_also_batches_disjoint_same_time_ball_ball_collisions() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let a = NBallSystemState::from(on_table(BallState::on_table(

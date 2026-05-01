@@ -4305,7 +4305,9 @@ fn pocket_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
 const CORNER_POCKET_CAPTURE_RADIUS_SCALE: f64 = 1.08;
 const SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES: f64 = 68.292;
 const SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES: f64 = 50.688;
-const CORNER_POCKET_CONSERVATIVE_MAX_ENTRY_ANGLE_DEGREES: f64 = 61.5;
+// TP 3.8 reports a 59.841° fast-shot corner-pocket limit. This is still only a first-pass
+// acceptance cap; full pocket-speed/angle target-size curves remain a future table-profile model.
+const CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES: f64 = 59.841;
 const POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND: f64 = 60.0;
 
 fn pocket_entry_axis(pocket: Pocket) -> (f64, f64) {
@@ -4341,7 +4343,7 @@ fn pocket_capture_max_entry_angle_degrees(pocket: Pocket, speed: f64, table: &Ta
                     * (SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES
                         - SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES)
         }
-        PocketType::Corner => CORNER_POCKET_CONSERVATIVE_MAX_ENTRY_ANGLE_DEGREES,
+        PocketType::Corner => CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES,
     }
 }
 

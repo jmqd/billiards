@@ -20,9 +20,9 @@ use crate::{
     MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
     OnTableMotionConfig, PlayingConditions, PlayingConditionsPreset, Pocket, PocketJaw, Position,
     Rail, RailCollisionConfig, RailCollisionProfile, RailModel, RestingOnTableBallState, Scale,
-    Seconds, Shot, ShotError, ShotSpeedPreset, TableSpec, BOTTOM_LEFT_DIAMOND,
-    BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND, CENTER_SPOT, RACK_SPOT,
-    TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
+    Seconds, SharedBallBallContactResolution, Shot, ShotError, ShotSpeedPreset, TableSpec,
+    BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
+    CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
 use image::Rgba;
 use winnow::ascii::{float, line_ending, till_line_ending};
@@ -734,9 +734,10 @@ pub enum ScenarioShotTraceEventKind {
         first_ball: BallType,
         second_ball: BallType,
     },
-    UnsupportedSharedBallBallContact {
+    SharedBallBallContact {
         balls: Vec<BallType>,
         ball_ball_pairs: Vec<(BallType, BallType)>,
+        resolution: SharedBallBallContactResolution,
     },
     BallPocketCapture {
         ball: BallType,
@@ -769,16 +770,18 @@ impl ScenarioShotTraceEventKind {
                 ball_type_name(first_ball),
                 ball_type_name(second_ball)
             ),
-            ScenarioShotTraceEventKind::UnsupportedSharedBallBallContact {
+            ScenarioShotTraceEventKind::SharedBallBallContact {
                 balls,
                 ball_ball_pairs,
+                resolution,
             } => format!(
-                "shared contact among [{}]: {}",
+                "shared contact among [{}] via {}: {}",
                 balls
                     .iter()
                     .map(ball_type_name)
                     .collect::<Vec<_>>()
                     .join(", "),
+                resolution.as_str(),
                 ball_ball_pairs
                     .iter()
                     .map(|(first, second)| format!(
@@ -965,7 +968,7 @@ fn scenario_event_involves_ball(event: &NBallSystemEvent, ball_index: usize) -> 
             second_ball_index,
             ..
         } => *first_ball_index == ball_index || *second_ball_index == ball_index,
-        NBallSystemEvent::UnsupportedSharedBallBallContact { ball_indices, .. } => {
+        NBallSystemEvent::SharedBallBallContact { ball_indices, .. } => {
             ball_indices.contains(&ball_index)
         }
         NBallSystemEvent::BallPocketCapture {
@@ -1000,11 +1003,12 @@ fn scenario_event_kind_from_system_event(
             first_ball: balls[*first_ball_index].ty.clone(),
             second_ball: balls[*second_ball_index].ty.clone(),
         },
-        NBallSystemEvent::UnsupportedSharedBallBallContact {
+        NBallSystemEvent::SharedBallBallContact {
             ball_indices,
             ball_ball_pairs,
+            resolution,
             ..
-        } => ScenarioShotTraceEventKind::UnsupportedSharedBallBallContact {
+        } => ScenarioShotTraceEventKind::SharedBallBallContact {
             balls: ball_indices
                 .iter()
                 .map(|ball_index| balls[*ball_index].ty.clone())
@@ -1013,6 +1017,7 @@ fn scenario_event_kind_from_system_event(
                 .iter()
                 .map(|(first, second)| (balls[*first].ty.clone(), balls[*second].ty.clone()))
                 .collect(),
+            resolution: *resolution,
         },
         NBallSystemEvent::BallPocketCapture {
             ball_index,

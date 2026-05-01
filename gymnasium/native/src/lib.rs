@@ -158,9 +158,13 @@ struct EventOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     jaw: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    contact_pairs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     phase_before: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     phase_after: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolution: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -926,16 +930,19 @@ fn event_output(
             pocket: None,
             rail: None,
             jaw: None,
+            contact_pairs: None,
             phase_before: None,
             phase_after: None,
+            resolution: None,
         },
-        NBallSystemEvent::UnsupportedSharedBallBallContact {
+        NBallSystemEvent::SharedBallBallContact {
             ball_indices,
             ball_ball_pairs,
+            resolution,
             ..
         } => EventOutput {
             time_seconds,
-            kind: "unsupported_shared_ball_ball_contact".to_string(),
+            kind: "shared_ball_ball_contact".to_string(),
             ball: Some(
                 ball_indices
                     .iter()
@@ -947,7 +954,8 @@ fn event_output(
             second_ball: None,
             pocket: None,
             rail: None,
-            jaw: Some(
+            jaw: None,
+            contact_pairs: Some(
                 ball_ball_pairs
                     .iter()
                     .map(|(first, second)| {
@@ -957,11 +965,11 @@ fn event_output(
                             ball_type_name(&ball_types[*second])
                         )
                     })
-                    .collect::<Vec<_>>()
-                    .join(","),
+                    .collect(),
             ),
             phase_before: None,
             phase_after: None,
+            resolution: Some(resolution.as_str().to_string()),
         },
         NBallSystemEvent::BallJawImpact { ball_index, impact } => EventOutput {
             time_seconds,
@@ -972,8 +980,10 @@ fn event_output(
             pocket: Some(pocket_name(impact.pocket).to_string()),
             rail: None,
             jaw: Some(jaw_name(impact.jaw).to_string()),
+            contact_pairs: None,
             phase_before: None,
             phase_after: None,
+            resolution: None,
         },
         NBallSystemEvent::BallPocketCapture {
             ball_index,
@@ -987,8 +997,10 @@ fn event_output(
             pocket: Some(pocket_name(capture.pocket).to_string()),
             rail: None,
             jaw: None,
+            contact_pairs: None,
             phase_before: None,
             phase_after: None,
+            resolution: None,
         },
         NBallSystemEvent::BallRailImpact { ball_index, impact } => EventOutput {
             time_seconds,
@@ -999,8 +1011,10 @@ fn event_output(
             pocket: None,
             rail: Some(rail_name(impact.rail).to_string()),
             jaw: None,
+            contact_pairs: None,
             phase_before: None,
             phase_after: None,
+            resolution: None,
         },
         NBallSystemEvent::MotionTransition {
             ball_index,
@@ -1014,8 +1028,10 @@ fn event_output(
             pocket: None,
             rail: None,
             jaw: None,
+            contact_pairs: None,
             phase_before: Some(format!("{:?}", transition.phase_before)),
             phase_after: Some(format!("{:?}", transition.phase_after)),
+            resolution: None,
         },
     }
 }

@@ -1264,6 +1264,22 @@ impl TwoBallOnTableEvent {
     }
 }
 
+/// How a shared simultaneous ball-ball contact graph is resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SharedBallBallContactResolution {
+    IterativePairwiseApproximation { max_passes: usize },
+}
+
+impl SharedBallBallContactResolution {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SharedBallBallContactResolution::IterativePairwiseApproximation { .. } => {
+                "iterative_pairwise_approximation"
+            }
+        }
+    }
+}
+
 /// The next predicted event among an indexed set of on-table balls under the currently
 /// implemented predictors.
 ///
@@ -1274,8 +1290,9 @@ impl TwoBallOnTableEvent {
 /// 2. ball-rail impact, ordered by `ball_index`
 /// 3. motion transition, ordered by `ball_index`
 ///
-/// Shared simultaneous ball-ball contacts are reported explicitly because this pairwise event model
-/// does not yet include a coupled multi-contact impulse solver.
+/// Shared simultaneous ball-ball contacts are reported explicitly because they are resolved by a
+/// deterministic iterative pairwise approximation rather than a coupled multi-contact impulse
+/// solver.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NBallOnTableEvent {
     BallBallCollision {
@@ -1287,10 +1304,11 @@ pub enum NBallOnTableEvent {
         ball_index: usize,
         impact: PredictedBallRailImpact,
     },
-    UnsupportedSharedBallBallContact {
+    SharedBallBallContact {
         time_until_contact: Seconds,
         ball_indices: Vec<usize>,
         ball_ball_pairs: Vec<(usize, usize)>,
+        resolution: SharedBallBallContactResolution,
     },
     MotionTransition {
         ball_index: usize,
@@ -1304,7 +1322,7 @@ impl NBallOnTableEvent {
         match self {
             NBallOnTableEvent::BallBallCollision { collision, .. } => collision.time_until_impact,
             NBallOnTableEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
-            NBallOnTableEvent::UnsupportedSharedBallBallContact {
+            NBallOnTableEvent::SharedBallBallContact {
                 time_until_contact, ..
             } => *time_until_contact,
             NBallOnTableEvent::MotionTransition { transition, .. } => {
@@ -1320,7 +1338,7 @@ impl NBallOnTableEvent {
     pub fn primary_ball(&self) -> Option<usize> {
         match self {
             NBallOnTableEvent::BallBallCollision { .. }
-            | NBallOnTableEvent::UnsupportedSharedBallBallContact { .. } => None,
+            | NBallOnTableEvent::SharedBallBallContact { .. } => None,
             NBallOnTableEvent::BallRailImpact { ball_index, .. }
             | NBallOnTableEvent::MotionTransition { ball_index, .. } => Some(*ball_index),
         }
@@ -1553,8 +1571,8 @@ pub struct TwoBallOnTableAdvance {
 ///
 /// `event` records the chosen indexed primary event, if any. Execution can still resolve
 /// additional disjoint same-time ball-ball collisions on the same step, so the returned states may
-/// encode more contact resolution than the single reported primary event does. Unsupported shared
-/// contact events advance to the contact time but intentionally leave collision response unresolved.
+/// encode more contact resolution than the single reported primary event does. Shared-contact
+/// events identify contact graphs resolved with the reported approximation strategy.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NBallOnTableAdvance {
     pub states: Vec<OnTableBallState>,
@@ -1620,10 +1638,11 @@ pub enum NBallSystemEvent {
         second_ball_index: usize,
         collision: PredictedBallBallCollision,
     },
-    UnsupportedSharedBallBallContact {
+    SharedBallBallContact {
         time_until_contact: Seconds,
         ball_indices: Vec<usize>,
         ball_ball_pairs: Vec<(usize, usize)>,
+        resolution: SharedBallBallContactResolution,
     },
     BallJawImpact {
         ball_index: usize,
@@ -1647,7 +1666,7 @@ impl NBallSystemEvent {
     pub fn time(&self) -> Seconds {
         match self {
             NBallSystemEvent::BallBallCollision { collision, .. } => collision.time_until_impact,
-            NBallSystemEvent::UnsupportedSharedBallBallContact {
+            NBallSystemEvent::SharedBallBallContact {
                 time_until_contact, ..
             } => *time_until_contact,
             NBallSystemEvent::BallJawImpact { impact, .. } => impact.time_until_impact,
@@ -1662,7 +1681,7 @@ impl NBallSystemEvent {
     pub fn primary_ball(&self) -> Option<usize> {
         match self {
             NBallSystemEvent::BallBallCollision { .. }
-            | NBallSystemEvent::UnsupportedSharedBallBallContact { .. } => None,
+            | NBallSystemEvent::SharedBallBallContact { .. } => None,
             NBallSystemEvent::BallJawImpact { ball_index, .. }
             | NBallSystemEvent::BallPocketCapture { ball_index, .. }
             | NBallSystemEvent::BallRailImpact { ball_index, .. }
@@ -5047,7 +5066,7 @@ fn two_ball_event_from_n_ball_event(event: NBallOnTableEvent) -> TwoBallOnTableE
             ball: two_ball_event_ball_from_index(ball_index),
             impact,
         },
-        NBallOnTableEvent::UnsupportedSharedBallBallContact { .. } => {
+        NBallOnTableEvent::SharedBallBallContact { .. } => {
             panic!("two-ball scheduler cannot produce shared multi-contact events")
         }
         NBallOnTableEvent::MotionTransition {
@@ -5071,7 +5090,7 @@ fn earlier_n_ball_event_candidate(
         || ((candidate_time - current_time).abs() <= 1e-12 && candidate.source < current.source)
 }
 
-fn unsupported_shared_ball_ball_contact_from_candidates(
+fn shared_ball_ball_contact_from_candidates(
     candidates: &[NBallSystemEventCandidate],
 ) -> Option<NBallOnTableEvent> {
     let earliest_time = candidates
@@ -5109,18 +5128,19 @@ fn unsupported_shared_ball_ball_contact_from_candidates(
         return None;
     }
 
-    Some(NBallOnTableEvent::UnsupportedSharedBallBallContact {
+    Some(NBallOnTableEvent::SharedBallBallContact {
         time_until_contact: Seconds::new(earliest_time),
         ball_indices,
         ball_ball_pairs,
+        resolution: shared_ball_ball_contact_resolution(),
     })
 }
 
 fn select_earliest_n_ball_event_candidate(
     candidates: Vec<NBallSystemEventCandidate>,
 ) -> Option<NBallOnTableEvent> {
-    if let Some(unsupported) = unsupported_shared_ball_ball_contact_from_candidates(&candidates) {
-        return Some(unsupported);
+    if let Some(shared_contact) = shared_ball_ball_contact_from_candidates(&candidates) {
+        return Some(shared_contact);
     }
 
     candidates
@@ -5135,7 +5155,7 @@ fn select_earliest_n_ball_event_candidate(
         .map(|candidate| candidate.event)
 }
 
-fn unsupported_shared_ball_ball_contact_from_pocket_candidates(
+fn shared_ball_ball_contact_from_pocket_candidates(
     candidates: &[NBallPocketAwareSystemEventCandidate],
 ) -> Option<NBallSystemEvent> {
     let earliest_time = candidates
@@ -5173,20 +5193,19 @@ fn unsupported_shared_ball_ball_contact_from_pocket_candidates(
         return None;
     }
 
-    Some(NBallSystemEvent::UnsupportedSharedBallBallContact {
+    Some(NBallSystemEvent::SharedBallBallContact {
         time_until_contact: Seconds::new(earliest_time),
         ball_indices,
         ball_ball_pairs,
+        resolution: shared_ball_ball_contact_resolution(),
     })
 }
 
 fn select_earliest_n_ball_pocket_aware_event_candidate(
     candidates: Vec<NBallPocketAwareSystemEventCandidate>,
 ) -> Option<NBallSystemEvent> {
-    if let Some(unsupported) =
-        unsupported_shared_ball_ball_contact_from_pocket_candidates(&candidates)
-    {
-        return Some(unsupported);
+    if let Some(shared_contact) = shared_ball_ball_contact_from_pocket_candidates(&candidates) {
+        return Some(shared_contact);
     }
 
     candidates
@@ -5378,6 +5397,12 @@ const SIMULTANEOUS_EVENT_TOLERANCE_SECONDS: f64 = 1e-12;
 const SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES: usize = 8;
 const SHARED_BALL_BALL_CONTACT_STATE_EPSILON: f64 = 1e-9;
 
+fn shared_ball_ball_contact_resolution() -> SharedBallBallContactResolution {
+    SharedBallBallContactResolution::IterativePairwiseApproximation {
+        max_passes: SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES,
+    }
+}
+
 fn simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
     state_refs: &[Option<&OnTableBallState>],
     ball: &BallSetPhysicsSpec,
@@ -5560,7 +5585,7 @@ where
     let mut states_after = advance_n_on_table_balls_without_event(states, elapsed, ball, motion);
     match &event {
         NBallOnTableEvent::MotionTransition { .. } => {}
-        NBallOnTableEvent::UnsupportedSharedBallBallContact {
+        NBallOnTableEvent::SharedBallBallContact {
             ball_ball_pairs, ..
         } => {
             resolve_shared_zero_time_ball_ball_contacts_on_table(
@@ -6087,12 +6112,12 @@ where
 
         states = advanced.states;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
-        let unsupported_shared_contact = matches!(
-            event,
-            NBallOnTableEvent::UnsupportedSharedBallBallContact { .. }
-        );
+        let shared_contact_event = matches!(event, NBallOnTableEvent::SharedBallBallContact { .. });
         events.push(event);
-        if unsupported_shared_contact {
+        // The one-slice on-table until-rest helper remains conservative around approximated shared
+        // clusters: it records and resolves the first shared contact, then returns rather than
+        // pretending this pairwise approximation is a full coupled multi-contact solve.
+        if shared_contact_event {
             break;
         }
     }
@@ -6399,7 +6424,7 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
     let mut states_after = advance_n_ball_system_without_event(states, elapsed, ball, motion);
     match event {
         NBallSystemEvent::MotionTransition { .. } => {}
-        NBallSystemEvent::UnsupportedSharedBallBallContact {
+        NBallSystemEvent::SharedBallBallContact {
             ball_ball_pairs, ..
         } => {
             resolve_shared_zero_time_ball_ball_contacts_in_system_states(

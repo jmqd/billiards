@@ -181,7 +181,7 @@ fn simultaneous_pair_collisions_break_ties_by_lowest_index_pair() {
 }
 
 #[test]
-fn shared_simultaneous_ball_ball_contacts_are_reported_as_unsupported() {
+fn shared_simultaneous_ball_ball_contacts_report_the_approximation_strategy() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let contact_y = -3.0_f64.sqrt() * radius;
     let cue_ball = on_table(BallState::on_table(
@@ -200,16 +200,18 @@ fn shared_simultaneous_ball_ball_contacts_are_reported_as_unsupported() {
     .expect("the symmetric double hit should be detected");
 
     match event {
-        NBallOnTableEvent::UnsupportedSharedBallBallContact {
+        NBallOnTableEvent::SharedBallBallContact {
             time_until_contact,
             ball_indices,
             ball_ball_pairs,
+            resolution,
         } => {
             assert_close(time_until_contact.as_f64(), 1.0);
             assert_eq!(ball_indices, vec![0, 1, 2]);
             assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
+            assert_eq!(resolution.as_str(), "iterative_pairwise_approximation");
         }
-        other => panic!("expected unsupported shared contact, got {other:?}"),
+        other => panic!("expected shared contact, got {other:?}"),
     }
 }
 

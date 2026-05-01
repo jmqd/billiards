@@ -231,14 +231,16 @@ fn advancing_shared_simultaneous_contacts_transfers_motion_into_the_cluster() {
     );
 
     match advanced.event.expect("an event should be reported") {
-        billiards::NBallOnTableEvent::UnsupportedSharedBallBallContact {
+        billiards::NBallOnTableEvent::SharedBallBallContact {
             time_until_contact,
             ball_indices,
             ball_ball_pairs,
+            resolution,
         } => {
             assert_close(time_until_contact.as_f64(), 1.0);
             assert_eq!(ball_indices, vec![0, 1, 2]);
             assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
+            assert_eq!(resolution.as_str(), "iterative_pairwise_approximation");
         }
         other => panic!("expected shared contact, got {other:?}"),
     }

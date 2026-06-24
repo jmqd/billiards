@@ -1,10 +1,12 @@
 use bigdecimal::ToPrimitive;
 use billiards::{
+    human_tuned_preview_motion_config, trace_ball_path_with_rail_profile_on_table,
     trace_ball_path_with_rails_on_table, AngularVelocity3, BallPathStop, BallSetPhysicsSpec,
     BallState, Diamond, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
     MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail,
-    RailAngleReference, RailModel, RailTangentDirection, RollingResistanceModel,
-    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    RailAngleReference, RailCollisionProfile, RailModel, RailTangentDirection,
+    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -12,6 +14,14 @@ fn assert_close(actual: f64, expected: f64) {
     assert!(
         delta < 1e-9,
         "expected {expected}, got {actual} (delta {delta})"
+    );
+}
+
+fn assert_close_with_tolerance(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected} +/- {tolerance}, got {actual} (delta {delta})"
     );
 }
 
@@ -250,4 +260,52 @@ fn tracing_from_a_zero_time_rail_impact_executes_the_rebound() {
         "the traced ball should carry the resolved outbound rail velocity"
     );
     assert_eq!(path.segments.len(), 1);
+}
+
+#[test]
+fn corner_five_benchmark_track_reaches_the_formula_predicted_third_rail_target() {
+    let table = TableSpec::default();
+    let ball = BallSetPhysicsSpec::default();
+    let motion = human_tuned_preview_motion_config();
+    let profile = RailCollisionProfile::human_tuned();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let width = table.diamond_to_inches(Diamond::four()).as_f64();
+    let start_x = radius;
+    let start_y = radius;
+    let first_rail_x = width - radius;
+    // In the Part XII diagram the table is rotated relative to our coordinates: the long-axis
+    // labels count 7-to-1 left-to-right, so first-rail number F=2 maps to engine y=6.
+    let first_rail_y = table.diamond_to_inches(Diamond::from("6")).as_f64();
+    let dx = first_rail_x - start_x;
+    let dy = first_rail_y - start_y;
+    let length = (dx * dx + dy * dy).sqrt();
+    let speed = 90.0;
+    let vx = speed * dx / length;
+    let vy = speed * dy / length;
+    let running_english = -1.5 * speed / radius;
+    let state = on_table(BallState::on_table(
+        inches2(start_x, start_y),
+        Velocity2::new(Inches::from_f64(vx), Inches::from_f64(vy)),
+        AngularVelocity3::new(-vy / radius, vx / radius, running_english),
+    ));
+
+    let path = trace_ball_path_with_rail_profile_on_table(
+        &state,
+        BallPathStop::RailImpacts(3),
+        &ball,
+        &table,
+        &motion,
+        RailModel::SpinAware,
+        &profile,
+    );
+
+    assert_eq!(path.rail_impacts, 3);
+    let final_position = path.final_state.as_ball_state().projected_position(&table);
+    let rail_center_offset = diamond_value(&table.inches_to_diamond(TYPICAL_BALL_RADIUS.clone()));
+    assert_close(diamond_value(&final_position.x), rail_center_offset);
+
+    // VEPS GEMS Part XII gives the common pool-table benchmark as D=5, F=2, so T=D-F=3.
+    // The same 7-to-1 long-axis numbering maps a left-rail y coordinate to T=8-y.
+    let third_rail_number = 8.0 - diamond_value(&final_position.y);
+    assert_close_with_tolerance(third_rail_number, 3.0, 0.15);
 }

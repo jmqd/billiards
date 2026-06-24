@@ -1144,6 +1144,7 @@ pub struct CueStrikeDef {
 pub enum CueStrikeMethodExpr {
     MassRatio(f64),
     EnergyLoss(f64),
+    EndmassRatio(f64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1700,6 +1701,7 @@ fn resolve_position_expr(
 fn build_cue_strike(def: &CueStrikeDef) -> Result<CueStrikeConfig, DslBuildError> {
     let mut cue_mass_ratio = None;
     let mut collision_energy_loss = None;
+    let mut endmass_ratio = None;
 
     for method in &def.methods {
         match method {
@@ -1719,6 +1721,14 @@ fn build_cue_strike(def: &CueStrikeDef) -> Result<CueStrikeConfig, DslBuildError
                     }
                 })?;
             }
+            CueStrikeMethodExpr::EndmassRatio(value) => {
+                set_once(&mut endmass_ratio, Scale::from_f64(*value), || {
+                    DslBuildError::DuplicateCueStrikeMethod {
+                        name: def.name.clone(),
+                        method: "endmass_ratio".to_string(),
+                    }
+                })?;
+            }
         }
     }
 
@@ -1732,11 +1742,17 @@ fn build_cue_strike(def: &CueStrikeDef) -> Result<CueStrikeConfig, DslBuildError
             method: "energy_loss".to_string(),
         })?;
 
-    CueStrikeConfig::new(cue_mass_ratio, collision_energy_loss).map_err(|error| {
-        DslBuildError::InvalidCueStrikeConfig {
-            name: def.name.clone(),
-            error,
-        }
+    match endmass_ratio {
+        Some(endmass_ratio) => CueStrikeConfig::new_with_endmass_ratio(
+            cue_mass_ratio,
+            collision_energy_loss,
+            endmass_ratio,
+        ),
+        None => CueStrikeConfig::new(cue_mass_ratio, collision_energy_loss),
+    }
+    .map_err(|error| DslBuildError::InvalidCueStrikeConfig {
+        name: def.name.clone(),
+        error,
     })
 }
 
@@ -2604,6 +2620,10 @@ fn cue_strike_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, CueStrikeMet
     alt((
         preceded(peek("mass_ratio"), cut_err(cue_strike_mass_ratio_method)),
         preceded(peek("energy_loss"), cut_err(cue_strike_energy_loss_method)),
+        preceded(
+            peek("endmass_ratio"),
+            cut_err(cue_strike_endmass_ratio_method),
+        ),
     ))
     .parse_next(input)
 }
@@ -2622,6 +2642,14 @@ fn cue_strike_energy_loss_method<'a>(
     let _ = "energy_loss".parse_next(input)?;
     let value = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
     Ok(CueStrikeMethodExpr::EnergyLoss(value))
+}
+
+fn cue_strike_endmass_ratio_method<'a>(
+    input: &mut Stream<'a>,
+) -> ParseResult<'a, CueStrikeMethodExpr> {
+    let _ = "endmass_ratio".parse_next(input)?;
+    let value = delimited('(', delimited(hws0, float, hws0), ')').parse_next(input)?;
+    Ok(CueStrikeMethodExpr::EndmassRatio(value))
 }
 
 fn ball_ball_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, BallBallMethodExpr> {
@@ -2974,7 +3002,7 @@ fn degrees_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
 }
 
 fn shot_speed_preset_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotSpeedPreset> {
-    let checkpoint = input.clone();
+    let checkpoint = *input;
     let name = alt((identifier, "0", "1", "2", "3", "4")).parse_next(input)?;
     name.parse::<ShotSpeedPreset>()
         .map_err(|_| ErrMode::Backtrack(InputError::at(checkpoint)))

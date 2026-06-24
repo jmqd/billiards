@@ -142,8 +142,121 @@ fn side_offset_seeds_vertical_axis_spin() {
     )
     .expect("side-spin strike should succeed");
 
+    assert!(
+        struck.as_ball_state().velocity.x().as_f64() < 0.0,
+        "positive side offset should squirt the cue ball opposite the tip side"
+    );
+    assert!(struck.as_ball_state().velocity.y().as_f64() > 0.0);
     assert_close(struck.as_ball_state().angular_velocity.x().as_f64(), 0.0);
     assert_close(struck.as_ball_state().angular_velocity.y().as_f64(), 0.0);
+    assert!(struck.as_ball_state().angular_velocity.z().as_f64() > 0.0);
+}
+
+#[test]
+fn cue_squirt_angle_uses_the_configured_endmass_ratio_and_sign() {
+    let regular_cue = cue_config();
+    let low_squirt_cue = CueStrikeConfig::new_with_endmass_ratio(
+        Scale::from_f64(1.0),
+        Scale::from_f64(0.1),
+        Scale::from_f64(40.0),
+    )
+    .expect("low-squirt test cue should validate");
+    let right_tip_shot = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::new(Scale::from_f64(0.5), Scale::zero()).expect("tip contact"),
+    )
+    .expect("shot should validate");
+    let left_tip_shot = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::new(Scale::from_f64(-0.5), Scale::zero()).expect("tip contact"),
+    )
+    .expect("shot should validate");
+
+    let right_tip = strike_resting_ball_on_table(
+        &resting_ball(),
+        &right_tip_shot,
+        &regular_cue,
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("right-tip strike should succeed");
+    let left_tip = strike_resting_ball_on_table(
+        &resting_ball(),
+        &left_tip_shot,
+        &regular_cue,
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("left-tip strike should succeed");
+    let low_squirt = strike_resting_ball_on_table(
+        &resting_ball(),
+        &right_tip_shot,
+        &low_squirt_cue,
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("low-squirt strike should succeed");
+
+    let regular_heading = right_tip
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("moving ball should have a heading")
+        .as_degrees();
+    let mirror_heading = left_tip
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("moving ball should have a heading")
+        .as_degrees();
+    let br = 0.5_f64;
+    let transverse_contact_factor = (1.0 - br * br).sqrt();
+    let expected_squirt_degrees = (2.5 * br * transverse_contact_factor
+        / (1.0 + 20.151 + 2.5 * transverse_contact_factor * transverse_contact_factor))
+        .atan()
+        .to_degrees();
+
+    assert_close(regular_heading, 360.0 - expected_squirt_degrees);
+    assert_close(mirror_heading, expected_squirt_degrees);
+    assert!(right_tip.as_ball_state().velocity.x().as_f64() < 0.0);
+    assert!(left_tip.as_ball_state().velocity.x().as_f64() > 0.0);
+    assert!(
+        low_squirt.as_ball_state().velocity.x().as_f64().abs()
+            < right_tip.as_ball_state().velocity.x().as_f64().abs(),
+        "larger ball-to-endmass ratio should reduce squirt"
+    );
+    assert!(
+        low_squirt.as_ball_state().angular_velocity.z().as_f64()
+            > right_tip.as_ball_state().angular_velocity.z().as_f64(),
+        "reduced squirt should leave a slightly larger effective side-spin offset"
+    );
+    let expected_effective_offset = (br.asin() - expected_squirt_degrees.to_radians()).sin();
+    let post_strike_speed = right_tip.as_ball_state().speed().as_f64();
+    assert_close(
+        right_tip.as_ball_state().angular_velocity.z().as_f64(),
+        2.5 * post_strike_speed / TYPICAL_BALL_RADIUS.as_f64() * expected_effective_offset,
+    );
+}
+
+#[test]
+fn cue_squirt_is_relative_to_the_shot_heading() {
+    let struck = strike_resting_ball_on_table(
+        &resting_ball(),
+        &Shot::new(
+            Angle::from_north(1.0, 0.0),
+            InchesPerSecond::new("10"),
+            CueTipContact::new(Scale::from_f64(0.5), Scale::zero()).expect("tip contact"),
+        )
+        .expect("shot should validate"),
+        &cue_config(),
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("side-spin strike should succeed");
+
+    assert!(struck.as_ball_state().velocity.x().as_f64() > 0.0);
+    assert!(
+        struck.as_ball_state().velocity.y().as_f64() > 0.0,
+        "positive side offset on an eastward shot should squirt toward table north, the shot-frame left side"
+    );
     assert!(struck.as_ball_state().angular_velocity.z().as_f64() > 0.0);
 }
 

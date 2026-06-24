@@ -218,3 +218,36 @@ fn tracing_until_one_rail_impact_stops_at_the_bank_point() {
     assert_close(projected[0].angle_to(&projected[1]).as_degrees(), 30.0);
     assert!(diamond_value(&projected[1].y) > diamond_value(&projected[0].y));
 }
+
+#[test]
+fn tracing_from_a_zero_time_rail_impact_executes_the_rebound() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let state = on_table(BallState::on_table(
+        inches2(10.0, top_plane),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+
+    let path = trace_ball_path_with_rails_on_table(
+        &state,
+        BallPathStop::Duration(billiards::Seconds::new(0.1)),
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        RailModel::Mirror,
+    );
+
+    assert_eq!(path.rail_impacts, 1);
+    assert_close(path.elapsed.as_f64(), 0.1);
+    assert!(
+        path.final_state.as_ball_state().position.y().as_f64() < top_plane,
+        "the traced ball should rebound back into the table"
+    );
+    assert!(
+        path.final_state.as_ball_state().velocity.y().as_f64() < 0.0,
+        "the traced ball should carry the resolved outbound rail velocity"
+    );
+    assert_eq!(path.segments.len(), 1);
+}

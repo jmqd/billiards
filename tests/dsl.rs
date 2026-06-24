@@ -146,6 +146,7 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
          cue_strike(default)\n\
            .mass_ratio(1.0)\n\
            .energy_loss(0.1)\n\
+           .endmass_ratio(29.158)\n\
          shot(cue)\n\
            .heading(30deg)\n\
            .speed(128ips)\n\
@@ -177,6 +178,7 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
     assert_close(shot.shot.tip_contact().height_offset().as_f64(), 0.4);
     assert_close(shot.cue_strike.cue_mass_ratio().as_f64(), 1.0);
     assert_close(shot.cue_strike.collision_energy_loss().as_f64(), 0.1);
+    assert_close(shot.cue_strike.cue_ball_to_endmass_ratio().as_f64(), 29.158);
     assert_eq!(
         seeded
             .as_ball_state()

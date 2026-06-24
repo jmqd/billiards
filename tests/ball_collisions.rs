@@ -1,7 +1,10 @@
 use billiards::{
-    collide_ball_ball_on_table, collide_ball_ball_on_table_with_config, Angle, AngularVelocity3,
-    BallBallCollisionConfig, BallState, CollisionModel, CutAngle, Inches, Inches2,
-    OnTableBallState, Scale, Velocity2, TYPICAL_BALL_RADIUS,
+    advance_motion_on_table, collide_ball_ball_on_table, collide_ball_ball_on_table_with_config,
+    compute_next_transition_on_table, Angle, AngularVelocity3, BallBallCollisionConfig,
+    BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
+    RadiansPerSecondSq, RollingResistanceModel, Scale, SlidingFrictionModel, SpinDecayModel,
+    Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -14,6 +17,21 @@ fn assert_close(actual: f64, expected: f64) {
 
 fn on_table(state: BallState) -> OnTableBallState {
     OnTableBallState::try_from(state).expect("test states should validate as on-table")
+}
+
+fn motion_config() -> OnTableMotionConfig {
+    MotionTransitionConfig {
+        phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("5"),
+        },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(2.0),
+        },
+        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new("5"),
+        },
+    }
 }
 
 fn inches2(x: f64, y: f64) -> Inches2 {
@@ -41,6 +59,31 @@ fn cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> OnTableB
         velocity2(0.0, speed),
         AngularVelocity3::zero(),
     ))
+}
+
+fn rolling_cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let radians = cut_angle_degrees.to_radians();
+    on_table(BallState::on_table(
+        inches2(-2.0 * radius * radians.sin(), -2.0 * radius * radians.cos()),
+        velocity2(0.0, speed),
+        AngularVelocity3::new(-speed / radius, 0.0, 0.0),
+    ))
+}
+
+fn advance_until_rolling(state: &OnTableBallState) -> OnTableBallState {
+    let ball = BallSetPhysicsSpec::default();
+    let config = motion_config();
+    let transition = compute_next_transition_on_table(state, &ball, &config)
+        .expect("sliding state should have a rolling transition");
+
+    assert_eq!(transition.phase_before, MotionPhase::Sliding);
+    assert_eq!(transition.phase_after, MotionPhase::Rolling);
+
+    OnTableBallState::try_from(
+        advance_motion_on_table(state, transition.time_until_transition, &ball, &config).state,
+    )
+    .expect("advanced state should remain on-table")
 }
 
 #[test]
@@ -181,6 +224,38 @@ fn a_forty_five_degree_cut_transfers_half_the_kinetic_energy_to_the_object_ball(
     assert_close(cue_speed, 10.0 / 2.0_f64.sqrt());
     assert_close(object_speed.powi(2) / 100.0, 0.5);
     assert_close(cue_speed.powi(2) / 100.0, 0.5);
+}
+
+#[test]
+fn tp_a16_ideal_natural_roll_cut_settles_to_reference_speed_components() {
+    let speed = 10.0;
+    let phi = 30.0_f64.to_radians();
+    let cue_ball = rolling_cue_ball_at_cut_angle_degrees(30.0, speed);
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let (cue_after, object_after) =
+        collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
+    let cue_rolling = advance_until_rolling(&cue_after);
+    let object_rolling = advance_until_rolling(&object_after);
+    let cue_rolling = cue_rolling.as_ball_state();
+    let object_rolling = object_rolling.as_ball_state();
+    let expected_object_speed = (5.0 / 7.0) * speed * phi.cos();
+    let expected_cue_vx = -(5.0 / 7.0) * speed * phi.sin() * phi.cos();
+    let expected_cue_vy = (speed / 7.0) * (5.0 * phi.sin().powi(2) + 2.0);
+    let expected_cue_speed = (speed / 7.0) * (4.0 + 45.0 * phi.sin().powi(2)).sqrt();
+
+    assert_close(cue_rolling.velocity.x().as_f64(), expected_cue_vx);
+    assert_close(cue_rolling.velocity.y().as_f64(), expected_cue_vy);
+    assert_close(cue_rolling.speed().as_f64(), expected_cue_speed);
+    assert_close(object_rolling.speed().as_f64(), expected_object_speed);
+    assert_close(
+        object_rolling
+            .velocity
+            .angle_from_north()
+            .expect("moving object ball should have a heading")
+            .as_degrees(),
+        30.0,
+    );
 }
 
 #[test]

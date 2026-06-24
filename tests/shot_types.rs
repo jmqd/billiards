@@ -1,8 +1,9 @@
 use std::str::FromStr;
 
 use billiards::{
-    format_shot_speed, CueStrikeConfig, CueTipContact, HumanShotSpeedBand, InchesPerSecond, Scale,
-    Shot, ShotError, ShotSpeedPreset,
+    format_shot_speed, strike_resting_ball_on_table, BallSetPhysicsSpec, BallState,
+    CueStrikeConfig, CueTipContact, HumanShotSpeedBand, Inches2, InchesPerSecond,
+    RestingOnTableBallState, Scale, Shot, ShotError, ShotSpeedPreset,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -120,6 +121,32 @@ fn shot_can_be_constructed_from_a_cue_ball_launch_speed() {
 }
 
 #[test]
+fn off_center_launch_speed_construction_preserves_post_squirt_speed_magnitude() {
+    let cue = CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.1))
+        .expect("cue config should validate");
+    let tip_contact = CueTipContact::new(Scale::from_f64(0.4), Scale::zero()).expect("tip contact");
+    let shot = Shot::new_for_cue_ball_launch_speed(
+        billiards::Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("128"),
+        tip_contact,
+        &cue,
+    )
+    .expect("launch-speed shot should validate");
+    let resting =
+        RestingOnTableBallState::try_from(BallState::resting_at(Inches2::new("10", "20")))
+            .expect("resting test state should validate");
+    let struck =
+        strike_resting_ball_on_table(&resting, &shot, &cue, &BallSetPhysicsSpec::default())
+            .expect("off-center strike should succeed");
+
+    assert_close(struck.as_ball_state().speed().as_f64(), 128.0);
+    assert!(
+        struck.as_ball_state().velocity.x().as_f64() < 0.0,
+        "squirt should change launch direction, not launch-speed magnitude"
+    );
+}
+
+#[test]
 fn shot_rejects_negative_cue_speed() {
     let error = Shot::new(
         billiards::Angle::from_north(1.0, 0.0),
@@ -149,14 +176,41 @@ fn cue_strike_config_accepts_positive_mass_ratio_and_unit_interval_energy_loss()
 
     assert_close(config.cue_mass_ratio().as_f64(), 3.0);
     assert_close(config.collision_energy_loss().as_f64(), 0.2);
+    assert_close(config.cue_ball_to_endmass_ratio().as_f64(), 20.151);
     assert_close(config.miscue_offset_limit().as_f64(), 0.5);
     assert_close(custom.miscue_offset_limit().as_f64(), 0.4);
+}
+
+#[test]
+fn cue_strike_config_can_override_the_squirt_endmass_ratio() {
+    let low_squirt = CueStrikeConfig::new_with_endmass_ratio(
+        Scale::from_f64(3.0),
+        Scale::from_f64(0.2),
+        Scale::from_f64(40.0),
+    )
+    .expect("positive endmass ratio should validate");
+    let custom = CueStrikeConfig::new_with_miscue_offset_limit_and_endmass_ratio(
+        Scale::from_f64(3.0),
+        Scale::from_f64(0.2),
+        Scale::from_f64(0.4),
+        Scale::from_f64(12.0),
+    )
+    .expect("positive endmass ratio and in-range miscue limit should validate");
+
+    assert_close(low_squirt.cue_ball_to_endmass_ratio().as_f64(), 40.0);
+    assert_close(custom.miscue_offset_limit().as_f64(), 0.4);
+    assert_close(custom.cue_ball_to_endmass_ratio().as_f64(), 12.0);
 }
 
 #[test]
 fn cue_strike_config_rejects_nonpositive_mass_ratio_and_out_of_range_energy_loss_or_miscue_limit() {
     let by_mass_ratio = CueStrikeConfig::new(Scale::zero(), Scale::from_f64(0.2));
     let by_energy_loss = CueStrikeConfig::new(Scale::from_f64(3.0), Scale::from_f64(1.5));
+    let by_endmass_ratio = CueStrikeConfig::new_with_endmass_ratio(
+        Scale::from_f64(3.0),
+        Scale::from_f64(0.2),
+        Scale::zero(),
+    );
     let by_miscue_limit = CueStrikeConfig::new_with_miscue_offset_limit(
         Scale::from_f64(3.0),
         Scale::from_f64(0.2),
@@ -170,6 +224,10 @@ fn cue_strike_config_rejects_nonpositive_mass_ratio_and_out_of_range_energy_loss
     assert!(matches!(
         by_energy_loss,
         Err(ShotError::CollisionEnergyLossOutOfRange { .. })
+    ));
+    assert!(matches!(
+        by_endmass_ratio,
+        Err(ShotError::NonPositiveCueBallToEndmassRatio { .. })
     ));
     assert!(matches!(
         by_miscue_limit,

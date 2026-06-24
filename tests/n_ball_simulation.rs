@@ -105,7 +105,7 @@ fn simulating_n_balls_until_rest_records_collision_and_transition_events_until_e
 }
 
 #[test]
-fn simulating_a_frozen_three_ball_chain_records_the_zero_time_follow_on_collision() {
+fn simulating_a_frozen_three_ball_chain_uses_the_tp_b29_coupled_contact_split() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let a = on_table(BallState::on_table(
         inches2(-(2.0 * radius + 7.5), 0.0),
@@ -123,8 +123,8 @@ fn simulating_a_frozen_three_ball_chain_records_the_zero_time_follow_on_collisio
     );
 
     assert!(
-        simulated.events.len() >= 2,
-        "expected both cluster collisions to be recorded"
+        !simulated.events.is_empty(),
+        "expected the opening cluster collision to be recorded"
     );
     match &simulated.events[0] {
         NBallOnTableEvent::BallBallCollision {
@@ -137,16 +137,23 @@ fn simulating_a_frozen_three_ball_chain_records_the_zero_time_follow_on_collisio
         }
         other => panic!("expected opening cluster collision, got {other:?}"),
     }
-    match &simulated.events[1] {
-        NBallOnTableEvent::BallBallCollision {
+    for event in simulated.events.iter().skip(1) {
+        if let NBallOnTableEvent::BallBallCollision {
             first_ball_index,
             second_ball_index,
             collision,
-        } => {
-            assert_eq!((*first_ball_index, *second_ball_index), (1, 2));
-            assert_close(collision.time_until_impact.as_f64(), 0.0);
+        } = event
+        {
+            assert_ne!(
+                (
+                    *first_ball_index,
+                    *second_ball_index,
+                    collision.time_until_impact.as_f64()
+                ),
+                (1, 2, 0.0),
+                "TP B.29 coupled resolution should not be followed by a synthetic immediate frozen-neighbor pair collision"
+            );
         }
-        other => panic!("expected immediate follow-on collision, got {other:?}"),
     }
     assert!(
         simulated.states[2].as_ball_state().position.x().as_f64() > 2.0 * radius,

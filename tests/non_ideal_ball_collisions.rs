@@ -1,11 +1,12 @@
 use billiards::{
     collide_ball_ball_analyzed_on_table, collide_ball_ball_detailed_on_table,
-    collide_ball_ball_on_table, estimate_post_contact_cue_ball_bend_on_table,
-    estimate_post_contact_cue_ball_curve_on_table, gearing_english, Angle, AngularVelocity3,
+    collide_ball_ball_detailed_on_table_with_config, collide_ball_ball_on_table,
+    estimate_post_contact_cue_ball_bend_on_table, estimate_post_contact_cue_ball_curve_on_table,
+    gearing_english, Angle, AngularVelocity3, BallBallCollisionConfig, BallBallFrictionModel,
     BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecondSq,
     MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
-    RadiansPerSecondSq, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    PlayingConditions, RadiansPerSecondSq, RollingResistanceModel, Scale, SlidingFrictionModel,
+    SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -52,6 +53,35 @@ fn impact_heading(from: &OnTableBallState, to: &OnTableBallState) -> Angle {
         to.position.x().as_f64() - from.position.x().as_f64(),
         to.position.y().as_f64() - from.position.y().as_f64(),
     )
+}
+
+fn cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let radians = cut_angle_degrees.to_radians();
+    on_table(BallState::on_table(
+        inches2(-2.0 * radius * radians.sin(), -2.0 * radius * radians.cos()),
+        Velocity2::new(Inches::zero(), Inches::from_f64(speed)),
+        AngularVelocity3::zero(),
+    ))
+}
+
+fn marlow_throw_for_stun_cut(cut_angle_degrees: f64, friction_scale: f64) -> f64 {
+    let cue_ball = cue_ball_at_cut_angle_degrees(cut_angle_degrees, 3.0 * 17.6);
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let config = BallBallCollisionConfig::new_with_friction_model(
+        Scale::from_f64(1.0),
+        BallBallFrictionModel::marlow_speed_fit(Scale::from_f64(friction_scale)),
+    );
+
+    collide_ball_ball_detailed_on_table_with_config(
+        &cue_ball,
+        &object_ball,
+        CollisionModel::ThrowAware,
+        &config,
+    )
+    .throw_angle_degrees
+    .expect("throw-aware collisions should report a throw angle")
+    .abs()
 }
 
 fn expected_spin_seed_for_north_shot(
@@ -130,7 +160,7 @@ fn spin_friction_matches_throw_aware_for_a_stationary_object_ball_cut() {
 }
 
 #[test]
-fn spin_friction_can_apply_non_ideal_throw_to_a_moving_object_ball() {
+fn throw_aware_applies_the_contact_impulse_to_a_moving_object_ball() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
         inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
@@ -149,18 +179,16 @@ fn spin_friction_can_apply_non_ideal_throw_to_a_moving_object_ball() {
     let spin_friction =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::SpinFriction);
 
-    assert_eq!(throw_aware.a_after, ideal.a_after);
-    assert_eq!(throw_aware.b_after, ideal.b_after);
-    assert!(throw_aware.transferred_spin.is_none());
+    assert_eq!(spin_friction, throw_aware);
     assert!(
-        spin_friction
+        throw_aware
             .throw_angle_degrees
-            .expect("spin-friction collisions should report a throw angle")
+            .expect("throw-aware collisions should report a throw angle")
             .abs()
             > 1e-9,
-        "moving-object spin-friction collisions should no longer silently reduce to ideal"
+        "moving-object throw-aware collisions should no longer silently reduce to ideal"
     );
-    assert!(spin_friction.transferred_spin.is_some());
+    assert!(throw_aware.transferred_spin.is_some());
 
     let ideal_heading = ideal
         .b_after
@@ -168,15 +196,15 @@ fn spin_friction_can_apply_non_ideal_throw_to_a_moving_object_ball() {
         .velocity
         .angle_from_north()
         .expect("ideal moving object ball should still have an outgoing heading");
-    let spin_friction_heading = spin_friction
+    let throw_aware_heading = throw_aware
         .b_after
         .as_ball_state()
         .velocity
         .angle_from_north()
-        .expect("spin-friction moving object ball should still have an outgoing heading");
+        .expect("throw-aware moving object ball should still have an outgoing heading");
     assert!(
-        smallest_angle_distance_degrees(spin_friction_heading, ideal_heading) > 1e-6,
-        "spin-friction should deflect the moving object ball away from the ideal departure heading"
+        smallest_angle_distance_degrees(throw_aware_heading, ideal_heading) > 1e-6,
+        "throw-aware should deflect the moving object ball away from the ideal departure heading"
     );
 }
 
@@ -215,6 +243,68 @@ fn throw_magnitude_follows_the_contact_impulse_instead_of_a_fixed_angle() {
 }
 
 #[test]
+fn tp_a17_friction_scale_does_not_change_no_slip_capped_small_cut_throw() {
+    let half_friction = marlow_throw_for_stun_cut(5.0, 0.5);
+    let average_friction = marlow_throw_for_stun_cut(5.0, 1.0);
+    let high_friction = marlow_throw_for_stun_cut(5.0, 1.5);
+
+    assert_close(half_friction, 0.716_067_169_662_019_8);
+    assert_close(average_friction, 0.716_067_169_662_019_8);
+    assert_close(high_friction, 0.716_067_169_662_019_8);
+}
+
+#[test]
+fn tp_a17_friction_scale_increases_friction_limited_larger_cut_throw() {
+    let half_friction = marlow_throw_for_stun_cut(45.0, 0.5);
+    let average_friction = marlow_throw_for_stun_cut(45.0, 1.0);
+    let high_friction = marlow_throw_for_stun_cut(45.0, 1.5);
+
+    assert_close(half_friction, 1.387_423_680_680_192_7);
+    assert_close(average_friction, 2.773_222_175_141_301);
+    assert_close(high_friction, 4.155_781_690_420_278_5);
+    assert!(half_friction < average_friction);
+    assert!(average_friction < high_friction);
+}
+
+#[test]
+fn playing_conditions_scale_throw_aware_ball_ball_friction_behavior() {
+    let cue_ball = cue_ball_at_cut_angle_degrees(45.0, 3.0 * 17.6);
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let base = BallBallCollisionConfig::human_tuned();
+    let fast_clean = base.applying_conditions(&PlayingConditions::fast_clean());
+    let humid_dirty = base.applying_conditions(&PlayingConditions::humid_dirty());
+    let outcome_for = |config: &BallBallCollisionConfig, model| {
+        collide_ball_ball_detailed_on_table_with_config(&cue_ball, &object_ball, model, config)
+    };
+
+    let fast_clean_outcome = outcome_for(&fast_clean, CollisionModel::ThrowAware);
+    let neutral_outcome = outcome_for(&base, CollisionModel::ThrowAware);
+    let humid_dirty_outcome = outcome_for(&humid_dirty, CollisionModel::ThrowAware);
+    let humid_dirty_spin_friction = outcome_for(&humid_dirty, CollisionModel::SpinFriction);
+    let throw_abs = |outcome: &billiards::CollisionOutcome| {
+        outcome
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle")
+            .abs()
+    };
+    let transferred_z_abs = |outcome: &billiards::CollisionOutcome| {
+        outcome
+            .transferred_spin
+            .as_ref()
+            .expect("friction-limited cut should transfer spin")
+            .z()
+            .as_f64()
+            .abs()
+    };
+
+    assert!(throw_abs(&fast_clean_outcome) < throw_abs(&neutral_outcome));
+    assert!(throw_abs(&neutral_outcome) < throw_abs(&humid_dirty_outcome));
+    assert!(transferred_z_abs(&fast_clean_outcome) < transferred_z_abs(&neutral_outcome));
+    assert!(transferred_z_abs(&neutral_outcome) < transferred_z_abs(&humid_dirty_outcome));
+    assert_eq!(humid_dirty_spin_friction, humid_dirty_outcome);
+}
+
+#[test]
 fn throw_aware_impulses_conserve_horizontal_momentum() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
@@ -223,6 +313,35 @@ fn throw_aware_impulses_conserve_horizontal_momentum() {
         AngularVelocity3::new(6.0, 0.0, -6.0),
     ));
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let before_x = cue_ball.as_ball_state().velocity.x().as_f64()
+        + object_ball.as_ball_state().velocity.x().as_f64();
+    let before_y = cue_ball.as_ball_state().velocity.y().as_f64()
+        + object_ball.as_ball_state().velocity.y().as_f64();
+    let after_x = outcome.a_after.as_ball_state().velocity.x().as_f64()
+        + outcome.b_after.as_ball_state().velocity.x().as_f64();
+    let after_y = outcome.a_after.as_ball_state().velocity.y().as_f64()
+        + outcome.b_after.as_ball_state().velocity.y().as_f64();
+
+    assert_close(after_x, before_x);
+    assert_close(after_y, before_y);
+}
+
+#[test]
+fn moving_object_ball_throw_aware_impulses_conserve_horizontal_momentum() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(0.0, 0.0, -6.0),
+    ));
+    let object_ball = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        Velocity2::new("2", "0"),
+        AngularVelocity3::new(0.0, 0.0, 3.0),
+    ));
 
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);

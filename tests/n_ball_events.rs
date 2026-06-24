@@ -216,7 +216,7 @@ fn shared_simultaneous_ball_ball_contacts_report_the_approximation_strategy() {
 }
 
 #[test]
-fn touching_follow_on_collision_is_scheduled_immediately_after_a_frozen_cluster_tie_break() {
+fn frozen_line_contact_resolution_removes_the_synthetic_follow_on_collision() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let a = on_table(BallState::on_table(
         inches2(-(2.0 * radius + 7.5), 0.0),
@@ -254,19 +254,31 @@ fn touching_follow_on_collision_is_scheduled_immediately_after_a_frozen_cluster_
         &next_state_refs,
         &BallSetPhysicsSpec::default(),
         &motion_config(),
-    )
-    .expect("frozen neighbor contact should be preserved as an immediate follow-on collision");
+    );
 
-    match next {
-        NBallOnTableEvent::BallBallCollision {
-            first_ball_index,
-            second_ball_index,
-            collision,
-        } => {
-            assert_eq!((first_ball_index, second_ball_index), (1, 2));
-            assert_close(collision.time_until_impact.as_f64(), 0.0);
-        }
-        other => panic!("expected immediate follow-on ball-ball collision, got {other:?}"),
+    assert_close(
+        advanced.states[0].as_ball_state().velocity.x().as_f64(),
+        -0.355,
+    );
+    assert_close(
+        advanced.states[1].as_ball_state().velocity.x().as_f64(),
+        0.38,
+    );
+    assert_close(
+        advanced.states[2].as_ball_state().velocity.x().as_f64(),
+        4.975,
+    );
+    if let Some(NBallOnTableEvent::BallBallCollision {
+        first_ball_index,
+        second_ball_index,
+        collision,
+    }) = next
+    {
+        assert_ne!(
+            (first_ball_index, second_ball_index, collision.time_until_impact.as_f64()),
+            (1, 2, 0.0),
+            "TP B.29 coupled resolution should not leave the frozen neighbor as a synthetic immediate pair collision"
+        );
     }
 }
 

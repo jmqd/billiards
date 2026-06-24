@@ -102,6 +102,35 @@ fn a_ball_already_touching_a_rail_and_moving_into_it_predicts_an_immediate_impac
 }
 
 #[test]
+fn a_ball_touching_a_rail_and_accelerating_into_it_predicts_an_immediate_impact() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let state = on_table(BallState::on_table(
+        inches2(10.0, top_plane),
+        Velocity2::new("0", "0"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+
+    let impact = compute_next_ball_rail_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect(
+        "a frozen-to-rail ball whose sliding friction accelerates it into the cushion should rebound immediately",
+    );
+
+    assert_eq!(impact.rail, Rail::Top);
+    assert_close(impact.time_until_impact.as_f64(), 0.0);
+    assert_close(
+        impact.state_at_impact.as_ball_state().position.y().as_f64(),
+        top_plane,
+    );
+}
+
+#[test]
 fn a_rolling_ball_returns_none_when_it_stops_before_the_rail() {
     let table = TableSpec::default();
     let radius = TYPICAL_BALL_RADIUS.as_f64();

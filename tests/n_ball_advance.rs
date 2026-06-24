@@ -1,9 +1,11 @@
 use billiards::{
-    advance_to_next_n_ball_event_on_table, advance_to_next_n_ball_event_with_rails_on_table,
-    AngularVelocity3, BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches, Inches2,
-    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
-    OnTableMotionConfig, RadiansPerSecondSq, RailModel, RollingResistanceModel,
-    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    advance_to_next_n_ball_event_on_table, advance_to_next_n_ball_event_with_physics_on_table,
+    advance_to_next_n_ball_event_with_rails_on_table,
+    collide_ball_ball_on_table_with_radius_and_config, AngularVelocity3, BallBallCollisionConfig,
+    BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
+    RadiansPerSecondSq, RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
+    TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -164,6 +166,64 @@ fn advancing_to_a_ball_ball_collision_only_resolves_the_participating_pair() {
 }
 
 #[test]
+fn advancing_with_explicit_ball_ball_physics_uses_that_collision_config() {
+    let ball = BallSetPhysicsSpec::default();
+    let radius = ball.radius.as_f64();
+    let contact_offset = radius * 2.0_f64.sqrt();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-contact_offset, -contact_offset - 2.5),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::zero(),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let human_tuned = BallBallCollisionConfig::human_tuned();
+    let ideal_config = BallBallCollisionConfig::ideal();
+
+    let advanced = advance_to_next_n_ball_event_with_physics_on_table(
+        &[cue_ball, object_ball],
+        &ball,
+        &motion_config(),
+        CollisionModel::ThrowAware,
+        &human_tuned,
+    );
+    let collision = match &advanced.event {
+        Some(billiards::NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        }) => {
+            assert_eq!((*first_ball_index, *second_ball_index), (0, 1));
+            collision
+        }
+        other => panic!("expected ball-ball collision, got {other:?}"),
+    };
+    let expected = collide_ball_ball_on_table_with_radius_and_config(
+        &collision.a_at_impact,
+        &collision.b_at_impact,
+        ball.radius.clone(),
+        CollisionModel::ThrowAware,
+        &human_tuned,
+    );
+    let old_default = collide_ball_ball_on_table_with_radius_and_config(
+        &collision.a_at_impact,
+        &collision.b_at_impact,
+        ball.radius.clone(),
+        CollisionModel::ThrowAware,
+        &ideal_config,
+    );
+
+    assert_eq!(advanced.states[0], expected.0);
+    assert_eq!(advanced.states[1], expected.1);
+    assert!(
+        (advanced.states[1].as_ball_state().velocity.y().as_f64()
+            - old_default.1.as_ball_state().velocity.y().as_f64())
+        .abs()
+            > 1e-6,
+        "explicit human-tuned ball-ball config should reach N-ball event execution instead of silently using ideal/default coefficients"
+    );
+}
+
+#[test]
 fn advancing_simultaneous_disjoint_pair_collisions_resolves_both_pairs_in_one_step() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let a = on_table(BallState::on_table(
@@ -212,6 +272,122 @@ fn advancing_simultaneous_disjoint_pair_collisions_resolves_both_pairs_in_one_st
 }
 
 #[test]
+fn advancing_frozen_three_ball_line_uses_tp_b29_coupled_velocity_split() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-(2.0 * radius + 7.5), 0.0),
+        Velocity2::new("10", "0"),
+        AngularVelocity3::new(0.0, 10.0 / radius, 0.0),
+    ));
+    let first_object = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let second_object = on_table(BallState::resting_at(inches2(2.0 * radius, 0.0)));
+
+    let advanced = advance_to_next_n_ball_event_on_table(
+        &[cue_ball, first_object, second_object],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::Ideal,
+    );
+
+    match advanced.event.expect("an event should be reported") {
+        billiards::NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((first_ball_index, second_ball_index), (0, 1));
+            assert_close(collision.time_until_impact.as_f64(), 1.0);
+        }
+        other => panic!("expected opening ball-ball collision, got {other:?}"),
+    }
+
+    assert_close(advanced.elapsed.as_f64(), 1.0);
+    assert_close(
+        advanced.states[0].as_ball_state().velocity.x().as_f64(),
+        -0.355,
+    );
+    assert_close(
+        advanced.states[1].as_ball_state().velocity.x().as_f64(),
+        0.38,
+    );
+    assert_close(
+        advanced.states[2].as_ball_state().velocity.x().as_f64(),
+        4.975,
+    );
+    assert_close(
+        advanced.states[0].as_ball_state().velocity.y().as_f64(),
+        0.0,
+    );
+    assert_close(
+        advanced.states[1].as_ball_state().velocity.y().as_f64(),
+        0.0,
+    );
+    assert_close(
+        advanced.states[2].as_ball_state().velocity.y().as_f64(),
+        0.0,
+    );
+}
+
+#[test]
+fn advancing_throw_aware_frozen_three_ball_line_uses_tp_b29_coupled_velocity_split() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-(2.0 * radius + 7.5), 0.0),
+        Velocity2::new("10", "0"),
+        AngularVelocity3::new(0.0, 10.0 / radius, 0.0),
+    ));
+    let first_object = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let second_object = on_table(BallState::resting_at(inches2(2.0 * radius, 0.0)));
+
+    let advanced = advance_to_next_n_ball_event_with_physics_on_table(
+        &[cue_ball, first_object, second_object],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::ThrowAware,
+        &BallBallCollisionConfig::ideal(),
+    );
+
+    match advanced.event.expect("an event should be reported") {
+        billiards::NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((first_ball_index, second_ball_index), (0, 1));
+            assert_close(collision.time_until_impact.as_f64(), 1.0);
+        }
+        other => panic!("expected opening ball-ball collision, got {other:?}"),
+    }
+
+    assert_close(advanced.elapsed.as_f64(), 1.0);
+    assert_close(
+        advanced.states[0].as_ball_state().velocity.x().as_f64(),
+        -0.355,
+    );
+    assert_close(
+        advanced.states[1].as_ball_state().velocity.x().as_f64(),
+        0.38,
+    );
+    assert_close(
+        advanced.states[2].as_ball_state().velocity.x().as_f64(),
+        4.975,
+    );
+
+    let next = advance_to_next_n_ball_event_with_physics_on_table(
+        &advanced.states,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::ThrowAware,
+        &BallBallCollisionConfig::ideal(),
+    );
+    assert!(
+        next.event.as_ref().is_none_or(|event| event.time().as_f64() > 1e-9),
+        "the coupled frozen-line solve should not leave a synthetic immediate follow-on collision, got {:?}",
+        next.event
+    );
+}
+
+#[test]
 fn advancing_shared_simultaneous_contacts_transfers_motion_into_the_cluster() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let contact_y = -3.0_f64.sqrt() * radius;
@@ -253,6 +429,15 @@ fn advancing_shared_simultaneous_contacts_transfers_motion_into_the_cluster() {
         advanced.states[2].as_ball_state().speed().as_f64() > 0.0,
         "right object ball should move after the shared contact"
     );
+
+    let cue = advanced.states[0].as_ball_state();
+    let left = advanced.states[1].as_ball_state();
+    let right = advanced.states[2].as_ball_state();
+
+    assert_close(cue.velocity.x().as_f64(), 0.0);
+    assert_close(left.velocity.x().as_f64(), -right.velocity.x().as_f64());
+    assert_close(left.velocity.y().as_f64(), right.velocity.y().as_f64());
+    assert_close(left.speed().as_f64(), right.speed().as_f64());
 }
 
 #[test]

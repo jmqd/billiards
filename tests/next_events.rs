@@ -212,6 +212,61 @@ fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_event() {
 }
 
 #[test]
+fn a_post_contact_continuation_can_follow_the_struck_ball_into_a_combo() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-2.0 * radius, 0.0),
+        Velocity2::new("10", "0"),
+        AngularVelocity3::zero(),
+    ));
+    let first_object = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let second_object = on_table(BallState::resting_at(inches2(2.0 * radius + 4.0, 0.0)));
+    let continuation =
+        collide_ball_ball_detailed_on_table(&cue_ball, &first_object, CollisionModel::Ideal)
+            .into_cue_ball_continuation();
+
+    assert!(
+        continuation
+            .next_collision_against_ball(
+                &second_object,
+                &BallSetPhysicsSpec::default(),
+                &motion_config()
+            )
+            .is_none(),
+        "the cue ball should stop after the opening ideal head-on hit"
+    );
+
+    let collision = continuation
+        .next_collision_from_struck_ball_against_ball(
+            &second_object,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .expect("the struck ball should continue into the second object ball");
+    assert_close(
+        collision.time_until_impact.as_f64(),
+        0.450_806_661_517_033_2,
+    );
+
+    match continuation
+        .next_event_from_struck_ball_against_ball(
+            &second_object,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .expect("the struck ball should produce the next combo event")
+    {
+        TwoBallOnTableEvent::BallBallCollision(collision) => {
+            assert_close(
+                collision.time_until_impact.as_f64(),
+                0.450_806_661_517_033_2,
+            );
+        }
+        other => panic!("expected struck-ball combo collision, got {other:?}"),
+    }
+}
+
+#[test]
 fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_after_contact() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
 

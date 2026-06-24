@@ -1,7 +1,9 @@
 use bigdecimal::ToPrimitive;
 use billiards::{
-    Angle, Inches, Pocket, PocketShapeSpec, PocketType, Rail, RailAngleReference,
-    RailTangentDirection, TableSpec, CENTER_SPOT,
+    pocket_facing_angle_degrees_from_mouth_throat,
+    pocket_mouth_throat_difference_from_facing_angle_degrees, Angle, Inches, Pocket,
+    PocketShapeSpec, PocketType, Rail, RailAngleReference, RailTangentDirection, TableSpec,
+    CENTER_SPOT,
 };
 
 fn angle_degrees(angle: Angle) -> f64 {
@@ -97,6 +99,28 @@ fn default_table_pocket_shapes_are_composed_and_overridable_per_pocket() {
     assert_eq!(
         &customized.pocket_spec(Pocket::TopRight).shape,
         &baseline.pocket_spec(Pocket::TopRight).shape
+    );
+}
+
+#[test]
+fn tp_b15_pocket_facing_angle_round_trips_mouth_throat_measurements() {
+    let angle = pocket_facing_angle_degrees_from_mouth_throat(
+        Inches::from_f64(4.5),
+        Inches::from_f64(3.75),
+        Inches::from_f64(2.0),
+    );
+    assert!((angle - 141.677).abs() < 0.001, "got {angle}");
+
+    let round_trip_difference =
+        pocket_mouth_throat_difference_from_facing_angle_degrees(angle, Inches::from_f64(2.0));
+    assert_close(round_trip_difference.as_f64(), 0.75);
+
+    let tp_example_difference =
+        pocket_mouth_throat_difference_from_facing_angle_degrees(142.0, Inches::from_f64(2.0));
+    assert!(
+        (tp_example_difference.as_f64() - 0.7918).abs() < 0.0001,
+        "got {}",
+        tp_example_difference.as_f64()
     );
 }
 

@@ -3,10 +3,10 @@ use billiards::{
     advance_within_phase_on_table, compute_next_transition_on_table,
     estimate_post_contact_cue_ball_curve_on_table, try_advance_angular_velocity_on_table,
     try_advance_ball_state, try_compute_next_transition, AngularVelocity3, BallSetPhysicsSpec,
-    BallState, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
-    OnTableBallState, OnTableMotionConfig, OnTableStateError, RadiansPerSecondSq,
-    RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    BallState, Inches, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, OnTableStateError,
+    RadiansPerSecondSq, RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
+    Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -71,6 +71,19 @@ fn sliding_stun_state() -> BallState {
     )
 }
 
+fn sliding_with_tip_offset_state(tip_offset_over_radius: f64, speed: f64) -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new(Inches::zero(), Inches::from_f64(speed)),
+        AngularVelocity3::new(
+            -(5.0 / 2.0) * tip_offset_over_radius * speed / radius,
+            0.0,
+            0.0,
+        ),
+    ))
+}
+
 fn sliding_with_vertical_spin_state() -> BallState {
     BallState::on_table(
         Inches2::new("10", "20"),
@@ -85,6 +98,27 @@ fn spinning_state() -> BallState {
         Velocity2::zero(),
         AngularVelocity3::new(0.0, 0.0, 6.0),
     )
+}
+
+fn advance_until_rolling(state: &OnTableBallState) -> OnTableBallState {
+    let ball = BallSetPhysicsSpec::default();
+    let config = motion_config();
+    let transition = compute_next_transition_on_table(state, &ball, &config)
+        .expect("sliding state should have a rolling transition");
+
+    assert_eq!(transition.phase_before, MotionPhase::Sliding);
+    assert_eq!(transition.phase_after, MotionPhase::Rolling);
+
+    OnTableBallState::try_from(
+        advance_motion_on_table(state, transition.time_until_transition, &ball, &config).state,
+    )
+    .expect("advanced state should remain on-table")
+}
+
+fn travel_distance(start: &BallState, end: &BallState) -> f64 {
+    let dx = end.position.x().as_f64() - start.position.x().as_f64();
+    let dy = end.position.y().as_f64() - start.position.y().as_f64();
+    dx.hypot(dy)
 }
 
 #[test]
@@ -156,6 +190,36 @@ fn advance_motion_on_table_reports_the_first_transition_crossed() {
         MotionPhase::Rolling
     );
     assert_close(advanced.elapsed.as_f64(), 1.0);
+}
+
+#[test]
+fn advance_motion_on_table_reports_an_exact_transition_boundary() {
+    let state = on_table(sliding_stun_state());
+    let transition =
+        compute_next_transition_on_table(&state, &BallSetPhysicsSpec::default(), &motion_config())
+            .expect("sliding stun should have a sliding-to-rolling boundary");
+
+    let advanced = advance_motion_on_table(
+        &state,
+        transition.time_until_transition,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
+
+    assert_eq!(
+        advanced
+            .transition
+            .expect("exactly reaching the phase boundary should report it"),
+        transition
+    );
+    assert_eq!(
+        advanced.state.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Rolling
+    );
+    assert_close(
+        advanced.elapsed.as_f64(),
+        transition.time_until_transition.as_f64(),
+    );
 }
 
 #[test]
@@ -281,6 +345,28 @@ fn advancing_a_sliding_stun_ball_to_the_transition_time_reaches_pure_rolling() {
 }
 
 #[test]
+fn tp_a18_tip_offset_distances_match_non_overspin_sliding_formula() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let speed = 10.0;
+    let sliding_acceleration = 5.0;
+
+    for tip_offset_over_radius in [-0.5_f64, -0.25, 0.0, 0.25] {
+        let start = sliding_with_tip_offset_state(tip_offset_over_radius, speed);
+        let end = advance_until_rolling(&start);
+        let start = start.as_ball_state();
+        let end = end.as_ball_state();
+        let expected_distance = speed.powi(2) / (98.0 * sliding_acceleration)
+            * (24.0 - 50.0 * tip_offset_over_radius - 25.0 * tip_offset_over_radius.powi(2));
+        let expected_final_speed = (5.0 / 7.0) * speed * (1.0 + tip_offset_over_radius);
+
+        assert_close(travel_distance(start, end), expected_distance);
+        assert_close(end.speed().as_f64(), expected_final_speed);
+        assert_close(end.cloth_contact_speed(radius.clone()).as_f64(), 0.0);
+        assert_eq!(end.motion_phase(radius.clone()), MotionPhase::Rolling);
+    }
+}
+
+#[test]
 fn advancing_past_the_sliding_transition_continues_into_rolling_for_the_remaining_time() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let state = on_table(sliding_stun_state());
@@ -358,15 +444,55 @@ fn advancing_a_rolling_ball_with_vertical_spin_no_longer_curls_once_it_is_in_pur
 }
 
 #[test]
-fn the_curve_estimate_is_none_for_a_pure_rolling_state_with_residual_z_spin() {
+fn the_curve_estimate_reports_tp_b2_rolling_side_spin_turn() {
     let state = on_table(rolling_with_small_vertical_spin_state());
-
-    assert!(estimate_post_contact_cue_ball_curve_on_table(
+    let curve = estimate_post_contact_cue_ball_curve_on_table(
         &state,
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
-    .is_none());
+    .expect("TP B.2 predicts a small rolling ball turn while side spin decays");
+
+    assert_close(curve.time_until_curve_starts.as_f64(), 0.0);
+    assert_close(curve.time_until_curve_completes.as_f64(), 1.0);
+    assert_close(curve.curve_angle_degrees, 0.09257711527464842);
+    assert_close(curve.heading_after_curve.as_degrees(), 0.09257711527464842);
+}
+
+#[test]
+fn opposite_rolling_side_spin_turns_the_other_way() {
+    let state = on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / TYPICAL_BALL_RADIUS.as_f64(), 0.0, -2.0),
+    ));
+    let curve = estimate_post_contact_cue_ball_curve_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("opposite side spin should still produce a small TP B.2 turn");
+
+    assert_close(curve.curve_angle_degrees, -0.09257711527464842);
+    assert_close(
+        curve.heading_after_curve.as_degrees(),
+        360.0 - 0.09257711527464842,
+    );
+}
+
+#[test]
+fn rolling_side_spin_curve_estimate_is_none_when_translation_stops_before_spin() {
+    let state = on_table(rolling_with_vertical_spin_state());
+
+    assert!(
+        estimate_post_contact_cue_ball_curve_on_table(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .is_none(),
+        "TP B.2's turn-rate integral is not used once translation stops before side spin decays"
+    );
 }
 
 #[test]

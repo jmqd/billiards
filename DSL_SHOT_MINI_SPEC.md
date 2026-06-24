@@ -83,7 +83,11 @@ Required methods, each exactly once:
 - `.mass_ratio(value)`
 - `.energy_loss(value)`
 
-Validation is delegated to `CueStrikeConfig::new(...)`.
+Optional methods:
+
+- `.endmass_ratio(value)` — cue-ball mass divided by effective shaft endmass for squirt; defaults to the regular-cue TP B.1 calibration.
+
+Validation is delegated to `CueStrikeConfig`.
 
 ### `ball_ball(name)`
 

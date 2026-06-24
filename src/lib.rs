@@ -25,6 +25,7 @@ use std::io::Write;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Mutex;
 
 use bigdecimal::BigDecimal;
 use bigdecimal::FromPrimitive;
@@ -190,6 +191,34 @@ impl CutAngle {
     pub fn as_degrees(&self) -> f64 {
         self.0
     }
+}
+
+/// Return the Jewett "two-times fuller" aiming cut angle for a frozen cue-ball shot.
+///
+/// TP A.15 models the cue ball and frozen object ball as initially moving together along the
+/// line-of-centers normal direction, while the cue ball keeps its tangential component. That gives
+/// `tan(alpha) = 1 / (2 tan(phi))`, and the aiming construction solves the required cut angle as:
+///
+/// `phi(theta) = 90° - atan(2 tan(90° - theta))`
+///
+/// Here `target_angle_degrees` is TP A.15's target-line angle `theta` in `[0°, 90°]`, and the
+/// returned `CutAngle` is the cue-stick aiming cut angle `phi`.
+pub fn frozen_cue_ball_jewett_cut_angle(target_angle_degrees: f64) -> CutAngle {
+    assert!(
+        target_angle_degrees.is_finite() && (0.0..=90.0).contains(&target_angle_degrees),
+        "frozen cue-ball target angle must be finite and in [0°, 90°], got {target_angle_degrees}"
+    );
+
+    if target_angle_degrees <= f64::EPSILON {
+        return CutAngle::new(0.0);
+    }
+    if (90.0 - target_angle_degrees).abs() <= f64::EPSILON {
+        return CutAngle::new(90.0);
+    }
+
+    let complement_radians = (90.0 - target_angle_degrees).to_radians();
+    let cut_angle_degrees = 90.0 - (2.0 * complement_radians.tan()).atan().to_degrees();
+    CutAngle::new(cut_angle_degrees.clamp(0.0, 90.0))
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -661,10 +690,10 @@ impl Default for BallSetPhysicsSpec {
 ///   ball departs along the tangent line at contact.
 ///
 /// `ThrowAware` adds a frictional equal-ball contact impulse for cut-induced and spin-induced throw
-/// against an initially stationary object ball while preserving `Ideal` as the zero-throw limiting
-/// case. `SpinFriction` applies the same impulse calculation even when the object ball is already
-/// moving. Both non-ideal modes update transferred spin; later cloth-driven cue-ball bend is handled
-/// by the post-contact motion helpers rather than the instantaneous collision itself.
+/// while preserving `Ideal` as the zero-throw limiting case. `SpinFriction` is retained as an
+/// explicit alias for the same impulse-level model. Both non-ideal modes update transferred spin;
+/// later cloth-driven cue-ball bend is handled by the post-contact motion helpers rather than the
+/// instantaneous collision itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CollisionModel {
     Ideal,
@@ -1119,15 +1148,37 @@ impl Default for BallBallCollisionConfig {
 /// line-of-centers direction, measured in degrees toward the positive collision-tangent basis used
 /// internally by the solver.
 ///
-/// `transferred_spin` is the angular-velocity increment transferred to the struck ball. In the
-/// current first-pass non-ideal model this is limited to z-axis spin for the common cut-shot case
-/// into an initially stationary object ball.
+/// `transferred_spin` is the angular-velocity increment implied by the shared contact-friction
+/// impulse. The same increment is applied to both equal-radius balls in the current reduced
+/// on-table model; full vertical center-of-mass hop/table impulse coupling is still outside scope.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollisionOutcome {
     pub a_after: OnTableBallState,
     pub b_after: OnTableBallState,
     pub throw_angle_degrees: Option<f64>,
     pub transferred_spin: Option<AngularVelocity3>,
+}
+
+/// Analytic TP B.21 prediction for a small-gap combination shot.
+///
+/// The first object ball is assumed to arrive stunned, without sidespin, at `shot_speed` and at
+/// `first_object_ball_angle_degrees` relative to the original line of centers between the two
+/// object balls. Positive angles follow the same sign convention as the TP B.21 diagram; negative
+/// angles mirror the result.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SmallGapCombinationThrowPrediction {
+    /// TP B.21's line-of-centers angle `gamma`, in signed degrees.
+    pub line_of_centers_angle_degrees: f64,
+    /// TP B.21's cut angle `phi`, as an unsigned ball-ball cut magnitude.
+    pub cut_angle: CutAngle,
+    /// TP B.21 / TP A.23 ball-hit fraction `f = 1 - sin(phi)`.
+    pub hit_fraction: Scale,
+    /// Cut-induced throw angle `theta`, in signed degrees.
+    pub throw_angle_degrees: f64,
+    /// Resulting second object-ball angle `beta = gamma - theta`, in signed degrees.
+    pub second_object_ball_angle_degrees: f64,
+    /// Largest physically reachable first-ball angle for this gap.
+    pub max_first_object_ball_angle_degrees: f64,
 }
 
 /// A collision outcome bundled with the current cue-ball bend estimate convenience data.
@@ -2380,6 +2431,9 @@ pub enum ShotError {
     CollisionEnergyLossOutOfRange {
         collision_energy_loss: Scale,
     },
+    NonPositiveCueBallToEndmassRatio {
+        cue_ball_to_endmass_ratio: Scale,
+    },
     MiscueOffsetLimitOutOfRange {
         miscue_offset_limit: Scale,
     },
@@ -2685,11 +2739,7 @@ impl FromStr for ShotSpeedPreset {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let normalized = input
-            .trim()
-            .to_ascii_lowercase()
-            .replace('_', "-")
-            .replace(' ', "-");
+        let normalized = input.trim().to_ascii_lowercase().replace(['_', ' '], "-");
         let normalized = normalized
             .strip_prefix("speed-")
             .or_else(|| normalized.strip_prefix("speed"))
@@ -2785,26 +2835,48 @@ impl HumanShotSpeedValidation {
 ///
 /// `cue_mass_ratio` is the effective cue-mass to ball-mass ratio `M'/M` in the current local
 /// whitepaper notation. `collision_energy_loss` is the energy-loss fraction `e` from the same
-/// cue-ball collision model. `miscue_offset_limit` is a first-pass hard tip-offset bound, in
-/// cue-ball-radius units, beyond which the strike is treated as a miscue instead of a clean grip.
+/// cue-ball collision model. `cue_ball_to_endmass_ratio` is the squirt-model mass ratio `mb/me`
+/// from TP A.31 / TP B.1, where `me` is the cue shaft's effective endmass. `miscue_offset_limit`
+/// is a first-pass hard tip-offset bound, in cue-ball-radius units, beyond which the strike is
+/// treated as a miscue instead of a clean grip.
 ///
 /// The default `miscue_offset_limit` is `0.5R`, matching the common local literature guidance that
 /// the maximum recommended cue-tip offset for strong english is about half a ball radius; see the
 /// local `TP A.22` / `TP A.25` notes and the `TP A.30` corpus summary in
 /// `agent_knowledge/whitepapers_formula_candidates.txt`.
+///
+/// The default `cue_ball_to_endmass_ratio` is `20.151`, matching the regular Players cue example
+/// in `whitepapers/tp_b_1_squirt_angle_pivot_length_and_tip_size.pdf`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CueStrikeConfig {
     cue_mass_ratio: Scale,
     collision_energy_loss: Scale,
+    cue_ball_to_endmass_ratio: Scale,
     miscue_offset_limit: Scale,
 }
 
 impl CueStrikeConfig {
+    const DEFAULT_CUE_BALL_TO_ENDMASS_RATIO: f64 = 20.151;
+
     pub fn new(cue_mass_ratio: Scale, collision_energy_loss: Scale) -> Result<Self, ShotError> {
-        Self::new_with_miscue_offset_limit(
+        Self::new_with_miscue_offset_limit_and_endmass_ratio(
             cue_mass_ratio,
             collision_energy_loss,
             Scale::from_f64(0.5),
+            Scale::from_f64(Self::DEFAULT_CUE_BALL_TO_ENDMASS_RATIO),
+        )
+    }
+
+    pub fn new_with_endmass_ratio(
+        cue_mass_ratio: Scale,
+        collision_energy_loss: Scale,
+        cue_ball_to_endmass_ratio: Scale,
+    ) -> Result<Self, ShotError> {
+        Self::new_with_miscue_offset_limit_and_endmass_ratio(
+            cue_mass_ratio,
+            collision_energy_loss,
+            Scale::from_f64(0.5),
+            cue_ball_to_endmass_ratio,
         )
     }
 
@@ -2813,12 +2885,31 @@ impl CueStrikeConfig {
         collision_energy_loss: Scale,
         miscue_offset_limit: Scale,
     ) -> Result<Self, ShotError> {
+        Self::new_with_miscue_offset_limit_and_endmass_ratio(
+            cue_mass_ratio,
+            collision_energy_loss,
+            miscue_offset_limit,
+            Scale::from_f64(Self::DEFAULT_CUE_BALL_TO_ENDMASS_RATIO),
+        )
+    }
+
+    pub fn new_with_miscue_offset_limit_and_endmass_ratio(
+        cue_mass_ratio: Scale,
+        collision_energy_loss: Scale,
+        miscue_offset_limit: Scale,
+        cue_ball_to_endmass_ratio: Scale,
+    ) -> Result<Self, ShotError> {
         if cue_mass_ratio.as_f64() <= 0.0 {
             return Err(ShotError::NonPositiveCueMassRatio { cue_mass_ratio });
         }
         if !(0.0..=1.0).contains(&collision_energy_loss.as_f64()) {
             return Err(ShotError::CollisionEnergyLossOutOfRange {
                 collision_energy_loss,
+            });
+        }
+        if cue_ball_to_endmass_ratio.as_f64() <= 0.0 {
+            return Err(ShotError::NonPositiveCueBallToEndmassRatio {
+                cue_ball_to_endmass_ratio,
             });
         }
         if miscue_offset_limit.as_f64() <= 0.0 || miscue_offset_limit.as_f64() > 1.0 {
@@ -2830,6 +2921,7 @@ impl CueStrikeConfig {
         Ok(Self {
             cue_mass_ratio,
             collision_energy_loss,
+            cue_ball_to_endmass_ratio,
             miscue_offset_limit,
         })
     }
@@ -2840,6 +2932,10 @@ impl CueStrikeConfig {
 
     pub fn collision_energy_loss(&self) -> &Scale {
         &self.collision_energy_loss
+    }
+
+    pub fn cue_ball_to_endmass_ratio(&self) -> &Scale {
+        &self.cue_ball_to_endmass_ratio
     }
 
     pub fn miscue_offset_limit(&self) -> &Scale {
@@ -2904,6 +3000,40 @@ fn compute_post_strike_speed(
     Ok(InchesPerSecond::new(Inches::from_f64(post_strike_speed)))
 }
 
+fn cue_squirt_angle_degrees(tip_contact: &CueTipContact, cue: &CueStrikeConfig) -> f64 {
+    let side_offset = tip_contact.side_offset.as_f64();
+    let normalized_offset = side_offset.abs();
+    if normalized_offset <= f64::EPSILON {
+        return 0.0;
+    }
+
+    let transverse_contact_factor = (1.0 - normalized_offset * normalized_offset)
+        .max(0.0)
+        .sqrt();
+    let numerator = 2.5 * normalized_offset * transverse_contact_factor;
+    let denominator = 1.0
+        + cue.cue_ball_to_endmass_ratio.as_f64()
+        + 2.5 * transverse_contact_factor * transverse_contact_factor;
+    let magnitude = (numerator / denominator).atan().to_degrees();
+
+    -side_offset.signum() * magnitude
+}
+
+fn cue_effective_side_spin_offset(tip_contact: &CueTipContact, cue: &CueStrikeConfig) -> f64 {
+    let side_offset = tip_contact.side_offset.as_f64();
+    let normalized_offset = side_offset.abs();
+    if normalized_offset <= f64::EPSILON {
+        return 0.0;
+    }
+
+    let squirt_angle = cue_squirt_angle_degrees(tip_contact, cue)
+        .abs()
+        .to_radians();
+    let effective_offset = (normalized_offset.asin() - squirt_angle).sin();
+
+    side_offset.signum() * effective_offset.max(0.0)
+}
+
 /// Convert a desired immediate cue-ball launch speed into the cue-stick speed required by the
 /// current cue-strike transfer model.
 ///
@@ -2957,8 +3087,9 @@ pub fn validate_shot_human_speed(
 /// - cue-tip offset is specified by `CueTipContact` in cue-local ball-radius units, and
 /// - only the automatic cue-ball separation regime is supported.
 ///
-/// This first pass intentionally excludes cue elevation, jump / masse launch, squirt / swerve, and
-/// detailed tip-size / miscue probability refinements. It does, however, enforce a first-pass hard
+/// This first pass intentionally excludes cue elevation, jump / masse launch, swerve, and detailed
+/// tip-size / miscue probability refinements. It does, however, include a horizontal squirt angle
+/// from TP A.31 / TP B.1, the TP B.7 effective side-spin offset correction, and a first-pass hard
 /// miscue limit on cue-tip offset via `CueStrikeConfig`.
 pub fn strike_resting_ball_on_table(
     ball: &RestingOnTableBallState,
@@ -2967,9 +3098,13 @@ pub fn strike_resting_ball_on_table(
     ball_set: &BallSetPhysicsSpec,
 ) -> Result<OnTableBallState, ShotError> {
     let post_strike_speed = compute_post_strike_speed(shot, cue)?.as_f64();
+    let launch_heading_degrees = (shot.heading.as_degrees()
+        + cue_squirt_angle_degrees(&shot.tip_contact, cue))
+    .rem_euclid(360.0);
+    let launch_heading_radians = launch_heading_degrees.to_radians();
     let velocity = Velocity2::from_polar(
         InchesPerSecond::new(Inches::from_f64(post_strike_speed)),
-        shot.heading,
+        Angle::from_north(launch_heading_radians.sin(), launch_heading_radians.cos()),
     );
 
     let heading_radians = shot.heading.as_degrees().to_radians();
@@ -2982,7 +3117,7 @@ pub fn strike_resting_ball_on_table(
     let angular_velocity = AngularVelocity3::new(
         shot_right_x * local_angular_right,
         shot_right_y * local_angular_right,
-        spin_scale * shot.tip_contact.side_offset.as_f64(),
+        spin_scale * cue_effective_side_spin_offset(&shot.tip_contact, cue),
     );
 
     Ok(build_on_table_ball_state(
@@ -3527,7 +3662,7 @@ pub fn advance_motion_on_table(
             elapsed: dt,
             transition: None,
         },
-        Some(transition) if dt.as_f64() <= transition.time_until_transition.as_f64() => {
+        Some(transition) if dt.as_f64() < transition.time_until_transition.as_f64() => {
             MotionAdvance {
                 state: advance_within_phase_on_table(state, phase, dt, ball, config)
                     .into_ball_state(),
@@ -3859,6 +3994,63 @@ fn refine_ball_ball_collision_time_for_relative_motion(
     right
 }
 
+fn first_fixed_circle_entry_time_for_raw_motion(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    center_x: f64,
+    center_y: f64,
+    contact_radius: f64,
+    horizon: f64,
+    ball_radius: f64,
+    config: &OnTableMotionConfig,
+) -> Option<f64> {
+    assert!(
+        contact_radius >= 0.0,
+        "fixed-circle contact radius must be non-negative"
+    );
+
+    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, ball_radius, config);
+    let relative_motion = RelativeQuadraticMotion {
+        rx: state.x - center_x,
+        ry: state.y - center_y,
+        rvx: state.vx,
+        rvy: state.vy,
+        rax: ax,
+        ray: ay,
+        contact_distance: contact_radius,
+    };
+
+    if relative_motion.gap_at(0.0) <= 0.0 {
+        return Some(0.0);
+    }
+
+    first_ball_ball_contact_time_for_relative_motion(relative_motion, horizon)
+}
+
+fn raw_fixed_circle_contact_is_closing_or_accelerating_inward(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    center_x: f64,
+    center_y: f64,
+    ball_radius: f64,
+    config: &OnTableMotionConfig,
+) -> bool {
+    let rx = state.x - center_x;
+    let ry = state.y - center_y;
+    let radial_velocity = rx * state.vx + ry * state.vy;
+    let tolerance = 1e-10 * (rx.hypot(ry) * state.speed()).max(1.0);
+    if radial_velocity < -tolerance {
+        return true;
+    }
+    if radial_velocity.abs() > tolerance {
+        return false;
+    }
+
+    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, ball_radius, config);
+    let radial_acceleration_term = state.vx * state.vx + state.vy * state.vy + rx * ax + ry * ay;
+    radial_acceleration_term < -tolerance
+}
+
 const THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO: f64 = 1e-12;
 
 fn collision_contact_basis(a: &OnTableBallState, b: &OnTableBallState) -> (f64, f64, f64, f64) {
@@ -4132,7 +4324,7 @@ fn first_rail_collision_time_during_current_phase_raw(
         rail_collision_gap_quadratic_coefficients(state, phase, rail, radius, table, config);
     let tolerance = 1e-10 * horizon.max(1.0);
 
-    if c <= tolerance && b < -tolerance {
+    if c <= tolerance && (b < -tolerance || (b.abs() <= tolerance && a < -tolerance)) {
         return Some(Seconds::zero());
     }
 
@@ -4312,7 +4504,7 @@ fn pocket_jaw_geometry_in_inches(
     }
 }
 
-fn pocket_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
+fn pocket_slow_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
     let pocket_spec = table.pocket_spec(pocket);
     let base_radius = 0.5 * table.diamond_to_inches(pocket_spec.width.clone()).as_f64();
     match pocket_spec.ty {
@@ -4321,12 +4513,906 @@ fn pocket_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SlowPocketTargetGeometry {
+    mouth_width: f64,
+    wall_angle_radians: f64,
+    hole_radius: f64,
+    shelf_depth_to_hole: f64,
+}
+
+fn side_pocket_slow_target_geometry(pocket: Pocket, table: &TableSpec) -> SlowPocketTargetGeometry {
+    SlowPocketTargetGeometry {
+        mouth_width: pocket_mouth_width_in_inches(pocket, table),
+        wall_angle_radians: SIDE_POCKET_WALL_ANGLE_DEGREES.to_radians(),
+        hole_radius: SIDE_POCKET_SLOW_HOLE_RADIUS_INCHES,
+        shelf_depth_to_hole: SIDE_POCKET_SLOW_SHELF_DEPTH_TO_HOLE_INCHES,
+    }
+}
+
+fn slow_pocket_target_a_value(
+    geometry: SlowPocketTargetGeometry,
+    ball_radius: f64,
+    beta: f64,
+    theta: f64,
+) -> f64 {
+    let alpha = geometry.wall_angle_radians;
+    let hole_plus_shelf = geometry.hole_radius + geometry.shelf_depth_to_hole;
+    let denominator = (2.0 * beta - theta - alpha).sin();
+    if denominator.abs() <= 1e-12 {
+        return f64::NAN;
+    }
+
+    (0.5 * geometry.mouth_width * alpha.cos()
+        - ball_radius
+        - geometry.hole_radius * (2.0 * beta - theta - alpha).cos()
+        - hole_plus_shelf * alpha.sin())
+        / denominator
+}
+
+fn slow_pocket_target_poly_beta(
+    geometry: SlowPocketTargetGeometry,
+    ball_radius: f64,
+    beta: f64,
+    theta: f64,
+) -> f64 {
+    let alpha = geometry.wall_angle_radians;
+    let a = slow_pocket_target_a_value(geometry, ball_radius, beta, theta);
+    let hole_plus_shelf = geometry.hole_radius + geometry.shelf_depth_to_hole;
+
+    ball_radius * beta.sin()
+        + a * (4.0 * beta - 2.0 * theta - 2.0 * alpha).sin()
+        + geometry.hole_radius * (4.0 * beta - 2.0 * theta - 2.0 * alpha).cos()
+        + 0.5 * geometry.mouth_width * (2.0 * beta - theta).cos()
+        + hole_plus_shelf * (2.0 * beta - theta).sin()
+}
+
+fn slow_pocket_target_poly_beta_in(
+    geometry: SlowPocketTargetGeometry,
+    ball_radius: f64,
+    beta: f64,
+    theta: f64,
+) -> f64 {
+    let hole_plus_shelf = geometry.hole_radius + geometry.shelf_depth_to_hole;
+
+    -ball_radius * beta.sin() + geometry.hole_radius
+        - 0.5 * geometry.mouth_width * (2.0 * beta - theta).cos()
+        - hole_plus_shelf * (2.0 * beta - theta).sin()
+}
+
+fn slow_pocket_target_beta_guess(theta: f64) -> f64 {
+    20.0_f64.to_radians() + (70.0 / 130.0) * (theta + 60.0_f64.to_radians())
+}
+
+fn root_near_guess<F>(mut value_at: F, mut value: f64) -> Option<f64>
+where
+    F: FnMut(f64) -> f64,
+{
+    const DERIVATIVE_STEP: f64 = 1e-6;
+    const MAX_NEWTON_STEP_RADIANS: f64 = 12.0_f64.to_radians();
+
+    for _ in 0..40 {
+        let residual = value_at(value);
+        if !residual.is_finite() {
+            return None;
+        }
+        if residual.abs() <= 1e-12 {
+            return Some(value);
+        }
+
+        let derivative = (value_at(value + DERIVATIVE_STEP) - value_at(value - DERIVATIVE_STEP))
+            / (2.0 * DERIVATIVE_STEP);
+        if !derivative.is_finite() || derivative.abs() <= 1e-12 {
+            return None;
+        }
+
+        let step = (residual / derivative).clamp(-MAX_NEWTON_STEP_RADIANS, MAX_NEWTON_STEP_RADIANS);
+        value -= step;
+        if !value.is_finite() {
+            return None;
+        }
+    }
+
+    if value_at(value).abs() <= 1e-9 {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+fn root_in_range_near_guess<F>(mut value_at: F, lower: f64, upper: f64, guess: f64) -> Option<f64>
+where
+    F: FnMut(f64) -> f64,
+{
+    if !lower.is_finite() || !upper.is_finite() || lower >= upper {
+        return None;
+    }
+
+    if let Some(root) = root_near_guess(&mut value_at, guess) {
+        let residual = value_at(root);
+        if root >= lower - 1e-9
+            && root <= upper + 1e-9
+            && residual.is_finite()
+            && residual.abs() <= 1e-7
+        {
+            return Some(root.clamp(lower, upper));
+        }
+    }
+
+    let mut previous = None;
+    for sample in 0..=96 {
+        let fraction = sample as f64 / 96.0;
+        let value = lower + fraction * (upper - lower);
+        let residual = value_at(value);
+        if !residual.is_finite() {
+            previous = None;
+            continue;
+        }
+        if residual.abs() <= 1e-10 {
+            return Some(value);
+        }
+
+        if let Some((mut left, mut left_residual)) = previous {
+            if left_residual * residual < 0.0 {
+                let mut right = value;
+                for _ in 0..80 {
+                    let midpoint = 0.5 * (left + right);
+                    let midpoint_residual = value_at(midpoint);
+                    if !midpoint_residual.is_finite() {
+                        return None;
+                    }
+                    if midpoint_residual.abs() <= 1e-12 {
+                        return Some(midpoint);
+                    }
+
+                    if left_residual * midpoint_residual <= 0.0 {
+                        right = midpoint;
+                    } else {
+                        left = midpoint;
+                        left_residual = midpoint_residual;
+                    }
+                }
+
+                return Some(0.5 * (left + right));
+            }
+        }
+
+        previous = Some((value, residual));
+    }
+
+    None
+}
+
+fn slow_pocket_target_beta_l(
+    geometry: SlowPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let guess = slow_pocket_target_beta_guess(theta);
+    let point_root = root_near_guess(
+        |beta| slow_pocket_target_poly_beta(geometry, ball_radius, beta, theta),
+        guess,
+    )?;
+    let inner_wall_root = root_near_guess(
+        |beta| slow_pocket_target_poly_beta_in(geometry, ball_radius, beta, theta),
+        guess,
+    )?;
+
+    Some(point_root.min(inner_wall_root))
+}
+
+fn slow_pocket_target_sleft_point(
+    geometry: SlowPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let beta_l = slow_pocket_target_beta_l(geometry, ball_radius, theta)?;
+
+    Some(0.5 * geometry.mouth_width * theta.cos() - ball_radius * beta_l.sin())
+}
+
+fn slow_pocket_target_rwall(
+    geometry: SlowPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let alpha = geometry.wall_angle_radians;
+    let a = slow_pocket_target_a_value(geometry, ball_radius, 90.0_f64.to_radians(), theta);
+    if !a.is_finite() {
+        return None;
+    }
+
+    let rwall_1 = a * (2.0 * theta + 2.0 * alpha).sin()
+        - geometry.hole_radius * (2.0 * theta + 2.0 * alpha).cos();
+    let rwall_2 = 0.5 * geometry.mouth_width * theta.cos()
+        - (geometry.hole_radius + geometry.shelf_depth_to_hole) * theta.sin();
+
+    Some(rwall_1 + rwall_2)
+}
+
+fn slow_pocket_target_sleft_wall(
+    geometry: SlowPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let mirrored_theta = -theta;
+    let rwall = slow_pocket_target_rwall(geometry, ball_radius, mirrored_theta)?;
+
+    Some(-(0.5 * geometry.mouth_width * mirrored_theta.cos() - rwall))
+}
+
+fn side_pocket_slow_target_sleft(
+    geometry: SlowPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> f64 {
+    let theta_degrees = theta.to_degrees();
+    if !theta_degrees.is_finite()
+        || theta_degrees >= SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES
+        || theta_degrees <= -SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES
+    {
+        return 0.0;
+    }
+
+    let target = if theta_degrees < SIDE_POCKET_SLOW_CRITICAL_ENTRY_ANGLE_DEGREES {
+        slow_pocket_target_sleft_wall(geometry, ball_radius, theta)
+    } else {
+        slow_pocket_target_sleft_point(geometry, ball_radius, theta)
+    };
+
+    target.unwrap_or(0.0).max(0.0)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SlowCornerPocketTargetGeometry {
+    target: SlowPocketTargetGeometry,
+    long_rail_length: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SlowCornerPocketTargetTransitions {
+    critical_c: f64,
+    critical_d: f64,
+    max_long_angle: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct SlowCornerPocketTargetTransitionKey {
+    mouth_width: u64,
+    wall_angle_radians: u64,
+    hole_radius: u64,
+    shelf_depth_to_hole: u64,
+    long_rail_length: u64,
+    ball_radius: u64,
+}
+
+lazy_static! {
+    static ref SLOW_CORNER_POCKET_TRANSITION_CACHE: Mutex<HashMap<SlowCornerPocketTargetTransitionKey, Option<SlowCornerPocketTargetTransitions>>> =
+        Mutex::new(HashMap::new());
+}
+
+fn corner_pocket_slow_target_geometry(
+    pocket: Pocket,
+    table: &TableSpec,
+) -> SlowCornerPocketTargetGeometry {
+    SlowCornerPocketTargetGeometry {
+        target: SlowPocketTargetGeometry {
+            mouth_width: pocket_mouth_width_in_inches(pocket, table),
+            wall_angle_radians: CORNER_POCKET_WALL_ANGLE_DEGREES.to_radians(),
+            hole_radius: CORNER_POCKET_SLOW_HOLE_RADIUS_INCHES,
+            shelf_depth_to_hole: CORNER_POCKET_SLOW_SHELF_DEPTH_TO_HOLE_INCHES,
+        },
+        long_rail_length: table.diamond_to_inches(Diamond::eight()).as_f64(),
+    }
+}
+
+fn corner_pocket_slow_theta_rail(theta: f64) -> f64 {
+    90.0_f64.to_radians() - theta
+}
+
+fn corner_pocket_slow_theta_wall(geometry: SlowCornerPocketTargetGeometry, theta: f64) -> f64 {
+    theta - 2.0 * geometry.target.wall_angle_radians
+}
+
+fn corner_pocket_slow_d_wall_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let alpha = geometry.target.wall_angle_radians;
+    let denominator = (theta - alpha).sin();
+    if denominator.abs() <= 1e-12 {
+        return None;
+    }
+
+    let wall_theta = corner_pocket_slow_theta_wall(geometry, theta);
+    let wall_target = slow_pocket_target_sleft_wall(geometry.target, ball_radius, wall_theta)?;
+
+    Some(
+        (0.5 * geometry.target.mouth_width * (theta - 2.0 * alpha).cos()
+            - ball_radius * (theta - alpha).cos()
+            + wall_target)
+            / denominator,
+    )
+}
+
+fn corner_pocket_slow_sleft_wall_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let alpha = geometry.target.wall_angle_radians;
+    let d_wall_wall = corner_pocket_slow_d_wall_wall(geometry, ball_radius, theta)?;
+
+    Some(
+        0.5 * geometry.target.mouth_width * theta.cos() + d_wall_wall * (theta - alpha).sin()
+            - ball_radius * (theta - alpha).cos(),
+    )
+}
+
+fn corner_pocket_slow_d_point_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let rail_angle = corner_pocket_slow_theta_rail(theta);
+    let post_rail_theta = -rail_angle;
+    let denominator = (45.0_f64.to_radians() - theta).sin();
+    if denominator.abs() <= 1e-12 {
+        return None;
+    }
+
+    let point_wall_target =
+        slow_pocket_target_sleft_point(geometry.target, ball_radius, post_rail_theta)?;
+
+    Some(
+        (point_wall_target + 0.5 * geometry.target.mouth_width * theta.sin()
+            - ball_radius * (45.0_f64.to_radians() - theta).cos())
+            / denominator,
+    )
+}
+
+fn corner_pocket_slow_sleft_rail_point_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let d_point_wall = corner_pocket_slow_d_point_wall(geometry, ball_radius, theta)?;
+
+    Some(
+        0.5 * geometry.target.mouth_width * theta.cos()
+            + d_point_wall * (45.0_f64.to_radians() - theta).sin()
+            - ball_radius * (45.0_f64.to_radians() - theta).cos(),
+    )
+}
+
+fn corner_pocket_slow_d_rail_wall_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let rail_angle = corner_pocket_slow_theta_rail(theta);
+    let post_rail_theta = -rail_angle;
+    let denominator = (45.0_f64.to_radians() - theta).sin();
+    if denominator.abs() <= 1e-12 {
+        return None;
+    }
+
+    let wall_wall_target =
+        corner_pocket_slow_sleft_wall_wall(geometry, ball_radius, post_rail_theta)?;
+
+    Some(
+        (wall_wall_target + 0.5 * geometry.target.mouth_width * theta.sin()
+            - ball_radius * (45.0_f64.to_radians() - theta).cos())
+            / denominator,
+    )
+}
+
+fn corner_pocket_slow_sleft_rail_wall_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let d_wall_wall = corner_pocket_slow_d_rail_wall_wall(geometry, ball_radius, theta)?;
+
+    Some(
+        0.5 * geometry.target.mouth_width * theta.cos()
+            + d_wall_wall * (45.0_f64.to_radians() - theta).sin()
+            - ball_radius * (45.0_f64.to_radians() - theta).cos(),
+    )
+}
+
+fn corner_pocket_slow_phi1(geometry: SlowCornerPocketTargetGeometry, beta: f64, theta: f64) -> f64 {
+    2.0 * beta - 90.0_f64.to_radians() - theta - 2.0 * geometry.target.wall_angle_radians
+}
+
+fn corner_pocket_slow_phi2(geometry: SlowCornerPocketTargetGeometry, beta: f64, theta: f64) -> f64 {
+    corner_pocket_slow_phi1(geometry, beta, theta) - 2.0 * geometry.target.wall_angle_radians
+}
+
+fn corner_pocket_slow_a2(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    beta: f64,
+    theta: f64,
+) -> Option<f64> {
+    let alpha = geometry.target.wall_angle_radians;
+    let phi2 = corner_pocket_slow_phi2(geometry, beta, theta);
+    let denominator = (phi2 + alpha).cos();
+    if denominator.abs() <= 1e-12 {
+        return None;
+    }
+
+    let hole_plus_shelf = geometry.target.hole_radius + geometry.target.shelf_depth_to_hole;
+    Some(
+        (0.5 * geometry.target.mouth_width * alpha.cos() - hole_plus_shelf * alpha.sin()
+            + geometry.target.hole_radius * (phi2 + alpha).sin()
+            - ball_radius)
+            / denominator,
+    )
+}
+
+fn corner_pocket_slow_a1(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    beta: f64,
+    theta: f64,
+) -> Option<f64> {
+    let alpha = geometry.target.wall_angle_radians;
+    let phi1 = corner_pocket_slow_phi1(geometry, beta, theta);
+    let phi2 = corner_pocket_slow_phi2(geometry, beta, theta);
+    let denominator = (phi1 + alpha).cos();
+    if denominator.abs() <= 1e-12 {
+        return None;
+    }
+
+    let a2 = corner_pocket_slow_a2(geometry, ball_radius, beta, theta)?;
+    let hole_plus_shelf = geometry.target.hole_radius + geometry.target.shelf_depth_to_hole;
+
+    Some(
+        (0.5 * geometry.target.mouth_width * alpha.cos() - ball_radius + a2 * (phi2 - alpha).cos()
+            - geometry.target.hole_radius * (phi2 - alpha).sin()
+            - hole_plus_shelf * alpha.sin())
+            / denominator,
+    )
+}
+
+fn corner_pocket_slow_poly_beta_wall_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    beta: f64,
+    theta: f64,
+) -> f64 {
+    let phi1 = corner_pocket_slow_phi1(geometry, beta, theta);
+    let phi2 = corner_pocket_slow_phi2(geometry, beta, theta);
+    let Some(a1) = corner_pocket_slow_a1(geometry, ball_radius, beta, theta) else {
+        return f64::NAN;
+    };
+    let Some(a2) = corner_pocket_slow_a2(geometry, ball_radius, beta, theta) else {
+        return f64::NAN;
+    };
+    let hole_plus_shelf = geometry.target.hole_radius + geometry.target.shelf_depth_to_hole;
+
+    -ball_radius * beta.sin() - a1 * (2.0 * beta - theta + phi1).cos()
+        + a2 * (2.0 * beta - theta - phi2).cos()
+        + geometry.target.hole_radius * (2.0 * beta - theta - phi2).sin()
+        - 0.5 * geometry.target.mouth_width * (2.0 * beta - theta).cos()
+        - hole_plus_shelf * (2.0 * beta - theta).sin()
+}
+
+fn corner_pocket_slow_beta_l_wall_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    root_near_guess(
+        |beta| corner_pocket_slow_poly_beta_wall_wall(geometry, ball_radius, beta, theta),
+        75.0_f64.to_radians(),
+    )
+}
+
+fn corner_pocket_slow_sleft_point_wall_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let beta_l = corner_pocket_slow_beta_l_wall_wall(geometry, ball_radius, theta)?;
+
+    Some(0.5 * geometry.target.mouth_width * theta.cos() - ball_radius * beta_l.sin())
+}
+
+fn corner_pocket_slow_d_point_wall_wall(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let rail_angle = corner_pocket_slow_theta_rail(theta);
+    let post_rail_theta = -rail_angle;
+    let denominator = (45.0_f64.to_radians() - theta).sin();
+    if denominator.abs() <= 1e-12 {
+        return None;
+    }
+
+    let point_wall_wall_target =
+        corner_pocket_slow_sleft_point_wall_wall(geometry, ball_radius, post_rail_theta)?;
+
+    Some(
+        (point_wall_wall_target + 0.5 * geometry.target.mouth_width * theta.sin()
+            - ball_radius * (45.0_f64.to_radians() - theta).cos())
+            / denominator,
+    )
+}
+
+fn corner_pocket_slow_max_rail_distance(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+) -> f64 {
+    geometry.long_rail_length
+        - geometry.target.mouth_width / 45.0_f64.to_radians().cos()
+        - 2.0 * ball_radius
+}
+
+fn corner_pocket_slow_sleft_rail_max_angle(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> f64 {
+    let d_max = corner_pocket_slow_max_rail_distance(geometry, ball_radius);
+
+    0.5 * geometry.target.mouth_width * theta.cos() + d_max * (45.0_f64.to_radians() - theta).sin()
+        - ball_radius * (45.0_f64.to_radians() - theta).cos()
+}
+
+fn corner_pocket_slow_critical_c_angle(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+) -> Option<f64> {
+    root_in_range_near_guess(
+        |theta| {
+            let Some(point_wall) =
+                corner_pocket_slow_sleft_rail_point_wall(geometry, ball_radius, theta)
+            else {
+                return f64::NAN;
+            };
+            let Some(wall_wall) =
+                corner_pocket_slow_sleft_rail_wall_wall(geometry, ball_radius, theta)
+            else {
+                return f64::NAN;
+            };
+
+            point_wall - wall_wall
+        },
+        30.0_f64.to_radians(),
+        44.9_f64.to_radians(),
+        38.0_f64.to_radians(),
+    )
+}
+
+fn corner_pocket_slow_critical_d_angle(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+) -> Option<f64> {
+    root_in_range_near_guess(
+        |theta| {
+            let Some(rail_wall_wall) =
+                corner_pocket_slow_sleft_rail_wall_wall(geometry, ball_radius, theta)
+            else {
+                return f64::NAN;
+            };
+            let Some(point_wall_wall) =
+                corner_pocket_slow_sleft_point_wall_wall(geometry, ball_radius, theta)
+            else {
+                return f64::NAN;
+            };
+
+            rail_wall_wall - point_wall_wall
+        },
+        1.0_f64.to_radians(),
+        40.0_f64.to_radians(),
+        30.0_f64.to_radians(),
+    )
+}
+
+fn corner_pocket_slow_max_long_entry_angle(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+) -> Option<f64> {
+    let d_max = corner_pocket_slow_max_rail_distance(geometry, ball_radius);
+
+    root_in_range_near_guess(
+        |theta| {
+            let Some(d_point_wall_wall) =
+                corner_pocket_slow_d_point_wall_wall(geometry, ball_radius, theta)
+            else {
+                return f64::NAN;
+            };
+
+            d_point_wall_wall - d_max
+        },
+        1.0_f64.to_radians(),
+        44.999_f64.to_radians(),
+        43.0_f64.to_radians(),
+    )
+}
+
+fn corner_pocket_slow_transition_key(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+) -> SlowCornerPocketTargetTransitionKey {
+    SlowCornerPocketTargetTransitionKey {
+        mouth_width: geometry.target.mouth_width.to_bits(),
+        wall_angle_radians: geometry.target.wall_angle_radians.to_bits(),
+        hole_radius: geometry.target.hole_radius.to_bits(),
+        shelf_depth_to_hole: geometry.target.shelf_depth_to_hole.to_bits(),
+        long_rail_length: geometry.long_rail_length.to_bits(),
+        ball_radius: ball_radius.to_bits(),
+    }
+}
+
+fn compute_corner_pocket_slow_target_transitions(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+) -> Option<SlowCornerPocketTargetTransitions> {
+    Some(SlowCornerPocketTargetTransitions {
+        critical_c: corner_pocket_slow_critical_c_angle(geometry, ball_radius)?,
+        critical_d: corner_pocket_slow_critical_d_angle(geometry, ball_radius)?,
+        max_long_angle: corner_pocket_slow_max_long_entry_angle(geometry, ball_radius)?,
+    })
+}
+
+fn corner_pocket_slow_target_transitions(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+) -> Option<SlowCornerPocketTargetTransitions> {
+    let key = corner_pocket_slow_transition_key(geometry, ball_radius);
+    if let Some(transitions) = SLOW_CORNER_POCKET_TRANSITION_CACHE
+        .lock()
+        .expect("slow corner-pocket transition cache should not be poisoned")
+        .get(&key)
+        .copied()
+    {
+        return transitions;
+    }
+
+    let transitions = compute_corner_pocket_slow_target_transitions(geometry, ball_radius);
+    SLOW_CORNER_POCKET_TRANSITION_CACHE
+        .lock()
+        .expect("slow corner-pocket transition cache should not be poisoned")
+        .insert(key, transitions);
+
+    transitions
+}
+
+fn corner_pocket_slow_target_sleft(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> f64 {
+    let theta_degrees = theta.to_degrees();
+    if !theta_degrees.is_finite()
+        || theta_degrees.abs() > CORNER_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES
+    {
+        return 0.0;
+    }
+
+    let Some(transitions) = corner_pocket_slow_target_transitions(geometry, ball_radius) else {
+        return 0.0;
+    };
+
+    let target = if theta >= transitions.max_long_angle {
+        Some(corner_pocket_slow_sleft_rail_max_angle(
+            geometry,
+            ball_radius,
+            theta,
+        ))
+    } else if theta >= transitions.critical_c {
+        corner_pocket_slow_sleft_rail_point_wall(geometry, ball_radius, theta)
+    } else if theta >= transitions.critical_d {
+        corner_pocket_slow_sleft_rail_wall_wall(geometry, ball_radius, theta)
+    } else {
+        corner_pocket_slow_sleft_point_wall_wall(geometry, ball_radius, theta)
+    };
+
+    target.unwrap_or(0.0).max(0.0)
+}
+
+fn pocket_slow_target_bounds_in_inches(
+    pocket: Pocket,
+    signed_entry_angle_degrees: f64,
+    ball_radius: f64,
+    table: &TableSpec,
+) -> (f64, f64) {
+    match table.pocket_spec(pocket).ty {
+        PocketType::Side => {
+            let geometry = side_pocket_slow_target_geometry(pocket, table);
+            let theta = signed_entry_angle_degrees.to_radians();
+
+            (
+                side_pocket_slow_target_sleft(geometry, ball_radius, theta),
+                side_pocket_slow_target_sleft(geometry, ball_radius, -theta),
+            )
+        }
+        PocketType::Corner => {
+            let geometry = corner_pocket_slow_target_geometry(pocket, table);
+            let theta = signed_entry_angle_degrees.to_radians();
+
+            (
+                corner_pocket_slow_target_sleft(geometry, ball_radius, theta),
+                corner_pocket_slow_target_sleft(geometry, ball_radius, -theta),
+            )
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FastPocketTargetGeometry {
+    mouth_width: f64,
+    wall_angle_radians: f64,
+    shelf_depth: f64,
+    critical_angle_degrees: f64,
+}
+
+fn fast_pocket_target_geometry(pocket: Pocket, table: &TableSpec) -> FastPocketTargetGeometry {
+    let pocket_spec = table.pocket_spec(pocket);
+    let mouth_width = table.diamond_to_inches(pocket_spec.width.clone()).as_f64();
+    let shelf_depth = table.diamond_to_inches(pocket_spec.depth.clone()).as_f64();
+    let (wall_angle_degrees, critical_angle_degrees) = match pocket_spec.ty {
+        PocketType::Side => (
+            SIDE_POCKET_WALL_ANGLE_DEGREES,
+            SIDE_POCKET_FAST_CRITICAL_ENTRY_ANGLE_DEGREES,
+        ),
+        PocketType::Corner => (
+            CORNER_POCKET_WALL_ANGLE_DEGREES,
+            CORNER_POCKET_FAST_CRITICAL_ENTRY_ANGLE_DEGREES,
+        ),
+    };
+
+    FastPocketTargetGeometry {
+        mouth_width,
+        wall_angle_radians: wall_angle_degrees.to_radians(),
+        shelf_depth,
+        critical_angle_degrees,
+    }
+}
+
+fn fast_pocket_target_d_value(
+    geometry: FastPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> f64 {
+    let alpha = geometry.wall_angle_radians;
+    (0.5 * geometry.mouth_width * alpha.cos() - geometry.shelf_depth * alpha.sin() - ball_radius)
+        / (theta + 5.0 * alpha).sin()
+}
+
+fn fast_pocket_target_a_value(
+    geometry: FastPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> f64 {
+    let alpha = geometry.wall_angle_radians;
+    let d = fast_pocket_target_d_value(geometry, ball_radius, theta);
+    (-0.5 * geometry.mouth_width * (theta + 4.0 * alpha).cos()
+        + geometry.shelf_depth * (theta + 4.0 * alpha).sin()
+        - d * (2.0 * theta + 10.0 * alpha).sin()
+        + ball_radius * (theta + 3.0 * alpha).cos())
+        / (theta + 3.0 * alpha).sin()
+}
+
+#[cfg(test)]
+fn fast_pocket_target_poly_for_wall_radius(
+    geometry: FastPocketTargetGeometry,
+    ball_radius: f64,
+    wall_radius: f64,
+    theta: f64,
+) -> f64 {
+    let alpha = geometry.wall_angle_radians;
+    let a = fast_pocket_target_a_value(geometry, ball_radius, theta);
+    let b = (a * (theta + 3.0 * alpha).sin() - wall_radius * (2.0 * theta + 2.0 * alpha).cos()
+        + ball_radius * (theta + 3.0 * alpha).cos())
+        / (2.0 * theta + 2.0 * alpha).sin();
+
+    geometry.mouth_width * alpha.cos()
+        - ball_radius
+        - b * (theta + alpha).sin()
+        - wall_radius * (theta + alpha).cos()
+}
+
+fn fast_pocket_target_wall_radius(
+    geometry: FastPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> Option<f64> {
+    let alpha = geometry.wall_angle_radians;
+    let q = -theta;
+    let a = fast_pocket_target_a_value(geometry, ball_radius, q);
+    let c0 = a * (q + 3.0 * alpha).sin() + ball_radius * (q + 3.0 * alpha).cos();
+    let denom = (2.0 * q + 2.0 * alpha).sin();
+    let c2 = (2.0 * q + 2.0 * alpha).cos();
+    let s1 = (q + alpha).sin();
+    let c1 = (q + alpha).cos();
+    let constant = geometry.mouth_width * alpha.cos() - ball_radius - c0 * s1 / denom;
+    let coefficient = c2 * s1 / denom - c1;
+
+    if !constant.is_finite() || !coefficient.is_finite() || coefficient.abs() <= 1e-12 {
+        return None;
+    }
+
+    Some((-constant / coefficient).max(0.0))
+}
+
+fn fast_pocket_target_sleft(
+    geometry: FastPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> f64 {
+    let alpha = geometry.wall_angle_radians;
+    let theta_degrees = theta.to_degrees();
+    let half_mouth = 0.5 * geometry.mouth_width;
+
+    if theta >= alpha {
+        half_mouth * theta.cos() - ball_radius
+    } else if theta_degrees >= geometry.critical_angle_degrees {
+        half_mouth * theta.cos() - ball_radius * (theta - alpha).cos()
+    } else {
+        let Some(wall_radius) = fast_pocket_target_wall_radius(geometry, ball_radius, theta) else {
+            return 0.0;
+        };
+        -half_mouth * theta.cos() + wall_radius
+    }
+    .max(0.0)
+}
+
+fn pocket_fast_target_bounds_in_inches(
+    pocket: Pocket,
+    signed_entry_angle_degrees: f64,
+    ball_radius: f64,
+    table: &TableSpec,
+) -> (f64, f64) {
+    let geometry = fast_pocket_target_geometry(pocket, table);
+    let theta = signed_entry_angle_degrees.to_radians();
+
+    (
+        fast_pocket_target_sleft(geometry, ball_radius, theta),
+        fast_pocket_target_sleft(geometry, ball_radius, -theta),
+    )
+}
+
+fn pocket_target_bounds_in_inches(
+    pocket: Pocket,
+    signed_entry_angle_degrees: f64,
+    speed: f64,
+    ball_radius: f64,
+    table: &TableSpec,
+) -> (f64, f64) {
+    let (slow_left, slow_right) =
+        pocket_slow_target_bounds_in_inches(pocket, signed_entry_angle_degrees, ball_radius, table);
+    let (fast_left, fast_right) =
+        pocket_fast_target_bounds_in_inches(pocket, signed_entry_angle_degrees, ball_radius, table);
+    let fast_fraction = (speed / POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
+
+    (
+        slow_left + fast_fraction * (fast_left - slow_left),
+        slow_right + fast_fraction * (fast_right - slow_right),
+    )
+}
+
 const CORNER_POCKET_CAPTURE_RADIUS_SCALE: f64 = 1.08;
+const SIDE_POCKET_WALL_ANGLE_DEGREES: f64 = 14.0;
+const CORNER_POCKET_WALL_ANGLE_DEGREES: f64 = 7.0;
+const SIDE_POCKET_SLOW_HOLE_RADIUS_INCHES: f64 = 3.0;
+const SIDE_POCKET_SLOW_SHELF_DEPTH_TO_HOLE_INCHES: f64 = 0.1875;
 const SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES: f64 = 68.292;
+const SIDE_POCKET_SLOW_CRITICAL_ENTRY_ANGLE_DEGREES: f64 = -49.964;
 const SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES: f64 = 50.688;
+const SIDE_POCKET_FAST_CRITICAL_ENTRY_ANGLE_DEGREES: f64 = -36.387;
+const CORNER_POCKET_SLOW_HOLE_RADIUS_INCHES: f64 = 2.75;
+const CORNER_POCKET_SLOW_SHELF_DEPTH_TO_HOLE_INCHES: f64 = 1.125;
+const CORNER_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES: f64 = 45.0;
 // TP 3.8 reports a 59.841° fast-shot corner-pocket limit. This is still only a first-pass
 // acceptance cap; full pocket-speed/angle target-size curves remain a future table-profile model.
 const CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES: f64 = 59.841;
+const CORNER_POCKET_FAST_CRITICAL_ENTRY_ANGLE_DEGREES: f64 = -52.226;
 const POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND: f64 = 60.0;
 
 fn pocket_entry_axis(pocket: Pocket) -> (f64, f64) {
@@ -4353,6 +5439,33 @@ fn pocket_entry_angle_degrees_raw(state: RawOnTableBallState, pocket: Pocket) ->
     Some(aligned.clamp(-1.0, 1.0).acos().to_degrees())
 }
 
+fn pocket_signed_entry_angle_degrees_raw(
+    state: RawOnTableBallState,
+    pocket: Pocket,
+) -> Option<f64> {
+    let speed = state.speed();
+    if speed <= f64::EPSILON {
+        return None;
+    }
+
+    let (entry_x, entry_y) = pocket_entry_axis(pocket);
+    let tangent_x = -entry_y;
+    let tangent_y = entry_x;
+    let aligned = (state.vx * entry_x) + (state.vy * entry_y);
+    let sideways = (state.vx * tangent_x) + (state.vy * tangent_y);
+
+    Some(sideways.atan2(aligned).to_degrees())
+}
+
+fn pocket_lateral_offset_raw(state: RawOnTableBallState, pocket: Pocket, table: &TableSpec) -> f64 {
+    let (entry_x, entry_y) = pocket_entry_axis(pocket);
+    let tangent_x = -entry_y;
+    let tangent_y = entry_x;
+    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+
+    (state.x - pocket_x) * tangent_x + (state.y - pocket_y) * tangent_y
+}
+
 fn pocket_capture_max_entry_angle_degrees(pocket: Pocket, speed: f64, table: &TableSpec) -> f64 {
     match table.pocket_spec(pocket).ty {
         PocketType::Side => {
@@ -4362,7 +5475,13 @@ fn pocket_capture_max_entry_angle_degrees(pocket: Pocket, speed: f64, table: &Ta
                     * (SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES
                         - SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES)
         }
-        PocketType::Corner => CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES,
+        PocketType::Corner => {
+            let fast_fraction = (speed / POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
+            CORNER_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES
+                + fast_fraction
+                    * (CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES
+                        - CORNER_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES)
+        }
     }
 }
 
@@ -4376,7 +5495,106 @@ fn pocket_acceptance_gap_raw(state: RawOnTableBallState, pocket: Pocket, table: 
     entry_angle - pocket_capture_max_entry_angle_degrees(pocket, speed, table)
 }
 
-fn on_table_state_is_within_pocket_capture_region(
+fn pocket_mouth_plane_gap_raw(
+    state: RawOnTableBallState,
+    pocket: Pocket,
+    radius: f64,
+    table: &TableSpec,
+) -> f64 {
+    let (normal_x, normal_y) = pocket_entry_axis(pocket);
+    let (jaw_x, jaw_y) = pocket_jaw_reference_point_in_inches(pocket, PocketJaw::First, table);
+    let mouth_projection = normal_x * jaw_x + normal_y * jaw_y;
+    let center_projection = normal_x * state.x + normal_y * state.y;
+
+    mouth_projection - radius - center_projection
+}
+
+fn pocket_back_plane_gap_raw(state: RawOnTableBallState, pocket: Pocket, table: &TableSpec) -> f64 {
+    let (normal_x, normal_y) = pocket_entry_axis(pocket);
+    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+    let pocket_projection = normal_x * pocket_x + normal_y * pocket_y;
+    let center_projection = normal_x * state.x + normal_y * state.y;
+    let back_projection = pocket_projection + pocket_slow_capture_radius_in_inches(pocket, table);
+
+    center_projection - back_projection
+}
+
+fn first_pocket_mouth_plane_crossing_time_during_current_phase_raw(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket: Pocket,
+    horizon: f64,
+    radius: f64,
+    config: &OnTableMotionConfig,
+    table: &TableSpec,
+) -> Option<f64> {
+    let (normal_x, normal_y) = pocket_entry_axis(pocket);
+    let (jaw_x, jaw_y) = pocket_jaw_reference_point_in_inches(pocket, PocketJaw::First, table);
+    let mouth_projection = normal_x * jaw_x + normal_y * jaw_y;
+    let center_projection = normal_x * state.x + normal_y * state.y;
+    let velocity_projection = normal_x * state.vx + normal_y * state.vy;
+    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, radius, config);
+    let acceleration_projection = normal_x * ax + normal_y * ay;
+    let tolerance = 1e-10 * horizon.max(1.0);
+
+    let mut roots = real_roots_quadratic(
+        -0.5 * acceleration_projection,
+        -velocity_projection,
+        mouth_projection - radius - center_projection,
+    );
+    roots.sort_by(|left, right| {
+        left.partial_cmp(right)
+            .expect("finite pocket-mouth roots should sort")
+    });
+
+    for root in roots {
+        if root.is_finite() && root > tolerance && root <= horizon + tolerance {
+            return Some(root.clamp(0.0, horizon));
+        }
+    }
+
+    None
+}
+
+fn first_pocket_back_plane_crossing_time_during_current_phase_raw(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket: Pocket,
+    horizon: f64,
+    radius: f64,
+    config: &OnTableMotionConfig,
+    table: &TableSpec,
+) -> Option<f64> {
+    let (normal_x, normal_y) = pocket_entry_axis(pocket);
+    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+    let pocket_projection = normal_x * pocket_x + normal_y * pocket_y;
+    let back_projection = pocket_projection + pocket_slow_capture_radius_in_inches(pocket, table);
+    let center_projection = normal_x * state.x + normal_y * state.y;
+    let velocity_projection = normal_x * state.vx + normal_y * state.vy;
+    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, radius, config);
+    let acceleration_projection = normal_x * ax + normal_y * ay;
+    let tolerance = 1e-10 * horizon.max(1.0);
+
+    let mut roots = real_roots_quadratic(
+        0.5 * acceleration_projection,
+        velocity_projection,
+        center_projection - back_projection,
+    );
+    roots.sort_by(|left, right| {
+        left.partial_cmp(right)
+            .expect("finite pocket-back roots should sort")
+    });
+
+    for root in roots {
+        if root.is_finite() && root > tolerance && root <= horizon + tolerance {
+            return Some(root.clamp(0.0, horizon));
+        }
+    }
+
+    None
+}
+
+fn on_table_state_is_within_pocket_mouth_region(
     state: &OnTableBallState,
     pocket: Pocket,
     table: &TableSpec,
@@ -4386,7 +5604,7 @@ fn on_table_state_is_within_pocket_capture_region(
     let dx = state.position.x().as_f64() - pocket_x;
     let dy = state.position.y().as_f64() - pocket_y;
 
-    dx.hypot(dy) <= pocket_capture_radius_in_inches(pocket, table) + 1e-9
+    dx.hypot(dy) <= pocket_slow_capture_radius_in_inches(pocket, table) + 1e-9
 }
 
 fn on_table_state_velocity_points_toward_pocket_center(
@@ -4428,37 +5646,38 @@ fn side_pocket_centerline_gap_during_current_phase_raw(
     at_t.y - pocket_y
 }
 
-fn refine_side_pocket_centerline_crossing_time_during_current_phase_raw(
+fn first_side_pocket_centerline_crossing_time_during_current_phase_raw(
     state: RawOnTableBallState,
     phase: MotionPhase,
     pocket: Pocket,
-    initial_gap_sign: f64,
-    mut left: f64,
-    mut right: f64,
     radius: f64,
     table: &TableSpec,
     config: &OnTableMotionConfig,
-) -> Seconds {
-    for _ in 0..60 {
-        let midpoint = 0.5 * (left + right);
-        let gap = side_pocket_centerline_gap_during_current_phase_raw(
-            state,
-            phase.clone(),
-            pocket,
-            midpoint,
-            radius,
-            table,
-            config,
-        );
+) -> Option<Seconds> {
+    debug_assert!(matches!(table.pocket_spec(pocket).ty, PocketType::Side));
 
-        if gap.abs() <= 1e-9 || initial_gap_sign * gap <= 0.0 {
-            right = midpoint;
-        } else {
-            left = midpoint;
+    let (_, pocket_y) = pocket_center_in_inches(pocket, table);
+    let (_, ay) = raw_planar_acceleration_during_phase(state, phase.clone(), radius, config);
+    let horizon = raw_compute_next_transition_on_table(state, phase, radius, config)
+        .map(|transition| transition.time_until_transition.as_f64())?;
+    if horizon <= f64::EPSILON {
+        return None;
+    }
+
+    let mut roots = real_roots_quadratic(0.5 * ay, state.vy, state.y - pocket_y);
+    roots.sort_by(|left, right| {
+        left.partial_cmp(right)
+            .expect("finite centerline roots should sort")
+    });
+
+    let tolerance = 1e-10 * horizon.max(1.0);
+    for root in roots {
+        if root.is_finite() && root >= -tolerance && root <= horizon + tolerance {
+            return Some(Seconds::new(root.clamp(0.0, horizon)));
         }
     }
 
-    Seconds::new(right)
+    None
 }
 
 // Side-pocket late-drops are allowed only if the post-jaw path can stay inside the effective
@@ -4474,7 +5693,6 @@ fn side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
 ) -> bool {
     debug_assert!(matches!(table.pocket_spec(pocket).ty, PocketType::Side));
 
-    const SIDE_POCKET_LATE_DROP_CENTERLINE_SCAN_STEPS: usize = 128;
     const SIDE_POCKET_LATE_DROP_MAX_PHASES: usize = 4;
 
     let radius = ball.radius.as_f64();
@@ -4496,68 +5714,37 @@ fn side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
             return true;
         }
 
+        if let Some(time_until_centerline) =
+            first_side_pocket_centerline_crossing_time_during_current_phase_raw(
+                raw_state,
+                phase.clone(),
+                pocket,
+                radius,
+                table,
+                config,
+            )
+        {
+            let state_at_centerline = raw_advance_within_phase_on_table(
+                raw_state,
+                phase,
+                time_until_centerline.as_f64(),
+                radius,
+                config,
+            )
+            .into_on_table_state();
+
+            return on_table_state_is_within_pocket_mouth_region(
+                &state_at_centerline,
+                pocket,
+                table,
+            );
+        }
+
         let Some(next_transition) =
             raw_compute_next_transition_on_table(raw_state, phase.clone(), radius, config)
         else {
             return false;
         };
-        let horizon = next_transition.time_until_transition.as_f64();
-        if horizon <= f64::EPSILON {
-            return false;
-        }
-
-        let initial_gap_sign = initial_gap.signum();
-        let mut previous_t = 0.0;
-        let mut previous_gap = initial_gap;
-
-        for step in 1..=SIDE_POCKET_LATE_DROP_CENTERLINE_SCAN_STEPS {
-            let t = horizon * step as f64 / SIDE_POCKET_LATE_DROP_CENTERLINE_SCAN_STEPS as f64;
-            let gap = side_pocket_centerline_gap_during_current_phase_raw(
-                raw_state,
-                phase.clone(),
-                pocket,
-                t,
-                radius,
-                table,
-                config,
-            );
-
-            if previous_gap.abs() <= 1e-9
-                || gap.abs() <= 1e-9
-                || previous_gap.signum() != gap.signum()
-            {
-                let time_until_centerline =
-                    refine_side_pocket_centerline_crossing_time_during_current_phase_raw(
-                        raw_state,
-                        phase.clone(),
-                        pocket,
-                        initial_gap_sign,
-                        previous_t,
-                        t,
-                        radius,
-                        table,
-                        config,
-                    );
-                let state_at_centerline = raw_advance_within_phase_on_table(
-                    raw_state,
-                    phase,
-                    time_until_centerline.as_f64(),
-                    radius,
-                    config,
-                )
-                .into_on_table_state();
-
-                return on_table_state_is_within_pocket_capture_region(
-                    &state_at_centerline,
-                    pocket,
-                    table,
-                );
-            }
-
-            previous_t = t;
-            previous_gap = gap;
-        }
-
         let state_at_phase_end = advance_within_phase_on_table(
             &current_state,
             phase,
@@ -4565,7 +5752,7 @@ fn side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
             ball,
             config,
         );
-        if !on_table_state_is_within_pocket_capture_region(&state_at_phase_end, pocket, table) {
+        if !on_table_state_is_within_pocket_mouth_region(&state_at_phase_end, pocket, table) {
             return false;
         }
         current_state = state_at_phase_end;
@@ -4581,7 +5768,7 @@ fn should_capture_after_jaw_impact(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> bool {
-    on_table_state_is_within_pocket_capture_region(state, pocket, table)
+    on_table_state_is_within_pocket_mouth_region(state, pocket, table)
         && on_table_state_velocity_points_toward_pocket_center(state, pocket, table)
         && match table.pocket_spec(pocket).ty {
             PocketType::Corner => true,
@@ -4622,6 +5809,36 @@ mod pocket_mouth_tests {
     }
 
     #[test]
+    fn side_pocket_post_jaw_late_drop_gate_detects_centerline_tangent_between_scan_samples() {
+        let table = TableSpec::default();
+        let ball = BallSetPhysicsSpec::default();
+        let motion = motion_config_with_sliding_acceleration(25.0);
+        let radius = ball.radius.as_f64();
+        let state = OnTableBallState::try_from(BallState::on_table(
+            Inches2::new(Inches::from_f64(49.0), Inches::from_f64(50.02)),
+            Velocity2::new(Inches::from_f64(1.0), Inches::from_f64(-1.0)),
+            AngularVelocity3::new(-3.2 / radius, 1.0 / radius, 0.0),
+        ))
+        .expect("test state should stay on table");
+
+        assert!(on_table_state_is_within_pocket_mouth_region(
+            &state,
+            Pocket::CenterRight,
+            &table,
+        ));
+        assert!(
+            side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
+                &state,
+                Pocket::CenterRight,
+                &ball,
+                &table,
+                &motion,
+            ),
+            "the centerline tangent touch should be detected analytically instead of depending on fixed samples"
+        );
+    }
+
+    #[test]
     fn side_pocket_post_jaw_late_drop_gate_continues_across_slide_to_roll_transition() {
         let table = TableSpec::default();
         let ball = BallSetPhysicsSpec::default();
@@ -4647,7 +5864,7 @@ mod pocket_mouth_tests {
             compute_next_transition_on_table(&post_jaw, &ball, &fast_post_jaw_motion)
                 .expect("the synthetic post-jaw state should still be transitioning");
 
-        assert!(on_table_state_is_within_pocket_capture_region(
+        assert!(on_table_state_is_within_pocket_mouth_region(
             &post_jaw,
             Pocket::CenterRight,
             &table,
@@ -4671,6 +5888,580 @@ mod pocket_mouth_tests {
             )
         );
     }
+
+    #[test]
+    fn fast_pocket_target_width_matches_the_straight_in_tp37_tp38_branch() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let (side_left, side_right) =
+            pocket_fast_target_bounds_in_inches(Pocket::CenterRight, 0.0, radius, &table);
+        let (corner_left, corner_right) =
+            pocket_fast_target_bounds_in_inches(Pocket::TopRight, 0.0, radius, &table);
+
+        assert!((side_left - 1.408_417_307_939_504).abs() < 1e-12);
+        assert!((side_right - 1.408_417_307_939_504).abs() < 1e-12);
+        assert!((corner_left - 1.133_385_579_403_512_8).abs() < 1e-12);
+        assert!((corner_right - 1.133_385_579_403_512_8).abs() < 1e-12);
+    }
+
+    #[test]
+    fn slow_side_pocket_target_matches_tp35_formula_anchors() {
+        let geometry = SlowPocketTargetGeometry {
+            mouth_width: 5.0625,
+            wall_angle_radians: SIDE_POCKET_WALL_ANGLE_DEGREES.to_radians(),
+            hole_radius: SIDE_POCKET_SLOW_HOLE_RADIUS_INCHES,
+            shelf_depth_to_hole: SIDE_POCKET_SLOW_SHELF_DEPTH_TO_HOLE_INCHES,
+        };
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let theta_max = SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES.to_radians();
+        let critical_setup_theta = -51.4689_f64.to_radians();
+        let critical_beta = slow_pocket_target_beta_l(geometry, radius, critical_setup_theta)
+            .expect("TP 3.5 critical setup should have a beta root");
+
+        assert!(
+            slow_pocket_target_poly_beta(geometry, radius, 90.0_f64.to_radians(), theta_max).abs()
+                < 1e-5
+        );
+        assert!(
+            (slow_pocket_target_rwall(geometry, radius, theta_max).unwrap() - radius).abs() < 1e-5
+        );
+        assert!((critical_beta.to_degrees() - 26.036_365_949_810_254).abs() < 1e-9);
+        assert!(
+            (side_pocket_slow_target_sleft(geometry, radius, 0.0) - 1.614_749_780_099_947_5).abs()
+                < 1e-12
+        );
+        assert_eq!(
+            side_pocket_slow_target_sleft(geometry, radius, theta_max),
+            0.0
+        );
+        assert_eq!(
+            side_pocket_slow_target_sleft(geometry, radius, -theta_max),
+            0.0
+        );
+    }
+
+    #[test]
+    fn slow_corner_pocket_target_matches_tp36_formula_anchors() {
+        let geometry = SlowCornerPocketTargetGeometry {
+            target: SlowPocketTargetGeometry {
+                mouth_width: 4.5875,
+                wall_angle_radians: CORNER_POCKET_WALL_ANGLE_DEGREES.to_radians(),
+                hole_radius: CORNER_POCKET_SLOW_HOLE_RADIUS_INCHES,
+                shelf_depth_to_hole: CORNER_POCKET_SLOW_SHELF_DEPTH_TO_HOLE_INCHES,
+            },
+            long_rail_length: 96.0,
+        };
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let critical_c = 38.558_f64.to_radians();
+        let critical_d = 28.167_f64.to_radians();
+        let critical_point_wall = -51.442_f64.to_radians();
+        let printed_theta_max_long = 44.058_f64.to_radians();
+        let theta_max_long = corner_pocket_slow_max_long_entry_angle(geometry, radius).unwrap();
+
+        assert!(
+            (corner_pocket_slow_sleft_rail_point_wall(geometry, radius, critical_c).unwrap()
+                - 1.828_502_584_338_214)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_d_point_wall(geometry, radius, critical_c).unwrap()
+                - 10.274_199_379_098_624)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_sleft_rail_wall_wall(geometry, radius, critical_c).unwrap()
+                - 1.828_483_017_046_866_9)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (slow_pocket_target_beta_l(geometry.target, radius, critical_point_wall)
+                .unwrap()
+                .to_degrees()
+                - 31.558_138_970_979_446)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_sleft_wall_wall(geometry, radius, critical_point_wall).unwrap()
+                - 0.840_905_900_609_970_4)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_sleft_rail_wall_wall(geometry, radius, critical_d).unwrap()
+                - 0.945_344_506_183_077_4)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            corner_pocket_slow_d_rail_wall_wall(geometry, radius, critical_d)
+                .unwrap()
+                .abs()
+                < 1e-3
+        );
+        assert!(
+            (corner_pocket_slow_beta_l_wall_wall(geometry, radius, critical_d)
+                .unwrap()
+                .to_degrees()
+                - 73.166_873_951_021_81)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_max_rail_distance(geometry, radius) - 87.262_295_282_613_42).abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_d_point_wall_wall(geometry, radius, printed_theta_max_long)
+                .unwrap()
+                - 87.238_640_492_684_34)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_target_sleft(geometry, radius, 0.0) - 1.333_872_127_020_348).abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_target_sleft(geometry, radius, 30.0_f64.to_radians())
+                - 1.097_637_711_011_616)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (corner_pocket_slow_target_sleft(geometry, radius, theta_max_long)
+                - 1.958_138_808_505_060_6)
+                .abs()
+                < 1e-3
+        );
+    }
+
+    #[test]
+    fn slow_corner_pocket_transition_angles_follow_active_table_geometry() {
+        let paper_geometry = SlowCornerPocketTargetGeometry {
+            target: SlowPocketTargetGeometry {
+                mouth_width: 4.5875,
+                wall_angle_radians: CORNER_POCKET_WALL_ANGLE_DEGREES.to_radians(),
+                hole_radius: CORNER_POCKET_SLOW_HOLE_RADIUS_INCHES,
+                shelf_depth_to_hole: CORNER_POCKET_SLOW_SHELF_DEPTH_TO_HOLE_INCHES,
+            },
+            long_rail_length: 96.0,
+        };
+        let table = TableSpec::default();
+        let default_geometry = corner_pocket_slow_target_geometry(Pocket::TopRight, &table);
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+
+        let paper_c = corner_pocket_slow_critical_c_angle(paper_geometry, radius).unwrap();
+        let paper_d = corner_pocket_slow_critical_d_angle(paper_geometry, radius).unwrap();
+        let paper_max = corner_pocket_slow_max_long_entry_angle(paper_geometry, radius).unwrap();
+        let default_c = corner_pocket_slow_critical_c_angle(default_geometry, radius).unwrap();
+        let default_d = corner_pocket_slow_critical_d_angle(default_geometry, radius).unwrap();
+        let default_max =
+            corner_pocket_slow_max_long_entry_angle(default_geometry, radius).unwrap();
+
+        assert!((paper_c.to_degrees() - 38.558).abs() < 1e-3);
+        assert!((paper_d.to_degrees() - 28.167).abs() < 1e-3);
+        assert!((paper_max.to_degrees() - 44.058).abs() < 1e-3);
+        assert!((default_c.to_degrees() - 39.206).abs() < 0.03);
+        assert!((default_d.to_degrees() - 28.772).abs() < 0.03);
+        assert!((default_max.to_degrees() - 44.139).abs() < 0.03);
+        assert!((default_c - paper_c).to_degrees() > 0.3);
+        assert!((default_d - paper_d).to_degrees() > 0.3);
+        assert!((default_max - paper_max).to_degrees() > 0.05);
+
+        let rail_point_wall =
+            corner_pocket_slow_sleft_rail_point_wall(default_geometry, radius, default_c).unwrap();
+        let rail_wall_wall =
+            corner_pocket_slow_sleft_rail_wall_wall(default_geometry, radius, default_c).unwrap();
+        let rail_wall_wall_at_d =
+            corner_pocket_slow_sleft_rail_wall_wall(default_geometry, radius, default_d).unwrap();
+        let point_wall_wall_at_d =
+            corner_pocket_slow_sleft_point_wall_wall(default_geometry, radius, default_d).unwrap();
+        let d_point_wall_wall =
+            corner_pocket_slow_d_point_wall_wall(default_geometry, radius, default_max).unwrap();
+
+        assert!((rail_point_wall - rail_wall_wall).abs() < 1e-7);
+        assert!((rail_wall_wall_at_d - point_wall_wall_at_d).abs() < 1e-7);
+        assert!(
+            (d_point_wall_wall - corner_pocket_slow_max_rail_distance(default_geometry, radius))
+                .abs()
+                < 1e-7
+        );
+    }
+
+    #[test]
+    fn side_pocket_target_bounds_interpolate_signed_slow_and_fast_curves_independently() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let slow = pocket_slow_target_bounds_in_inches(Pocket::CenterRight, 30.0, radius, &table);
+        let fast = pocket_fast_target_bounds_in_inches(Pocket::CenterRight, 30.0, radius, &table);
+        let mid = pocket_target_bounds_in_inches(Pocket::CenterRight, 30.0, 30.0, radius, &table);
+        let capped =
+            pocket_target_bounds_in_inches(Pocket::CenterRight, 30.0, 120.0, radius, &table);
+        let mirrored =
+            pocket_slow_target_bounds_in_inches(Pocket::CenterRight, -30.0, radius, &table);
+        let corner_radius = pocket_slow_capture_radius_in_inches(Pocket::TopRight, &table);
+        let corner_slow =
+            pocket_slow_target_bounds_in_inches(Pocket::TopRight, 0.0, radius, &table);
+
+        assert!((mid.0 - 0.5 * (slow.0 + fast.0)).abs() < 1e-12);
+        assert!((mid.1 - 0.5 * (slow.1 + fast.1)).abs() < 1e-12);
+        assert_eq!(capped, fast);
+        assert!((mirrored.0 - slow.1).abs() < 1e-12);
+        assert!((mirrored.1 - slow.0).abs() < 1e-12);
+        assert!((corner_slow.0 - corner_slow.1).abs() < 1e-12);
+        assert!(
+            corner_slow.0 < corner_radius,
+            "TP 3.6's straight slow corner-pocket target should be narrower than the old capture circle"
+        );
+    }
+
+    #[test]
+    fn fast_side_pocket_target_width_uses_shelf_depth_on_the_wall_rattle_branch() {
+        let mut shallow = TableSpec::default();
+        shallow.pocket_spec_mut(Pocket::CenterRight).depth = Diamond::from("0.015");
+        let deep = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+
+        let (shallow_left, shallow_right) =
+            pocket_fast_target_bounds_in_inches(Pocket::CenterRight, -45.0, radius, &shallow);
+        let (deep_left, deep_right) =
+            pocket_fast_target_bounds_in_inches(Pocket::CenterRight, -45.0, radius, &deep);
+        let shallow_half_width = 0.5 * (shallow_left + shallow_right);
+        let deep_half_width = 0.5 * (deep_left + deep_right);
+
+        assert!((shallow_half_width - 0.436_815_563_044_125_6).abs() < 1e-12);
+        assert!((deep_half_width - 0.321_383_476_483_184_44).abs() < 1e-12);
+        assert!((shallow_left - 0.230_864_173_121_882_34).abs() < 1e-12);
+        assert!((shallow_right - 0.642_766_952_966_368_9).abs() < 1e-12);
+        assert!(
+            deep_half_width < shallow_half_width,
+            "deeper shelves should narrow this fast near-wall side-pocket target"
+        );
+    }
+
+    #[test]
+    fn fast_wall_radius_closed_form_satisfies_the_tp37_poly_equation() {
+        let mut table = TableSpec::default();
+        table.pocket_spec_mut(Pocket::CenterRight).depth = Diamond::from("0.015");
+        let geometry = fast_pocket_target_geometry(Pocket::CenterRight, &table);
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let theta = -45.0_f64.to_radians();
+        let wall_radius = fast_pocket_target_wall_radius(geometry, radius, theta)
+            .expect("wall branch should solve for a valid radius");
+
+        assert!(
+            fast_pocket_target_poly_for_wall_radius(geometry, radius, wall_radius, -theta).abs()
+                < 1e-9
+        );
+    }
+
+    fn raw_state_on_pocket_mouth_with_local_offset(
+        pocket: Pocket,
+        local_angle_degrees: f64,
+        lateral_offset: f64,
+        speed: f64,
+        radius: f64,
+        table: &TableSpec,
+    ) -> RawOnTableBallState {
+        let (entry_x, entry_y) = pocket_entry_axis(pocket);
+        let tangent_x = -entry_y;
+        let tangent_y = entry_x;
+        let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+        let (jaw_x, jaw_y) = pocket_jaw_reference_point_in_inches(pocket, PocketJaw::First, table);
+        let mouth_projection = entry_x * jaw_x + entry_y * jaw_y;
+        let pocket_projection = entry_x * pocket_x + entry_y * pocket_y;
+        let along_offset = mouth_projection - radius - pocket_projection;
+        let theta = local_angle_degrees.to_radians();
+        let direction_x = theta.cos() * entry_x + theta.sin() * tangent_x;
+        let direction_y = theta.cos() * entry_y + theta.sin() * tangent_y;
+
+        RawOnTableBallState {
+            x: pocket_x + along_offset * entry_x + lateral_offset * tangent_x,
+            y: pocket_y + along_offset * entry_y + lateral_offset * tangent_y,
+            vx: speed * direction_x,
+            vy: speed * direction_y,
+            wx: -speed * direction_y / radius,
+            wy: speed * direction_x / radius,
+            wz: 0.0,
+        }
+    }
+
+    #[test]
+    fn slow_side_pocket_target_bounds_follow_pocket_local_signs_for_both_side_pockets() {
+        let table = TableSpec::default();
+        let ball = BallSetPhysicsSpec::default();
+        let motion = motion_config_with_sliding_acceleration(5.0);
+        let radius = ball.radius.as_f64();
+        let speed = 1.0;
+        let angle = 30.0;
+
+        for pocket in [Pocket::CenterRight, Pocket::CenterLeft] {
+            let (left_bound, right_bound) =
+                pocket_target_bounds_in_inches(pocket, angle, speed, radius, &table);
+            let accepted_left = raw_state_on_pocket_mouth_with_local_offset(
+                pocket,
+                angle,
+                left_bound - 0.02,
+                speed,
+                radius,
+                &table,
+            );
+            let rejected_left = raw_state_on_pocket_mouth_with_local_offset(
+                pocket,
+                angle,
+                left_bound + 0.02,
+                speed,
+                radius,
+                &table,
+            );
+            let rejected_right = raw_state_on_pocket_mouth_with_local_offset(
+                pocket,
+                angle,
+                -right_bound - 0.02,
+                speed,
+                radius,
+                &table,
+            );
+
+            assert!(
+                pocket_capture_gap_during_current_phase_raw(
+                    accepted_left,
+                    MotionPhase::Rolling,
+                    pocket,
+                    0.0,
+                    radius,
+                    &table,
+                    &motion,
+                ) <= 1e-9,
+                "{pocket:?} should accept an in-bounds slow TP 3.5 side-pocket target"
+            );
+            assert!(
+                pocket_capture_gap_during_current_phase_raw(
+                    rejected_left,
+                    MotionPhase::Rolling,
+                    pocket,
+                    0.0,
+                    radius,
+                    &table,
+                    &motion,
+                ) > 0.0,
+                "{pocket:?} should reject the positive side outside the slow TP 3.5 target"
+            );
+            assert!(
+                pocket_capture_gap_during_current_phase_raw(
+                    rejected_right,
+                    MotionPhase::Rolling,
+                    pocket,
+                    0.0,
+                    radius,
+                    &table,
+                    &motion,
+                ) > 0.0,
+                "{pocket:?} should reject the negative side outside the slow TP 3.5 target"
+            );
+        }
+    }
+
+    #[test]
+    fn slow_corner_pocket_target_bounds_follow_pocket_local_signs_for_all_corners() {
+        let table = TableSpec::default();
+        let ball = BallSetPhysicsSpec::default();
+        let motion = motion_config_with_sliding_acceleration(5.0);
+        let radius = ball.radius.as_f64();
+        let speed = 1.0;
+        let angle = 30.0;
+
+        for pocket in [
+            Pocket::TopRight,
+            Pocket::BottomRight,
+            Pocket::BottomLeft,
+            Pocket::TopLeft,
+        ] {
+            let (left_bound, right_bound) =
+                pocket_target_bounds_in_inches(pocket, angle, speed, radius, &table);
+            let accepted_left = raw_state_on_pocket_mouth_with_local_offset(
+                pocket,
+                angle,
+                left_bound - 0.02,
+                speed,
+                radius,
+                &table,
+            );
+            let rejected_left = raw_state_on_pocket_mouth_with_local_offset(
+                pocket,
+                angle,
+                left_bound + 0.02,
+                speed,
+                radius,
+                &table,
+            );
+            let rejected_right = raw_state_on_pocket_mouth_with_local_offset(
+                pocket,
+                angle,
+                -right_bound - 0.02,
+                speed,
+                radius,
+                &table,
+            );
+
+            assert!(
+                pocket_capture_gap_during_current_phase_raw(
+                    accepted_left,
+                    MotionPhase::Rolling,
+                    pocket,
+                    0.0,
+                    radius,
+                    &table,
+                    &motion,
+                ) <= 1e-9,
+                "{pocket:?} should accept an in-bounds slow TP 3.6 corner-pocket target"
+            );
+            assert!(
+                pocket_capture_gap_during_current_phase_raw(
+                    rejected_left,
+                    MotionPhase::Rolling,
+                    pocket,
+                    0.0,
+                    radius,
+                    &table,
+                    &motion,
+                ) > 0.0,
+                "{pocket:?} should reject the positive side outside the slow TP 3.6 target"
+            );
+            assert!(
+                pocket_capture_gap_during_current_phase_raw(
+                    rejected_right,
+                    MotionPhase::Rolling,
+                    pocket,
+                    0.0,
+                    radius,
+                    &table,
+                    &motion,
+                ) > 0.0,
+                "{pocket:?} should reject the negative side outside the slow TP 3.6 target"
+            );
+        }
+    }
+
+    #[test]
+    fn pocket_capture_brackets_target_expansion_before_the_fixed_scan_can_sample_it() {
+        let table = TableSpec::default();
+        let ball = BallSetPhysicsSpec::default();
+        let radius = ball.radius.as_f64();
+        let slow_rolling_deceleration = 0.1;
+        let motion = MotionTransitionConfig {
+            phase: MotionPhaseConfig::default(),
+            sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+                acceleration_magnitude: InchesPerSecondSq::new(Inches::from_f64(5.0)),
+            },
+            spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+                angular_deceleration: RadiansPerSecondSq::new(2.0),
+            },
+            rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+                linear_deceleration: InchesPerSecondSq::new(Inches::from_f64(
+                    slow_rolling_deceleration,
+                )),
+            },
+        };
+        let speed = POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND + 0.001;
+        let (slow_left, _) =
+            pocket_slow_target_bounds_in_inches(Pocket::CenterRight, 0.0, radius, &table);
+        let (fast_left, _) =
+            pocket_fast_target_bounds_in_inches(Pocket::CenterRight, 0.0, radius, &table);
+        let lateral_offset = fast_left + 0.000_01;
+        let accepted_speed = POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND
+            * (lateral_offset - slow_left)
+            / (fast_left - slow_left);
+        let expected_capture_seconds = (speed - accepted_speed) / slow_rolling_deceleration;
+        let first_old_scan_sample = (speed / slow_rolling_deceleration) / 512.0;
+        let raw_state = raw_state_on_pocket_mouth_with_local_offset(
+            Pocket::CenterRight,
+            0.0,
+            lateral_offset,
+            speed,
+            radius,
+            &table,
+        );
+        let state = raw_state.into_on_table_state();
+
+        assert!(
+            pocket_capture_gap_during_current_phase_raw(
+                raw_state,
+                MotionPhase::Rolling,
+                Pocket::CenterRight,
+                0.0,
+                radius,
+                &table,
+                &motion,
+            ) > 0.0,
+            "the shot should start just outside the fast target"
+        );
+        let capture = compute_next_ball_pocket_capture_on_table(&state, &ball, &table, &motion)
+            .expect("speed interpolation should expand the target before the back plane");
+
+        assert_eq!(capture.pocket, Pocket::CenterRight);
+        assert!(
+            capture.time_until_capture.as_f64() < first_old_scan_sample,
+            "capture at {}s should happen before the old fixed scan's first sample at {first_old_scan_sample}s",
+            capture.time_until_capture.as_f64()
+        );
+        assert!(
+            (capture.time_until_capture.as_f64() - expected_capture_seconds).abs() < 1e-6,
+            "expected target-boundary capture at {expected_capture_seconds}s, got {}s",
+            capture.time_until_capture.as_f64()
+        );
+    }
+
+    #[test]
+    fn fast_corner_target_bounds_follow_pocket_local_signs_for_mirrored_corners() {
+        let table = TableSpec::default();
+        let ball = BallSetPhysicsSpec::default();
+        let motion = motion_config_with_sliding_acceleration(5.0);
+        let radius = ball.radius.as_f64();
+
+        for pocket in [Pocket::TopRight, Pocket::BottomLeft] {
+            let rejected = raw_state_on_pocket_mouth_with_local_offset(
+                pocket, 45.0, 0.70, 120.0, radius, &table,
+            );
+            let accepted = raw_state_on_pocket_mouth_with_local_offset(
+                pocket, 45.0, -0.70, 120.0, radius, &table,
+            );
+
+            assert!(
+                (pocket_signed_entry_angle_degrees_raw(rejected, pocket).unwrap() - 45.0).abs()
+                    < 1e-9
+            );
+            assert!(
+                pocket_capture_gap_during_current_phase_raw(
+                    rejected,
+                    MotionPhase::Rolling,
+                    pocket,
+                    0.0,
+                    radius,
+                    &table,
+                    &motion,
+                ) > 0.0,
+                "{pocket:?} should reject the near-point side of the signed TP 3.8 target"
+            );
+            let accepted_gap = pocket_capture_gap_during_current_phase_raw(
+                accepted,
+                MotionPhase::Rolling,
+                pocket,
+                0.0,
+                radius,
+                &table,
+                &motion,
+            );
+            assert!(
+                accepted_gap <= 1e-9,
+                "{pocket:?} should accept the far-wall side of the signed TP 3.8 target; gap={accepted_gap}"
+            );
+        }
+    }
 }
 
 fn pocket_capture_gap_during_current_phase_raw(
@@ -4683,12 +6474,18 @@ fn pocket_capture_gap_during_current_phase_raw(
     config: &OnTableMotionConfig,
 ) -> f64 {
     let at_t = raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config);
-    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
-    let dx = at_t.x - pocket_x;
-    let dy = at_t.y - pocket_y;
-    let radial_gap = dx.hypot(dy) - pocket_capture_radius_in_inches(pocket, table);
+    let signed_entry_angle = pocket_signed_entry_angle_degrees_raw(at_t, pocket).unwrap_or(0.0);
+    let (left_bound, right_bound) =
+        pocket_target_bounds_in_inches(pocket, signed_entry_angle, at_t.speed(), radius, table);
+    let lateral_offset = pocket_lateral_offset_raw(at_t, pocket, table);
+    let target_gap = (lateral_offset - left_bound).max(-right_bound - lateral_offset);
+    let mouth_plane_gap = pocket_mouth_plane_gap_raw(at_t, pocket, radius, table);
+    let back_plane_gap = pocket_back_plane_gap_raw(at_t, pocket, table);
 
-    radial_gap.max(pocket_acceptance_gap_raw(at_t, pocket, table))
+    target_gap
+        .max(pocket_acceptance_gap_raw(at_t, pocket, table))
+        .max(mouth_plane_gap)
+        .max(back_plane_gap)
 }
 
 fn refine_ball_pocket_capture_time_during_current_phase_raw(
@@ -4723,55 +6520,57 @@ fn refine_ball_pocket_capture_time_during_current_phase_raw(
     Seconds::new(right)
 }
 
-fn pocket_jaw_gap_during_current_phase_raw(
+fn scan_ball_pocket_capture_time_during_current_phase_raw(
     state: RawOnTableBallState,
     phase: MotionPhase,
     pocket: Pocket,
-    jaw: PocketJaw,
-    t_seconds: f64,
+    horizon: f64,
     radius: f64,
     table: &TableSpec,
     config: &OnTableMotionConfig,
-) -> f64 {
-    let at_t = raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config);
-    let jaw_geometry = pocket_jaw_geometry_in_inches(pocket, jaw, table);
+) -> Option<Seconds> {
+    const POCKET_CAPTURE_SCAN_STEPS: usize = 512;
 
-    (at_t.x - jaw_geometry.center_x).hypot(at_t.y - jaw_geometry.center_y)
-        - (radius + jaw_geometry.nose_radius)
-}
+    let initial_gap = pocket_capture_gap_during_current_phase_raw(
+        state,
+        phase.clone(),
+        pocket,
+        0.0,
+        radius,
+        table,
+        config,
+    );
+    let capture_tolerance = 1e-9 * horizon.max(1.0);
+    if initial_gap <= capture_tolerance {
+        return Some(Seconds::zero());
+    }
 
-fn refine_ball_jaw_collision_time_during_current_phase_raw(
-    state: RawOnTableBallState,
-    phase: MotionPhase,
-    pocket: Pocket,
-    jaw: PocketJaw,
-    mut left: f64,
-    mut right: f64,
-    radius: f64,
-    table: &TableSpec,
-    config: &OnTableMotionConfig,
-) -> Seconds {
-    for _ in 0..60 {
-        let midpoint = 0.5 * (left + right);
-        let gap = pocket_jaw_gap_during_current_phase_raw(
+    let mut previous_t = 0.0;
+    let mut previous_gap = initial_gap;
+
+    for step in 1..=POCKET_CAPTURE_SCAN_STEPS {
+        let t = horizon * step as f64 / POCKET_CAPTURE_SCAN_STEPS as f64;
+        let gap = pocket_capture_gap_during_current_phase_raw(
             state,
             phase.clone(),
             pocket,
-            jaw,
-            midpoint,
+            t,
             radius,
             table,
             config,
         );
 
-        if gap <= 0.0 {
-            right = midpoint;
-        } else {
-            left = midpoint;
+        if previous_gap > capture_tolerance && gap <= capture_tolerance {
+            return Some(refine_ball_pocket_capture_time_during_current_phase_raw(
+                state, phase, pocket, previous_t, t, radius, table, config,
+            ));
         }
+
+        previous_t = t;
+        previous_gap = gap;
     }
 
-    Seconds::new(right)
+    None
 }
 
 pub fn compute_next_ball_jaw_impact_on_table(
@@ -4790,78 +6589,57 @@ pub fn compute_next_ball_jaw_impact_on_table(
         return None;
     }
 
-    const JAW_COLLISION_SCAN_STEPS: usize = 512;
     let mut best: Option<PredictedBallJawImpact> = None;
 
     for pocket in Pocket::ALL {
         for jaw in PocketJaw::ALL {
-            let initial_gap = pocket_jaw_gap_during_current_phase_raw(
+            let jaw_geometry = pocket_jaw_geometry_in_inches(pocket, jaw, table);
+            let contact_radius = radius + jaw_geometry.nose_radius;
+            let Some(dt_seconds) = first_fixed_circle_entry_time_for_raw_motion(
                 raw_state,
                 phase.clone(),
-                pocket,
-                jaw,
-                0.0,
+                jaw_geometry.center_x,
+                jaw_geometry.center_y,
+                contact_radius,
+                horizon,
                 radius,
-                table,
                 config,
-            );
-            if initial_gap <= 0.0 {
+            ) else {
+                continue;
+            };
+            if dt_seconds <= f64::EPSILON
+                && !raw_fixed_circle_contact_is_closing_or_accelerating_inward(
+                    raw_state,
+                    phase.clone(),
+                    jaw_geometry.center_x,
+                    jaw_geometry.center_y,
+                    radius,
+                    config,
+                )
+            {
                 continue;
             }
 
-            let mut previous_t = 0.0;
-            let mut previous_gap = initial_gap;
+            let time_until_impact = Seconds::new(dt_seconds);
+            let state_at_impact = raw_advance_within_phase_on_table(
+                raw_state,
+                phase.clone(),
+                dt_seconds,
+                radius,
+                config,
+            )
+            .into_on_table_state();
+            let impact = PredictedBallJawImpact {
+                pocket,
+                jaw,
+                time_until_impact,
+                state_at_impact,
+            };
 
-            for step in 1..=JAW_COLLISION_SCAN_STEPS {
-                let t = horizon * step as f64 / JAW_COLLISION_SCAN_STEPS as f64;
-                let gap = pocket_jaw_gap_during_current_phase_raw(
-                    raw_state,
-                    phase.clone(),
-                    pocket,
-                    jaw,
-                    t,
-                    radius,
-                    table,
-                    config,
-                );
-
-                if previous_gap > 0.0 && gap <= 0.0 {
-                    let time_until_impact = refine_ball_jaw_collision_time_during_current_phase_raw(
-                        raw_state,
-                        phase.clone(),
-                        pocket,
-                        jaw,
-                        previous_t,
-                        t,
-                        radius,
-                        table,
-                        config,
-                    );
-                    let state_at_impact = raw_advance_within_phase_on_table(
-                        raw_state,
-                        phase.clone(),
-                        time_until_impact.as_f64(),
-                        radius,
-                        config,
-                    )
-                    .into_on_table_state();
-                    let impact = PredictedBallJawImpact {
-                        pocket,
-                        jaw,
-                        time_until_impact,
-                        state_at_impact,
-                    };
-
-                    if best.as_ref().is_none_or(|current| {
-                        impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
-                    }) {
-                        best = Some(impact);
-                    }
-                    break;
-                }
-
-                previous_t = t;
-                previous_gap = gap;
+            if best.as_ref().is_none_or(|current| {
+                impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
+            }) {
+                best = Some(impact);
             }
         }
     }
@@ -4881,6 +6659,7 @@ pub fn compute_next_ball_jaw_impact_on_table(
 /// target-size references:
 ///
 /// - `whitepapers/tp_3_5_effective_target_sizes_for_slow_shots_into_a_side_pocket_at_different_angles.pdf`
+/// - `whitepapers/tp_3_6_effective_target_sizes_for_slow_shots_into_a_corner_pocket_at_different_angles.pdf`
 /// - `whitepapers/tp_3_7_effective_target_sizes_for_fast_shots_into_a_side_pocket_at_different_angles.pdf`
 /// - `whitepapers/tp_3_8_effective_target_sizes_for_fast_shots_into_a_corner_pocket_at_different_angles.pdf`
 ///
@@ -4900,8 +6679,8 @@ pub fn compute_next_ball_pocket_capture_on_table(
     if !horizon.is_finite() || horizon <= f64::EPSILON {
         return None;
     }
+    let capture_tolerance = 1e-9 * horizon.max(1.0);
 
-    const POCKET_CAPTURE_SCAN_STEPS: usize = 512;
     let mut best: Option<PredictedBallPocketCapture> = None;
 
     for pocket in Pocket::ALL {
@@ -4914,7 +6693,7 @@ pub fn compute_next_ball_pocket_capture_on_table(
             table,
             config,
         );
-        if initial_gap <= 0.0 {
+        if initial_gap <= capture_tolerance {
             let capture = PredictedBallPocketCapture {
                 pocket,
                 time_until_capture: Seconds::zero(),
@@ -4928,56 +6707,112 @@ pub fn compute_next_ball_pocket_capture_on_table(
             continue;
         }
 
-        let mut previous_t = 0.0;
-        let mut previous_gap = initial_gap;
+        let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+        let capture_radius = pocket_slow_capture_radius_in_inches(pocket, table);
+        let radial_entry_seconds = first_fixed_circle_entry_time_for_raw_motion(
+            raw_state,
+            phase.clone(),
+            pocket_x,
+            pocket_y,
+            capture_radius,
+            horizon,
+            radius,
+            config,
+        );
+        let mouth_entry_seconds = first_pocket_mouth_plane_crossing_time_during_current_phase_raw(
+            raw_state,
+            phase.clone(),
+            pocket,
+            horizon,
+            radius,
+            config,
+            table,
+        );
+        let back_entry_seconds = first_pocket_back_plane_crossing_time_during_current_phase_raw(
+            raw_state,
+            phase.clone(),
+            pocket,
+            horizon,
+            radius,
+            config,
+            table,
+        );
+        let mut analytic_entries = [
+            radial_entry_seconds,
+            mouth_entry_seconds,
+            back_entry_seconds,
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|time| *time > f64::EPSILON)
+        .collect::<Vec<_>>();
+        analytic_entries.sort_by(|left, right| {
+            left.partial_cmp(right)
+                .expect("finite pocket-capture candidate times should sort")
+        });
 
-        for step in 1..=POCKET_CAPTURE_SCAN_STEPS {
-            let t = horizon * step as f64 / POCKET_CAPTURE_SCAN_STEPS as f64;
-            let gap = pocket_capture_gap_during_current_phase_raw(
+        let mut time_until_capture = None;
+        for candidate_seconds in analytic_entries {
+            if pocket_capture_gap_during_current_phase_raw(
                 raw_state,
                 phase.clone(),
                 pocket,
-                t,
+                candidate_seconds,
                 radius,
                 table,
                 config,
-            );
-
-            if previous_gap > 0.0 && gap <= 0.0 {
-                let time_until_capture = refine_ball_pocket_capture_time_during_current_phase_raw(
-                    raw_state,
-                    phase.clone(),
-                    pocket,
-                    previous_t,
-                    t,
-                    radius,
-                    table,
-                    config,
-                );
-                let state_at_capture = raw_advance_within_phase_on_table(
-                    raw_state,
-                    phase.clone(),
-                    time_until_capture.as_f64(),
-                    radius,
-                    config,
-                )
-                .into_on_table_state();
-                let capture = PredictedBallPocketCapture {
-                    pocket,
-                    time_until_capture,
-                    state_at_capture,
-                };
-
-                if best.as_ref().is_none_or(|current| {
-                    capture.time_until_capture.as_f64() < current.time_until_capture.as_f64()
-                }) {
-                    best = Some(capture);
-                }
+            ) <= capture_tolerance
+            {
+                let right = (candidate_seconds + capture_tolerance).min(horizon);
+                time_until_capture =
+                    Some(refine_ball_pocket_capture_time_during_current_phase_raw(
+                        raw_state,
+                        phase.clone(),
+                        pocket,
+                        0.0,
+                        right,
+                        radius,
+                        table,
+                        config,
+                    ));
                 break;
             }
+        }
 
-            previous_t = t;
-            previous_gap = gap;
+        let time_until_capture = if let Some(time_until_capture) = time_until_capture {
+            time_until_capture
+        } else {
+            let Some(scanned) = scan_ball_pocket_capture_time_during_current_phase_raw(
+                raw_state,
+                phase.clone(),
+                pocket,
+                horizon,
+                radius,
+                table,
+                config,
+            ) else {
+                continue;
+            };
+            scanned
+        };
+        let state_at_capture = raw_advance_within_phase_on_table(
+            raw_state,
+            phase.clone(),
+            time_until_capture.as_f64(),
+            radius,
+            config,
+        )
+        .into_on_table_state();
+        let capture = PredictedBallPocketCapture {
+            pocket,
+            time_until_capture,
+            state_at_capture,
+        };
+
+        if best.as_ref().is_none_or(|current| {
+            capture.time_until_capture.as_f64() < current.time_until_capture.as_f64()
+        }) {
+            best = Some(capture);
         }
     }
 
@@ -5097,7 +6932,7 @@ fn shared_ball_ball_contact_from_candidates(
         .iter()
         .map(|candidate| candidate.event.time().as_f64())
         .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
-    let ball_ball_pairs = candidates
+    let mut ball_ball_pairs = candidates
         .iter()
         .filter_map(|candidate| match &candidate.event {
             NBallOnTableEvent::BallBallCollision {
@@ -5112,6 +6947,7 @@ fn shared_ball_ball_contact_from_candidates(
             _ => None,
         })
         .collect::<Vec<_>>();
+    ball_ball_pairs.sort_unstable();
 
     if ball_ball_pairs.len() < 2 {
         return None;
@@ -5162,7 +6998,7 @@ fn shared_ball_ball_contact_from_pocket_candidates(
         .iter()
         .map(|candidate| candidate.event.time().as_f64())
         .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
-    let ball_ball_pairs = candidates
+    let mut ball_ball_pairs = candidates
         .iter()
         .filter_map(|candidate| match &candidate.event {
             NBallSystemEvent::BallBallCollision {
@@ -5177,6 +7013,7 @@ fn shared_ball_ball_contact_from_pocket_candidates(
             _ => None,
         })
         .collect::<Vec<_>>();
+    ball_ball_pairs.sort_unstable();
 
     if ball_ball_pairs.len() < 2 {
         return None;
@@ -5396,6 +7233,11 @@ fn advance_n_on_table_balls_without_event(
 const SIMULTANEOUS_EVENT_TOLERANCE_SECONDS: f64 = 1e-12;
 const SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES: usize = 8;
 const SHARED_BALL_BALL_CONTACT_STATE_EPSILON: f64 = 1e-9;
+const TP_B29_THREE_BALL_CONTACT_POSITION_EPSILON: f64 = 1e-7;
+const TP_B29_THREE_BALL_CONTACT_SPEED_EPSILON: f64 = 1e-9;
+const TP_B29_INCOMING_FINAL_SPEED_RATIO: f64 = -0.071;
+const TP_B29_MIDDLE_FINAL_SPEED_RATIO: f64 = 0.076;
+const TP_B29_OUTGOING_FINAL_SPEED_RATIO: f64 = 0.995;
 
 fn shared_ball_ball_contact_resolution() -> SharedBallBallContactResolution {
     SharedBallBallContactResolution::IterativePairwiseApproximation {
@@ -5444,6 +7286,222 @@ fn simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
     selected
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TpB29ThreeBallLineContact {
+    incoming_ball_index: usize,
+    middle_ball_index: usize,
+    outgoing_ball_index: usize,
+    axis_x: f64,
+    axis_y: f64,
+    common_axis_speed: f64,
+    incoming_relative_speed: f64,
+}
+
+fn on_table_position_xy(state: &OnTableBallState) -> (f64, f64) {
+    let state = state.as_ball_state();
+    (state.position.x().as_f64(), state.position.y().as_f64())
+}
+
+fn on_table_velocity_xy(state: &OnTableBallState) -> (f64, f64) {
+    let state = state.as_ball_state();
+    (state.velocity.x().as_f64(), state.velocity.y().as_f64())
+}
+
+fn velocity_axis_component(state: &OnTableBallState, axis_x: f64, axis_y: f64) -> f64 {
+    let (vx, vy) = on_table_velocity_xy(state);
+    vx * axis_x + vy * axis_y
+}
+
+fn velocity_tangent_component(state: &OnTableBallState, axis_x: f64, axis_y: f64) -> f64 {
+    let (vx, vy) = on_table_velocity_xy(state);
+    vx * -axis_y + vy * axis_x
+}
+
+fn tp_b29_three_ball_line_contact_for_order(
+    state_refs: &[Option<&OnTableBallState>],
+    incoming_ball_index: usize,
+    middle_ball_index: usize,
+    ball: &BallSetPhysicsSpec,
+) -> Option<TpB29ThreeBallLineContact> {
+    let ball_diameter = 2.0 * ball.radius.as_f64();
+    let position_tolerance = TP_B29_THREE_BALL_CONTACT_POSITION_EPSILON * ball_diameter.max(1.0);
+    let incoming = state_refs.get(incoming_ball_index).copied().flatten()?;
+    let middle = state_refs.get(middle_ball_index).copied().flatten()?;
+    let (incoming_x, incoming_y) = on_table_position_xy(incoming);
+    let (middle_x, middle_y) = on_table_position_xy(middle);
+    let dx = middle_x - incoming_x;
+    let dy = middle_y - incoming_y;
+    let distance = (dx * dx + dy * dy).sqrt();
+    if (distance - ball_diameter).abs() > position_tolerance || distance <= f64::EPSILON {
+        return None;
+    }
+
+    let axis_x = dx / distance;
+    let axis_y = dy / distance;
+    let incoming_axis_speed = velocity_axis_component(incoming, axis_x, axis_y);
+    let middle_axis_speed = velocity_axis_component(middle, axis_x, axis_y);
+    let incoming_relative_speed = incoming_axis_speed - middle_axis_speed;
+    if incoming_relative_speed <= TP_B29_THREE_BALL_CONTACT_SPEED_EPSILON {
+        return None;
+    }
+
+    let common_tangent_speed = velocity_tangent_component(middle, axis_x, axis_y);
+    if (velocity_tangent_component(incoming, axis_x, axis_y) - common_tangent_speed).abs()
+        > TP_B29_THREE_BALL_CONTACT_SPEED_EPSILON
+    {
+        return None;
+    }
+
+    let mut outgoing_ball_index = None;
+    for (candidate_index, candidate) in state_refs.iter().enumerate() {
+        if candidate_index == incoming_ball_index || candidate_index == middle_ball_index {
+            continue;
+        }
+        let Some(candidate) = candidate else {
+            continue;
+        };
+
+        let (candidate_x, candidate_y) = on_table_position_xy(candidate);
+        let candidate_dx = candidate_x - middle_x;
+        let candidate_dy = candidate_y - middle_y;
+        let projection = candidate_dx * axis_x + candidate_dy * axis_y;
+        let perpendicular = candidate_dx * -axis_y + candidate_dy * axis_x;
+        if (projection - ball_diameter).abs() > position_tolerance
+            || perpendicular.abs() > position_tolerance
+        {
+            continue;
+        }
+
+        if (velocity_axis_component(candidate, axis_x, axis_y) - middle_axis_speed).abs()
+            > TP_B29_THREE_BALL_CONTACT_SPEED_EPSILON
+            || (velocity_tangent_component(candidate, axis_x, axis_y) - common_tangent_speed).abs()
+                > TP_B29_THREE_BALL_CONTACT_SPEED_EPSILON
+        {
+            continue;
+        }
+
+        if outgoing_ball_index.replace(candidate_index).is_some() {
+            return None;
+        }
+    }
+
+    Some(TpB29ThreeBallLineContact {
+        incoming_ball_index,
+        middle_ball_index,
+        outgoing_ball_index: outgoing_ball_index?,
+        axis_x,
+        axis_y,
+        common_axis_speed: middle_axis_speed,
+        incoming_relative_speed,
+    })
+}
+
+fn tp_b29_three_ball_line_contact(
+    state_refs: &[Option<&OnTableBallState>],
+    first_ball_index: usize,
+    second_ball_index: usize,
+    ball: &BallSetPhysicsSpec,
+    _collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) -> Option<TpB29ThreeBallLineContact> {
+    if (collision_config.normal_restitution.as_f64() - IDEAL_BALL_BALL_NORMAL_RESTITUTION).abs()
+        > f64::EPSILON
+    {
+        return None;
+    }
+
+    tp_b29_three_ball_line_contact_for_order(state_refs, first_ball_index, second_ball_index, ball)
+        .or_else(|| {
+            tp_b29_three_ball_line_contact_for_order(
+                state_refs,
+                second_ball_index,
+                first_ball_index,
+                ball,
+            )
+        })
+}
+
+fn set_on_table_axis_velocity(
+    state: &OnTableBallState,
+    axis_x: f64,
+    axis_y: f64,
+    axis_speed: f64,
+) -> OnTableBallState {
+    let state = state.as_ball_state();
+    let tangent_x = -axis_y;
+    let tangent_y = axis_x;
+    let tangent_speed =
+        state.velocity.x().as_f64() * tangent_x + state.velocity.y().as_f64() * tangent_y;
+
+    build_on_table_ball_state(
+        state.position.clone(),
+        Velocity2::from_components(
+            InchesPerSecond::new(Inches::from_f64(
+                axis_x * axis_speed + tangent_x * tangent_speed,
+            )),
+            InchesPerSecond::new(Inches::from_f64(
+                axis_y * axis_speed + tangent_y * tangent_speed,
+            )),
+        ),
+        state.angular_velocity.clone(),
+    )
+}
+
+fn resolve_tp_b29_three_ball_line_contact_on_table(
+    states_after: &mut [OnTableBallState],
+    contact: TpB29ThreeBallLineContact,
+) {
+    let final_axis_speed =
+        |ratio: f64| contact.common_axis_speed + ratio * contact.incoming_relative_speed;
+
+    states_after[contact.incoming_ball_index] = set_on_table_axis_velocity(
+        &states_after[contact.incoming_ball_index],
+        contact.axis_x,
+        contact.axis_y,
+        final_axis_speed(TP_B29_INCOMING_FINAL_SPEED_RATIO),
+    );
+    states_after[contact.middle_ball_index] = set_on_table_axis_velocity(
+        &states_after[contact.middle_ball_index],
+        contact.axis_x,
+        contact.axis_y,
+        final_axis_speed(TP_B29_MIDDLE_FINAL_SPEED_RATIO),
+    );
+    states_after[contact.outgoing_ball_index] = set_on_table_axis_velocity(
+        &states_after[contact.outgoing_ball_index],
+        contact.axis_x,
+        contact.axis_y,
+        final_axis_speed(TP_B29_OUTGOING_FINAL_SPEED_RATIO),
+    );
+}
+
+fn resolve_tp_b29_three_ball_line_contact_in_system_states(
+    states_after: &mut [NBallSystemState],
+    contact: TpB29ThreeBallLineContact,
+) {
+    for (ball_index, ratio) in [
+        (
+            contact.incoming_ball_index,
+            TP_B29_INCOMING_FINAL_SPEED_RATIO,
+        ),
+        (contact.middle_ball_index, TP_B29_MIDDLE_FINAL_SPEED_RATIO),
+        (
+            contact.outgoing_ball_index,
+            TP_B29_OUTGOING_FINAL_SPEED_RATIO,
+        ),
+    ] {
+        let Some(state) = states_after[ball_index].as_on_table().cloned() else {
+            continue;
+        };
+        let axis_speed = contact.common_axis_speed + ratio * contact.incoming_relative_speed;
+        states_after[ball_index] = NBallSystemState::OnTable(set_on_table_axis_velocity(
+            &state,
+            contact.axis_x,
+            contact.axis_y,
+            axis_speed,
+        ));
+    }
+}
+
 fn on_table_ball_state_collision_delta(before: &OnTableBallState, after: &OnTableBallState) -> f64 {
     let before_state = before.as_ball_state();
     let after_state = after.as_ball_state();
@@ -5455,6 +7513,55 @@ fn on_table_ball_state_collision_delta(before: &OnTableBallState, after: &OnTabl
             .abs()
         + (before_state.angular_velocity.z().as_f64() - after_state.angular_velocity.z().as_f64())
             .abs()
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct OnTableKinematicDelta {
+    dvx: f64,
+    dvy: f64,
+    dwx: f64,
+    dwy: f64,
+    dwz: f64,
+}
+
+impl OnTableKinematicDelta {
+    fn add_from_collision_pair_state(
+        &mut self,
+        before: &OnTableBallState,
+        after: &OnTableBallState,
+    ) {
+        let before = before.as_ball_state();
+        let after = after.as_ball_state();
+        self.dvx += after.velocity.x().as_f64() - before.velocity.x().as_f64();
+        self.dvy += after.velocity.y().as_f64() - before.velocity.y().as_f64();
+        self.dwx += after.angular_velocity.x().as_f64() - before.angular_velocity.x().as_f64();
+        self.dwy += after.angular_velocity.y().as_f64() - before.angular_velocity.y().as_f64();
+        self.dwz += after.angular_velocity.z().as_f64() - before.angular_velocity.z().as_f64();
+    }
+
+    fn magnitude(&self) -> f64 {
+        self.dvx.abs() + self.dvy.abs() + self.dwx.abs() + self.dwy.abs() + self.dwz.abs()
+    }
+}
+
+fn apply_on_table_kinematic_delta(
+    state: &OnTableBallState,
+    delta: OnTableKinematicDelta,
+) -> OnTableBallState {
+    let state = state.as_ball_state();
+
+    build_on_table_ball_state(
+        state.position.clone(),
+        Velocity2::from_components(
+            InchesPerSecond::new(Inches::from_f64(state.velocity.x().as_f64() + delta.dvx)),
+            InchesPerSecond::new(Inches::from_f64(state.velocity.y().as_f64() + delta.dvy)),
+        ),
+        AngularVelocity3::new(
+            state.angular_velocity.x().as_f64() + delta.dwx,
+            state.angular_velocity.y().as_f64() + delta.dwy,
+            state.angular_velocity.z().as_f64() + delta.dwz,
+        ),
+    )
 }
 
 fn resolve_shared_zero_time_ball_ball_contacts_on_table(
@@ -5470,12 +7577,14 @@ fn resolve_shared_zero_time_ball_ball_contacts_on_table(
     pairs.dedup();
 
     for _ in 0..SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES {
+        let snapshot = states_after.to_vec();
+        let mut deltas = vec![OnTableKinematicDelta::default(); states_after.len()];
         let mut changed = false;
 
         for &(first_ball_index, second_ball_index) in &pairs {
             let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
-                &states_after[first_ball_index],
-                &states_after[second_ball_index],
+                &snapshot[first_ball_index],
+                &snapshot[second_ball_index],
                 ball,
                 motion,
             ) else {
@@ -5485,20 +7594,29 @@ fn resolve_shared_zero_time_ball_ball_contacts_on_table(
                 continue;
             }
 
-            let first_before = states_after[first_ball_index].clone();
-            let second_before = states_after[second_ball_index].clone();
-            let (first_after, second_after) = collide_ball_ball_on_table_with_config(
+            let (first_after, second_after) = collide_ball_ball_on_table_with_radius_and_config(
                 &collision.a_at_impact,
                 &collision.b_at_impact,
+                ball.radius.clone(),
                 collision_model,
                 collision_config,
             );
-            changed |= on_table_ball_state_collision_delta(&first_before, &first_after)
+            deltas[first_ball_index]
+                .add_from_collision_pair_state(&collision.a_at_impact, &first_after);
+            deltas[second_ball_index]
+                .add_from_collision_pair_state(&collision.b_at_impact, &second_after);
+        }
+
+        for (state, delta) in states_after.iter_mut().zip(deltas) {
+            if delta.magnitude() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+                continue;
+            }
+
+            let before = state.clone();
+            let after = apply_on_table_kinematic_delta(&before, delta);
+            changed |= on_table_ball_state_collision_delta(&before, &after)
                 > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
-            changed |= on_table_ball_state_collision_delta(&second_before, &second_after)
-                > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
-            states_after[first_ball_index] = first_after;
-            states_after[second_ball_index] = second_after;
+            *state = after;
         }
 
         if !changed {
@@ -5520,18 +7638,22 @@ fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
     pairs.dedup();
 
     for _ in 0..SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES {
+        let snapshot = states_after
+            .iter()
+            .map(|state| state.as_on_table().cloned())
+            .collect::<Vec<_>>();
+        let mut deltas = vec![OnTableKinematicDelta::default(); states_after.len()];
         let mut changed = false;
 
         for &(first_ball_index, second_ball_index) in &pairs {
-            let (Some(first_before), Some(second_before)) = (
-                states_after[first_ball_index].as_on_table().cloned(),
-                states_after[second_ball_index].as_on_table().cloned(),
-            ) else {
+            let (Some(first_before), Some(second_before)) =
+                (&snapshot[first_ball_index], &snapshot[second_ball_index])
+            else {
                 continue;
             };
             let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
-                &first_before,
-                &second_before,
+                first_before,
+                second_before,
                 ball,
                 motion,
             ) else {
@@ -5541,18 +7663,31 @@ fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
                 continue;
             }
 
-            let (first_after, second_after) = collide_ball_ball_on_table_with_config(
+            let (first_after, second_after) = collide_ball_ball_on_table_with_radius_and_config(
                 &collision.a_at_impact,
                 &collision.b_at_impact,
+                ball.radius.clone(),
                 collision_model,
                 collision_config,
             );
-            changed |= on_table_ball_state_collision_delta(&first_before, &first_after)
+            deltas[first_ball_index]
+                .add_from_collision_pair_state(&collision.a_at_impact, &first_after);
+            deltas[second_ball_index]
+                .add_from_collision_pair_state(&collision.b_at_impact, &second_after);
+        }
+
+        for (index, delta) in deltas.into_iter().enumerate() {
+            if delta.magnitude() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+                continue;
+            }
+            let Some(before) = states_after[index].as_on_table() else {
+                continue;
+            };
+
+            let after = apply_on_table_kinematic_delta(before, delta);
+            changed |= on_table_ball_state_collision_delta(before, &after)
                 > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
-            changed |= on_table_ball_state_collision_delta(&second_before, &second_after)
-                > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
-            states_after[first_ball_index] = NBallSystemState::OnTable(first_after);
-            states_after[second_ball_index] = NBallSystemState::OnTable(second_after);
+            states_after[index] = NBallSystemState::OnTable(after);
         }
 
         if !changed {
@@ -5566,6 +7701,7 @@ fn advance_to_next_n_ball_event_with_scheduler<FindNextEvent>(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
     rail_response: Option<(RailModel, RailCollisionProfile)>,
     find_next_event: FindNextEvent,
 ) -> NBallOnTableAdvance
@@ -5594,7 +7730,7 @@ where
                 ball,
                 motion,
                 collision_model,
-                &BallBallCollisionConfig::ideal(),
+                collision_config,
             );
         }
         NBallOnTableEvent::BallBallCollision {
@@ -5602,33 +7738,49 @@ where
             second_ball_index,
             collision,
         } => {
-            let simultaneous_collisions =
-                simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
-                    &states_after
-                        .iter()
-                        .map(|state| Some(state))
-                        .collect::<Vec<_>>(),
-                    ball,
-                    motion,
-                );
-
-            if simultaneous_collisions.is_empty() {
-                let (first_after, second_after) = collide_ball_ball_on_table(
-                    &collision.a_at_impact,
-                    &collision.b_at_impact,
-                    collision_model,
-                );
-                states_after[*first_ball_index] = first_after;
-                states_after[*second_ball_index] = second_after;
+            let state_refs = states_after.iter().map(Some).collect::<Vec<_>>();
+            if let Some(line_contact) = tp_b29_three_ball_line_contact(
+                &state_refs,
+                *first_ball_index,
+                *second_ball_index,
+                ball,
+                collision_model,
+                collision_config,
+            ) {
+                resolve_tp_b29_three_ball_line_contact_on_table(&mut states_after, line_contact);
             } else {
-                for (first_ball_index, second_ball_index, collision) in simultaneous_collisions {
-                    let (first_after, second_after) = collide_ball_ball_on_table(
-                        &collision.a_at_impact,
-                        &collision.b_at_impact,
-                        collision_model,
+                let simultaneous_collisions =
+                    simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
+                        &state_refs,
+                        ball,
+                        motion,
                     );
-                    states_after[first_ball_index] = first_after;
-                    states_after[second_ball_index] = second_after;
+
+                if simultaneous_collisions.is_empty() {
+                    let (first_after, second_after) =
+                        collide_ball_ball_on_table_with_radius_and_config(
+                            &collision.a_at_impact,
+                            &collision.b_at_impact,
+                            ball.radius.clone(),
+                            collision_model,
+                            collision_config,
+                        );
+                    states_after[*first_ball_index] = first_after;
+                    states_after[*second_ball_index] = second_after;
+                } else {
+                    for (first_ball_index, second_ball_index, collision) in simultaneous_collisions
+                    {
+                        let (first_after, second_after) =
+                            collide_ball_ball_on_table_with_radius_and_config(
+                                &collision.a_at_impact,
+                                &collision.b_at_impact,
+                                ball.radius.clone(),
+                                collision_model,
+                                collision_config,
+                            );
+                        states_after[first_ball_index] = first_after;
+                        states_after[second_ball_index] = second_after;
+                    }
                 }
             }
         }
@@ -5662,11 +7814,30 @@ pub fn advance_to_next_n_ball_event_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
 ) -> NBallOnTableAdvance {
+    advance_to_next_n_ball_event_with_physics_on_table(
+        states,
+        ball,
+        motion,
+        collision_model,
+        &BallBallCollisionConfig::ideal(),
+    )
+}
+
+/// Advance any number of on-table balls to the next supported event with explicit ball-ball
+/// collision coefficients.
+pub fn advance_to_next_n_ball_event_with_physics_on_table(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) -> NBallOnTableAdvance {
     advance_to_next_n_ball_event_with_scheduler(
         states,
         ball,
         motion,
         collision_model,
+        collision_config,
         None,
         |state_refs| compute_next_n_ball_event_on_table(state_refs, ball, motion),
     )
@@ -5683,11 +7854,36 @@ pub fn advance_to_next_n_ball_event_with_rail_profile_on_table(
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
 ) -> NBallOnTableAdvance {
+    advance_to_next_n_ball_event_with_physics_and_rail_profile_on_table(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        &BallBallCollisionConfig::ideal(),
+        rail_model,
+        rail_profile,
+    )
+}
+
+/// Advance any number of on-table balls to the next supported event with explicit ball-ball and
+/// rail-response coefficients.
+pub fn advance_to_next_n_ball_event_with_physics_and_rail_profile_on_table(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> NBallOnTableAdvance {
     advance_to_next_n_ball_event_with_scheduler(
         states,
         ball,
         motion,
         collision_model,
+        collision_config,
         Some((rail_model, rail_profile.clone())),
         |state_refs| compute_next_n_ball_event_with_rails_on_table(state_refs, ball, table, motion),
     )
@@ -6141,8 +8337,32 @@ pub fn simulate_n_balls_on_table_until_rest(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
 ) -> NBallOnTableSimulation {
+    simulate_n_balls_with_physics_on_table_until_rest(
+        states,
+        ball,
+        motion,
+        collision_model,
+        &BallBallCollisionConfig::ideal(),
+    )
+}
+
+/// Simulate any number of on-table balls until rest with explicit ball-ball collision
+/// coefficients.
+pub fn simulate_n_balls_with_physics_on_table_until_rest(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) -> NBallOnTableSimulation {
     simulate_n_ball_system_on_table_until_rest(states, |current| {
-        advance_to_next_n_ball_event_on_table(current, ball, motion, collision_model)
+        advance_to_next_n_ball_event_with_physics_on_table(
+            current,
+            ball,
+            motion,
+            collision_model,
+            collision_config,
+        )
     })
 }
 
@@ -6441,35 +8661,55 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
             second_ball_index,
             collision,
         } => {
-            let simultaneous_collisions =
-                simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
-                    &states_after
-                        .iter()
-                        .map(|state| state.as_on_table())
-                        .collect::<Vec<_>>(),
-                    ball,
-                    motion,
+            let state_refs = states_after
+                .iter()
+                .map(|state| state.as_on_table())
+                .collect::<Vec<_>>();
+            if let Some(line_contact) = tp_b29_three_ball_line_contact(
+                &state_refs,
+                *first_ball_index,
+                *second_ball_index,
+                ball,
+                collision_model,
+                collision_config,
+            ) {
+                resolve_tp_b29_three_ball_line_contact_in_system_states(
+                    &mut states_after,
+                    line_contact,
                 );
-
-            if simultaneous_collisions.is_empty() {
-                let (first_after, second_after) = collide_ball_ball_on_table_with_config(
-                    &collision.a_at_impact,
-                    &collision.b_at_impact,
-                    collision_model,
-                    collision_config,
-                );
-                states_after[*first_ball_index] = NBallSystemState::OnTable(first_after);
-                states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
             } else {
-                for (first_ball_index, second_ball_index, collision) in simultaneous_collisions {
-                    let (first_after, second_after) = collide_ball_ball_on_table_with_config(
-                        &collision.a_at_impact,
-                        &collision.b_at_impact,
-                        collision_model,
-                        collision_config,
+                let simultaneous_collisions =
+                    simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
+                        &state_refs,
+                        ball,
+                        motion,
                     );
-                    states_after[first_ball_index] = NBallSystemState::OnTable(first_after);
-                    states_after[second_ball_index] = NBallSystemState::OnTable(second_after);
+
+                if simultaneous_collisions.is_empty() {
+                    let (first_after, second_after) =
+                        collide_ball_ball_on_table_with_radius_and_config(
+                            &collision.a_at_impact,
+                            &collision.b_at_impact,
+                            ball.radius.clone(),
+                            collision_model,
+                            collision_config,
+                        );
+                    states_after[*first_ball_index] = NBallSystemState::OnTable(first_after);
+                    states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
+                } else {
+                    for (first_ball_index, second_ball_index, collision) in simultaneous_collisions
+                    {
+                        let (first_after, second_after) =
+                            collide_ball_ball_on_table_with_radius_and_config(
+                                &collision.a_at_impact,
+                                &collision.b_at_impact,
+                                ball.radius.clone(),
+                                collision_model,
+                                collision_config,
+                            );
+                        states_after[first_ball_index] = NBallSystemState::OnTable(first_after);
+                        states_after[second_ball_index] = NBallSystemState::OnTable(second_after);
+                    }
                 }
             }
         }
@@ -6661,11 +8901,18 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
             rail_profile,
         );
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
+        let shared_contact_event = matches!(event, NBallSystemEvent::SharedBallBallContact { .. });
         events.push(event.clone());
 
         // Rebuild after every resolved event so cached event times and hidden simultaneous-contact
         // side effects stay exactly aligned with manual step-and-recompute simulation.
         cache = PocketAwareEventCache::build(&states, ball, table, motion);
+        // Match the conservative no-pocket N-ball policy around approximated shared clusters:
+        // record and resolve the first shared contact, then return instead of continuing as if this
+        // pairwise approximation were a full coupled multi-contact solve.
+        if shared_contact_event {
+            break;
+        }
     }
 
     NBallSystemSimulation {
@@ -6902,9 +9149,6 @@ pub fn trace_ball_path_with_rail_profile_on_table(
         };
 
         let step_time = next_event.time().as_f64();
-        if step_time <= f64::EPSILON {
-            break;
-        }
 
         if let Some(remaining) = remaining_time {
             if step_time > remaining {
@@ -6928,6 +9172,10 @@ pub fn trace_ball_path_with_rail_profile_on_table(
 
         match next_event {
             SingleBallOnTableEvent::MotionTransition(transition) => {
+                if step_time <= f64::EPSILON {
+                    break;
+                }
+
                 let end = advance_on_table_ball_without_event(
                     &current,
                     transition.time_until_transition,
@@ -7071,6 +9319,89 @@ fn validated_ball_ball_contact_friction_coefficient(
     friction
 }
 
+fn validated_ball_ball_radius(ball_radius: Inches) -> f64 {
+    let ball_radius = ball_radius.as_f64();
+    assert!(
+        ball_radius > 0.0,
+        "ball-ball collision radius must be positive"
+    );
+    ball_radius
+}
+
+/// Predict the TP B.21 small-gap combination-throw geometry and outgoing second-ball direction.
+///
+/// TP B.21 considers two nearly frozen object balls separated by `gap`. The first object ball
+/// arrives at angle `alpha` (`first_object_ball_angle_degrees`) and speed `shot_speed`; the second
+/// object ball leaves along the instantaneous line of centers adjusted by cut-induced throw. The
+/// throw calculation uses the same equal-sphere friction impulse relation as
+/// `CollisionModel::ThrowAware`, including the configured friction model and the 1/7 no-slip cap.
+pub fn predict_small_gap_combination_throw(
+    shot_speed: InchesPerSecond,
+    first_object_ball_angle_degrees: f64,
+    gap: Inches,
+    ball_radius: Inches,
+    config: &BallBallCollisionConfig,
+) -> SmallGapCombinationThrowPrediction {
+    let shot_speed = shot_speed.as_f64();
+    assert!(
+        shot_speed.is_finite() && shot_speed > 0.0,
+        "small-gap combination speed must be finite and positive"
+    );
+    assert!(
+        first_object_ball_angle_degrees.is_finite(),
+        "small-gap combination first-ball angle must be finite"
+    );
+    let gap = gap.as_f64();
+    assert!(
+        gap.is_finite() && gap >= 0.0,
+        "small-gap combination gap must be finite and non-negative"
+    );
+    let ball_radius = validated_ball_ball_radius(ball_radius);
+    let diameter = 2.0 * ball_radius;
+    let max_first_ball_angle_radians = (diameter / (diameter + gap)).asin();
+    let max_first_ball_angle_degrees = max_first_ball_angle_radians.to_degrees();
+    let first_ball_angle_magnitude = first_object_ball_angle_degrees.abs();
+    assert!(
+        first_ball_angle_magnitude <= max_first_ball_angle_degrees + 1e-12,
+        "small-gap combination first-ball angle {first_object_ball_angle_degrees}° exceeds max {max_first_ball_angle_degrees}° for this gap"
+    );
+
+    let alpha = first_object_ball_angle_degrees.to_radians();
+    let line_argument = ((diameter + gap) / diameter * alpha.sin()).clamp(-1.0, 1.0);
+    let gamma = line_argument.asin() - alpha;
+    let phi = alpha + gamma;
+    let phi_magnitude = phi.abs();
+    let cut_angle = CutAngle::new(phi_magnitude.to_degrees().clamp(0.0, 90.0));
+    let hit_fraction = Scale::from_f64((1.0 - phi_magnitude.sin()).clamp(0.0, 1.0));
+
+    let normal_speed = shot_speed * phi_magnitude.cos();
+    let tangential_contact_slip = shot_speed * phi_magnitude.sin();
+    let normal_impulse_per_mass =
+        0.5 * (1.0 + validated_ball_ball_normal_restitution(config)) * normal_speed;
+    let friction =
+        validated_ball_ball_contact_friction_coefficient(config, tangential_contact_slip);
+    let (tangential_impulse_per_mass, _) = contact_friction_impulse_per_mass(
+        tangential_contact_slip,
+        0.0,
+        normal_impulse_per_mass,
+        friction,
+    );
+    let throw_angle_magnitude = tangential_impulse_per_mass
+        .atan2(normal_impulse_per_mass)
+        .to_degrees();
+    let throw_angle_degrees = phi.signum() * throw_angle_magnitude;
+    let second_object_ball_angle_degrees = gamma.to_degrees() - throw_angle_degrees;
+
+    SmallGapCombinationThrowPrediction {
+        line_of_centers_angle_degrees: gamma.to_degrees(),
+        cut_angle,
+        hit_fraction,
+        throw_angle_degrees,
+        second_object_ball_angle_degrees,
+        max_first_object_ball_angle_degrees: max_first_ball_angle_degrees,
+    }
+}
+
 fn ideal_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -7153,6 +9484,7 @@ fn transferred_spin_from_contact_impulse(
 fn frictional_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
+    ball_radius: f64,
     config: &BallBallCollisionConfig,
     require_stationary_object_ball: bool,
 ) -> CollisionOutcome {
@@ -7160,8 +9492,8 @@ fn frictional_collision_outcome_on_table_with_config(
     let a_state = a.as_ball_state();
     let b_state = b.as_ball_state();
 
-    // `ThrowAware` is intentionally limited to the common cut-shot case. `SpinFriction` uses the
-    // same impulse solve for moving-object-ball contacts too.
+    // `ThrowAware` and `SpinFriction` share one contact-impulse solve. The optional stationary
+    // guard is kept only for any future model that deliberately narrows scope.
     if require_stationary_object_ball && ball_speed(b_state).as_f64() > 1e-9 {
         return ideal;
     }
@@ -7170,7 +9502,6 @@ fn frictional_collision_outcome_on_table_with_config(
     let normal_restitution = validated_ball_ball_normal_restitution(config);
     let _configured_reference_friction =
         validated_ball_ball_tangential_friction_coefficient(config);
-    let ball_radius = 0.5 * center_distance_squared(a, b).sqrt();
 
     let a_normal_before = project_velocity_on_basis(&a_state.velocity, normal_x, normal_y);
     let b_normal_before = project_velocity_on_basis(&b_state.velocity, normal_x, normal_y);
@@ -7300,26 +9631,28 @@ fn frictional_collision_outcome_on_table_with_config(
 fn throw_aware_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
+    ball_radius: f64,
     config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
-    frictional_collision_outcome_on_table_with_config(a, b, config, true)
+    frictional_collision_outcome_on_table_with_config(a, b, ball_radius, config, false)
 }
 
 fn spin_friction_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
+    ball_radius: f64,
     config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
-    frictional_collision_outcome_on_table_with_config(a, b, config, false)
+    frictional_collision_outcome_on_table_with_config(a, b, ball_radius, config, false)
 }
 
 /// Resolve an instantaneous ball-ball collision for two validated on-table states and return the
 /// detailed post-impact outcome.
 ///
-/// `CollisionModel::ThrowAware` applies a frictional equal-ball contact impulse for the common case
-/// of a cut shot into an initially stationary object ball. `CollisionModel::SpinFriction` extends
-/// the same impulse solve to moving object-ball states instead of falling back to the ideal response
-/// there. The sign, gearing condition, and no-slip cap are grounded in the local references:
+/// `CollisionModel::ThrowAware` applies a frictional equal-ball contact impulse. `SpinFriction`
+/// currently names the same impulse solve for callers that want to make the spin/friction
+/// assumption explicit. The sign, gearing condition, and no-slip cap are grounded in the local
+/// references:
 ///
 /// - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf`, Section VI "Throw", describes the throw
 ///   term as proportional to `(v sin(φ) - R ω_z)`.
@@ -7339,13 +9672,38 @@ pub fn collide_ball_ball_detailed_on_table_with_config(
     model: CollisionModel,
     config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
+    let inferred_ball_radius = Inches::from_f64(0.5 * center_distance_squared(a, b).sqrt());
+    collide_ball_ball_detailed_on_table_with_radius_and_config(
+        a,
+        b,
+        inferred_ball_radius,
+        model,
+        config,
+    )
+}
+
+/// Resolve an instantaneous ball-ball collision using an explicit physical ball radius.
+///
+/// Prefer this helper when a caller already has a `BallSetPhysicsSpec`. Inferring the radius from
+/// the instantaneous center separation is convenient for ad-hoc direct calls, but event refiners can
+/// intentionally land a tiny amount inside the contact boundary. The friction and spin-transfer
+/// terms should use the physical ball radius, not that numerical separation artifact.
+pub fn collide_ball_ball_detailed_on_table_with_radius_and_config(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball_radius: Inches,
+    model: CollisionModel,
+    config: &BallBallCollisionConfig,
+) -> CollisionOutcome {
+    let ball_radius = validated_ball_ball_radius(ball_radius);
+
     match model {
         CollisionModel::Ideal => ideal_collision_outcome_on_table_with_config(a, b, config),
         CollisionModel::ThrowAware => {
-            throw_aware_collision_outcome_on_table_with_config(a, b, config)
+            throw_aware_collision_outcome_on_table_with_config(a, b, ball_radius, config)
         }
         CollisionModel::SpinFriction => {
-            spin_friction_collision_outcome_on_table_with_config(a, b, config)
+            spin_friction_collision_outcome_on_table_with_config(a, b, ball_radius, config)
         }
     }
 }
@@ -7373,6 +9731,24 @@ pub fn collide_ball_ball_on_table_with_config(
     (outcome.a_after, outcome.b_after)
 }
 
+pub fn collide_ball_ball_on_table_with_radius_and_config(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball_radius: Inches,
+    model: CollisionModel,
+    config: &BallBallCollisionConfig,
+) -> (OnTableBallState, OnTableBallState) {
+    let outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        a,
+        b,
+        ball_radius,
+        model,
+        config,
+    );
+
+    (outcome.a_after, outcome.b_after)
+}
+
 pub fn collide_ball_ball_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -7391,8 +9767,14 @@ pub fn collide_ball_ball_analyzed_on_table_with_config(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
 ) -> CollisionAnalysis {
-    collide_ball_ball_detailed_on_table_with_config(a, b, model, config)
-        .with_post_contact_cue_ball_bend(ball, motion)
+    collide_ball_ball_detailed_on_table_with_radius_and_config(
+        a,
+        b,
+        ball.radius.clone(),
+        model,
+        config,
+    )
+    .with_post_contact_cue_ball_bend(ball, motion)
 }
 
 pub fn collide_ball_ball_analyzed_on_table(
@@ -7412,27 +9794,116 @@ pub fn collide_ball_ball_analyzed_on_table(
     )
 }
 
-/// Estimate the later cue-ball swerve / curve driven by side spin after impact.
+fn angle_from_degrees(degrees: f64) -> Angle {
+    Angle(degrees.rem_euclid(360.0))
+}
+
+fn rolling_resistance_center_of_pressure_angle_radians(rolling_resistance_coefficient: f64) -> f64 {
+    if rolling_resistance_coefficient <= f64::EPSILON {
+        return 0.0;
+    }
+
+    let scale = (1.0 + rolling_resistance_coefficient * rolling_resistance_coefficient).sqrt();
+    (0.4 * rolling_resistance_coefficient / scale).asin()
+        - (-rolling_resistance_coefficient).atan2(1.0)
+}
+
+fn estimate_rolling_side_spin_curve_on_table(
+    state: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    time_until_curve_starts: f64,
+) -> Option<PostContactCueBallCurve> {
+    let state = state.as_ball_state();
+    let speed = ball_speed(state).as_f64();
+    let side_spin = state.angular_velocity.z().as_f64();
+    let linear_deceleration = rolling_linear_deceleration(motion);
+    let spin_deceleration = spin_angular_deceleration(motion);
+    let time_until_spin_stops = side_spin.abs() / spin_deceleration;
+    let time_until_translation_stops = speed / linear_deceleration;
+
+    if speed <= motion.phase.thresholds.rest_linear_speed.as_f64()
+        || side_spin.abs() <= motion.phase.thresholds.rest_angular_speed.as_f64()
+        || time_until_spin_stops >= time_until_translation_stops
+    {
+        return None;
+    }
+
+    let start_heading = state.velocity.angle_from_north()?;
+    let rolling_resistance_coefficient =
+        linear_deceleration / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED;
+    let center_of_pressure_angle =
+        rolling_resistance_center_of_pressure_angle_radians(rolling_resistance_coefficient);
+    let turn_coefficient =
+        0.4 * ball.radius.as_f64() * spin_deceleration * center_of_pressure_angle.sin()
+            / (0.4 + center_of_pressure_angle.cos());
+    let final_speed = speed - linear_deceleration * time_until_spin_stops;
+    if final_speed <= motion.phase.thresholds.rest_linear_speed.as_f64() {
+        return None;
+    }
+
+    let curve_angle_radians =
+        side_spin.signum() * (turn_coefficient / linear_deceleration) * (speed / final_speed).ln();
+    if curve_angle_radians.abs() <= f64::EPSILON {
+        return None;
+    }
+
+    let curve_angle_degrees = curve_angle_radians.to_degrees();
+    Some(PostContactCueBallCurve {
+        time_until_curve_starts: Seconds::new(time_until_curve_starts),
+        time_until_curve_completes: Seconds::new(time_until_curve_starts + time_until_spin_stops),
+        curve_angle_degrees,
+        heading_after_curve: angle_from_degrees(start_heading.as_degrees() + curve_angle_degrees),
+    })
+}
+
+/// Estimate the later cue-ball curve driven by residual side spin after contact.
 ///
 /// The current public shot model is horizontal-cue / on-table only, so cue-elevation-driven swerve
-/// is not represented. Local references also distinguish that effect from the reduced post-impact
-/// sliding model used here:
+/// and masse launch are not represented. This helper separates two smaller effects from the local
+/// references:
 ///
 /// - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`
-///   explicitly states that `ωz` does not affect the cue ball's sliding contact-point velocity in
-///   the reduced on-table post-impact trajectory derivation.
-/// - `whitepapers/swerve.md` summarizes the local Dr. Dave notes that practical swerve increases
-///   with cue elevation and occurs only while the cue ball is sliding.
+///   states that `ωz` does not affect the sliding contact-point velocity in the reduced on-table
+///   post-impact trajectory derivation, so there is no separate side-spin curve while the cue ball
+///   is sliding.
+/// - `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf` predicts a very
+///   small rolling "ball turn" from residual side spin, rolling resistance, and spin-down torque.
 ///
-/// Therefore this horizontal on-table model currently reports no separate side-spin-only curve
-/// estimate. Any remaining post-impact bend in the solver comes from the existing A.4-style
-/// translational / horizontal-spin sliding dynamics instead.
+/// The estimate intentionally reports analysis data only. The core event scheduler still advances
+/// rolling motion with its existing straight-line analytic model.
 pub fn estimate_post_contact_cue_ball_curve_on_table(
-    _state: &OnTableBallState,
-    _ball: &BallSetPhysicsSpec,
-    _motion: &OnTableMotionConfig,
+    state: &OnTableBallState,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
 ) -> Option<PostContactCueBallCurve> {
-    None
+    match classify_motion_phase(state.as_ball_state(), ball, &motion.phase) {
+        MotionPhase::Rolling => estimate_rolling_side_spin_curve_on_table(state, ball, motion, 0.0),
+        MotionPhase::Sliding => {
+            let transition = compute_next_transition_on_table(state, ball, motion)?;
+            if transition.phase_before != MotionPhase::Sliding
+                || transition.phase_after != MotionPhase::Rolling
+            {
+                return None;
+            }
+
+            let rolling_state = OnTableBallState::try_from(
+                advance_motion_on_table(state, transition.time_until_transition, ball, motion)
+                    .state,
+            )
+            .expect("sliding-to-rolling curve estimate should preserve on-table invariants");
+            estimate_rolling_side_spin_curve_on_table(
+                &rolling_state,
+                ball,
+                motion,
+                transition.time_until_transition.as_f64(),
+            )
+        }
+        MotionPhase::Rest | MotionPhase::Spinning => None,
+        MotionPhase::Airborne => {
+            unreachable!("post-contact curve estimates require on-table input")
+        }
+    }
 }
 
 /// Convenience helpers for working with an immediate ball-ball collision outcome.
@@ -7530,6 +10001,22 @@ impl PostContactContinuation {
         )
     }
 
+    /// Predict the next phase-aware ball-ball collision between the post-contact struck ball and a
+    /// second on-table ball.
+    pub fn next_collision_from_struck_ball_against_ball(
+        &self,
+        other: &OnTableBallState,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> Option<PredictedBallBallCollision> {
+        compute_next_ball_ball_collision_during_current_phases_on_table(
+            self.struck_ball(),
+            other,
+            ball,
+            motion,
+        )
+    }
+
     /// Predict the earliest supported next event between this post-contact cue ball and a second
     /// on-table ball.
     pub fn next_event_against_ball(
@@ -7539,6 +10026,17 @@ impl PostContactContinuation {
         motion: &OnTableMotionConfig,
     ) -> Option<TwoBallOnTableEvent> {
         compute_next_two_ball_event_on_table(self.cue_ball(), other, ball, motion)
+    }
+
+    /// Predict the earliest supported next event between the post-contact struck ball and a second
+    /// on-table ball.
+    pub fn next_event_from_struck_ball_against_ball(
+        &self,
+        other: &OnTableBallState,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> Option<TwoBallOnTableEvent> {
+        compute_next_two_ball_event_on_table(self.struck_ball(), other, ball, motion)
     }
 
     /// Predict the cue ball's next rail impact under the current table geometry.
@@ -9158,6 +11656,62 @@ impl PocketSpec {
         self.shape = shape;
         self
     }
+}
+
+/// Compute the pocket-facing angle from TP B.15 mouth/throat measurements.
+///
+/// `mouth_width` and `throat_width` are the measured opening widths, and `facing_length` is the
+/// TP B.15 reference length along the pocket facing. The returned angle is in ordinary degrees.
+pub fn pocket_facing_angle_degrees_from_mouth_throat(
+    mouth_width: Inches,
+    throat_width: Inches,
+    facing_length: Inches,
+) -> f64 {
+    let mouth = mouth_width.as_f64();
+    let throat = throat_width.as_f64();
+    let facing = facing_length.as_f64();
+    assert!(
+        mouth.is_finite() && throat.is_finite() && facing.is_finite(),
+        "pocket geometry measurements must be finite"
+    );
+    assert!(
+        mouth > throat,
+        "pocket mouth width must be greater than throat width"
+    );
+    assert!(
+        facing > 0.0,
+        "pocket facing reference length must be positive"
+    );
+
+    let mouth_throat_difference = mouth - throat;
+    135.0
+        + (1.0 / (1.0 + 2.0 * 2.0_f64.sqrt() * facing / mouth_throat_difference))
+            .atan()
+            .to_degrees()
+}
+
+/// Compute TP B.15 mouth-throat width difference from a pocket-facing angle.
+pub fn pocket_mouth_throat_difference_from_facing_angle_degrees(
+    facing_angle_degrees: f64,
+    facing_length: Inches,
+) -> Inches {
+    let facing = facing_length.as_f64();
+    assert!(
+        facing_angle_degrees.is_finite() && facing.is_finite(),
+        "pocket geometry measurements must be finite"
+    );
+    assert!(
+        facing_angle_degrees > 135.0 && facing_angle_degrees < 180.0,
+        "pocket facing angle must be in (135°, 180°)"
+    );
+    assert!(
+        facing > 0.0,
+        "pocket facing reference length must be positive"
+    );
+
+    let theta = (facing_angle_degrees - 135.0).to_radians();
+    let beta = (180.0 - facing_angle_degrees).to_radians();
+    Inches::from_f64(2.0 * facing * theta.sin() / beta.sin())
 }
 
 #[derive(Clone, Debug, PartialEq)]

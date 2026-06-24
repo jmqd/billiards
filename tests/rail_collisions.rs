@@ -113,6 +113,42 @@ fn a_restitution_only_rail_collision_reduces_the_outgoing_normal_speed() {
 }
 
 #[test]
+fn tp_6_3_restitution_only_increases_the_bank_rebound_angle() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let restitution = 0.8_f64;
+    let state = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("5", "5"),
+        AngularVelocity3::zero(),
+    ));
+    let config = RailCollisionConfig::new(Scale::from_f64(restitution), Scale::from_f64(1.0));
+
+    let reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &state,
+        Rail::Top,
+        radius,
+        RailModel::RestitutionOnly,
+        &config,
+    );
+    let approach_angle = (5.0_f64 / 5.0).atan().to_degrees();
+    let expected_rebound_angle = (approach_angle.to_radians().tan() / restitution)
+        .atan()
+        .to_degrees();
+    let actual_rebound_angle = (reflected.as_ball_state().velocity.x().as_f64().abs()
+        / reflected.as_ball_state().velocity.y().as_f64().abs())
+    .atan()
+    .to_degrees();
+
+    assert_close(approach_angle, 45.0);
+    assert_close(expected_rebound_angle, 51.340_191_745_909_905);
+    assert_close(
+        expected_rebound_angle - approach_angle,
+        6.340_191_745_909_905,
+    );
+    assert_close(actual_rebound_angle, expected_rebound_angle);
+}
+
+#[test]
 fn a_spin_aware_rail_collision_with_high_cushion_friction_trades_more_tangential_speed_for_running_english(
 ) {
     let radius = TYPICAL_BALL_RADIUS.clone();

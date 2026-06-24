@@ -1,10 +1,11 @@
 use billiards::{
     advance_motion_on_table, collide_ball_ball_on_table, collide_ball_ball_on_table_with_config,
     compute_next_transition_on_table, Angle, AngularVelocity3, BallBallCollisionConfig,
-    BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
-    RadiansPerSecondSq, RollingResistanceModel, Scale, SlidingFrictionModel, SpinDecayModel,
-    Velocity2, TYPICAL_BALL_RADIUS,
+    BallBallFrictionModel, BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches,
+    Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq,
+    RollingResistanceModel, Scale, SlidingFrictionModel, SpinDecayModel, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -12,6 +13,14 @@ fn assert_close(actual: f64, expected: f64) {
     assert!(
         delta < 1e-9,
         "expected {expected}, got {actual} (delta {delta})"
+    );
+}
+
+fn assert_near(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected}, got {actual} (delta {delta}, tolerance {tolerance})"
     );
 }
 
@@ -69,6 +78,17 @@ fn rolling_cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> 
         velocity2(0.0, speed),
         AngularVelocity3::new(-speed / radius, 0.0, 0.0),
     ))
+}
+
+fn cue_ball_carom_angle_degrees(state: &OnTableBallState) -> f64 {
+    let state = state.as_ball_state();
+    state
+        .velocity
+        .x()
+        .as_f64()
+        .abs()
+        .atan2(state.velocity.y().as_f64())
+        .to_degrees()
 }
 
 fn advance_until_rolling(state: &OnTableBallState) -> OnTableBallState {
@@ -256,6 +276,37 @@ fn tp_a16_ideal_natural_roll_cut_settles_to_reference_speed_components() {
             .as_degrees(),
         30.0,
     );
+}
+
+#[test]
+fn tp_b13_typical_rolling_cue_ball_carom_angles_match_ball_hit_anchors() {
+    let speed = InchesPerSecond::from_mph(3.0).as_f64();
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let config = BallBallCollisionConfig::new_with_friction_model(
+        Scale::from_f64(0.95),
+        BallBallFrictionModel::marlow_speed_fit(Scale::from_f64(1.0)),
+    );
+
+    for (cut_angle_degrees, expected_carom_angle_degrees) in [
+        (30.0, 33.4),
+        ((1.0_f64 - 0.25).asin().to_degrees(), 27.0),
+        ((1.0_f64 - 0.75).asin().to_degrees(), 27.5),
+    ] {
+        let cue_ball = rolling_cue_ball_at_cut_angle_degrees(cut_angle_degrees, speed);
+        let (cue_after, _) = collide_ball_ball_on_table_with_config(
+            &cue_ball,
+            &object_ball,
+            CollisionModel::ThrowAware,
+            &config,
+        );
+        let cue_rolling = advance_until_rolling(&cue_after);
+
+        assert_near(
+            cue_ball_carom_angle_degrees(&cue_rolling),
+            expected_carom_angle_degrees,
+            0.15,
+        );
+    }
 }
 
 #[test]

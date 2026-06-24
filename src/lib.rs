@@ -4189,14 +4189,34 @@ pub fn compute_next_ball_ball_collision_on_table(
     })
 }
 
-fn ball_ball_approaching_normal_speed(a: &OnTableBallState, b: &OnTableBallState) -> f64 {
-    let a_state = a.as_ball_state();
-    let b_state = b.as_ball_state();
-    let (normal_x, normal_y, _, _) = collision_contact_basis(a, b);
+fn raw_ball_ball_contact_is_closing_or_accelerating_inward(
+    a: RawOnTableBallState,
+    a_phase: MotionPhase,
+    b: RawOnTableBallState,
+    b_phase: MotionPhase,
+    ball_radius: f64,
+    config: &OnTableMotionConfig,
+) -> bool {
+    let rx = b.x - a.x;
+    let ry = b.y - a.y;
+    let rvx = b.vx - a.vx;
+    let rvy = b.vy - a.vy;
+    let radial_velocity = rx * rvx + ry * rvy;
+    let relative_speed = rvx.hypot(rvy);
+    let tolerance = 1e-10 * (rx.hypot(ry) * relative_speed).max(1.0);
+    if radial_velocity < -tolerance {
+        return true;
+    }
+    if radial_velocity.abs() > tolerance {
+        return false;
+    }
 
-    (project_velocity_on_basis(&a_state.velocity, normal_x, normal_y)
-        - project_velocity_on_basis(&b_state.velocity, normal_x, normal_y))
-    .max(0.0)
+    let (a_ax, a_ay) = raw_planar_acceleration_during_phase(a, a_phase, ball_radius, config);
+    let (b_ax, b_ay) = raw_planar_acceleration_during_phase(b, b_phase, ball_radius, config);
+    let relative_acceleration_term =
+        rvx * rvx + rvy * rvy + rx * (b_ax - a_ax) + ry * (b_ay - a_ay);
+
+    relative_acceleration_term < -tolerance
 }
 
 /// Predict the next future ball-ball impact that occurs before either ball leaves its current
@@ -4230,11 +4250,21 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     let dx = b_raw.x - a_raw.x;
     let dy = b_raw.y - a_raw.y;
     let initial_gap = dx * dx + dy * dy - contact_distance * contact_distance;
+    let a_phase = classify_motion_phase(a.as_ball_state(), ball, &config.phase);
+    let b_phase = classify_motion_phase(b.as_ball_state(), ball, &config.phase);
     if initial_gap <= 0.0 {
         // Indexed N-ball tie-breaking can intentionally land exactly on another contact boundary in
-        // a frozen cluster. If the pair is already touching and still has positive closing speed,
-        // preserve that follow-on contact as an immediate t=0 collision instead of dropping it.
-        if ball_ball_approaching_normal_speed(a, b) > f64::EPSILON {
+        // a frozen cluster. If the pair is already touching and still has positive closing speed or
+        // sliding friction will accelerate the centers inward, preserve that follow-on contact as
+        // an immediate t=0 collision instead of dropping it.
+        if raw_ball_ball_contact_is_closing_or_accelerating_inward(
+            a_raw,
+            a_phase.clone(),
+            b_raw,
+            b_phase.clone(),
+            radius,
+            config,
+        ) {
             return Some(PredictedBallBallCollision {
                 time_until_impact: Seconds::zero(),
                 a_at_impact: a.clone(),
@@ -4245,8 +4275,6 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
         return None;
     }
 
-    let a_phase = classify_motion_phase(a.as_ball_state(), ball, &config.phase);
-    let b_phase = classify_motion_phase(b.as_ball_state(), ball, &config.phase);
     let horizon =
         raw_ball_ball_collision_search_horizon(a_raw, a_phase.clone(), radius, config).min(
             raw_ball_ball_collision_search_horizon(b_raw, b_phase.clone(), radius, config),

@@ -101,12 +101,8 @@ fn a_seven_mph_stun_shot_reaches_roll_at_the_tp41_typical_cloth_distance() {
 
     let transition = compute_next_transition_on_table(&state, &ball, &config)
         .expect("a stun shot should slide before reaching natural roll");
-    let advanced = advance_motion_on_table(
-        &state,
-        transition.time_until_transition.clone(),
-        &ball,
-        &config,
-    );
+    let advanced =
+        advance_motion_on_table(&state, transition.time_until_transition, &ball, &config);
 
     assert_eq!(transition.phase_before, MotionPhase::Sliding);
     assert_eq!(transition.phase_after, MotionPhase::Rolling);

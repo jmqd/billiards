@@ -123,6 +123,31 @@ fn balls_moving_apart_do_not_predict_a_future_collision() {
 }
 
 #[test]
+fn touching_balls_accelerating_inward_predict_an_immediate_collision() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::zero(),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let predicted = compute_next_ball_ball_collision_during_current_phases_on_table(
+        &cue_ball,
+        &object_ball,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("sliding friction should accelerate the touching cue ball into the object ball");
+
+    assert_close(predicted.time_until_impact.as_f64(), 0.0);
+    assert_close(
+        center_distance(&predicted.a_at_impact, &predicted.b_at_impact),
+        2.0 * radius,
+    );
+}
+
+#[test]
 fn an_off_line_trajectory_that_misses_returns_none() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

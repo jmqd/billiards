@@ -324,3 +324,24 @@ fn the_phase_aware_predictor_returns_none_when_the_ball_stops_before_contact() {
         .is_none()
     );
 }
+
+#[test]
+fn the_phase_aware_predictor_does_not_report_contact_at_a_rolling_stop() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -(2.0 * radius + 10.0)),
+        velocity2(0.0, 10.0),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    assert!(
+        compute_next_ball_ball_collision_during_current_phases_on_table(
+            &cue_ball,
+            &object_ball,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .is_none()
+    );
+}

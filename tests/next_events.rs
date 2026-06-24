@@ -155,6 +155,35 @@ fn the_scheduler_uses_phase_aware_collision_timing_and_picks_stop_when_a_rolling
 }
 
 #[test]
+fn the_scheduler_picks_stop_when_a_rolling_ball_reaches_contact_with_zero_speed() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let a = on_table(BallState::on_table(
+        inches2(0.0, -(2.0 * radius + 10.0)),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let b = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let event = compute_next_event_for_two_on_table_balls(
+        &a,
+        &b,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("the rolling ball should at least stop");
+
+    match event {
+        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
+            assert_eq!(ball, TwoBallEventBall::A);
+            assert_eq!(transition.phase_before, MotionPhase::Rolling);
+            assert_eq!(transition.phase_after, MotionPhase::Rest);
+            assert_close(transition.time_until_transition.as_f64(), 2.0);
+        }
+        other => panic!("expected zero-speed contact to resolve as a stop, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_event() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let object_ball_1 = on_table(BallState::resting_at(inches2(7.2, 40.0)));

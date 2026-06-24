@@ -3852,6 +3852,15 @@ impl RelativeQuadraticMotion {
         dx * dx + dy * dy - self.contact_distance * self.contact_distance
     }
 
+    fn gap_derivative_at(self, t_seconds: f64) -> f64 {
+        let dx = self.rx + self.rvx * t_seconds + 0.5 * self.rax * t_seconds * t_seconds;
+        let dy = self.ry + self.rvy * t_seconds + 0.5 * self.ray * t_seconds * t_seconds;
+        let vx = self.rvx + self.rax * t_seconds;
+        let vy = self.rvy + self.ray * t_seconds;
+
+        2.0 * (dx * vx + dy * vy)
+    }
+
     fn derivative_roots(self) -> Vec<f64> {
         // The relative center path is quadratic in each coordinate during a single motion phase:
         // r(t) = r0 + v0*t + 1/2*a*t^2. The derivative of the squared contact gap is therefore a
@@ -3962,9 +3971,25 @@ fn first_ball_ball_contact_time_for_relative_motion(
 
     let mut left = deduped_boundaries[0];
     let mut left_gap = motion.gap_at(left);
+    let gap_tolerance = 1e-9 * (motion.contact_distance * motion.contact_distance).max(1.0);
+    let derivative_tolerance = 1e-9
+        * (motion.contact_distance
+            * (motion.rvx.hypot(motion.rvy) + horizon.max(1.0) * motion.rax.hypot(motion.ray)))
+        .max(1.0);
     for right in deduped_boundaries.into_iter().skip(1) {
         let right_gap = motion.gap_at(right);
         if left_gap > 0.0 && right_gap <= 0.0 {
+            // A contact reached only as a tangent minimum has no inward normal speed and should
+            // not produce a collision impulse. This commonly appears at phase horizons where a
+            // rolling ball stops exactly at the contact boundary.
+            let touches_without_closing = right_gap.abs() <= gap_tolerance
+                && motion.gap_derivative_at(right) >= -derivative_tolerance;
+            if touches_without_closing {
+                left = right;
+                left_gap = right_gap;
+                continue;
+            }
+
             return Some(refine_ball_ball_collision_time_for_relative_motion(
                 motion, left, right,
             ));

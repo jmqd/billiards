@@ -148,6 +148,30 @@ fn touching_balls_accelerating_inward_predict_an_immediate_collision() {
 }
 
 #[test]
+fn touching_balls_moving_inward_predict_an_immediate_constant_velocity_collision() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        velocity2(0.0, 5.0),
+        AngularVelocity3::zero(),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let predicted = compute_next_ball_ball_collision_on_table(
+        &cue_ball,
+        &object_ball,
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("touching balls with inward relative velocity should collide immediately");
+
+    assert_close(predicted.time_until_impact.as_f64(), 0.0);
+    assert_close(
+        center_distance(&predicted.a_at_impact, &predicted.b_at_impact),
+        2.0 * radius,
+    );
+}
+
+#[test]
 fn an_off_line_trajectory_that_misses_returns_none() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

@@ -1,12 +1,13 @@
 use billiards::{
-    collide_ball_ball_analyzed_on_table, collide_ball_ball_detailed_on_table,
-    collide_ball_ball_detailed_on_table_with_config, collide_ball_ball_on_table,
+    advance_motion_on_table, collide_ball_ball_analyzed_on_table,
+    collide_ball_ball_detailed_on_table, collide_ball_ball_detailed_on_table_with_config,
+    collide_ball_ball_on_table, compute_next_transition_on_table,
     estimate_post_contact_cue_ball_bend_on_table, estimate_post_contact_cue_ball_curve_on_table,
     gearing_english, Angle, AngularVelocity3, BallBallCollisionConfig, BallBallFrictionModel,
-    BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
-    PlayingConditions, RadiansPerSecondSq, RollingResistanceModel, Scale, SlidingFrictionModel,
-    SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
+    BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecond,
+    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
+    OnTableMotionConfig, PlayingConditions, RadiansPerSecondSq, RollingResistanceModel, Scale,
+    SlidingFrictionModel, SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -14,6 +15,14 @@ fn assert_close(actual: f64, expected: f64) {
     assert!(
         delta < 1e-9,
         "expected {expected}, got {actual} (delta {delta})"
+    );
+}
+
+fn assert_near(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected}, got {actual} (delta {delta}, tolerance {tolerance})"
     );
 }
 
@@ -39,6 +48,15 @@ fn motion_config() -> OnTableMotionConfig {
 fn smallest_angle_distance_degrees(a: Angle, b: Angle) -> f64 {
     let delta = (a.as_degrees() - b.as_degrees()).abs().rem_euclid(360.0);
     delta.min(360.0 - delta)
+}
+
+fn signed_angle_difference_degrees(from: Angle, to: Angle) -> f64 {
+    let delta = (to.as_degrees() - from.as_degrees()).rem_euclid(360.0);
+    if delta > 180.0 {
+        delta - 360.0
+    } else {
+        delta
+    }
 }
 
 fn inches2(x: f64, y: f64) -> Inches2 {
@@ -438,6 +456,72 @@ fn follow_and_draw_reduce_near_head_on_throw_relative_to_stun() {
         "near-head-on draw should reduce throw; got draw {draw_throw} vs stun {stun_throw}"
     );
     assert_close(follow_throw, draw_throw);
+}
+
+#[test]
+fn tp_a24_follow_and_draw_match_half_ball_throw_and_object_ball_curve_anchors() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let speed = InchesPerSecond::from_mph(2.0).as_f64();
+    let cut_angle_radians = 30.0_f64.to_radians();
+    let cue_position = inches2(
+        -2.0 * radius * cut_angle_radians.sin(),
+        -2.0 * radius * cut_angle_radians.cos(),
+    );
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let config = BallBallCollisionConfig::new_with_friction_model(
+        Scale::from_f64(1.0),
+        BallBallFrictionModel::marlow_speed_fit(Scale::from_f64(1.0)),
+    );
+    let ball = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+
+    // TP A.24 gives these half-ball anchors for v=2 mph with the TP A.14/Marlow friction fit.
+    for (name, omega_x, expected_throw, expected_curve_delta) in [
+        ("stun", 0.0, 4.366, 0.0),
+        ("draw", speed / radius, 1.454, -0.061),
+        ("follow", -speed / radius, 1.454, 0.067),
+    ] {
+        let cue_ball = on_table(BallState::on_table(
+            cue_position.clone(),
+            Velocity2::new(Inches::zero(), Inches::from_f64(speed)),
+            AngularVelocity3::new(omega_x, 0.0, 0.0),
+        ));
+        let outcome = collide_ball_ball_detailed_on_table_with_config(
+            &cue_ball,
+            &object_ball,
+            CollisionModel::ThrowAware,
+            &config,
+        );
+        let immediate_heading = outcome
+            .b_after
+            .as_ball_state()
+            .velocity
+            .angle_from_north()
+            .expect("object ball should move immediately after impact");
+        let transition = compute_next_transition_on_table(&outcome.b_after, &ball, &motion)
+            .expect("object ball should slide before settling to natural roll");
+        let settled = advance_motion_on_table(
+            &outcome.b_after,
+            transition.time_until_transition,
+            &ball,
+            &motion,
+        );
+        let settled_heading = settled
+            .state
+            .velocity
+            .angle_from_north()
+            .expect("object ball should still move after the TP A.24 curve");
+        let throw_angle = outcome
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle");
+        let curve_delta = signed_angle_difference_degrees(immediate_heading, settled_heading)
+            * throw_angle.signum();
+
+        assert_eq!(transition.phase_before, MotionPhase::Sliding, "{name}");
+        assert_eq!(transition.phase_after, MotionPhase::Rolling, "{name}");
+        assert_near(throw_angle.abs(), expected_throw, 0.001);
+        assert_near(curve_delta, expected_curve_delta, 0.001);
+    }
 }
 
 #[test]

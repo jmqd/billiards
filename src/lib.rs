@@ -4148,8 +4148,9 @@ fn ideal_ball_ball_collision_velocities(
 ///
 /// Within that contact geometry, this helper uses the current translational velocities as a local
 /// constant-velocity approximation and solves the standard relative-motion quadratic for the first
-/// future time `t > 0` such that `|r + v t| = 2R`. Angular velocity does not affect the timing in
-/// this first-pass ideal scheduler.
+/// time `t >= 0` such that `|r + v t| = 2R`. If the pair is already touching and the relative
+/// translational velocity is closing, the predicted impact time is zero. Angular velocity does not
+/// affect the timing in this first-pass ideal scheduler.
 pub fn compute_next_ball_ball_collision_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -4166,7 +4167,20 @@ pub fn compute_next_ball_ball_collision_on_table(
     let quadratic_b = 2.0 * (rx * vx + ry * vy);
     let quadratic_c = rx * rx + ry * ry - contact_distance * contact_distance;
 
-    if quadratic_c <= 0.0 || quadratic_a <= f64::EPSILON || quadratic_b >= 0.0 {
+    if quadratic_c <= 0.0 {
+        if quadratic_a <= f64::EPSILON || quadratic_b >= 0.0 {
+            return None;
+        }
+
+        let time_until_impact = Seconds::new(0.0);
+        return Some(PredictedBallBallCollision {
+            time_until_impact,
+            a_at_impact: advance_on_table_with_constant_velocity(a, time_until_impact),
+            b_at_impact: advance_on_table_with_constant_velocity(b, time_until_impact),
+        });
+    }
+
+    if quadratic_a <= f64::EPSILON || quadratic_b >= 0.0 {
         return None;
     }
 

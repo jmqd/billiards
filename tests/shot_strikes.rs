@@ -12,6 +12,14 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
+fn assert_close_with_tolerance(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected} +/- {tolerance}, got {actual} (delta {delta})"
+    );
+}
+
 fn resting_ball() -> RestingOnTableBallState {
     RestingOnTableBallState::try_from(BallState::resting_at(Inches2::new("10", "20")))
         .expect("resting test state should validate")
@@ -235,6 +243,48 @@ fn cue_squirt_angle_uses_the_configured_endmass_ratio_and_sign() {
         right_tip.as_ball_state().angular_velocity.z().as_f64(),
         2.5 * post_strike_speed / TYPICAL_BALL_RADIUS.as_f64() * expected_effective_offset,
     );
+}
+
+#[test]
+fn cue_squirt_matches_tp_b1_real_cue_examples() {
+    let ball = BallSetPhysicsSpec::default();
+
+    for (name, tip_offset_inches, endmass_ratio, expected_squirt_degrees) in [
+        ("Players regular cue", 0.51, 20.151, 2.5),
+        ("Predator Z low-squirt cue", 0.51, 29.158, 1.8),
+        ("Stinger break/jump cue", 0.3, 12.008, 2.4),
+    ] {
+        let cue = CueStrikeConfig::new_with_endmass_ratio(
+            Scale::from_f64(1.0),
+            Scale::from_f64(0.1),
+            Scale::from_f64(endmass_ratio),
+        )
+        .expect("paper cue example should validate");
+        let normalized_offset = tip_offset_inches / TYPICAL_BALL_RADIUS.as_f64();
+        let shot = Shot::new(
+            Angle::from_north(0.0, 1.0),
+            InchesPerSecond::new("10"),
+            CueTipContact::new(Scale::from_f64(normalized_offset), Scale::zero())
+                .expect("paper tip offset should validate"),
+        )
+        .expect("paper squirt shot should validate");
+
+        let struck = strike_resting_ball_on_table(&resting_ball(), &shot, &cue, &ball)
+            .expect("paper squirt strike should succeed");
+        let heading = struck
+            .as_ball_state()
+            .velocity
+            .angle_from_north()
+            .expect("struck cue ball should move")
+            .as_degrees();
+        let squirt = (360.0 - heading).rem_euclid(360.0);
+
+        assert_close_with_tolerance(squirt, expected_squirt_degrees, 0.005);
+        assert!(
+            struck.as_ball_state().velocity.x().as_f64() < 0.0,
+            "{name} should squirt opposite a positive side tip offset"
+        );
+    }
 }
 
 #[test]

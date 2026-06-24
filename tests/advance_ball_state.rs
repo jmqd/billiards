@@ -3,7 +3,7 @@ use billiards::{
     advance_within_phase_on_table, compute_next_transition_on_table,
     estimate_post_contact_cue_ball_curve_on_table, try_advance_angular_velocity_on_table,
     try_advance_ball_state, try_compute_next_transition, AngularVelocity3, BallSetPhysicsSpec,
-    BallState, Inches, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
+    BallState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
     MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, OnTableStateError,
     RadiansPerSecondSq, RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
     Velocity2, TYPICAL_BALL_RADIUS,
@@ -17,6 +17,18 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
+fn assert_close_with_tolerance(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected} +/- {tolerance}, got {actual} (delta {delta})"
+    );
+}
+
+const STANDARD_GRAVITY_IPS2: f64 = 386.088_582_677_165_35;
+const TP_B2_ROLLING_RESISTANCE_COEFFICIENT: f64 = 0.01;
+const TP_B2_SPIN_DECELERATION_RADPS2: f64 = 10.0;
+
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
@@ -28,6 +40,23 @@ fn motion_config() -> OnTableMotionConfig {
         },
         rolling_resistance: RollingResistanceModel::ConstantDeceleration {
             linear_deceleration: InchesPerSecondSq::new("5"),
+        },
+    }
+}
+
+fn tp_b2_motion_config() -> OnTableMotionConfig {
+    MotionTransitionConfig {
+        phase: MotionPhaseConfig::default(),
+        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new("5"),
+        },
+        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::new(TP_B2_SPIN_DECELERATION_RADPS2),
+        },
+        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new(Inches::from_f64(
+                TP_B2_ROLLING_RESISTANCE_COEFFICIENT * STANDARD_GRAVITY_IPS2,
+            )),
         },
     }
 }
@@ -61,6 +90,56 @@ fn rolling_with_small_vertical_spin_state() -> BallState {
         Velocity2::new("0", "10"),
         AngularVelocity3::new(-10.0 / radius.as_f64(), 0.0, 2.0),
     )
+}
+
+fn tp_b2_travel_time_seconds(initial_speed_ips: f64, distance_inches: f64) -> f64 {
+    let decel = TP_B2_ROLLING_RESISTANCE_COEFFICIENT * STANDARD_GRAVITY_IPS2;
+    (initial_speed_ips
+        - (initial_speed_ips * initial_speed_ips - 2.0 * decel * distance_inches).sqrt())
+        / decel
+}
+
+fn tp_b2_rolling_side_spin_state(initial_speed_ips: f64, distance_inches: f64) -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let travel_time = tp_b2_travel_time_seconds(initial_speed_ips, distance_inches);
+    on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new(Inches::zero(), Inches::from_f64(initial_speed_ips)),
+        AngularVelocity3::new(
+            -initial_speed_ips / radius,
+            0.0,
+            TP_B2_SPIN_DECELERATION_RADPS2 * travel_time,
+        ),
+    ))
+}
+
+fn tp_b2_estimated_turn_degrees_at_distance(initial_speed_ips: f64, distance_inches: f64) -> f64 {
+    if distance_inches == 0.0 {
+        return 0.0;
+    }
+
+    estimate_post_contact_cue_ball_curve_on_table(
+        &tp_b2_rolling_side_spin_state(initial_speed_ips, distance_inches),
+        &BallSetPhysicsSpec::default(),
+        &tp_b2_motion_config(),
+    )
+    .expect("TP B.2 predicts side-spin turn through this distance")
+    .curve_angle_degrees
+}
+
+fn tp_b2_lateral_error_inches(initial_speed_ips: f64, distance_inches: f64) -> f64 {
+    let steps = 1_000usize;
+    let step = distance_inches / steps as f64;
+
+    (0..steps)
+        .map(|i| {
+            let x0 = i as f64 * step;
+            let x1 = (i + 1) as f64 * step;
+            let y0 = tp_b2_estimated_turn_degrees_at_distance(initial_speed_ips, x0).to_radians();
+            let y1 = tp_b2_estimated_turn_degrees_at_distance(initial_speed_ips, x1).to_radians();
+            0.5 * (y0 + y1) * step
+        })
+        .sum()
 }
 
 fn sliding_stun_state() -> BallState {
@@ -457,6 +536,39 @@ fn the_curve_estimate_reports_tp_b2_rolling_side_spin_turn() {
     assert_close(curve.time_until_curve_completes.as_f64(), 1.0);
     assert_close(curve.curve_angle_degrees, 0.09257711527464842);
     assert_close(curve.heading_after_curve.as_degrees(), 0.09257711527464842);
+}
+
+#[test]
+fn tp_b2_rolling_side_spin_curve_estimate_matches_published_examples() {
+    for (mph, distance_inches, expected_time, expected_turn, expected_error) in [
+        (2.0, 96.0, 3.339, 0.305, 0.217),
+        (5.0, 36.0, 0.413, 0.012, 0.003_811),
+    ] {
+        let speed = InchesPerSecond::from_mph(mph).as_f64();
+        let curve = estimate_post_contact_cue_ball_curve_on_table(
+            &tp_b2_rolling_side_spin_state(speed, distance_inches),
+            &BallSetPhysicsSpec::default(),
+            &tp_b2_motion_config(),
+        )
+        .expect("TP B.2 predicts side-spin turn through this distance");
+
+        assert_close_with_tolerance(curve.time_until_curve_starts.as_f64(), 0.0, 1e-12);
+        assert_close_with_tolerance(
+            curve.time_until_curve_completes.as_f64(),
+            expected_time,
+            0.001,
+        );
+        assert_close_with_tolerance(
+            curve.curve_angle_degrees.abs(),
+            expected_turn,
+            if mph == 2.0 { 0.005 } else { 0.001 },
+        );
+        assert_close_with_tolerance(
+            tp_b2_lateral_error_inches(speed, distance_inches).abs(),
+            expected_error,
+            if mph == 2.0 { 0.005 } else { 0.0005 },
+        );
+    }
 }
 
 #[test]

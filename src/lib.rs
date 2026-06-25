@@ -10606,6 +10606,8 @@ fn spin_friction_collision_outcome_on_table_with_config(
 ///   express the same contact-patch tangential slip and the equal-sphere no-slip impulse limit.
 /// - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` decomposes
 ///   the contact slip into horizontal throw and vertical follow/draw components.
+/// - `whitepapers/collision_of_billiard_balls_in_3d_with_spin_and_friction.pdf` shows that equal
+///   contact torques change both identical balls' angular velocities by the same increment.
 ///
 /// The friction impulse is capped by both `mu * Jn` and the equal-solid-sphere no-slip value
 /// `|slip| / 7`, then applied consistently to both balls' horizontal velocity and angular velocity.

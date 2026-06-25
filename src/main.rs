@@ -61,6 +61,10 @@ struct Args {
     #[arg(long, default_value_t = 0.02)]
     trace_sample_step_seconds: f64,
 
+    /// Maximum simulation events to include in the rendered trace; use 0 for scenario/default behavior.
+    #[arg(long, default_value_t = 0)]
+    trace_max_events: usize,
+
     /// Scale the final rendered PNG by this positive integer factor.
     #[arg(long, default_value_t = 1)]
     scale_factor: u32,
@@ -96,13 +100,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         labels: args.trace_labels,
         path_color_mode: args.trace_color_mode.into(),
     };
-    let render_state = if let Some(trace) = scenario
-        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+    let effective_trace_max_events = if args.trace_max_events == 0 {
+        scenario.trace_max_events.or_else(|| {
+            scenario
+                .preferred_simulation_name()
+                .and_then(|name| scenario.simulation_named(name).ok())
+                .and_then(|simulation| simulation.max_events)
+        })
+    } else {
+        Some(args.trace_max_events)
+    };
+
+    let trace = if let Some(max_events) = effective_trace_max_events {
+        scenario.simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
             &ball_set,
             &motion,
             CollisionModel::ThrowAware,
             RailModel::SpinAware,
-        )? {
+            max_events,
+        )?
+    } else {
+        scenario.simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )?
+    };
+
+    let render_state = if let Some(trace) = trace {
         for line in trace.event_lines() {
             println!("{line}");
         }
@@ -118,8 +144,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .filter(|state| matches!(state, billiards::NBallSystemState::OnTable(_)))
             .count();
+        let limit_status = if effective_trace_max_events
+            .is_some_and(|max_events| trace.simulation.events.len() >= max_events)
+        {
+            "event limit"
+        } else {
+            "rest"
+        };
         println!(
-            "Simulated shot to rest: {} event(s), {} pocketed, {} on-table remaining",
+            "Simulated shot to {limit_status}: {} event(s), {} pocketed, {} on-table remaining",
             trace.simulation.events.len(),
             pocketed,
             remaining

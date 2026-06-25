@@ -877,6 +877,88 @@ impl RailCollisionProfile {
     }
 }
 
+/// Reference output for the TP 7.3 vertical-plane ball-rail spin calculation.
+///
+/// This is the compact algebraic model from Dr. Dave TP 7.3, not the richer iterative
+/// `RailModel::SpinAware` solver. It is useful as a source-anchored oracle for rail tuning and
+/// tests.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tp73RailVerticalSpinPrediction {
+    pub outgoing_normal_speed: InchesPerSecond,
+    pub outgoing_angular_speed: RadiansPerSecond,
+    pub outgoing_pure_roll_angular_speed: RadiansPerSecond,
+}
+
+/// Return the TP 7.3 post-rail normal speed and vertical-plane angular speed.
+///
+/// Arguments follow the TP 7.3 scalar convention:
+///
+/// - `incoming_normal_speed` is the positive ball-center speed into the cushion.
+/// - `incoming_angular_speed` is positive for forward roll/topspin into the cushion and negative
+///   for bottom spin.
+/// - `effective_contact_height_ratio` is `a / R`.
+///
+/// TP 7.3 treats stun (`ω = 0`) as having no rail-friction impulse in the angular equation; forward
+/// roll/topspin uses `+μR`, and bottom spin uses `-μR`.
+pub fn tp73_rail_vertical_spin_prediction(
+    incoming_normal_speed: InchesPerSecond,
+    incoming_angular_speed: RadiansPerSecond,
+    ball_radius: Inches,
+    normal_restitution: Scale,
+    rail_friction_coefficient: Scale,
+    effective_contact_height_ratio: Scale,
+) -> Tp73RailVerticalSpinPrediction {
+    let incoming_speed = incoming_normal_speed.as_f64();
+    assert!(
+        incoming_speed.is_finite() && incoming_speed >= 0.0,
+        "incoming normal speed must be finite and non-negative"
+    );
+    let incoming_angular_speed = incoming_angular_speed.as_f64();
+    assert!(
+        incoming_angular_speed.is_finite(),
+        "incoming angular speed must be finite"
+    );
+    let radius = ball_radius.as_f64();
+    assert!(
+        radius.is_finite() && radius > 0.0,
+        "ball radius must be finite and positive"
+    );
+    let restitution = normal_restitution.as_f64();
+    assert!(
+        (0.0..=1.0).contains(&restitution),
+        "rail normal restitution must lie in [0, 1]"
+    );
+    let friction = rail_friction_coefficient.as_f64();
+    assert!(
+        friction.is_finite() && friction >= 0.0,
+        "rail friction coefficient must be finite and non-negative"
+    );
+    let contact_height_ratio = effective_contact_height_ratio.as_f64();
+    assert!(
+        contact_height_ratio.is_finite() && contact_height_ratio >= 0.0,
+        "effective contact height ratio must be finite and non-negative"
+    );
+
+    let outgoing_normal_speed = restitution * incoming_speed;
+    let friction_sign = if incoming_angular_speed == 0.0 {
+        0.0
+    } else {
+        incoming_angular_speed.signum()
+    };
+    let effective_contact_height = contact_height_ratio * radius;
+    let angular_impulse_factor =
+        5.0 * (1.0 + restitution) * incoming_speed / (2.0 * radius * radius);
+    let outgoing_angular_speed = angular_impulse_factor
+        * (friction_sign * friction * radius + effective_contact_height)
+        - incoming_angular_speed;
+
+    Tp73RailVerticalSpinPrediction {
+        outgoing_normal_speed: InchesPerSecond::new(Inches::from_f64(outgoing_normal_speed)),
+        outgoing_angular_speed: RadiansPerSecond::new(outgoing_angular_speed),
+        outgoing_pure_roll_angular_speed: RadiansPerSecond::new(outgoing_normal_speed / radius),
+    }
+}
+
 impl Default for RailCollisionProfile {
     fn default() -> Self {
         Self::human_tuned()
@@ -7643,6 +7725,7 @@ fn zero_time_ball_ball_pair_indices_from_state_refs(
         let Some(first_state) = state_refs[first_ball_index] else {
             continue;
         };
+        let first_position = first_state.as_ball_state().position.clone();
 
         for (second_ball_index, second_state) in
             state_refs.iter().enumerate().skip(first_ball_index + 1)
@@ -7650,6 +7733,14 @@ fn zero_time_ball_ball_pair_indices_from_state_refs(
             let Some(second_state) = second_state else {
                 continue;
             };
+            let second_position = &second_state.as_ball_state().position;
+            let dx = second_position.x().as_f64() - first_position.x().as_f64();
+            let dy = second_position.y().as_f64() - first_position.y().as_f64();
+            let contact_distance = 2.0 * ball.radius.as_f64();
+            if dx.hypot(dy) > contact_distance + 1e-7 {
+                continue;
+            }
+
             let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
                 first_state,
                 second_state,
@@ -9693,6 +9784,30 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
 ) -> NBallSystemSimulation {
+    simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+        states,
+        ball,
+        table,
+        motion,
+        collision_model,
+        collision_config,
+        rail_model,
+        rail_profile,
+        None,
+    )
+}
+
+pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+    max_events: Option<usize>,
+) -> NBallSystemSimulation {
     let mut states = states.to_vec();
     let mut elapsed = Seconds::zero();
     let mut events = Vec::new();
@@ -9700,6 +9815,10 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
     let mut consecutive_zero_time_events = 0usize;
 
     loop {
+        if max_events.is_some_and(|max_events| events.len() >= max_events) {
+            break;
+        }
+
         let Some(event) = cache.next_event() else {
             break;
         };

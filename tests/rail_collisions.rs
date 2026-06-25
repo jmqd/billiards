@@ -1,9 +1,10 @@
 use billiards::{
     cloth_contact_velocity_on_table, collide_ball_rail_on_table,
     collide_ball_rail_on_table_with_radius_and_config,
-    collide_ball_rail_on_table_with_radius_and_profile, AngularVelocity3, BallState, Inches,
-    Inches2, MotionPhase, OnTableBallState, Rail, RailCollisionConfig, RailCollisionProfile,
-    RailModel, Scale, Velocity2, TYPICAL_BALL_RADIUS,
+    collide_ball_rail_on_table_with_radius_and_profile, tp73_rail_vertical_spin_prediction,
+    AngularVelocity3, BallState, Inches, Inches2, InchesPerSecond, MotionPhase, OnTableBallState,
+    RadiansPerSecond, Rail, RailCollisionConfig, RailCollisionProfile, RailModel, Scale, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -11,6 +12,14 @@ fn assert_close(actual: f64, expected: f64) {
     assert!(
         delta < 1e-9,
         "expected {expected}, got {actual} (delta {delta})"
+    );
+}
+
+fn assert_close_with_tolerance(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected}, got {actual} (delta {delta}, tolerance {tolerance})"
     );
 }
 
@@ -677,6 +686,41 @@ fn a_larger_effective_contact_height_ratio_seeds_more_forward_roll_for_a_stun_en
             > without_geometry.as_ball_state().angular_velocity.x().as_f64() + 1e-9,
         "a larger TP 7.3-style effective contact height should seed more forward vertical-plane roll"
     );
+}
+
+#[test]
+fn tp73_vertical_spin_prediction_matches_published_examples() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let impact_speed = 5.0 * 12.0;
+
+    for (_name, incoming_angular_speed, expected_outgoing_angular_speed) in [
+        ("rolling", impact_speed / radius_value, 3.333),
+        ("overspin", 1.5 * impact_speed / radius_value, -23.333),
+        ("stun", 0.0, 18.133),
+        ("draw", -0.5 * impact_speed / radius_value, 6.267),
+    ] {
+        let prediction = tp73_rail_vertical_spin_prediction(
+            InchesPerSecond::new(Inches::from_f64(impact_speed)),
+            RadiansPerSecond::new(incoming_angular_speed),
+            radius.clone(),
+            Scale::from_f64(0.7),
+            Scale::from_f64(0.17),
+            Scale::from_f64(0.08),
+        );
+
+        assert_close_with_tolerance(prediction.outgoing_normal_speed.as_f64(), 42.0, 0.001);
+        assert_close_with_tolerance(
+            prediction.outgoing_pure_roll_angular_speed.as_f64(),
+            37.333,
+            0.001,
+        );
+        assert_close_with_tolerance(
+            prediction.outgoing_angular_speed.as_f64(),
+            expected_outgoing_angular_speed,
+            0.001,
+        );
+    }
 }
 
 #[test]

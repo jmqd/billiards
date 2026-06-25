@@ -776,6 +776,82 @@ fn a_single_named_simulation_becomes_the_preferred_cli_physics_path() {
 }
 
 #[test]
+fn preferred_trace_can_stop_at_an_event_limit() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.18, 4.12)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
+         rail_response(clean).normal_restitution(0.7).tangential_friction(0.17)\n\
+         rails(table).default(clean)\n\
+         simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table)\n\
+         shot(cue).heading(9deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+    let full = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("full preferred trace should succeed")
+        .expect("scenario should contain a shot");
+    let limited = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+            1,
+        )
+        .expect("limited preferred trace should succeed")
+        .expect("scenario should contain a shot");
+
+    assert!(
+        full.simulation.events.len() > limited.simulation.events.len(),
+        "test fixture should produce more than one full simulation event"
+    );
+    assert_eq!(limited.simulation.events.len(), 1);
+    assert_eq!(limited.event_log.len(), 1);
+    assert!(limited.simulation.elapsed.as_f64() <= full.simulation.elapsed.as_f64());
+}
+
+#[test]
+fn named_simulation_can_default_preferred_trace_to_an_event_limit() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.18, 4.12)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
+         rail_response(clean).normal_restitution(0.7).tangential_friction(0.17)\n\
+         rails(table).default(clean)\n\
+         simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).max_events(1)\n\
+         shot(cue).heading(9deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("preferred trace should succeed")
+        .expect("scenario should contain a shot");
+
+    assert_eq!(
+        scenario
+            .simulation_named("human_table")
+            .expect("named simulation")
+            .max_events,
+        Some(1)
+    );
+    assert_eq!(trace.simulation.events.len(), 1);
+    assert_eq!(trace.event_log.len(), 1);
+}
+
+#[test]
 fn rejects_unknown_playing_conditions_presets_in_simulations() {
     let err = parse_dsl_to_scenario(
         "ball cue at center\n\

@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use crate::{
     advance_motion_on_table, resolve_n_ball_system_event_with_physics_and_pockets_on_table,
+    simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit,
     simulate_n_balls_with_physics_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
     trace_ball_path_with_rail_profile_on_table,
     visualization::{
@@ -35,6 +36,7 @@ use winnow::token::take_while;
 #[derive(Debug, Clone, PartialEq)]
 pub struct DslDoc {
     pub table: Option<TableRef>,
+    pub trace_max_events: Option<usize>,
     pub entries: Vec<DslEntry>,
 }
 
@@ -54,6 +56,7 @@ pub enum DslEntry {
 pub struct DslScenario {
     pub game_state: GameState,
     pub shot: Option<ScenarioShot>,
+    pub trace_max_events: Option<usize>,
     pub ball_ball_configs: HashMap<String, BallBallCollisionConfig>,
     pub rail_responses: HashMap<String, RailCollisionConfig>,
     pub rail_profiles: HashMap<String, RailCollisionProfile>,
@@ -66,6 +69,7 @@ struct EffectiveSimulationPhysics {
     collision_config: BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: RailCollisionProfile,
+    max_events: Option<usize>,
 }
 
 impl DslScenario {
@@ -124,6 +128,7 @@ impl DslScenario {
             rail_profile: self
                 .rail_profile_named(&simulation.rails_name)?
                 .applying_conditions(conditions),
+            max_events: simulation.max_events,
         })
     }
 
@@ -151,14 +156,26 @@ impl DslScenario {
         simulation_name: &str,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
         let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-        self.simulate_shot_trace_with_physics_on_table_until_rest(
-            ball_set,
-            &simulation.motion,
-            simulation.collision_model,
-            &simulation.collision_config,
-            simulation.rail_model,
-            &simulation.rail_profile,
-        )
+        if let Some(max_events) = simulation.max_events {
+            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
+                ball_set,
+                &simulation.motion,
+                simulation.collision_model,
+                &simulation.collision_config,
+                simulation.rail_model,
+                &simulation.rail_profile,
+                max_events,
+            )
+        } else {
+            self.simulate_shot_trace_with_physics_on_table_until_rest(
+                ball_set,
+                &simulation.motion,
+                simulation.collision_model,
+                &simulation.collision_config,
+                simulation.rail_model,
+                &simulation.rail_profile,
+            )
+        }
     }
 
     pub fn trace_shot_path_with_simulation_on_table(
@@ -354,6 +371,56 @@ impl DslScenario {
         }))
     }
 
+    pub fn simulate_shot_trace_with_physics_on_table_until_event_limit(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        collision_config: &BallBallCollisionConfig,
+        rail_model: RailModel,
+        rail_profile: &RailCollisionProfile,
+        max_events: usize,
+    ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
+            return Ok(None);
+        };
+        let initial_system_states = initial_states
+            .iter()
+            .cloned()
+            .map(NBallSystemState::from)
+            .collect::<Vec<_>>();
+        let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+            &initial_system_states,
+            ball_set,
+            &self.game_state.table_spec,
+            motion,
+            collision_model,
+            collision_config,
+            rail_model,
+            rail_profile,
+            Some(max_events),
+        );
+        let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
+        let ball_traces = self.ball_traces_from_simulation(
+            &initial_system_states,
+            &simulation,
+            ball_set,
+            motion,
+            collision_model,
+            collision_config,
+            rail_model,
+            rail_profile,
+        );
+
+        Ok(Some(ScenarioShotTrace {
+            simulation,
+            event_log,
+            ball_traces,
+            ball_set: ball_set.clone(),
+            motion: motion.clone(),
+        }))
+    }
+
     pub fn simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
         &self,
         ball_set: &BallSetPhysicsSpec,
@@ -379,17 +446,70 @@ impl DslScenario {
         rail_model: RailModel,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
         if let Some(simulation_name) = self.preferred_simulation_name() {
-            self.simulate_shot_trace_with_simulation_on_table_until_rest(
-                ball_set,
-                motion,
-                simulation_name,
-            )
+            let simulation = self.effective_simulation_physics(motion, simulation_name)?;
+            if let Some(max_events) = simulation.max_events {
+                self.simulate_shot_trace_with_physics_on_table_until_event_limit(
+                    ball_set,
+                    &simulation.motion,
+                    simulation.collision_model,
+                    &simulation.collision_config,
+                    simulation.rail_model,
+                    &simulation.rail_profile,
+                    max_events,
+                )
+            } else {
+                self.simulate_shot_trace_with_physics_on_table_until_rest(
+                    ball_set,
+                    &simulation.motion,
+                    simulation.collision_model,
+                    &simulation.collision_config,
+                    simulation.rail_model,
+                    &simulation.rail_profile,
+                )
+            }
         } else {
             self.simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
                 ball_set,
                 motion,
                 collision_model,
                 rail_model,
+            )
+        }
+    }
+
+    pub fn simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        rail_model: RailModel,
+        max_events: usize,
+    ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        if let Some(simulation_name) = self.preferred_simulation_name() {
+            let simulation = self.effective_simulation_physics(motion, simulation_name)?;
+            let max_events = simulation
+                .max_events
+                .map_or(max_events, |simulation_max_events| {
+                    max_events.min(simulation_max_events)
+                });
+            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
+                ball_set,
+                &simulation.motion,
+                simulation.collision_model,
+                &simulation.collision_config,
+                simulation.rail_model,
+                &simulation.rail_profile,
+                max_events,
+            )
+        } else {
+            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
+                ball_set,
+                motion,
+                collision_model,
+                &BallBallCollisionConfig::human_tuned(),
+                rail_model,
+                &RailCollisionProfile::default(),
+                max_events,
             )
         }
     }
@@ -1199,6 +1319,7 @@ pub enum SimulationMethodExpr {
     RailModel(RailModel),
     Rails(String),
     Conditions(String),
+    MaxEvents(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1208,6 +1329,7 @@ pub struct SimulationPreset {
     pub rail_model: RailModel,
     pub rails_name: String,
     pub conditions: PlayingConditions,
+    pub max_events: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1670,6 +1792,7 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
     Ok(DslScenario {
         game_state,
         shot,
+        trace_max_events: doc.trace_max_events,
         ball_ball_configs,
         rail_responses,
         rail_profiles,
@@ -2024,6 +2147,7 @@ fn build_simulation(
     let mut rail_model = None;
     let mut rails_name = None;
     let mut conditions_name = None;
+    let mut max_events = None;
 
     for method in &def.methods {
         match method {
@@ -2064,6 +2188,14 @@ fn build_simulation(
                     DslBuildError::DuplicateSimulationMethod {
                         name: def.name.clone(),
                         method: "conditions".to_string(),
+                    }
+                })?;
+            }
+            SimulationMethodExpr::MaxEvents(value) => {
+                set_once(&mut max_events, *value, || {
+                    DslBuildError::DuplicateSimulationMethod {
+                        name: def.name.clone(),
+                        method: "max_events".to_string(),
                     }
                 })?;
             }
@@ -2110,6 +2242,7 @@ fn build_simulation(
         rail_model,
         rails_name,
         conditions,
+        max_events,
     })
 }
 
@@ -2413,6 +2546,7 @@ fn parse_error(err: ParseError<'_>) -> DslParseError {
 fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
     let mut doc = DslDoc {
         table: None,
+        trace_max_events: None,
         entries: Vec::new(),
     };
 
@@ -2421,6 +2555,9 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
             || (),
             |(), entry| match entry {
                 DslStatement::Table(table) => doc.table = Some(table),
+                DslStatement::TraceMaxEvents(max_events) => {
+                    doc.trace_max_events = Some(max_events);
+                }
                 DslStatement::Alias(alias) => doc.entries.push(DslEntry::Alias(alias)),
                 DslStatement::Ball(placement) => doc.entries.push(DslEntry::Ball(placement)),
                 DslStatement::CueStrike(def) => doc.entries.push(DslEntry::CueStrike(def)),
@@ -2442,6 +2579,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
 #[derive(Debug, Clone, PartialEq)]
 enum DslStatement {
     Table(TableRef),
+    TraceMaxEvents(usize),
     Alias(AliasDef),
     Ball(BallPlacement),
     CueStrike(CueStrikeDef),
@@ -2459,6 +2597,7 @@ fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
         comment_line,
         blank_line,
         preceded(peek("table"), cut_err(table_stmt)),
+        preceded(peek("trace"), cut_err(trace_stmt)),
         preceded(peek("pos"), cut_err(alias_stmt)),
         preceded(peek("rail_response"), cut_err(rail_response_stmt)),
         preceded(peek("rails"), cut_err(rails_stmt)),
@@ -2489,6 +2628,21 @@ fn table_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     let _ = ws1.parse_next(input)?;
     let table = table_ref.parse_next(input)?;
     Ok(DslStatement::Table(table))
+}
+
+fn trace_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
+    let _ = "trace".parse_next(input)?;
+    let max_events = delimited(
+        '(',
+        delimited(
+            hws0,
+            preceded(("max_events", hws0, ':', hws0), usize_literal),
+            hws0,
+        ),
+        ')',
+    )
+    .parse_next(input)?;
+    Ok(DslStatement::TraceMaxEvents(max_events))
 }
 
 fn alias_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
@@ -2789,6 +2943,7 @@ fn simulation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, SimulationMe
         preceded(peek("rail_model"), cut_err(simulation_rail_model_method)),
         preceded(peek("rails"), cut_err(simulation_rails_method)),
         preceded(peek("conditions"), cut_err(simulation_conditions_method)),
+        preceded(peek("max_events"), cut_err(simulation_max_events_method)),
     ))
     .parse_next(input)
 }
@@ -2830,6 +2985,14 @@ fn simulation_conditions_method<'a>(
     let _ = "conditions".parse_next(input)?;
     let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
     Ok(SimulationMethodExpr::Conditions(name.to_string()))
+}
+
+fn simulation_max_events_method<'a>(
+    input: &mut Stream<'a>,
+) -> ParseResult<'a, SimulationMethodExpr> {
+    let _ = "max_events".parse_next(input)?;
+    let value = delimited('(', delimited(hws0, usize_literal, hws0), ')').parse_next(input)?;
+    Ok(SimulationMethodExpr::MaxEvents(value))
 }
 
 fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -2999,6 +3162,14 @@ fn rail_model_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, RailModel> 
 
 fn degrees_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, f64> {
     terminated(float, "deg").parse_next(input)
+}
+
+fn usize_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, usize> {
+    let checkpoint = *input;
+    let digits: &str = take_while(1.., |c: char| c.is_ascii_digit()).parse_next(input)?;
+    digits
+        .parse::<usize>()
+        .map_err(|_| ErrMode::Backtrack(InputError::at(checkpoint)))
 }
 
 fn shot_speed_preset_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotSpeedPreset> {

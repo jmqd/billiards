@@ -36,6 +36,64 @@ fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
 }
 
+fn right_handed_rail_collision_basis_for_test(rail: Rail) -> (f64, f64, f64, f64) {
+    match rail {
+        Rail::Top => (0.0, -1.0, 1.0, 0.0),
+        Rail::Bottom => (0.0, 1.0, -1.0, 0.0),
+        Rail::Left => (1.0, 0.0, 0.0, 1.0),
+        Rail::Right => (-1.0, 0.0, 0.0, -1.0),
+    }
+}
+
+fn rail_state_from_local_frame(
+    rail: Rail,
+    tangent_speed: f64,
+    normal_speed_toward_cushion: f64,
+    angular_tangent: f64,
+    angular_normal_toward_cushion: f64,
+    angular_vertical: f64,
+) -> OnTableBallState {
+    let (normal_x, normal_y, tangent_x, tangent_y) =
+        right_handed_rail_collision_basis_for_test(rail);
+    let inward_normal_x = -normal_x;
+    let inward_normal_y = -normal_y;
+    on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new(
+            Inches::from_f64(
+                tangent_speed * tangent_x + normal_speed_toward_cushion * inward_normal_x,
+            ),
+            Inches::from_f64(
+                tangent_speed * tangent_y + normal_speed_toward_cushion * inward_normal_y,
+            ),
+        ),
+        AngularVelocity3::new(
+            angular_tangent * tangent_x + angular_normal_toward_cushion * inward_normal_x,
+            angular_tangent * tangent_y + angular_normal_toward_cushion * inward_normal_y,
+            angular_vertical,
+        ),
+    ))
+}
+
+fn rail_local_frame_components(rail: Rail, state: &OnTableBallState) -> [f64; 5] {
+    let state = state.as_ball_state();
+    let (normal_x, normal_y, tangent_x, tangent_y) =
+        right_handed_rail_collision_basis_for_test(rail);
+    let inward_normal_x = -normal_x;
+    let inward_normal_y = -normal_y;
+
+    [
+        state.velocity.x().as_f64() * tangent_x + state.velocity.y().as_f64() * tangent_y,
+        state.velocity.x().as_f64() * inward_normal_x
+            + state.velocity.y().as_f64() * inward_normal_y,
+        state.angular_velocity.x().as_f64() * tangent_x
+            + state.angular_velocity.y().as_f64() * tangent_y,
+        state.angular_velocity.x().as_f64() * inward_normal_x
+            + state.angular_velocity.y().as_f64() * inward_normal_y,
+        state.angular_velocity.z().as_f64(),
+    ]
+}
+
 #[test]
 fn a_square_hit_on_a_horizontal_rail_reflects_straight_back() {
     let state = on_table(BallState::on_table(
@@ -782,6 +840,55 @@ fn gearing_english_preserves_side_spin_better_than_tangential_speed_under_table_
         reflected.as_ball_state().angular_velocity.z().as_f64(),
         geared_spin,
     );
+}
+
+#[test]
+fn spin_aware_rail_collision_is_local_frame_invariant_across_rails() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let config = RailCollisionConfig::new(Scale::from_f64(0.7), Scale::from_f64(0.17))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.2))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.08));
+    let expected = {
+        let state = rail_state_from_local_frame(Rail::Top, 4.0, 5.0, -1.5, 2.0, 3.0);
+        let reflected = collide_ball_rail_on_table_with_radius_and_config(
+            &state,
+            Rail::Top,
+            radius.clone(),
+            RailModel::SpinAware,
+            &config,
+        );
+        rail_local_frame_components(Rail::Top, &reflected)
+    };
+
+    for rail in [Rail::Bottom, Rail::Left, Rail::Right] {
+        let state = rail_state_from_local_frame(rail, 4.0, 5.0, -1.5, 2.0, 3.0);
+        let reflected = collide_ball_rail_on_table_with_radius_and_config(
+            &state,
+            rail,
+            radius.clone(),
+            RailModel::SpinAware,
+            &config,
+        );
+        let actual = rail_local_frame_components(rail, &reflected);
+
+        for ((component, actual), expected) in [
+            "tangent velocity",
+            "normal velocity",
+            "angular tangent",
+            "angular normal",
+            "angular vertical",
+        ]
+        .into_iter()
+        .zip(actual)
+        .zip(expected)
+        {
+            let delta = (actual - expected).abs();
+            assert!(
+                delta < 1e-9,
+                "{rail:?} {component}: expected {expected}, got {actual} (delta {delta})"
+            );
+        }
+    }
 }
 
 #[test]

@@ -10821,15 +10821,27 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
     let state_ref = state.as_ball_state();
     let inward_normal_x = -normal_x;
     let inward_normal_y = -normal_y;
+    let frame_handedness = normal_x * tangent_y - normal_y * tangent_x;
+    assert!(
+        frame_handedness.abs() > f64::EPSILON,
+        "spin-aware cushion collision basis must be non-degenerate"
+    );
+    let tangent_orientation = frame_handedness.signum();
+    let solver_tangent_x = tangent_orientation * tangent_x;
+    let solver_tangent_y = tangent_orientation * tangent_y;
     let frame_state = RailImpactFrameState {
-        tangent_speed: project_velocity_on_basis(&state_ref.velocity, tangent_x, tangent_y),
+        tangent_speed: project_velocity_on_basis(
+            &state_ref.velocity,
+            solver_tangent_x,
+            solver_tangent_y,
+        ),
         normal_speed_toward_cushion: project_velocity_on_basis(
             &state_ref.velocity,
             inward_normal_x,
             inward_normal_y,
         ),
-        angular_tangent: state_ref.angular_velocity.x().as_f64() * tangent_x
-            + state_ref.angular_velocity.y().as_f64() * tangent_y,
+        angular_tangent: state_ref.angular_velocity.x().as_f64() * solver_tangent_x
+            + state_ref.angular_velocity.y().as_f64() * solver_tangent_y,
         angular_normal_toward_cushion: state_ref.angular_velocity.x().as_f64() * inward_normal_x
             + state_ref.angular_velocity.y().as_f64() * inward_normal_y,
         angular_vertical: state_ref.angular_velocity.z().as_f64(),
@@ -10843,17 +10855,19 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
     );
     let velocity = Velocity2::new(
         Inches::from_f64(clean_small_f64(
-            solved.tangent_speed * tangent_x + solved.normal_speed_toward_cushion * inward_normal_x,
+            solved.tangent_speed * solver_tangent_x
+                + solved.normal_speed_toward_cushion * inward_normal_x,
         )),
         Inches::from_f64(clean_small_f64(
-            solved.tangent_speed * tangent_y + solved.normal_speed_toward_cushion * inward_normal_y,
+            solved.tangent_speed * solver_tangent_y
+                + solved.normal_speed_toward_cushion * inward_normal_y,
         )),
     );
     let (geom_delta_wx, geom_delta_wy) = tp73_geometric_vertical_plane_spin_delta(
         normal_x,
         normal_y,
-        tangent_x,
-        tangent_y,
+        solver_tangent_x,
+        solver_tangent_y,
         ball_radius,
         normal_restitution,
         effective_contact_height_ratio,
@@ -10862,10 +10876,10 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
     let outgoing_wz = state_ref.angular_velocity.z().as_f64()
         + rail_running_english_generation_scale(state_ref, ball_radius)
             * (solved.angular_vertical - state_ref.angular_velocity.z().as_f64());
-    let mut outgoing_wx = solved.angular_tangent * tangent_x
+    let mut outgoing_wx = solved.angular_tangent * solver_tangent_x
         + solved.angular_normal_toward_cushion * inward_normal_x
         + geom_delta_wx;
-    let mut outgoing_wy = solved.angular_tangent * tangent_y
+    let mut outgoing_wy = solved.angular_tangent * solver_tangent_y
         + solved.angular_normal_toward_cushion * inward_normal_y
         + geom_delta_wy;
     // The rolling-settle heuristics were introduced for ordinary rolling-style rail entries. If
@@ -10876,8 +10890,8 @@ fn spin_aware_ball_cushion_collision_on_table_from_basis(
         state_ref,
         normal_x,
         normal_y,
-        tangent_x,
-        tangent_y,
+        solver_tangent_x,
+        solver_tangent_y,
         ball_radius,
     );
     let rolling_rebound_blend = rail_rebound_horizontal_spin_blend(state_ref, ball_radius);

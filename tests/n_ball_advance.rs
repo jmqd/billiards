@@ -39,6 +39,16 @@ fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
 }
 
+fn translational_energy_units(states: &[OnTableBallState]) -> f64 {
+    states
+        .iter()
+        .map(|state| {
+            let velocity = &state.as_ball_state().velocity;
+            velocity.x().as_f64().powi(2) + velocity.y().as_f64().powi(2)
+        })
+        .sum()
+}
+
 #[test]
 fn advancing_to_a_motion_transition_advances_all_n_balls_to_that_time() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
@@ -456,7 +466,10 @@ fn advancing_shared_simultaneous_contacts_transfers_motion_into_the_cluster() {
             assert_close(time_until_contact.as_f64(), 1.0);
             assert_eq!(ball_indices, vec![0, 1, 2]);
             assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
-            assert_eq!(resolution.as_str(), "iterative_pairwise_approximation");
+            assert_eq!(
+                resolution.as_str(),
+                "coupled_ideal_or_iterative_pairwise_approximation"
+            );
         }
         other => panic!("expected shared contact, got {other:?}"),
     }
@@ -478,6 +491,7 @@ fn advancing_shared_simultaneous_contacts_transfers_motion_into_the_cluster() {
     assert_close(left.velocity.x().as_f64(), -right.velocity.x().as_f64());
     assert_close(left.velocity.y().as_f64(), right.velocity.y().as_f64());
     assert_close(left.speed().as_f64(), right.speed().as_f64());
+    assert_close(translational_energy_units(&advanced.states), 25.0);
 }
 
 #[test]

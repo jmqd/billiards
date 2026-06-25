@@ -304,6 +304,54 @@ fn adding_a_dotted_aim_line_to_a_pocket_matches_a_manually_computed_ghost_ball_o
 }
 
 #[test]
+fn adding_a_speed_aware_dotted_aim_line_to_a_pocket_uses_the_effective_target_center() {
+    let table_spec = TableSpec::default();
+    let object_ball = Ball {
+        ty: BallType::Eight,
+        position: Position::new(2u8, 5u8),
+        spec: BallSpec::default(),
+    };
+    let shooting_position = Position::new(1u8, 5u8)
+        .translate_inches(TYPICAL_BALL_RADIUS.clone(), Angle::from_north(1.0, 0.0));
+    let speed = InchesPerSecond::new("120");
+    let color = image::Rgba([0, 0, 0, 255]);
+
+    let mut manual = GameState::new(table_spec.clone());
+    let mut resolved_shooting_position = shooting_position.clone();
+    resolved_shooting_position.resolve_shifts(&table_spec);
+    let ghost_ball = object_ball.ghost_ball_to_pocket_with_speed(
+        Pocket::CenterRight,
+        speed.clone(),
+        &table_spec,
+    );
+    manual.add_ghost_ball(&ghost_ball, ghost_fill_color(), ghost_outline_color());
+    let (clipped_start, clipped_end) =
+        clip_to_ball_edges(&table_spec, &resolved_shooting_position, &ghost_ball);
+    manual.add_dotted_line(&clipped_start, &clipped_end, color);
+
+    let mut helper = GameState::new(table_spec.clone());
+    let helper_ghost_ball = helper.add_dotted_aim_line_to_pocket_with_speed(
+        &object_ball,
+        Pocket::CenterRight,
+        &shooting_position,
+        speed,
+        color,
+    );
+
+    let mut slow_default = GameState::new(table_spec);
+    let slow_default_ghost_ball = slow_default.add_dotted_aim_line_to_pocket(
+        &object_ball,
+        Pocket::CenterRight,
+        &shooting_position,
+        color,
+    );
+
+    assert_eq!(helper_ghost_ball, ghost_ball);
+    assert_ne!(slow_default_ghost_ball, ghost_ball);
+    assert_eq!(render(&helper), render(&manual));
+}
+
+#[test]
 fn adding_a_ghost_ball_renders_a_ball_sized_overlay_centered_on_the_requested_position() {
     let empty = render(&GameState::default());
     let mut ghosted = GameState::new(TableSpec::default());

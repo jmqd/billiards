@@ -5464,6 +5464,107 @@ fn pocket_target_bounds_in_inches(
     )
 }
 
+fn position_xy_inches(position: &Position, table: &TableSpec) -> (f64, f64) {
+    let mut position = position.clone();
+    position.resolve_shifts(table);
+
+    (
+        table.diamond_to_inches(position.x).as_f64(),
+        table.diamond_to_inches(position.y).as_f64(),
+    )
+}
+
+fn position_from_xy_inches(x: f64, y: f64, table: &TableSpec) -> Position {
+    Position::new(
+        table.inches_to_diamond(Inches::from_f64(x)),
+        table.inches_to_diamond(Inches::from_f64(y)),
+    )
+}
+
+fn pocket_target_center_from_signed_entry_angle_in_inches(
+    pocket: Pocket,
+    signed_entry_angle_degrees: f64,
+    speed: f64,
+    ball_radius: f64,
+    table: &TableSpec,
+) -> (f64, f64) {
+    let (left_bound, right_bound) = pocket_target_bounds_in_inches(
+        pocket,
+        signed_entry_angle_degrees,
+        speed,
+        ball_radius,
+        table,
+    );
+    let lateral_offset = 0.5 * (left_bound - right_bound);
+    let (entry_x, entry_y) = pocket_entry_axis(pocket);
+    let tangent_x = -entry_y;
+    let tangent_y = entry_x;
+    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+
+    (
+        pocket_x + lateral_offset * tangent_x,
+        pocket_y + lateral_offset * tangent_y,
+    )
+}
+
+fn signed_pocket_entry_angle_from_object_to_target_degrees(
+    object_x: f64,
+    object_y: f64,
+    target_x: f64,
+    target_y: f64,
+    pocket: Pocket,
+) -> Option<f64> {
+    let dx = target_x - object_x;
+    let dy = target_y - object_y;
+    if dx.hypot(dy) <= f64::EPSILON {
+        return None;
+    }
+
+    let (entry_x, entry_y) = pocket_entry_axis(pocket);
+    let tangent_x = -entry_y;
+    let tangent_y = entry_x;
+    let aligned = dx * entry_x + dy * entry_y;
+    let sideways = dx * tangent_x + dy * tangent_y;
+
+    Some(sideways.atan2(aligned).to_degrees())
+}
+
+fn pocket_target_center_for_object_in_inches(
+    object_position: &Position,
+    pocket: Pocket,
+    speed: f64,
+    ball_radius: f64,
+    table: &TableSpec,
+) -> (f64, f64) {
+    let (object_x, object_y) = position_xy_inches(object_position, table);
+    let (mut target_x, mut target_y) = pocket_center_in_inches(pocket, table);
+
+    for _ in 0..8 {
+        let signed_entry_angle = signed_pocket_entry_angle_from_object_to_target_degrees(
+            object_x, object_y, target_x, target_y, pocket,
+        )
+        .unwrap_or(0.0);
+        let (next_x, next_y) = pocket_target_center_from_signed_entry_angle_in_inches(
+            pocket,
+            signed_entry_angle,
+            speed,
+            ball_radius,
+            table,
+        );
+
+        if (next_x - target_x).hypot(next_y - target_y) <= 1e-9 {
+            target_x = next_x;
+            target_y = next_y;
+            break;
+        }
+
+        target_x = next_x;
+        target_y = next_y;
+    }
+
+    (target_x, target_y)
+}
+
 const CORNER_POCKET_CAPTURE_RADIUS_SCALE: f64 = 1.08;
 const SIDE_POCKET_WALL_ANGLE_DEGREES: f64 = 14.0;
 const CORNER_POCKET_WALL_ANGLE_DEGREES: f64 = 7.0;
@@ -5873,6 +5974,36 @@ mod pocket_mouth_tests {
             AngularVelocity3::zero(),
         ))
         .expect("test state should stay on table")
+    }
+
+    #[test]
+    fn pocket_target_center_uses_the_midpoint_of_the_signed_effective_target() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let pocket = Pocket::CenterRight;
+        let signed_angle = 30.0;
+        let speed = 30.0;
+        let (left_bound, right_bound) =
+            pocket_target_bounds_in_inches(pocket, signed_angle, speed, radius, &table);
+        let (target_x, target_y) = pocket_target_center_from_signed_entry_angle_in_inches(
+            pocket,
+            signed_angle,
+            speed,
+            radius,
+            &table,
+        );
+        let (entry_x, entry_y) = pocket_entry_axis(pocket);
+        let tangent_x = -entry_y;
+        let tangent_y = entry_x;
+        let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, &table);
+        let lateral_offset = (target_x - pocket_x) * tangent_x + (target_y - pocket_y) * tangent_y;
+        let (straight_x, straight_y) = pocket_target_center_from_signed_entry_angle_in_inches(
+            pocket, 0.0, speed, radius, &table,
+        );
+
+        assert!((lateral_offset - 0.5 * (left_bound - right_bound)).abs() < 1e-12);
+        assert!((straight_x - pocket_x).abs() < 1e-12);
+        assert!((straight_y - pocket_y).abs() < 1e-12);
     }
 
     #[test]
@@ -12054,7 +12185,41 @@ impl Ball {
 
     /// Compute the idealized ghost-ball center for potting this object ball to a pocket.
     pub fn ghost_ball_to_pocket(&self, pocket: Pocket, table_spec: &TableSpec) -> Position {
-        self.ghost_ball(&pocket.aiming_center(), table_spec)
+        self.ghost_ball_to_pocket_with_speed(pocket, InchesPerSecond::zero(), table_spec)
+    }
+
+    /// Compute the TP 3.5-3.8 effective target center for potting this object ball to a pocket.
+    ///
+    /// The target center is the midpoint of the asymmetric pocket target interval for the
+    /// object-ball entry angle and speed. It reduces to the geometric pocket center for symmetric
+    /// straight entries.
+    pub fn pocket_target_center(
+        &self,
+        pocket: Pocket,
+        object_ball_speed: InchesPerSecond,
+        table_spec: &TableSpec,
+    ) -> Position {
+        let (target_x, target_y) = pocket_target_center_for_object_in_inches(
+            &self.position,
+            pocket,
+            object_ball_speed.as_f64(),
+            self.spec.radius.as_f64(),
+            table_spec,
+        );
+
+        position_from_xy_inches(target_x, target_y, table_spec)
+    }
+
+    /// Compute the idealized ghost-ball center for potting this object ball to a pocket at the
+    /// supplied object-ball entry speed.
+    pub fn ghost_ball_to_pocket_with_speed(
+        &self,
+        pocket: Pocket,
+        object_ball_speed: InchesPerSecond,
+        table_spec: &TableSpec,
+    ) -> Position {
+        let target_center = self.pocket_target_center(pocket, object_ball_speed, table_spec);
+        self.ghost_ball(&target_center, table_spec)
     }
 
     /// Compute the idealized aim angle from `shooting_position` to the ghost-ball target that
@@ -12077,7 +12242,25 @@ impl Ball {
         shooting_position: &Position,
         table_spec: &TableSpec,
     ) -> Angle {
-        self.aim_angle(&pocket.aiming_center(), shooting_position, table_spec)
+        self.aim_angle_to_pocket_with_speed(
+            pocket,
+            shooting_position,
+            InchesPerSecond::zero(),
+            table_spec,
+        )
+    }
+
+    /// Compute the idealized aim angle from `shooting_position` for potting this object ball to
+    /// the effective target center of `pocket` at the supplied object-ball entry speed.
+    pub fn aim_angle_to_pocket_with_speed(
+        &self,
+        pocket: Pocket,
+        shooting_position: &Position,
+        object_ball_speed: InchesPerSecond,
+        table_spec: &TableSpec,
+    ) -> Angle {
+        let target_center = self.pocket_target_center(pocket, object_ball_speed, table_spec);
+        self.aim_angle(&target_center, shooting_position, table_spec)
     }
 }
 
@@ -12931,10 +13114,11 @@ impl GameState {
         shooting_position: &Position,
         color: Rgba<u8>,
     ) -> Position {
-        self.add_dotted_aim_line_to_pocket_styled(
+        self.add_dotted_aim_line_to_pocket_with_speed_styled(
             object_ball,
             pocket,
             shooting_position,
+            InchesPerSecond::zero(),
             &AimOverlayStyle::new(color),
         )
     }
@@ -12946,12 +13130,43 @@ impl GameState {
         shooting_position: &Position,
         style: &AimOverlayStyle,
     ) -> Position {
-        self.add_dotted_aim_line_styled(
+        self.add_dotted_aim_line_to_pocket_with_speed_styled(
             object_ball,
-            &pocket.aiming_center(),
+            pocket,
             shooting_position,
+            InchesPerSecond::zero(),
             style,
         )
+    }
+
+    pub fn add_dotted_aim_line_to_pocket_with_speed(
+        &mut self,
+        object_ball: &Ball,
+        pocket: Pocket,
+        shooting_position: &Position,
+        object_ball_speed: InchesPerSecond,
+        color: Rgba<u8>,
+    ) -> Position {
+        self.add_dotted_aim_line_to_pocket_with_speed_styled(
+            object_ball,
+            pocket,
+            shooting_position,
+            object_ball_speed,
+            &AimOverlayStyle::new(color),
+        )
+    }
+
+    pub fn add_dotted_aim_line_to_pocket_with_speed_styled(
+        &mut self,
+        object_ball: &Ball,
+        pocket: Pocket,
+        shooting_position: &Position,
+        object_ball_speed: InchesPerSecond,
+        style: &AimOverlayStyle,
+    ) -> Position {
+        let target_center =
+            object_ball.pocket_target_center(pocket, object_ball_speed, &self.table_spec);
+        self.add_dotted_aim_line_styled(object_ball, &target_center, shooting_position, style)
     }
 
     /// Draws a 2D diagram of the current `GameState` and returns encoded PNG bytes.

@@ -580,6 +580,51 @@ fn a_rolling_entry_with_carried_side_spin_scrubs_some_of_that_spin_at_the_rail()
 }
 
 #[test]
+fn mathavan_high_left_sidespin_near_normal_can_rebound_same_side_and_faster_than_incident() {
+    let radius = Inches::from_f64(26.25 / 25.4);
+    let radius_value = radius.as_f64();
+    let incident_speed = 39.370_078_740_157_48; // 1 m/s.
+    let alpha = 88.0_f64.to_radians();
+    let tangent_speed = incident_speed * alpha.cos();
+    let normal_speed = incident_speed * alpha.sin();
+    let side_spin_scale = -5.0;
+    let state = rail_state_from_local_frame(
+        Rail::Top,
+        tangent_speed,
+        normal_speed,
+        -normal_speed / radius_value,
+        tangent_speed / radius_value,
+        side_spin_scale * incident_speed / radius_value,
+    );
+    let mathavan_config = RailCollisionConfig::new(Scale::from_f64(0.98), Scale::from_f64(0.14))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.212))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+
+    // Mathavan/Jackson/Parkin Fig. 10 uses omega_0S = k V0/R, V0 = 1 m/s, and a
+    // rolling ball. They report that high left spin near 90 degrees can rebound
+    // faster than the incident speed and back toward the same side.
+    let reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &state,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &mathavan_config,
+    );
+    let actual = rail_local_frame_components(Rail::Top, &reflected);
+    let rebound_speed = actual[0].hypot(actual[1]);
+
+    assert!(
+        actual[0] * tangent_speed < 0.0,
+        "high left spin near normal incidence should rebound toward the same side; incoming tangent={tangent_speed}, outgoing tangent={}",
+        actual[0]
+    );
+    assert!(
+        rebound_speed > incident_speed,
+        "high side spin can transfer rotational energy into rebound speed; incident={incident_speed}, rebound={rebound_speed}"
+    );
+}
+
+#[test]
 fn a_rolling_low_english_entry_leaves_the_rail_with_bounded_horizontal_cloth_slip() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();

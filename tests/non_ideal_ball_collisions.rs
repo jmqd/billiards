@@ -92,6 +92,28 @@ fn velocity_component_for_test(state: &OnTableBallState, basis_x: f64, basis_y: 
         + state.as_ball_state().velocity.y().as_f64() * basis_y
 }
 
+fn contact_slip_components_for_test(a: &OnTableBallState, b: &OnTableBallState) -> (f64, f64) {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let (normal_x, normal_y, tangent_x, tangent_y) = collision_basis_for_test(a, b);
+    let a_state = a.as_ball_state();
+    let b_state = b.as_ball_state();
+    let tangential_contact_slip = velocity_component_for_test(a, tangent_x, tangent_y)
+        - velocity_component_for_test(b, tangent_x, tangent_y)
+        - radius * (a_state.angular_velocity.z().as_f64() + b_state.angular_velocity.z().as_f64());
+    let vertical_contact_slip = radius
+        * (normal_y
+            * (a_state.angular_velocity.x().as_f64() + b_state.angular_velocity.x().as_f64())
+            - normal_x
+                * (a_state.angular_velocity.y().as_f64() + b_state.angular_velocity.y().as_f64()));
+
+    (tangential_contact_slip, vertical_contact_slip)
+}
+
+fn contact_slip_speed_for_test(a: &OnTableBallState, b: &OnTableBallState) -> f64 {
+    let (tangential, vertical) = contact_slip_components_for_test(a, b);
+    tangential.hypot(vertical)
+}
+
 fn cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> OnTableBallState {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let radians = cut_angle_degrees.to_radians();
@@ -152,6 +174,72 @@ fn expected_spin_seed_for_north_shot(
     let angular_y = wy - (5.0 / (2.0 * radius)) * phi_radians.sin() * vertical_impulse_per_mass;
 
     (velocity_x, velocity_y, angular_x, angular_y)
+}
+
+#[test]
+fn throw_aware_low_friction_reduces_contact_slip_without_reversal() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
+        Velocity2::new("0", "20"),
+        AngularVelocity3::new(-3.0, 1.0, -4.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let initial_slip = contact_slip_components_for_test(&cue_ball, &object_ball);
+    let initial_slip_speed = initial_slip.0.hypot(initial_slip.1);
+
+    assert!(initial_slip_speed > 1.0);
+
+    // Peskin Eq. (3) defines the contact-slip vector; TP A.24 Eq. (15) caps the
+    // friction impulse at the smaller of the Coulomb limit and the 1/7 no-slip impulse.
+    let low_friction = BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.02));
+    let low_outcome = collide_ball_ball_detailed_on_table_with_config(
+        &cue_ball,
+        &object_ball,
+        CollisionModel::ThrowAware,
+        &low_friction,
+    );
+    let low_after_slip =
+        contact_slip_components_for_test(&low_outcome.a_after, &low_outcome.b_after);
+    let low_after_slip_speed = low_after_slip.0.hypot(low_after_slip.1);
+    let low_after_dot_initial =
+        low_after_slip.0 * initial_slip.0 + low_after_slip.1 * initial_slip.1;
+
+    assert!(
+        low_after_slip_speed < initial_slip_speed,
+        "low friction should reduce contact slip; before={initial_slip_speed}, after={low_after_slip_speed}"
+    );
+    assert!(
+        low_after_dot_initial > 0.0,
+        "low friction should not reverse the contact-slip vector; before={initial_slip:?}, after={low_after_slip:?}"
+    );
+}
+
+#[test]
+#[ignore = "current on-table 2D state model leaves a vertical slip residual because vertical center-of-mass impulse is outside CollisionOutcome"]
+fn peskin_high_friction_no_slip_cap_zeroes_full_contact_slip() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let speed = 52.8;
+    let cut = 30.0_f64.to_radians();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-2.0 * radius * cut.sin(), -2.0 * radius * cut.cos()),
+        Velocity2::new(Inches::zero(), Inches::from_f64(speed)),
+        AngularVelocity3::new(-speed / radius, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let high_friction = BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(1.0));
+
+    // Peskin requires S(t) not to cross below zero; once S reaches zero, static friction
+    // governs. TP A.24's Eq. (15) encodes the same equal-sphere no-slip limit as a 1/7 cap.
+    let outcome = collide_ball_ball_detailed_on_table_with_config(
+        &cue_ball,
+        &object_ball,
+        CollisionModel::ThrowAware,
+        &high_friction,
+    );
+    let after_slip = contact_slip_speed_for_test(&outcome.a_after, &outcome.b_after);
+
+    assert_near(after_slip, 0.0, 1e-9);
 }
 
 #[test]

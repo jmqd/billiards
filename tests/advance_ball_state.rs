@@ -551,6 +551,58 @@ fn advancing_a_rolling_ball_with_vertical_spin_no_longer_curls_once_it_is_in_pur
 }
 
 #[test]
+fn cross_near_vertical_axis_relation_holds_for_rolling_translation_with_residual_z_spin() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = on_table(rolling_with_vertical_spin_state());
+    let config = motion_config();
+    let dt = Seconds::new(1.0);
+    let transition =
+        compute_next_transition_on_table(&state, &BallSetPhysicsSpec::default(), &config)
+            .expect("rolling ball with residual z spin should predict a later transition");
+
+    assert_eq!(
+        state.as_ball_state().motion_phase(radius.clone()),
+        MotionPhase::Rolling
+    );
+    assert_close(
+        state
+            .as_ball_state()
+            .cloth_contact_speed(radius.clone())
+            .as_f64(),
+        0.0,
+    );
+    assert!(
+        dt.as_f64() < transition.time_until_transition.as_f64(),
+        "test advances within the rolling phase, before the model's rest/spinning boundary"
+    );
+
+    let advanced = advance_ball_state(
+        state.as_ball_state(),
+        dt,
+        &BallSetPhysicsSpec::default(),
+        &config,
+    );
+
+    // Cross, `whitepapers/rolling_motion_of_a_ball_spinning_about_a_near_vertical_axis.pdf`:
+    // corpus lines 42593-42597 define rolling by v = Rw and a resting cloth contact point;
+    // lines 42631-42638 and 42776-42778 give cos(theta) = r/R = v/(wR).
+    assert_eq!(advanced.motion_phase(radius.clone()), MotionPhase::Rolling);
+    assert_close(advanced.cloth_contact_speed(radius.clone()).as_f64(), 0.0);
+
+    let radius = radius.as_f64();
+    let speed = advanced.speed().as_f64();
+    let wx = advanced.angular_velocity.x().as_f64();
+    let wy = advanced.angular_velocity.y().as_f64();
+    let wz = advanced.angular_velocity.z().as_f64();
+    let horizontal_spin = wx.hypot(wy);
+    let total_spin = horizontal_spin.hypot(wz);
+    let implied_theta = (wz.abs() / total_spin).asin();
+
+    assert_close_with_tolerance(horizontal_spin, speed / radius, 1e-12);
+    assert_close_with_tolerance(implied_theta.cos(), speed / (total_spin * radius), 1e-12);
+}
+
+#[test]
 fn the_curve_estimate_reports_tp_b2_rolling_side_spin_turn() {
     let state = on_table(rolling_with_small_vertical_spin_state());
     let curve = estimate_post_contact_cue_ball_curve_on_table(

@@ -338,6 +338,33 @@ fn cue_squirt_matches_tp_b1_real_cue_examples() {
 }
 
 #[test]
+fn tp_a31_squirt_model_intentionally_differs_from_shepard_table_i() {
+    let ball_radius = Inches::from_f64(2.25 / 2.0);
+    let tip_offset = Inches::from_f64(ball_radius.as_f64() * 3.0 / 8.0);
+
+    // TP A.31 / TP B.1 explicitly uses a different `b` convention than Shepard. Table I is a
+    // useful comparison, but it is not the oracle for this helper's contract.
+    for (endmass_ratio, expected_tp_a31_squirt_degrees, shepard_table_i_squirt_degrees) in [
+        (20.0, 2.150104931702617, 2.331),
+        (30.0, 1.5018367423454364, 1.588),
+        (50.0, 0.9368198000602023, 0.970),
+        (100.0, 0.48273894428091646, 0.491),
+    ] {
+        let squirt = cue_squirt_angle_degrees_from_endmass_ratio(
+            tip_offset.clone(),
+            Scale::from_f64(endmass_ratio),
+            ball_radius.clone(),
+        );
+
+        assert_close(squirt, expected_tp_a31_squirt_degrees);
+        assert!(
+            (squirt - shepard_table_i_squirt_degrees).abs() > 0.005,
+            "Shepard Table I uses a different convention and should not silently become this helper's oracle"
+        );
+    }
+}
+
+#[test]
 fn cue_pivot_helpers_match_tp_b1_real_cue_examples() {
     let ball_radius = Inches::from_f64(2.25 / 2.0);
     let dime_tip_radius = Inches::from_f64(0.705 / 2.0);

@@ -1,8 +1,10 @@
 use billiards::dsl::parse_dsl_to_scenario;
 use billiards::{
-    human_tuned_preview_motion_config, BallBallCollisionConfig, BallSetPhysicsSpec, CollisionModel,
-    Diamond, NBallSystemEvent, Rail, RailCollisionProfile, RailModel, TableSpec,
-    TYPICAL_BALL_RADIUS,
+    advance_motion_on_table, collide_ball_rail_on_table_with_radius_and_profile,
+    compute_next_transition_on_table, human_tuned_preview_motion_config, AngularVelocity3,
+    BallBallCollisionConfig, BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches,
+    Inches2, MotionPhase, NBallSystemEvent, OnTableBallState, Rail, RailCollisionProfile,
+    RailModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 const DR_DAVE_TP_B6_RAIL_REBOUND_SPEED_RATIO: f64 = 0.7;
@@ -179,4 +181,36 @@ fn human_tuned_spin_aware_rails_match_the_adjusted_rolling_lag_benchmark() {
         rolling_lag_reaches_second_cushion(target_speed + 0.25),
         "a rolling lag 0.25 ips above the adjusted TP B.6 target should reach the second cushion"
     );
+}
+
+#[test]
+fn human_tuned_spin_aware_rail_brakes_a_head_on_rolling_entry_to_about_half_speed() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    let incident_speed = 52.8;
+    let rolling_entry = OnTableBallState::try_from(BallState::on_table(
+        Inches2::new("48", "90"),
+        Velocity2::new(Inches::zero(), Inches::from_f64(incident_speed)),
+        AngularVelocity3::new(-incident_speed / radius_value, 0.0, 0.0),
+    ))
+    .expect("rolling rail-entry state should validate");
+    let ball = BallSetPhysicsSpec::default();
+    let motion = human_tuned_preview_motion_config();
+
+    let rebound = collide_ball_rail_on_table_with_radius_and_profile(
+        &rolling_entry,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &RailCollisionProfile::human_tuned(),
+    );
+    let transition = compute_next_transition_on_table(&rebound, &ball, &motion)
+        .expect("post-rail skid should settle back to roll");
+    let settled =
+        advance_motion_on_table(&rebound, transition.time_until_transition, &ball, &motion);
+    let settled_speed_ratio = settled.state.speed().as_f64() / incident_speed;
+
+    assert_eq!(transition.phase_before, MotionPhase::Sliding);
+    assert_eq!(transition.phase_after, MotionPhase::Rolling);
+    assert_close(settled_speed_ratio, 0.5, 0.04);
 }

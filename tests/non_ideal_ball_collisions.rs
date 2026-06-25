@@ -1,5 +1,5 @@
 use billiards::{
-    advance_motion_on_table, collide_ball_ball_analyzed_on_table,
+    advance_motion_on_table, cloth_contact_velocity_on_table, collide_ball_ball_analyzed_on_table,
     collide_ball_ball_detailed_on_table, collide_ball_ball_detailed_on_table_with_config,
     collide_ball_ball_detailed_on_table_with_radius_and_config, collide_ball_ball_on_table,
     compute_next_transition_on_table, estimate_post_contact_cue_ball_bend_on_table,
@@ -114,6 +114,33 @@ fn contact_slip_speed_for_test(a: &OnTableBallState, b: &OnTableBallState) -> f6
     tangential.hypot(vertical)
 }
 
+fn assert_domenech_sliding_to_rolling_relation(name: &str, state: &OnTableBallState) {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let ball = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let state_before = state.as_ball_state();
+    let cloth_slip = cloth_contact_velocity_on_table(state_before, radius.clone());
+
+    assert!(
+        cloth_slip.speed().as_f64() > 1e-9,
+        "{name} should still be sliding immediately after collision"
+    );
+
+    let expected_vx = state_before.velocity.x().as_f64() - (2.0 / 7.0) * cloth_slip.x().as_f64();
+    let expected_vy = state_before.velocity.y().as_f64() - (2.0 / 7.0) * cloth_slip.y().as_f64();
+    let transition = compute_next_transition_on_table(state, &ball, &motion)
+        .expect("post-collision sliding ball should reach natural roll");
+    let settled = advance_motion_on_table(state, transition.time_until_transition, &ball, &motion);
+    let settled_slip = cloth_contact_velocity_on_table(&settled.state, radius);
+
+    assert_eq!(transition.phase_before, MotionPhase::Sliding, "{name}");
+    assert_eq!(transition.phase_after, MotionPhase::Rolling, "{name}");
+    assert_near(settled.state.velocity.x().as_f64(), expected_vx, 1e-9);
+    assert_near(settled.state.velocity.y().as_f64(), expected_vy, 1e-9);
+    assert_near(settled_slip.x().as_f64(), 0.0, 1e-9);
+    assert_near(settled_slip.y().as_f64(), 0.0, 1e-9);
+}
+
 fn cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> OnTableBallState {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let radians = cut_angle_degrees.to_radians();
@@ -174,6 +201,34 @@ fn expected_spin_seed_for_north_shot(
     let angular_y = wy - (5.0 / (2.0 * radius)) * phi_radians.sin() * vertical_impulse_per_mass;
 
     (velocity_x, velocity_y, angular_x, angular_y)
+}
+
+#[test]
+fn domenech_post_collision_transition_matches_eq_14_15_for_both_balls() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let speed = InchesPerSecond::from_mph(3.0).as_f64();
+    let cut_angle_radians = 30.0_f64.to_radians();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(
+            -2.0 * radius * cut_angle_radians.sin(),
+            -2.0 * radius * cut_angle_radians.cos(),
+        ),
+        Velocity2::new(Inches::zero(), Inches::from_f64(speed)),
+        AngularVelocity3::new(-speed / radius, 0.35 * speed / radius, -3.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let initial_slip = contact_slip_components_for_test(&cue_ball, &object_ball);
+
+    assert!(
+        initial_slip.1.abs() > 1.0,
+        "fixture should exercise Domenech's vertical ball-ball contact slip term; got {initial_slip:?}"
+    );
+
+    let outcome =
+        collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+
+    assert_domenech_sliding_to_rolling_relation("cue ball", &outcome.a_after);
+    assert_domenech_sliding_to_rolling_relation("object ball", &outcome.b_after);
 }
 
 #[test]

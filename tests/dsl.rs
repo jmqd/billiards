@@ -1043,6 +1043,19 @@ fn shot_scenarios_still_build_plain_game_state_views() {
 }
 
 #[test]
+fn scenario_trace_can_limit_rendered_simulation_events() {
+    let scenario = parse_dsl_to_scenario(
+        "trace(max_events: 8)\n\
+         ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(0deg).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+
+    assert_eq!(scenario.trace_max_events, Some(8));
+}
+
+#[test]
 fn rejects_elevated_cue_and_airborne_shot_methods_until_the_engine_models_them() {
     for unsupported_method in ["elevation(15deg)", "jump()", "masse(30deg)"] {
         assert_parse_error(&format!(

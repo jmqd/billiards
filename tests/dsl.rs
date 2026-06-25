@@ -967,6 +967,17 @@ fn shot_scenarios_still_build_plain_game_state_views() {
 }
 
 #[test]
+fn rejects_elevated_cue_and_airborne_shot_methods_until_the_engine_models_them() {
+    for unsupported_method in ["elevation(15deg)", "jump()", "masse(30deg)"] {
+        assert_parse_error(&format!(
+            "ball cue at center\n\
+             cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+             shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).{unsupported_method}.using(default)\n"
+        ));
+    }
+}
+
+#[test]
 fn rejects_a_shot_that_uses_an_unknown_cue_strike() {
     let err = parse_dsl_to_scenario(
         "ball cue at center\n\

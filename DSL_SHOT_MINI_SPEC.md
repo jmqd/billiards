@@ -16,7 +16,8 @@ This slice supports:
 - lowering to validated physics-domain types and scenario helpers
 
 It still does **not** add shot sugar like `.follow(...)` / `.draw(...)`, bank-intent methods like
-`.bank(...)`, or multi-shot scripts.
+`.bank(...)`, cue-elevation or airborne shot methods like `.elevation(...)`, `.jump(...)`, or
+`.masse(...)`, cue-elevation-driven swerve, or multi-shot scripts.
 
 ## Canonical syntax
 
@@ -185,6 +186,8 @@ Current v1 restriction:
 
 - only `shot(cue)` is supported
 - at most one `shot(...)` statement may appear in a document
+- cue elevation, jump shots, massé shots, and cue-elevation-driven swerve are not represented yet;
+  all parsed shots lower to the horizontal on-table cue-strike model
 
 ## Units and shot-speed aliases
 

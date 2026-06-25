@@ -350,6 +350,39 @@ fn excessive_tip_offset_reports_a_miscue_before_other_strike_failures() {
 }
 
 #[test]
+fn default_miscue_limit_accepts_the_tp_a22_half_radius_boundary() {
+    let ball = BallSetPhysicsSpec::default();
+    let cue = cue_config();
+    let side_boundary = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::new(Scale::from_f64(0.5), Scale::zero()).expect("tip contact"),
+    )
+    .expect("boundary side tip shot should validate");
+    let diagonal_boundary = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::new(Scale::from_f64(0.3), Scale::from_f64(0.4)).expect("tip contact"),
+    )
+    .expect("boundary diagonal tip shot should validate");
+    let just_over_boundary = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::new(Scale::from_f64(0.5 + 1e-9), Scale::zero()).expect("tip contact"),
+    )
+    .expect("just-over-boundary side tip shot should validate");
+
+    strike_resting_ball_on_table(&resting_ball(), &side_boundary, &cue, &ball)
+        .expect("TP A.22 half-radius side offset should remain inside the miscue limit");
+    strike_resting_ball_on_table(&resting_ball(), &diagonal_boundary, &cue, &ball)
+        .expect("TP A.22 half-radius radial offset should remain inside the miscue limit");
+    let error = strike_resting_ball_on_table(&resting_ball(), &just_over_boundary, &cue, &ball)
+        .expect_err("offsets just beyond the half-radius limit should miscue");
+
+    assert!(matches!(error, ShotError::Miscue { .. }));
+}
+
+#[test]
 fn unsupported_large_tip_offset_can_still_report_no_separation_with_a_relaxed_miscue_limit() {
     let relaxed_miscue_limit = CueStrikeConfig::new_with_miscue_offset_limit(
         Scale::from_f64(1.0),

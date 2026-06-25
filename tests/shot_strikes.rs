@@ -32,6 +32,19 @@ fn cue_config() -> CueStrikeConfig {
         .expect("test strike config should validate")
 }
 
+fn cue_from_tp_a30_center_ball_cor(cue_ounces: f64, cor: f64) -> CueStrikeConfig {
+    let ball_to_cue_mass_ratio = 6.0 / cue_ounces;
+    let efficiency = ((1.0 - ball_to_cue_mass_ratio * cor).powi(2)
+        + ball_to_cue_mass_ratio * (1.0 + cor).powi(2))
+        / (1.0 + ball_to_cue_mass_ratio).powi(2);
+
+    CueStrikeConfig::new(
+        Scale::from_f64(cue_ounces / 6.0),
+        Scale::from_f64(1.0 - efficiency),
+    )
+    .expect("TP A.30 cue config should validate")
+}
+
 #[test]
 fn a_center_ball_shot_seeds_forward_speed_without_spin() {
     let struck = strike_resting_ball_on_table(
@@ -63,6 +76,41 @@ fn a_center_ball_shot_seeds_forward_speed_without_spin() {
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Sliding
     );
+}
+
+#[test]
+fn tp_a30_center_ball_tip_efficiency_and_cue_weight_benchmarks() {
+    let speed_ratio_for = |cue_ounces, cor| {
+        let cue = cue_from_tp_a30_center_ball_cor(cue_ounces, cor);
+        let cue_speed = InchesPerSecond::from_mph(15.0);
+        let shot = Shot::new(
+            Angle::from_north(0.0, 1.0),
+            cue_speed.clone(),
+            CueTipContact::center(),
+        )
+        .expect("shot should validate");
+
+        strike_resting_ball_on_table(&resting_ball(), &shot, &cue, &BallSetPhysicsSpec::default())
+            .expect("center-ball TP A.30 strike should succeed")
+            .as_ball_state()
+            .speed()
+            .as_f64()
+            / cue_speed.as_f64()
+    };
+
+    let leather = speed_ratio_for(19.0, 0.73);
+    let phenolic = speed_ratio_for(19.0, 0.87);
+    assert_close(leather, 1.3148);
+    assert_close(phenolic, 1.4212);
+    assert_close(phenolic / leather, 1.0809248554913295);
+    assert_close((phenolic / leather).powi(2), 1.1683985432189515);
+
+    let light = speed_ratio_for(17.0, 0.87);
+    let heavy = speed_ratio_for(22.0, 0.87);
+    assert_close(light, 1.3821739130434782);
+    assert_close(heavy, 1.4692857142857143);
+    assert_close(heavy / light, 1.0630252100840336);
+    assert_close((heavy / light).powi(2), 1.1300225972742038);
 }
 
 #[test]

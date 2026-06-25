@@ -2597,6 +2597,23 @@ impl CueTipContact {
     pub fn offset_radius(&self) -> Scale {
         Scale::from_f64(self.side_offset.as_f64().hypot(self.height_offset.as_f64()))
     }
+
+    /// Return the TP 2.1 minimum static cue-tip friction coefficient for no slip.
+    ///
+    /// The formula is `mu = a / sqrt(1 - a^2)` for normalized radial tip offset `a`.
+    /// At the ball rim the finite-friction requirement diverges, so this returns `None`.
+    pub fn required_static_tip_friction_for_no_slip(&self) -> Option<Scale> {
+        let offset_radius = self.offset_radius().as_f64();
+        let normal_component_squared = 1.0 - offset_radius * offset_radius;
+
+        if normal_component_squared <= 0.0 {
+            return None;
+        }
+
+        Some(Scale::from_f64(
+            offset_radius / normal_component_squared.sqrt(),
+        ))
+    }
 }
 
 /// A fully specified cue shot intent for striking a resting cue ball.

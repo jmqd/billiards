@@ -61,6 +61,52 @@ fn cue_tip_contact_accepts_center_and_preserves_radius_scaled_offsets() {
 }
 
 #[test]
+fn cue_tip_contact_reports_tp_2_1_no_slip_friction_requirement() {
+    let center = CueTipContact::center();
+    let half_radius = CueTipContact::new(Scale::from_f64(0.5), Scale::zero())
+        .expect("half-radius contact should validate");
+    let diagonal_half_radius = CueTipContact::new(Scale::from_f64(0.3), Scale::from_f64(0.4))
+        .expect("diagonal half-radius contact should validate");
+    let measured_limit = CueTipContact::new(Scale::from_f64(0.55), Scale::zero())
+        .expect("measured larger-offset contact should validate");
+    let rim = CueTipContact::new(Scale::from_f64(1.0), Scale::zero())
+        .expect("rim contact should validate");
+
+    assert_close(
+        center
+            .required_static_tip_friction_for_no_slip()
+            .expect("center hit has finite no-slip friction")
+            .as_f64(),
+        0.0,
+    );
+    assert_close(
+        half_radius
+            .required_static_tip_friction_for_no_slip()
+            .expect("half-radius hit has finite no-slip friction")
+            .as_f64(),
+        1.0 / 3.0_f64.sqrt(),
+    );
+    assert_close(
+        diagonal_half_radius
+            .required_static_tip_friction_for_no_slip()
+            .expect("diagonal half-radius hit has finite no-slip friction")
+            .as_f64(),
+        1.0 / 3.0_f64.sqrt(),
+    );
+    assert_close(
+        measured_limit
+            .required_static_tip_friction_for_no_slip()
+            .expect("measured limit has finite no-slip friction")
+            .as_f64(),
+        0.55 / (1.0_f64 - 0.55_f64.powi(2)).sqrt(),
+    );
+    assert!(
+        rim.required_static_tip_friction_for_no_slip().is_none(),
+        "TP 2.1 friction requirement diverges at the ball rim"
+    );
+}
+
+#[test]
 fn cue_tip_contact_rejects_offsets_outside_the_ball_disc() {
     let error = CueTipContact::new(Scale::from_f64(0.9), Scale::from_f64(0.9))
         .expect_err("offsets outside the unit-radius contact disc should be rejected");

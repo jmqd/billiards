@@ -1022,6 +1022,66 @@ fn head_on_backspin_transfers_forward_spin_to_the_object_ball() {
 }
 
 #[test]
+fn frontal_rolling_impact_transfers_spin_and_leaves_object_ball_sliding() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let config = BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.06));
+
+    let outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &object_ball,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &config,
+    );
+    let transferred_spin = outcome
+        .transferred_spin
+        .expect("rolling frontal impact should transfer horizontal spin");
+
+    assert_close(
+        outcome
+            .throw_angle_degrees
+            .expect("throw-aware collisions should report a throw angle"),
+        0.0,
+    );
+    assert_close(outcome.a_after.as_ball_state().velocity.y().as_f64(), 0.0);
+    assert_close(outcome.b_after.as_ball_state().velocity.y().as_f64(), 10.0);
+    assert_close(transferred_spin.x().as_f64(), 4.0 / 3.0);
+    assert_close(transferred_spin.y().as_f64(), 0.0);
+    assert_close(transferred_spin.z().as_f64(), 0.0);
+    assert_close(
+        outcome
+            .a_after
+            .as_ball_state()
+            .angular_velocity
+            .x()
+            .as_f64(),
+        -68.0 / 9.0,
+    );
+    assert_close(
+        outcome
+            .b_after
+            .as_ball_state()
+            .angular_velocity
+            .x()
+            .as_f64(),
+        4.0 / 3.0,
+    );
+    assert_eq!(
+        outcome
+            .b_after
+            .as_ball_state()
+            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Sliding
+    );
+}
+
+#[test]
 fn a_cut_shot_without_side_spin_produces_cut_induced_throw_and_transferred_spin() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

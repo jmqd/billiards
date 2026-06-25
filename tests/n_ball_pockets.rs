@@ -302,6 +302,46 @@ fn fast_rolling_top_right_corner_pocket_state(perpendicular_offset: f64) -> OnTa
     ))
 }
 
+fn fast_rolling_top_right_corner_pocket_state_at_angle(
+    angle_degrees: f64,
+    perpendicular_offset: f64,
+) -> OnTableBallState {
+    let table = TableSpec::default();
+    let pocket_center = Pocket::TopRight.aiming_center();
+    let pocket_x = table.diamond_to_inches(pocket_center.x).as_f64();
+    let pocket_y = table.diamond_to_inches(pocket_center.y).as_f64();
+    let diagonal = 0.5_f64.sqrt();
+    let entry_x = diagonal;
+    let entry_y = diagonal;
+    let tangent_x = -entry_y;
+    let tangent_y = entry_x;
+    let angle = angle_degrees.to_radians();
+    let speed = 120.0;
+    let direction_x = angle.cos() * entry_x + angle.sin() * tangent_x;
+    let direction_y = angle.cos() * entry_y + angle.sin() * tangent_y;
+    let vx = speed * direction_x;
+    let vy = speed * direction_y;
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let mouth_width = table
+        .diamond_to_inches(table.pocket_spec(Pocket::TopRight).width.clone())
+        .as_f64();
+    let corner_offset = mouth_width / 2.0_f64.sqrt();
+    let jaw_x = table.diamond_to_inches(Diamond::eight()).as_f64() - corner_offset;
+    let jaw_y = table.diamond_to_inches(Diamond::four()).as_f64();
+    let mouth_projection = entry_x * jaw_x + entry_y * jaw_y;
+    let pocket_projection = entry_x * pocket_x + entry_y * pocket_y;
+    let along_offset = mouth_projection - radius - pocket_projection;
+
+    on_table(BallState::on_table(
+        inches2(
+            pocket_x + along_offset * entry_x + perpendicular_offset * tangent_x,
+            pocket_y + along_offset * entry_y + perpendicular_offset * tangent_y,
+        ),
+        Velocity2::new(Inches::from_f64(vx), Inches::from_f64(vy)),
+        AngularVelocity3::new(-vy / radius, vx / radius, 0.0),
+    ))
+}
+
 fn slow_rolling_top_right_corner_pocket_state(perpendicular_offset: f64) -> OnTableBallState {
     slow_rolling_top_right_corner_pocket_state_at_angle(0.0, perpendicular_offset)
 }
@@ -921,6 +961,34 @@ fn a_fast_straight_corner_pocket_entry_outside_the_tp38_target_width_is_rejected
         )
         .is_none(),
         "TP 3.8's fast straight-in corner-pocket target is much narrower than the old capture circle"
+    );
+}
+
+#[test]
+fn a_fast_corner_pocket_entry_uses_tp38_signed_target_asymmetry() {
+    let table = TableSpec::default();
+    let near_point_side = fast_rolling_top_right_corner_pocket_state_at_angle(45.0, 0.70);
+    let far_wall_side = fast_rolling_top_right_corner_pocket_state_at_angle(45.0, -0.70);
+
+    assert!(
+        compute_next_ball_pocket_capture_on_table(
+            &near_point_side,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .is_none(),
+        "TP 3.8 rejects the near-point side of the signed fast-corner target"
+    );
+    assert!(
+        compute_next_ball_pocket_capture_on_table(
+            &far_wall_side,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .is_some(),
+        "TP 3.8 accepts the wider far-wall side of the signed fast-corner target"
     );
 }
 

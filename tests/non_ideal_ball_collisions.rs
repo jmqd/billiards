@@ -114,6 +114,17 @@ fn contact_slip_speed_for_test(a: &OnTableBallState, b: &OnTableBallState) -> f6
     tangential.hypot(vertical)
 }
 
+fn specific_kinetic_energy_for_test(state: &OnTableBallState, radius: f64) -> f64 {
+    let state = state.as_ball_state();
+    let vx = state.velocity.x().as_f64();
+    let vy = state.velocity.y().as_f64();
+    let wx = state.angular_velocity.x().as_f64();
+    let wy = state.angular_velocity.y().as_f64();
+    let wz = state.angular_velocity.z().as_f64();
+
+    0.5 * (vx * vx + vy * vy) + radius * radius * (wx * wx + wy * wy + wz * wz) / 5.0
+}
+
 fn assert_domenech_sliding_to_rolling_relation(name: &str, state: &OnTableBallState) {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let ball = BallSetPhysicsSpec::default();
@@ -536,6 +547,74 @@ fn moving_object_ball_throw_aware_impulses_conserve_horizontal_momentum() {
 
     assert_close(after_x, before_x);
     assert_close(after_y, before_y);
+}
+
+#[test]
+fn throw_aware_impulse_grid_does_not_create_total_kinetic_energy() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+
+    // Mathavan et al. track work through the normal impulse in a rough-surface ball-ball collision
+    // model. This reduced 2D impulse model should still stay passive: restitution and friction may
+    // move kinetic energy between translation and spin, but they must not create total kinetic
+    // energy.
+    for restitution in [1.0_f64, 0.95, 0.87] {
+        for friction in [0.0_f64, 0.06, 0.2, 1.0] {
+            let config = BallBallCollisionConfig::new(
+                Scale::from_f64(restitution),
+                Scale::from_f64(friction),
+            );
+
+            for cut_degrees in [5.0_f64, 18.0, 35.0, 52.0, 72.0] {
+                let cut_radians = cut_degrees.to_radians();
+                let cue_position = inches2(
+                    -2.0 * radius * cut_radians.sin(),
+                    -2.0 * radius * cut_radians.cos(),
+                );
+
+                for cue_speed in [18.0_f64, 52.8, 110.0] {
+                    for object_velocity in [(0.0, 0.0), (1.5, -0.25), (-2.0, 0.75)] {
+                        for spin in [
+                            AngularVelocity3::zero(),
+                            AngularVelocity3::new(-cue_speed / radius, 0.0, -6.0),
+                            AngularVelocity3::new(7.0, -3.0, 4.0),
+                        ] {
+                            let cue_ball = on_table(BallState::on_table(
+                                cue_position.clone(),
+                                Velocity2::new(Inches::zero(), Inches::from_f64(cue_speed)),
+                                spin,
+                            ));
+                            let object_ball = on_table(BallState::on_table(
+                                inches2(0.0, 0.0),
+                                Velocity2::new(
+                                    Inches::from_f64(object_velocity.0),
+                                    Inches::from_f64(object_velocity.1),
+                                ),
+                                AngularVelocity3::new(1.0, -2.0, 3.0),
+                            ));
+
+                            let before = specific_kinetic_energy_for_test(&cue_ball, radius)
+                                + specific_kinetic_energy_for_test(&object_ball, radius);
+                            let outcome =
+                                collide_ball_ball_detailed_on_table_with_radius_and_config(
+                                    &cue_ball,
+                                    &object_ball,
+                                    TYPICAL_BALL_RADIUS.clone(),
+                                    CollisionModel::ThrowAware,
+                                    &config,
+                                );
+                            let after = specific_kinetic_energy_for_test(&outcome.a_after, radius)
+                                + specific_kinetic_energy_for_test(&outcome.b_after, radius);
+
+                            assert!(
+                                after <= before + 1e-9 * before.max(1.0),
+                                "frictional collision created energy: before={before}, after={after}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]

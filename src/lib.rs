@@ -725,6 +725,24 @@ const HUMAN_TUNED_RAIL_NORMAL_RESTITUTION: f64 = 0.68;
 const HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.17;
 const HUMAN_TUNED_RAIL_IMPACT_CLOTH_FRICTION_COEFFICIENT: f64 = 0.20;
 const HUMAN_TUNED_RAIL_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.04;
+pub const MATHAVAN_RIGID_CUSHION_MAX_NORMAL_SPEED_INCHES_PER_SECOND: f64 =
+    2.5 / INCHES_PER_SECOND_TO_METERS_PER_SECOND;
+
+/// Return whether an incoming cushion-normal speed is inside the rigid-cushion calibration range
+/// reported by Mathavan, Jackson, and Parkin.
+///
+/// Their ball-cushion model assumes insignificant cushion deformation and reports the fitted
+/// rigid-cushion response as valid while the normal component of incident velocity is below
+/// `2.5 m/s`, about `98.43 in/s`. This helper is diagnostic metadata only; it does not clamp or
+/// alter `RailModel::SpinAware`.
+pub fn mathavan_rigid_cushion_contains_normal_speed(speed: &InchesPerSecond) -> bool {
+    let speed = speed.as_f64();
+    assert!(
+        speed.is_finite() && speed >= 0.0,
+        "incoming cushion-normal speed must be finite and non-negative"
+    );
+    speed <= MATHAVAN_RIGID_CUSHION_MAX_NORMAL_SPEED_INCHES_PER_SECOND
+}
 
 /// Configurable coefficients for the current ball-rail response helpers.
 ///

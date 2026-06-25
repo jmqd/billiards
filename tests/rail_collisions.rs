@@ -1,10 +1,11 @@
 use billiards::{
     cloth_contact_velocity_on_table, collide_ball_rail_on_table,
     collide_ball_rail_on_table_with_radius_and_config,
-    collide_ball_rail_on_table_with_radius_and_profile, tp73_rail_vertical_spin_prediction,
+    collide_ball_rail_on_table_with_radius_and_profile,
+    mathavan_rigid_cushion_contains_normal_speed, tp73_rail_vertical_spin_prediction,
     AngularVelocity3, BallState, Inches, Inches2, InchesPerSecond, MotionPhase, OnTableBallState,
     RadiansPerSecond, Rail, RailCollisionConfig, RailCollisionProfile, RailModel, Scale, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    MATHAVAN_RIGID_CUSHION_MAX_NORMAL_SPEED_INCHES_PER_SECOND, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -622,6 +623,25 @@ fn mathavan_high_left_sidespin_near_normal_can_rebound_same_side_and_faster_than
         rebound_speed > incident_speed,
         "high side spin can transfer rotational energy into rebound speed; incident={incident_speed}, rebound={rebound_speed}"
     );
+}
+
+#[test]
+fn mathavan_rigid_cushion_calibration_range_flags_high_normal_speeds() {
+    let one_meter_per_second = InchesPerSecond::new(Inches::from_f64(39.370_078_740_157_48));
+    let three_meters_per_second =
+        InchesPerSecond::new(Inches::from_f64(3.0 * 39.370_078_740_157_48));
+
+    assert_close_with_tolerance(
+        MATHAVAN_RIGID_CUSHION_MAX_NORMAL_SPEED_INCHES_PER_SECOND,
+        98.425_196_850_393_69,
+        1e-12,
+    );
+    assert!(mathavan_rigid_cushion_contains_normal_speed(
+        &one_meter_per_second
+    ));
+    assert!(!mathavan_rigid_cushion_contains_normal_speed(
+        &three_meters_per_second
+    ));
 }
 
 #[test]

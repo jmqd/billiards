@@ -724,6 +724,41 @@ fn tp73_vertical_spin_prediction_matches_published_examples() {
 }
 
 #[test]
+#[ignore = "current SpinAware rebounds this Mathavan calibration at about 0.904 instead of 0.818"]
+fn mathavan_calibrated_spin_aware_perpendicular_rolling_rebound_matches_effective_restitution() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let radius_value = radius.as_f64();
+    // Mathavan/Jackson/Parkin report ee = 0.98, mu_w = 0.14, table-felt sliding friction
+    // mu_s = 0.212, and an average effective rebound speed ratio of 0.818 for perpendicular,
+    // no-sidespin, rolling cushion impacts below the rigid-cushion speed limit.
+    let incident_speed = 39.370_078_740_157_48; // 1 m/s, inside Mathavan's rigid-cushion range.
+    let rolling = rail_state_from_local_frame(
+        Rail::Top,
+        0.0,
+        incident_speed,
+        -incident_speed / radius_value,
+        0.0,
+        0.0,
+    );
+    let mathavan_config = RailCollisionConfig::new(Scale::from_f64(0.98), Scale::from_f64(0.14))
+        .with_impact_cloth_friction_coefficient(Scale::from_f64(0.212))
+        .with_effective_contact_height_ratio(Scale::from_f64(0.0));
+
+    let reflected = collide_ball_rail_on_table_with_radius_and_config(
+        &rolling,
+        Rail::Top,
+        radius,
+        RailModel::SpinAware,
+        &mathavan_config,
+    );
+    let actual = rail_local_frame_components(Rail::Top, &reflected);
+    let rebound_ratio = -actual[1] / incident_speed;
+
+    assert_close_with_tolerance(actual[0], 0.0, 1e-9);
+    assert_close_with_tolerance(rebound_ratio, 0.818, 0.02);
+}
+
+#[test]
 fn a_higher_impact_cloth_friction_coefficient_reduces_post_rail_cloth_slip_for_rolling_entries() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let radius_value = radius.as_f64();

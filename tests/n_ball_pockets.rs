@@ -1246,8 +1246,8 @@ fn simulating_with_pockets_until_rest_keeps_pocketed_balls_out_of_play_and_stops
 }
 
 #[test]
-fn pocket_aware_until_rest_stops_after_shared_contact_like_rail_aware_when_pockets_are_irrelevant()
-{
+fn pocket_aware_until_rest_continues_after_shared_contact_like_rail_aware_when_pockets_are_irrelevant(
+) {
     let table = TableSpec::default();
     let ball_set = BallSetPhysicsSpec::default();
     let motion = motion_config();
@@ -1272,19 +1272,28 @@ fn pocket_aware_until_rest_stops_after_shared_contact_like_rail_aware_when_pocke
 
     assert_eq!(
         rail_aware.events.len(),
-        1,
-        "rail-aware simulation should stop after the first approximated shared contact"
-    );
-    assert_eq!(
         pocket_aware.events.len(),
-        1,
-        "pocket-aware simulation should keep the same shared-contact stop policy"
+        "pocket-aware simulation should record the same event count when pockets are irrelevant"
     );
-    assert_events_equivalent(
-        rail_aware.events.first(),
-        pocket_aware.events.first(),
-        "until-rest shared contact",
+
+    assert!(
+        rail_aware.events.len() > 1,
+        "until-rest simulation should continue after the resolved shared contact"
     );
+
+    for (index, (rail_event, pocket_event)) in rail_aware
+        .events
+        .iter()
+        .zip(&pocket_aware.events)
+        .enumerate()
+    {
+        assert_events_equivalent(
+            Some(rail_event),
+            Some(pocket_event),
+            &format!("until-rest event {index}"),
+        );
+    }
+
     assert_close(pocket_aware.elapsed.as_f64(), rail_aware.elapsed.as_f64());
     assert_eq!(
         unwrap_on_table_states(&pocket_aware.states),
@@ -1356,6 +1365,7 @@ fn cached_pocket_aware_shared_contact_matches_manual_event_stepping() {
     let mut manual_events = Vec::new();
 
     loop {
+        let previous_states = manual_states.clone();
         let advanced = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
             &manual_states,
             &ball_set,
@@ -1367,11 +1377,11 @@ fn cached_pocket_aware_shared_contact_matches_manual_event_stepping() {
         let Some(event) = advanced.event else {
             break;
         };
-        let shared_contact_event = matches!(event, NBallSystemEvent::SharedBallBallContact { .. });
-        manual_elapsed += advanced.elapsed.as_f64();
+        let step_elapsed = advanced.elapsed.as_f64();
+        manual_elapsed += step_elapsed;
         manual_states = advanced.states;
         manual_events.push(event);
-        if shared_contact_event {
+        if step_elapsed <= 1e-12 && manual_states == previous_states {
             break;
         }
     }

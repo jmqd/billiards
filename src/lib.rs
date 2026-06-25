@@ -2943,6 +2943,156 @@ impl CueStrikeConfig {
     }
 }
 
+fn validated_positive_length(value: &Inches, name: &str) -> f64 {
+    let value = value.as_f64();
+    assert!(
+        value.is_finite() && value > 0.0,
+        "{name} must be finite and positive"
+    );
+    value
+}
+
+fn validated_non_negative_length(value: &Inches, name: &str) -> f64 {
+    let value = value.as_f64();
+    assert!(
+        value.is_finite() && value >= 0.0,
+        "{name} must be finite and non-negative"
+    );
+    value
+}
+
+fn validated_tip_offset_ratio(tip_offset: &Inches, ball_radius: &Inches) -> f64 {
+    let tip_offset = validated_non_negative_length(tip_offset, "cue-tip offset");
+    let ball_radius = validated_positive_length(ball_radius, "cue-ball radius");
+    let ratio = tip_offset / ball_radius;
+    assert!(
+        ratio < 1.0,
+        "cue-tip offset must be inside the cue-ball radius, not on or outside it"
+    );
+    ratio
+}
+
+/// Return the TP A.31 / TP B.1 squirt angle magnitude in degrees for a measured tip offset.
+///
+/// `tip_offset` and `ball_radius` are physical distances, while `cue_ball_to_endmass_ratio` is the
+/// TP B.1 `m_b / m_e` endmass ratio. The returned value is an unsigned angle magnitude; callers
+/// that need table-frame direction should apply the shot-side sign convention separately.
+pub fn cue_squirt_angle_degrees_from_endmass_ratio(
+    tip_offset: Inches,
+    cue_ball_to_endmass_ratio: Scale,
+    ball_radius: Inches,
+) -> f64 {
+    let normalized_offset = validated_tip_offset_ratio(&tip_offset, &ball_radius);
+    if normalized_offset <= f64::EPSILON {
+        return 0.0;
+    }
+
+    let endmass_ratio = cue_ball_to_endmass_ratio.as_f64();
+    assert!(
+        endmass_ratio.is_finite() && endmass_ratio > 0.0,
+        "cue-ball to endmass ratio must be finite and positive"
+    );
+
+    let transverse_contact_factor = (1.0 - normalized_offset * normalized_offset).sqrt();
+    let numerator = 2.5 * normalized_offset * transverse_contact_factor;
+    let denominator =
+        1.0 + endmass_ratio + 2.5 * transverse_contact_factor * transverse_contact_factor;
+
+    (numerator / denominator).atan().to_degrees()
+}
+
+/// Infer the TP B.1 cue-ball-to-endmass ratio from a measured squirt angle and tip offset.
+pub fn cue_endmass_ratio_from_squirt(
+    tip_offset: Inches,
+    squirt_angle_degrees: f64,
+    ball_radius: Inches,
+) -> Scale {
+    let normalized_offset = validated_tip_offset_ratio(&tip_offset, &ball_radius);
+    assert!(
+        normalized_offset > f64::EPSILON,
+        "measured squirt data requires a nonzero cue-tip offset"
+    );
+    assert!(
+        squirt_angle_degrees.is_finite() && (0.0..90.0).contains(&squirt_angle_degrees),
+        "squirt angle must be finite and in the open interval (0, 90) degrees"
+    );
+
+    let transverse_contact_factor = (1.0 - normalized_offset * normalized_offset).sqrt();
+    let endmass_ratio = 2.5 * normalized_offset * transverse_contact_factor
+        / squirt_angle_degrees.to_radians().tan()
+        - 1.0
+        - 2.5 * transverse_contact_factor * transverse_contact_factor;
+    assert!(
+        endmass_ratio.is_finite() && endmass_ratio > 0.0,
+        "measured squirt data implies a non-positive cue-ball to endmass ratio"
+    );
+
+    Scale::from_f64(endmass_ratio)
+}
+
+/// Return the TP B.1 cue-tip offset implied by a bridge length and pivot angle.
+///
+/// The returned distance is the physical offset from cue-ball center. TP B.1 uses this relation
+/// for back-hand/front-hand english diagrams where a cue pivot creates a tip offset at the cue
+/// ball.
+pub fn cue_tip_offset_for_pivot_angle(
+    pivot_angle_degrees: f64,
+    bridge_length: Inches,
+    tip_radius: Inches,
+    ball_radius: Inches,
+) -> Inches {
+    assert!(
+        pivot_angle_degrees.is_finite(),
+        "pivot angle must be finite"
+    );
+    let bridge_length = validated_non_negative_length(&bridge_length, "bridge length");
+    let tip_radius = validated_non_negative_length(&tip_radius, "cue-tip radius");
+    let ball_radius = validated_positive_length(&ball_radius, "cue-ball radius");
+    let pivot_angle = pivot_angle_degrees.abs().to_radians();
+    let tip_offset = ball_radius / (ball_radius + tip_radius)
+        * (bridge_length + ball_radius)
+        * pivot_angle.sin();
+
+    Inches::from_f64(tip_offset)
+}
+
+/// Return the TP B.1 natural pivot length for a measured squirt angle, tip offset, and tip radius.
+///
+/// At this bridge length, the cue-pivot angle equals the cue's squirt angle and cancels the
+/// deflection for a straight shot in the TP B.1 model.
+pub fn cue_natural_pivot_length(
+    squirt_angle_degrees: f64,
+    tip_offset: Inches,
+    tip_radius: Inches,
+    ball_radius: Inches,
+) -> Inches {
+    assert!(
+        squirt_angle_degrees.is_finite() && squirt_angle_degrees > 0.0,
+        "squirt angle must be finite and positive"
+    );
+    let tip_offset = validated_positive_length(&tip_offset, "cue-tip offset");
+    let tip_radius = validated_non_negative_length(&tip_radius, "cue-tip radius");
+    let ball_radius = validated_positive_length(&ball_radius, "cue-ball radius");
+    assert!(
+        tip_offset < ball_radius,
+        "cue-tip offset must be inside the cue-ball radius"
+    );
+    let pivot_angle_sine = squirt_angle_degrees.to_radians().sin();
+    assert!(
+        pivot_angle_sine > 0.0,
+        "squirt angle must have a positive sine"
+    );
+
+    let pivot_length =
+        (ball_radius + tip_radius) * tip_offset / (ball_radius * pivot_angle_sine) - ball_radius;
+    assert!(
+        pivot_length.is_finite() && pivot_length >= 0.0,
+        "natural pivot length must be finite and non-negative"
+    );
+
+    Inches::from_f64(pivot_length)
+}
+
 fn validate_tip_contact_and_cue_for_strike(
     tip_contact: &CueTipContact,
     cue: &CueStrikeConfig,
@@ -3007,14 +3157,11 @@ fn cue_squirt_angle_degrees(tip_contact: &CueTipContact, cue: &CueStrikeConfig) 
         return 0.0;
     }
 
-    let transverse_contact_factor = (1.0 - normalized_offset * normalized_offset)
-        .max(0.0)
-        .sqrt();
-    let numerator = 2.5 * normalized_offset * transverse_contact_factor;
-    let denominator = 1.0
-        + cue.cue_ball_to_endmass_ratio.as_f64()
-        + 2.5 * transverse_contact_factor * transverse_contact_factor;
-    let magnitude = (numerator / denominator).atan().to_degrees();
+    let magnitude = cue_squirt_angle_degrees_from_endmass_ratio(
+        Inches::from_f64(normalized_offset),
+        cue.cue_ball_to_endmass_ratio.clone(),
+        Inches::from_f64(1.0),
+    );
 
     -side_offset.signum() * magnitude
 }
@@ -7431,6 +7578,7 @@ fn advance_n_on_table_balls_without_event(
 const SIMULTANEOUS_EVENT_TOLERANCE_SECONDS: f64 = 1e-12;
 const SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES: usize = 8;
 const SHARED_BALL_BALL_CONTACT_STATE_EPSILON: f64 = 1e-9;
+const MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS: usize = 256;
 const TP_B29_THREE_BALL_CONTACT_POSITION_EPSILON: f64 = 1e-7;
 const TP_B29_THREE_BALL_CONTACT_SPEED_EPSILON: f64 = 1e-9;
 const TP_B29_INCOMING_FINAL_SPEED_RATIO: f64 = -0.071;
@@ -7482,6 +7630,47 @@ fn simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
     }
 
     selected
+}
+
+fn zero_time_ball_ball_pair_indices_from_state_refs(
+    state_refs: &[Option<&OnTableBallState>],
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> Vec<(usize, usize)> {
+    let mut pairs = Vec::new();
+
+    for first_ball_index in 0..state_refs.len() {
+        let Some(first_state) = state_refs[first_ball_index] else {
+            continue;
+        };
+
+        for (second_ball_index, second_state) in
+            state_refs.iter().enumerate().skip(first_ball_index + 1)
+        {
+            let Some(second_state) = second_state else {
+                continue;
+            };
+            let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
+                first_state,
+                second_state,
+                ball,
+                motion,
+            ) else {
+                continue;
+            };
+            if collision.time_until_impact.as_f64() <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+                pairs.push((first_ball_index, second_ball_index));
+            }
+        }
+    }
+
+    pairs
+}
+
+fn sorted_deduped_ball_ball_pairs(mut pairs: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    pairs.sort_unstable();
+    pairs.dedup();
+    pairs
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -7794,6 +7983,45 @@ fn on_table_ball_state_collision_delta(before: &OnTableBallState, after: &OnTabl
             .abs()
 }
 
+fn n_ball_on_table_collision_delta(before: &[OnTableBallState], after: &[OnTableBallState]) -> f64 {
+    if before.len() != after.len() {
+        return f64::INFINITY;
+    }
+
+    before
+        .iter()
+        .zip(after)
+        .map(|(before, after)| on_table_ball_state_collision_delta(before, after))
+        .sum()
+}
+
+fn n_ball_system_collision_delta(before: &[NBallSystemState], after: &[NBallSystemState]) -> f64 {
+    if before.len() != after.len() {
+        return f64::INFINITY;
+    }
+
+    before
+        .iter()
+        .zip(after)
+        .map(|(before, after)| match (before, after) {
+            (NBallSystemState::OnTable(before), NBallSystemState::OnTable(after)) => {
+                on_table_ball_state_collision_delta(before, after)
+            }
+            (
+                NBallSystemState::Pocketed {
+                    pocket: before_pocket,
+                    ..
+                },
+                NBallSystemState::Pocketed {
+                    pocket: after_pocket,
+                    ..
+                },
+            ) if before_pocket == after_pocket => 0.0,
+            _ => f64::INFINITY,
+        })
+        .sum()
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct OnTableKinematicDelta {
     dvx: f64,
@@ -8035,12 +8263,23 @@ fn resolve_shared_zero_time_ball_ball_contacts_on_table(
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
 ) {
-    let mut pairs = ball_ball_pairs.to_vec();
-    pairs.sort_unstable();
-    pairs.dedup();
+    let state_refs = states_after.iter().map(Some).collect::<Vec<_>>();
+    let mut pairs = sorted_deduped_ball_ball_pairs(
+        ball_ball_pairs
+            .iter()
+            .copied()
+            .chain(zero_time_ball_ball_pair_indices_from_state_refs(
+                &state_refs,
+                ball,
+                motion,
+            ))
+            .collect(),
+    );
+    if pairs.is_empty() {
+        return;
+    }
 
     if collision_model == CollisionModel::Ideal {
-        let state_refs = states_after.iter().map(Some).collect::<Vec<_>>();
         if let Some(deltas) = coupled_ideal_shared_ball_ball_contact_deltas_from_state_refs(
             &state_refs,
             &pairs,
@@ -8063,6 +8302,18 @@ fn resolve_shared_zero_time_ball_ball_contacts_on_table(
 
     for _ in 0..SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES {
         let snapshot = states_after.to_vec();
+        let state_refs = snapshot.iter().map(Some).collect::<Vec<_>>();
+        pairs = sorted_deduped_ball_ball_pairs(
+            pairs
+                .iter()
+                .copied()
+                .chain(zero_time_ball_ball_pair_indices_from_state_refs(
+                    &state_refs,
+                    ball,
+                    motion,
+                ))
+                .collect(),
+        );
         let mut deltas = vec![OnTableKinematicDelta::default(); states_after.len()];
         let mut changed = false;
 
@@ -8118,19 +8369,30 @@ fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
 ) {
-    let mut pairs = ball_ball_pairs.to_vec();
-    pairs.sort_unstable();
-    pairs.dedup();
+    let snapshot = states_after
+        .iter()
+        .map(|state| state.as_on_table().cloned())
+        .collect::<Vec<_>>();
+    let state_refs = snapshot
+        .iter()
+        .map(|state| state.as_ref())
+        .collect::<Vec<_>>();
+    let mut pairs = sorted_deduped_ball_ball_pairs(
+        ball_ball_pairs
+            .iter()
+            .copied()
+            .chain(zero_time_ball_ball_pair_indices_from_state_refs(
+                &state_refs,
+                ball,
+                motion,
+            ))
+            .collect(),
+    );
+    if pairs.is_empty() {
+        return;
+    }
 
     if collision_model == CollisionModel::Ideal {
-        let snapshot = states_after
-            .iter()
-            .map(|state| state.as_on_table().cloned())
-            .collect::<Vec<_>>();
-        let state_refs = snapshot
-            .iter()
-            .map(|state| state.as_ref())
-            .collect::<Vec<_>>();
         if let Some(deltas) = coupled_ideal_shared_ball_ball_contact_deltas_from_state_refs(
             &state_refs,
             &pairs,
@@ -8159,6 +8421,21 @@ fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
             .iter()
             .map(|state| state.as_on_table().cloned())
             .collect::<Vec<_>>();
+        let state_refs = snapshot
+            .iter()
+            .map(|state| state.as_ref())
+            .collect::<Vec<_>>();
+        pairs = sorted_deduped_ball_ball_pairs(
+            pairs
+                .iter()
+                .copied()
+                .chain(zero_time_ball_ball_pair_indices_from_state_refs(
+                    &state_refs,
+                    ball,
+                    motion,
+                ))
+                .collect(),
+        );
         let mut deltas = vec![OnTableKinematicDelta::default(); states_after.len()];
         let mut changed = false;
 
@@ -8300,6 +8577,14 @@ where
                     }
                 }
             }
+            resolve_shared_zero_time_ball_ball_contacts_on_table(
+                &mut states_after,
+                &[],
+                ball,
+                motion,
+                collision_model,
+                collision_config,
+            );
         }
         NBallOnTableEvent::BallRailImpact { ball_index, impact } => {
             let (rail_model, rail_profile) = rail_response
@@ -8804,6 +9089,7 @@ where
     let mut states = states.to_vec();
     let mut elapsed = Seconds::zero();
     let mut events = Vec::new();
+    let mut consecutive_zero_time_events = 0usize;
 
     loop {
         let advanced = advance_next_event(&states);
@@ -8823,15 +9109,23 @@ where
             "next n-ball event must not go backwards in time"
         );
 
+        let states_before = states;
         states = advanced.states;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
-        let shared_contact_event = matches!(event, NBallOnTableEvent::SharedBallBallContact { .. });
         events.push(event);
-        // The one-slice on-table until-rest helper remains conservative around approximated shared
-        // clusters: it records and resolves the first shared contact, then returns rather than
-        // pretending this pairwise approximation is a full coupled multi-contact solve.
-        if shared_contact_event {
-            break;
+
+        // A zero-time event with no kinematic change would be selected again on the next loop.
+        // Continue through real zero-time collision cascades, but stop on this no-progress case.
+        if step_elapsed <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+            consecutive_zero_time_events += 1;
+            if consecutive_zero_time_events >= MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS
+                || n_ball_on_table_collision_delta(&states_before, &states)
+                    <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON
+            {
+                break;
+            }
+        } else {
+            consecutive_zero_time_events = 0;
         }
     }
 
@@ -9229,6 +9523,14 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
                     }
                 }
             }
+            resolve_shared_zero_time_ball_ball_contacts_in_system_states(
+                &mut states_after,
+                &[],
+                ball,
+                motion,
+                collision_model,
+                collision_config,
+            );
         }
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {
             let state_after_jaw = collide_ball_jaw_on_table_with_radius_and_profile(
@@ -9395,6 +9697,7 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
     let mut elapsed = Seconds::zero();
     let mut events = Vec::new();
     let mut cache = PocketAwareEventCache::build(&states, ball, table, motion);
+    let mut consecutive_zero_time_events = 0usize;
 
     loop {
         let Some(event) = cache.next_event() else {
@@ -9406,6 +9709,7 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
             "next pocket-aware n-ball event must not go backwards in time"
         );
 
+        let states_before = states.clone();
         states = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
             &states,
             &event,
@@ -9418,17 +9722,23 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
             rail_profile,
         );
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
-        let shared_contact_event = matches!(event, NBallSystemEvent::SharedBallBallContact { .. });
         events.push(event.clone());
 
         // Rebuild after every resolved event so cached event times and hidden simultaneous-contact
         // side effects stay exactly aligned with manual step-and-recompute simulation.
         cache = PocketAwareEventCache::build(&states, ball, table, motion);
-        // Match the conservative no-pocket N-ball policy around approximated shared clusters:
-        // record and resolve the first shared contact, then return instead of continuing as if this
-        // pairwise approximation were a full coupled multi-contact solve.
-        if shared_contact_event {
-            break;
+        // A zero-time event with no kinematic change would be selected again on the next loop.
+        // Continue through real zero-time collision cascades, but stop on this no-progress case.
+        if step_elapsed <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+            consecutive_zero_time_events += 1;
+            if consecutive_zero_time_events >= MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS
+                || n_ball_system_collision_delta(&states_before, &states)
+                    <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON
+            {
+                break;
+            }
+        } else {
+            consecutive_zero_time_events = 0;
         }
     }
 

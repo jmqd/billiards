@@ -1,7 +1,9 @@
 use billiards::{
+    cue_endmass_ratio_from_squirt, cue_natural_pivot_length,
+    cue_squirt_angle_degrees_from_endmass_ratio, cue_tip_offset_for_pivot_angle,
     strike_resting_ball_on_table, Angle, BallSetPhysicsSpec, BallState, CueStrikeConfig,
-    CueTipContact, Inches2, InchesPerSecond, MotionPhase, RestingOnTableBallState, Scale, Shot,
-    ShotError, TYPICAL_BALL_RADIUS,
+    CueTipContact, Inches, Inches2, InchesPerSecond, MotionPhase, RestingOnTableBallState, Scale,
+    Shot, ShotError, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -283,6 +285,77 @@ fn cue_squirt_matches_tp_b1_real_cue_examples() {
         assert!(
             struck.as_ball_state().velocity.x().as_f64() < 0.0,
             "{name} should squirt opposite a positive side tip offset"
+        );
+    }
+}
+
+#[test]
+fn cue_pivot_helpers_match_tp_b1_real_cue_examples() {
+    let ball_radius = Inches::from_f64(2.25 / 2.0);
+    let dime_tip_radius = Inches::from_f64(0.705 / 2.0);
+    let break_tip_radius = Inches::from_f64(0.5);
+
+    for (
+        name,
+        tip_offset_inches,
+        squirt_degrees,
+        tip_radius,
+        expected_endmass_ratio,
+        expected_pivot_length_inches,
+    ) in [
+        (
+            "Players regular cue",
+            0.51,
+            2.5,
+            dime_tip_radius.clone(),
+            20.151,
+            14.231,
+        ),
+        (
+            "Predator Z low-squirt cue",
+            0.51,
+            1.8,
+            dime_tip_radius.clone(),
+            29.158,
+            20.199,
+        ),
+        (
+            "Stinger break/jump cue",
+            0.3,
+            2.4,
+            break_tip_radius.clone(),
+            12.008,
+            9.223,
+        ),
+    ] {
+        let tip_offset = Inches::from_f64(tip_offset_inches);
+        let endmass_ratio =
+            cue_endmass_ratio_from_squirt(tip_offset.clone(), squirt_degrees, ball_radius.clone());
+        let pivot_length = cue_natural_pivot_length(
+            squirt_degrees,
+            tip_offset.clone(),
+            tip_radius.clone(),
+            ball_radius.clone(),
+        );
+        let round_trip_offset = cue_tip_offset_for_pivot_angle(
+            squirt_degrees,
+            pivot_length.clone(),
+            tip_radius,
+            ball_radius.clone(),
+        );
+        let round_trip_squirt = cue_squirt_angle_degrees_from_endmass_ratio(
+            tip_offset.clone(),
+            endmass_ratio.clone(),
+            ball_radius.clone(),
+        );
+
+        assert_close_with_tolerance(endmass_ratio.as_f64(), expected_endmass_ratio, 0.001);
+        assert_close_with_tolerance(pivot_length.as_f64(), expected_pivot_length_inches, 0.001);
+        assert_close(round_trip_offset.as_f64(), tip_offset_inches);
+        assert_close_with_tolerance(round_trip_squirt, squirt_degrees, 0.001);
+        assert!(
+            pivot_length.as_f64() > 0.0,
+            "{name} should have a positive natural pivot length"
         );
     }
 }

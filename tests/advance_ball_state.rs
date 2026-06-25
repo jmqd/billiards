@@ -446,6 +446,34 @@ fn tp_a18_tip_offset_distances_match_non_overspin_sliding_formula() {
 }
 
 #[test]
+fn tp_a18_overspin_tip_offset_accelerates_until_natural_roll_develops() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let speed = 10.0;
+    let sliding_acceleration = 5.0;
+
+    for tip_offset_over_radius in [0.45_f64, 0.5] {
+        let start = sliding_with_tip_offset_state(tip_offset_over_radius, speed);
+        let end = advance_until_rolling(&start);
+        let start = start.as_ball_state();
+        let end = end.as_ball_state();
+        let signed_slip = 1.0 - 2.5 * tip_offset_over_radius;
+        let expected_distance = signed_slip.signum() * speed.powi(2)
+            / (98.0 * sliding_acceleration)
+            * (24.0 - 50.0 * tip_offset_over_radius - 25.0 * tip_offset_over_radius.powi(2));
+        let expected_final_speed = (5.0 / 7.0) * speed * (1.0 + tip_offset_over_radius);
+
+        assert_close(travel_distance(start, end), expected_distance);
+        assert!(
+            end.speed().as_f64() > start.speed().as_f64(),
+            "overspin should accelerate the ball before natural roll develops"
+        );
+        assert_close(end.speed().as_f64(), expected_final_speed);
+        assert_close(end.cloth_contact_speed(radius.clone()).as_f64(), 0.0);
+        assert_eq!(end.motion_phase(radius.clone()), MotionPhase::Rolling);
+    }
+}
+
+#[test]
 fn advancing_past_the_sliding_transition_continues_into_rolling_for_the_remaining_time() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let state = on_table(sliding_stun_state());

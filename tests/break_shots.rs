@@ -1,5 +1,107 @@
-// Break-style scenario checks intentionally omitted.
-//
-// Break layouts and their resulting spreads are still under active tuning, so we do not currently
-// enforce automated expectations about collision counts, movement counts, or exact example-file
-// geometry for these exploratory scenarios.
+use std::fs;
+
+use billiards::dsl::parse_dsl_to_scenario;
+use billiards::{
+    advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
+    human_tuned_preview_motion_config, BallBallCollisionConfig, BallSetPhysicsSpec, BallType,
+    CollisionModel, NBallSystemEvent, NBallSystemState, RailCollisionProfile, RailModel,
+};
+
+fn position_xy(state: &NBallSystemState) -> Option<(f64, f64)> {
+    match state {
+        NBallSystemState::OnTable(on_table) => {
+            let state = on_table.as_ball_state();
+            Some((state.position.x().as_f64(), state.position.y().as_f64()))
+        }
+        NBallSystemState::Pocketed {
+            state_at_capture, ..
+        } => {
+            let state = state_at_capture.as_ball_state();
+            Some((state.position.x().as_f64(), state.position.y().as_f64()))
+        }
+    }
+}
+
+fn displaced_object_balls(
+    balls: &[billiards::Ball],
+    before: &[NBallSystemState],
+    after: &[NBallSystemState],
+) -> usize {
+    balls
+        .iter()
+        .zip(before)
+        .zip(after)
+        .filter(|((ball, _), _)| ball.ty != BallType::Cue)
+        .filter(|((_, before), after)| {
+            let Some((before_x, before_y)) = position_xy(before) else {
+                return true;
+            };
+            let Some((after_x, after_y)) = position_xy(after) else {
+                return true;
+            };
+
+            (after_x - before_x).hypot(after_y - before_y) > 0.25
+        })
+        .count()
+}
+
+#[test]
+fn nine_ball_break_examples_open_the_rack_after_shared_contact() {
+    for scenario_path in [
+        "examples/scenarios/nine_ball_break_head_rail.billiards",
+        "examples/scenarios/nine_ball_break_left_side_rail.billiards",
+    ] {
+        let source = fs::read_to_string(scenario_path).expect("scenario should read");
+        let mut scenario = parse_dsl_to_scenario(&source).expect("scenario should parse");
+        scenario.game_state.resolve_positions();
+        let ball_set = BallSetPhysicsSpec::default();
+        let motion = human_tuned_preview_motion_config();
+        let initial_states = scenario
+            .initial_shot_system_states_on_table(&ball_set)
+            .expect("initial shot states should build")
+            .expect("scenario should contain a shot")
+            .into_iter()
+            .map(NBallSystemState::from)
+            .collect::<Vec<_>>();
+        let mut states = initial_states.clone();
+        let mut events = Vec::new();
+
+        for _ in 0..32 {
+            let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+                &states,
+                &ball_set,
+                &scenario.game_state.table_spec,
+                &motion,
+                CollisionModel::ThrowAware,
+                &BallBallCollisionConfig::human_tuned(),
+                RailModel::SpinAware,
+                &RailCollisionProfile::default(),
+            );
+            let Some(event) = advanced.event else {
+                break;
+            };
+            events.push(event);
+            states = advanced.states;
+            if displaced_object_balls(scenario.game_state.balls(), &initial_states, &states) >= 2 {
+                break;
+            }
+        }
+
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, NBallSystemEvent::SharedBallBallContact { .. }))
+                || events
+                    .iter()
+                    .any(|event| matches!(event, NBallSystemEvent::BallBallCollision { .. })),
+            "{scenario_path}: expected break to enter the shared rack-contact path"
+        );
+
+        let moved_object_balls =
+            displaced_object_balls(scenario.game_state.balls(), &initial_states, &states);
+        assert!(
+            moved_object_balls >= 2,
+            "{scenario_path}: expected multiple object balls to move after bounded break stepping, got {moved_object_balls}"
+        );
+    }
+}

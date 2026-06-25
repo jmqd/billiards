@@ -1082,6 +1082,67 @@ fn frontal_rolling_impact_transfers_spin_and_leaves_object_ball_sliding() {
 }
 
 #[test]
+#[ignore = "current ThrowAware model omits Kim 2024 in-collision object-ball/table static-friction coupling"]
+fn kim_table_coupled_head_on_topspin_impact_recoils_cue_ball_and_reduces_object_speed() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let speed = 10.0;
+    let ball_ball_friction = 0.06;
+    let object_table_static_friction = 0.30;
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-speed / radius, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let config =
+        BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(ball_ball_friction));
+
+    let outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &object_ball,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &config,
+    );
+
+    // Kim 2024 Eqs. (52)-(54) add object-ball/table static friction during the short
+    // ball-ball collision. For head-on natural-roll topspin, e=1 and theta_0=-pi/2,
+    // the first-order normal-speed correction is mu * mu_s * U_i / 2.
+    let normal_speed_correction = 0.5 * ball_ball_friction * object_table_static_friction * speed;
+    let kim_cue_spin_delta = ball_ball_friction * speed / (0.4 * radius);
+    let cue_spin_delta = outcome
+        .a_after
+        .as_ball_state()
+        .angular_velocity
+        .x()
+        .as_f64()
+        - cue_ball.as_ball_state().angular_velocity.x().as_f64();
+    let object_spin_delta = outcome
+        .b_after
+        .as_ball_state()
+        .angular_velocity
+        .x()
+        .as_f64();
+
+    assert_near(
+        outcome.a_after.as_ball_state().velocity.y().as_f64(),
+        -normal_speed_correction,
+        1e-9,
+    );
+    assert_near(
+        outcome.b_after.as_ball_state().velocity.y().as_f64(),
+        speed - normal_speed_correction,
+        1e-9,
+    );
+    assert_near(cue_spin_delta, kim_cue_spin_delta, 1e-9);
+    assert_near(
+        object_spin_delta,
+        (1.0 + object_table_static_friction) * kim_cue_spin_delta,
+        1e-9,
+    );
+}
+
+#[test]
 fn a_cut_shot_without_side_spin_produces_cut_induced_throw_and_transferred_spin() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

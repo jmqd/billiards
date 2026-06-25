@@ -329,10 +329,69 @@ fn advancing_frozen_three_ball_line_uses_tp_b29_coupled_velocity_split() {
 }
 
 #[test]
-fn advancing_throw_aware_frozen_three_ball_line_uses_tp_b29_coupled_velocity_split() {
+fn advancing_throw_aware_zero_slip_frozen_three_ball_line_uses_tp_b29_coupled_velocity_split() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
-        inches2(-(2.0 * radius + 7.5), 0.0),
+        inches2(-2.0 * radius, 0.0),
+        Velocity2::new("10", "0"),
+        AngularVelocity3::zero(),
+    ));
+    let first_object = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let second_object = on_table(BallState::resting_at(inches2(2.0 * radius, 0.0)));
+
+    let advanced = advance_to_next_n_ball_event_with_physics_on_table(
+        &[cue_ball, first_object, second_object],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::ThrowAware,
+        &BallBallCollisionConfig::ideal(),
+    );
+
+    match advanced.event.expect("an event should be reported") {
+        billiards::NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((first_ball_index, second_ball_index), (0, 1));
+            assert_close(collision.time_until_impact.as_f64(), 0.0);
+        }
+        other => panic!("expected opening ball-ball collision, got {other:?}"),
+    }
+
+    assert_close(advanced.elapsed.as_f64(), 0.0);
+    assert_close(
+        advanced.states[0].as_ball_state().velocity.x().as_f64(),
+        -0.71,
+    );
+    assert_close(
+        advanced.states[1].as_ball_state().velocity.x().as_f64(),
+        0.76,
+    );
+    assert_close(
+        advanced.states[2].as_ball_state().velocity.x().as_f64(),
+        9.95,
+    );
+
+    let next = advance_to_next_n_ball_event_with_physics_on_table(
+        &advanced.states,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        CollisionModel::ThrowAware,
+        &BallBallCollisionConfig::ideal(),
+    );
+    assert!(
+        next.event.as_ref().is_none_or(|event| event.time().as_f64() > 1e-9),
+        "the coupled frozen-line solve should not leave a synthetic immediate follow-on collision, got {:?}",
+        next.event
+    );
+}
+
+#[test]
+fn advancing_throw_aware_slipping_frozen_three_ball_line_skips_tp_b29_normal_only_split() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(-2.0 * radius, 0.0),
         Velocity2::new("10", "0"),
         AngularVelocity3::new(0.0, 10.0 / radius, 0.0),
     ));
@@ -354,36 +413,17 @@ fn advancing_throw_aware_frozen_three_ball_line_uses_tp_b29_coupled_velocity_spl
             collision,
         } => {
             assert_eq!((first_ball_index, second_ball_index), (0, 1));
-            assert_close(collision.time_until_impact.as_f64(), 1.0);
+            assert_close(collision.time_until_impact.as_f64(), 0.0);
         }
         other => panic!("expected opening ball-ball collision, got {other:?}"),
     }
 
-    assert_close(advanced.elapsed.as_f64(), 1.0);
-    assert_close(
-        advanced.states[0].as_ball_state().velocity.x().as_f64(),
-        -0.355,
-    );
-    assert_close(
-        advanced.states[1].as_ball_state().velocity.x().as_f64(),
-        0.38,
-    );
-    assert_close(
-        advanced.states[2].as_ball_state().velocity.x().as_f64(),
-        4.975,
-    );
-
-    let next = advance_to_next_n_ball_event_with_physics_on_table(
-        &advanced.states,
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
-        CollisionModel::ThrowAware,
-        &BallBallCollisionConfig::ideal(),
-    );
+    assert_close(advanced.elapsed.as_f64(), 0.0);
+    assert!((advanced.states[0].as_ball_state().velocity.x().as_f64() + 0.71).abs() > 1e-6);
+    assert!((advanced.states[1].as_ball_state().velocity.x().as_f64() - 0.76).abs() > 1e-6);
     assert!(
-        next.event.as_ref().is_none_or(|event| event.time().as_f64() > 1e-9),
-        "the coupled frozen-line solve should not leave a synthetic immediate follow-on collision, got {:?}",
-        next.event
+        (advanced.states[2].as_ball_state().velocity.x().as_f64() - 9.95).abs() > 1e-6,
+        "slipping non-ideal contacts should not use TP B.29's normal-only outgoing split"
     );
 }
 

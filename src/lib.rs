@@ -7384,6 +7384,39 @@ fn velocity_tangent_component(state: &OnTableBallState, axis_x: f64, axis_y: f64
     vx * -axis_y + vy * axis_x
 }
 
+fn ball_ball_contact_slip_components_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball_radius: f64,
+) -> (f64, f64) {
+    let a_state = a.as_ball_state();
+    let b_state = b.as_ball_state();
+    let (normal_x, normal_y, tangent_x, tangent_y) = collision_contact_basis(a, b);
+    let a_tangent_before = project_velocity_on_basis(&a_state.velocity, tangent_x, tangent_y);
+    let b_tangent_before = project_velocity_on_basis(&b_state.velocity, tangent_x, tangent_y);
+
+    let tangential_contact_slip = (a_tangent_before - b_tangent_before)
+        - ball_radius
+            * (a_state.angular_velocity.z().as_f64() + b_state.angular_velocity.z().as_f64());
+    let vertical_contact_slip = ball_radius
+        * (normal_y
+            * (a_state.angular_velocity.x().as_f64() + b_state.angular_velocity.x().as_f64())
+            - normal_x
+                * (a_state.angular_velocity.y().as_f64() + b_state.angular_velocity.y().as_f64()));
+
+    (tangential_contact_slip, vertical_contact_slip)
+}
+
+fn ball_ball_contact_slip_speed_on_table(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball_radius: f64,
+) -> f64 {
+    let (tangential_contact_slip, vertical_contact_slip) =
+        ball_ball_contact_slip_components_on_table(a, b, ball_radius);
+    tangential_contact_slip.hypot(vertical_contact_slip)
+}
+
 fn tp_b29_three_ball_line_contact_for_order(
     state_refs: &[Option<&OnTableBallState>],
     incoming_ball_index: usize,
@@ -7468,7 +7501,7 @@ fn tp_b29_three_ball_line_contact(
     first_ball_index: usize,
     second_ball_index: usize,
     ball: &BallSetPhysicsSpec,
-    _collision_model: CollisionModel,
+    collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
 ) -> Option<TpB29ThreeBallLineContact> {
     if (collision_config.normal_restitution.as_f64() - IDEAL_BALL_BALL_NORMAL_RESTITUTION).abs()
@@ -7477,15 +7510,63 @@ fn tp_b29_three_ball_line_contact(
         return None;
     }
 
-    tp_b29_three_ball_line_contact_for_order(state_refs, first_ball_index, second_ball_index, ball)
-        .or_else(|| {
-            tp_b29_three_ball_line_contact_for_order(
-                state_refs,
-                second_ball_index,
-                first_ball_index,
-                ball,
-            )
-        })
+    let contact = tp_b29_three_ball_line_contact_for_order(
+        state_refs,
+        first_ball_index,
+        second_ball_index,
+        ball,
+    )
+    .or_else(|| {
+        tp_b29_three_ball_line_contact_for_order(
+            state_refs,
+            second_ball_index,
+            first_ball_index,
+            ball,
+        )
+    })?;
+
+    if !tp_b29_contact_is_within_collision_model_scope(state_refs, &contact, ball, collision_model)
+    {
+        return None;
+    }
+
+    Some(contact)
+}
+
+fn tp_b29_contact_is_within_collision_model_scope(
+    state_refs: &[Option<&OnTableBallState>],
+    contact: &TpB29ThreeBallLineContact,
+    ball: &BallSetPhysicsSpec,
+    collision_model: CollisionModel,
+) -> bool {
+    if collision_model == CollisionModel::Ideal {
+        return true;
+    }
+
+    let Some(incoming) = state_refs
+        .get(contact.incoming_ball_index)
+        .copied()
+        .flatten()
+    else {
+        return false;
+    };
+    let Some(middle) = state_refs.get(contact.middle_ball_index).copied().flatten() else {
+        return false;
+    };
+    let Some(outgoing) = state_refs
+        .get(contact.outgoing_ball_index)
+        .copied()
+        .flatten()
+    else {
+        return false;
+    };
+
+    let zero_slip_tolerance =
+        THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO * contact.incoming_relative_speed.max(1.0);
+    ball_ball_contact_slip_speed_on_table(incoming, middle, ball.radius.as_f64())
+        <= zero_slip_tolerance
+        && ball_ball_contact_slip_speed_on_table(middle, outgoing, ball.radius.as_f64())
+            <= zero_slip_tolerance
 }
 
 fn set_on_table_axis_velocity(

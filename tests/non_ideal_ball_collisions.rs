@@ -1194,3 +1194,42 @@ fn draw_bends_the_post_contact_cue_ball_path_away_from_the_incoming_shot_line() 
         "draw should bend the cue ball away from the incoming shot line"
     );
 }
+
+#[test]
+fn tp_a20_half_ball_draw_bend_matches_published_final_angles() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_speed = 10.0;
+    let cut_angle = 30.0_f64.to_radians();
+    let immediate_velocity = Velocity2::new(
+        Inches::from_f64(cue_speed * cut_angle.sin() * cut_angle.cos()),
+        Inches::from_f64(cue_speed * cut_angle.sin() * cut_angle.sin()),
+    );
+
+    for (spin_rate_factor, expected_heading) in [
+        (0.625 * 0.75, 81.787),
+        (0.625, 90.0),
+        (0.625 * 1.25, 98.213),
+    ] {
+        let state = on_table(BallState::on_table(
+            inches2(0.0, 0.0),
+            immediate_velocity.clone(),
+            AngularVelocity3::new(spin_rate_factor * cue_speed / radius, 0.0, 0.0),
+        ));
+        let bend = estimate_post_contact_cue_ball_bend_on_table(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .expect("TP A.20 draw should produce a sliding bend estimate");
+        let heading = bend
+            .state_after_bend
+            .as_ball_state()
+            .velocity
+            .angle_from_north()
+            .expect("cue ball should still be moving after the bend")
+            .as_degrees();
+
+        assert_near(heading, expected_heading, 0.001);
+        assert_near(bend.bend_angle_degrees, expected_heading - 60.0, 0.001);
+    }
+}

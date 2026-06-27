@@ -24,6 +24,13 @@ fn assert_near(actual: f64, expected: f64, tolerance: f64) {
     );
 }
 
+fn one_dimensional_head_on_elastic_cue_speed_after_for_mass_ratio(
+    cue_to_object_mass_ratio: f64,
+    incident_speed: f64,
+) -> f64 {
+    ((cue_to_object_mass_ratio - 1.0) / (cue_to_object_mass_ratio + 1.0)) * incident_speed
+}
+
 fn on_table(state: BallState) -> OnTableBallState {
     OnTableBallState::try_from(state).expect("test states should validate as on-table")
 }
@@ -150,6 +157,25 @@ fn a_head_on_ideal_collision_transfers_forward_motion_without_transferring_spin(
     assert_eq!(
         object_after.as_ball_state().position,
         object_ball.as_ball_state().position
+    );
+}
+
+#[test]
+#[ignore = "requires per-ball mass/radius collision model"]
+fn heavy_and_light_cue_balls_change_head_on_stun_stop_sign() {
+    let incident_speed = 10.0;
+
+    assert_close(
+        one_dimensional_head_on_elastic_cue_speed_after_for_mass_ratio(1.0, incident_speed),
+        0.0,
+    );
+    assert_close(
+        one_dimensional_head_on_elastic_cue_speed_after_for_mass_ratio(1.08, incident_speed),
+        0.384_615_384_615_384_64,
+    );
+    assert_close(
+        one_dimensional_head_on_elastic_cue_speed_after_for_mass_ratio(0.92, incident_speed),
+        -0.416_666_666_666_666_63,
     );
 }
 

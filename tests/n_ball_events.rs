@@ -15,6 +15,22 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
+fn assert_near(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected}, got {actual} (delta {delta}, tolerance {tolerance})"
+    );
+}
+
+fn assert_tp_b29_rounded_velocity(actual: f64, displayed_ratio: f64, incoming_speed: f64) {
+    assert_near(
+        actual,
+        displayed_ratio * incoming_speed,
+        0.0005 * incoming_speed,
+    );
+}
+
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
@@ -259,17 +275,21 @@ fn frozen_line_contact_resolution_removes_the_synthetic_follow_on_collision() {
         &motion_config(),
     );
 
-    assert_close(
+    let incoming_speed = 5.0;
+    assert_tp_b29_rounded_velocity(
         advanced.states[0].as_ball_state().velocity.x().as_f64(),
-        -0.355,
+        -0.071,
+        incoming_speed,
     );
-    assert_close(
+    assert_tp_b29_rounded_velocity(
         advanced.states[1].as_ball_state().velocity.x().as_f64(),
-        0.38,
+        0.076,
+        incoming_speed,
     );
-    assert_close(
+    assert_tp_b29_rounded_velocity(
         advanced.states[2].as_ball_state().velocity.x().as_f64(),
-        4.975,
+        0.995,
+        incoming_speed,
     );
     if let Some(NBallOnTableEvent::BallBallCollision {
         first_ball_index,

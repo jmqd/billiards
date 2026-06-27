@@ -16,6 +16,22 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
+fn assert_near(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected}, got {actual} (delta {delta}, tolerance {tolerance})"
+    );
+}
+
+fn assert_tp_b29_rounded_velocity(actual: f64, displayed_ratio: f64, incoming_speed: f64) {
+    assert_near(
+        actual,
+        displayed_ratio * incoming_speed,
+        0.0005 * incoming_speed,
+    );
+}
+
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
         phase: MotionPhaseConfig::default(),
@@ -312,17 +328,21 @@ fn advancing_frozen_three_ball_line_uses_tp_b29_coupled_velocity_split() {
     }
 
     assert_close(advanced.elapsed.as_f64(), 1.0);
-    assert_close(
+    let incoming_speed = 5.0;
+    assert_tp_b29_rounded_velocity(
         advanced.states[0].as_ball_state().velocity.x().as_f64(),
-        -0.355,
+        -0.071,
+        incoming_speed,
     );
-    assert_close(
+    assert_tp_b29_rounded_velocity(
         advanced.states[1].as_ball_state().velocity.x().as_f64(),
-        0.38,
+        0.076,
+        incoming_speed,
     );
-    assert_close(
+    assert_tp_b29_rounded_velocity(
         advanced.states[2].as_ball_state().velocity.x().as_f64(),
-        4.975,
+        0.995,
+        incoming_speed,
     );
     assert_close(
         advanced.states[0].as_ball_state().velocity.y().as_f64(),
@@ -335,6 +355,18 @@ fn advancing_frozen_three_ball_line_uses_tp_b29_coupled_velocity_split() {
     assert_close(
         advanced.states[2].as_ball_state().velocity.y().as_f64(),
         0.0,
+    );
+    assert_close(
+        advanced
+            .states
+            .iter()
+            .map(|state| state.as_ball_state().velocity.x().as_f64())
+            .sum::<f64>(),
+        incoming_speed,
+    );
+    assert_close(
+        translational_energy_units(&advanced.states),
+        incoming_speed.powi(2),
     );
 }
 
@@ -370,17 +402,33 @@ fn advancing_throw_aware_zero_slip_frozen_three_ball_line_uses_tp_b29_coupled_ve
     }
 
     assert_close(advanced.elapsed.as_f64(), 0.0);
-    assert_close(
+    let incoming_speed = 10.0;
+    assert_tp_b29_rounded_velocity(
         advanced.states[0].as_ball_state().velocity.x().as_f64(),
-        -0.71,
+        -0.071,
+        incoming_speed,
     );
-    assert_close(
+    assert_tp_b29_rounded_velocity(
         advanced.states[1].as_ball_state().velocity.x().as_f64(),
-        0.76,
+        0.076,
+        incoming_speed,
+    );
+    assert_tp_b29_rounded_velocity(
+        advanced.states[2].as_ball_state().velocity.x().as_f64(),
+        0.995,
+        incoming_speed,
     );
     assert_close(
-        advanced.states[2].as_ball_state().velocity.x().as_f64(),
-        9.95,
+        advanced
+            .states
+            .iter()
+            .map(|state| state.as_ball_state().velocity.x().as_f64())
+            .sum::<f64>(),
+        incoming_speed,
+    );
+    assert_close(
+        translational_energy_units(&advanced.states),
+        incoming_speed.powi(2),
     );
 
     let next = advance_to_next_n_ball_event_with_physics_on_table(
@@ -429,10 +477,20 @@ fn advancing_throw_aware_slipping_frozen_three_ball_line_skips_tp_b29_normal_onl
     }
 
     assert_close(advanced.elapsed.as_f64(), 0.0);
-    assert!((advanced.states[0].as_ball_state().velocity.x().as_f64() + 0.71).abs() > 1e-6);
-    assert!((advanced.states[1].as_ball_state().velocity.x().as_f64() - 0.76).abs() > 1e-6);
     assert!(
-        (advanced.states[2].as_ball_state().velocity.x().as_f64() - 9.95).abs() > 1e-6,
+        (advanced.states[0].as_ball_state().velocity.x().as_f64() - -0.070_744_905_113_215 * 10.0)
+            .abs()
+            > 1e-6
+    );
+    assert!(
+        (advanced.states[1].as_ball_state().velocity.x().as_f64() - 0.076_162_352_228_028 * 10.0)
+            .abs()
+            > 1e-6
+    );
+    assert!(
+        (advanced.states[2].as_ball_state().velocity.x().as_f64() - 0.994_582_552_885_187 * 10.0)
+            .abs()
+            > 1e-6,
         "slipping non-ideal contacts should not use TP B.29's normal-only outgoing split"
     );
 }

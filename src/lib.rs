@@ -1173,11 +1173,14 @@ impl BallBallFrictionModel {
 /// `ideal()` preserves the existing equal-mass perfectly elastic normal limit and the historical
 /// constant-friction throw approximation. `human_tuned()` uses a less lively normal restitution and
 /// the TP A.14 / Marlow speed-dependent friction curve for throw / spin transfer.
+/// `object_table_static_friction_coefficient` is an opt-in Kim 2024 first-order correction for
+/// object-ball/table static friction during topspin ball-ball impacts.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BallBallCollisionConfig {
     pub normal_restitution: Scale,
     pub tangential_friction_coefficient: Scale,
     pub friction_model: BallBallFrictionModel,
+    pub object_table_static_friction_coefficient: Scale,
 }
 
 impl BallBallCollisionConfig {
@@ -1186,6 +1189,7 @@ impl BallBallCollisionConfig {
             normal_restitution,
             tangential_friction_coefficient: tangential_friction_coefficient.clone(),
             friction_model: BallBallFrictionModel::constant(tangential_friction_coefficient),
+            object_table_static_friction_coefficient: Scale::from_f64(0.0),
         }
     }
 
@@ -1198,6 +1202,7 @@ impl BallBallCollisionConfig {
             normal_restitution,
             tangential_friction_coefficient,
             friction_model,
+            object_table_static_friction_coefficient: Scale::from_f64(0.0),
         }
     }
 
@@ -1221,6 +1226,11 @@ impl BallBallCollisionConfig {
         self
     }
 
+    pub fn with_object_table_static_friction_coefficient(mut self, coefficient: Scale) -> Self {
+        self.object_table_static_friction_coefficient = coefficient;
+        self
+    }
+
     pub fn applying_conditions(&self, conditions: &PlayingConditions) -> Self {
         Self {
             normal_restitution: Scale::from_f64(scaled_unit_interval_f64(
@@ -1232,6 +1242,9 @@ impl BallBallCollisionConfig {
                 &conditions.ball_ball_friction_scale,
             )),
             friction_model: self.friction_model.applying_conditions(conditions),
+            object_table_static_friction_coefficient: self
+                .object_table_static_friction_coefficient
+                .clone(),
         }
     }
 }
@@ -1249,8 +1262,10 @@ impl Default for BallBallCollisionConfig {
 /// internally by the solver.
 ///
 /// `transferred_spin` is the angular-velocity increment implied by the shared contact-friction
-/// impulse. The same increment is applied to both equal-radius balls in the current reduced
-/// on-table model; full vertical center-of-mass hop/table impulse coupling is still outside scope.
+/// impulse. By default the same increment is applied to both equal-radius balls in the current
+/// reduced on-table model. If Kim-style object/table static friction is enabled, the object ball can
+/// receive an additional horizontal-axis spin increment from the table-coupled vertical impulse.
+/// Full vertical center-of-mass hop remains outside scope.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollisionOutcome {
     pub a_after: OnTableBallState,
@@ -10367,6 +10382,17 @@ fn validated_ball_ball_tangential_friction_coefficient(config: &BallBallCollisio
     friction
 }
 
+fn validated_ball_ball_object_table_static_friction_coefficient(
+    config: &BallBallCollisionConfig,
+) -> f64 {
+    let friction = config.object_table_static_friction_coefficient.as_f64();
+    assert!(
+        friction >= 0.0,
+        "ball-ball object-table static friction coefficient must be non-negative"
+    );
+    friction
+}
+
 fn validated_ball_ball_contact_friction_coefficient(
     config: &BallBallCollisionConfig,
     contact_slip_speed: f64,
@@ -10564,6 +10590,8 @@ fn frictional_collision_outcome_on_table_with_config(
     let normal_restitution = validated_ball_ball_normal_restitution(config);
     let _configured_reference_friction =
         validated_ball_ball_tangential_friction_coefficient(config);
+    let object_table_static_friction_coefficient =
+        validated_ball_ball_object_table_static_friction_coefficient(config);
 
     let a_normal_before = project_velocity_on_basis(&a_state.velocity, normal_x, normal_y);
     let b_normal_before = project_velocity_on_basis(&b_state.velocity, normal_x, normal_y);
@@ -10596,36 +10624,44 @@ fn frictional_collision_outcome_on_table_with_config(
                 tangential_friction_coefficient,
             )
         };
+    let kim_table_coupled_normal_correction = if vertical_impulse_per_mass < 0.0 {
+        0.5 * object_table_static_friction_coefficient * vertical_impulse_per_mass
+    } else {
+        0.0
+    };
 
     let a_velocity = Velocity2::new(
         Inches::from_f64(
             a_state.velocity.x().as_f64()
                 - normal_impulse_per_mass * normal_x
-                - tangential_impulse_per_mass * tangent_x,
+                - tangential_impulse_per_mass * tangent_x
+                + kim_table_coupled_normal_correction * normal_x,
         ),
         Inches::from_f64(
             a_state.velocity.y().as_f64()
                 - normal_impulse_per_mass * normal_y
-                - tangential_impulse_per_mass * tangent_y,
+                - tangential_impulse_per_mass * tangent_y
+                + kim_table_coupled_normal_correction * normal_y,
         ),
     );
     let b_velocity = Velocity2::new(
         Inches::from_f64(
             b_state.velocity.x().as_f64()
                 + normal_impulse_per_mass * normal_x
-                + tangential_impulse_per_mass * tangent_x,
+                + tangential_impulse_per_mass * tangent_x
+                + kim_table_coupled_normal_correction * normal_x,
         ),
         Inches::from_f64(
             b_state.velocity.y().as_f64()
                 + normal_impulse_per_mass * normal_y
-                + tangential_impulse_per_mass * tangent_y,
+                + tangential_impulse_per_mass * tangent_y
+                + kim_table_coupled_normal_correction * normal_y,
         ),
     );
 
-    // The same contact impulse changes both balls' angular velocity by the same amount. This is the
-    // equal-sphere angular impulse relation used in Peskin and in the local TP A.27 spin-transfer
-    // proof; applying it to both branches keeps the response tied to one contact impulse instead of
-    // mixing independent cue-ball and object-ball heuristics.
+    // The ball-ball contact impulse changes both balls' angular velocity by the same amount. Kim
+    // 2024 adds an opt-in first-order object/table static-friction term for topspin collisions; it
+    // scales only the object ball's horizontal-axis spin from the vertical contact impulse.
     let transferred_spin = transferred_spin_from_contact_impulse(
         tangent_x,
         tangent_y,
@@ -10645,14 +10681,19 @@ fn frictional_collision_outcome_on_table_with_config(
         .as_ref()
         .map(|spin| spin.z().as_f64())
         .unwrap_or(0.0);
+    let object_horizontal_spin_scale = if vertical_impulse_per_mass < 0.0 {
+        1.0 + object_table_static_friction_coefficient
+    } else {
+        1.0
+    };
     let a_angular_velocity = AngularVelocity3::new(
         a_state.angular_velocity.x().as_f64() + spin_delta_x,
         a_state.angular_velocity.y().as_f64() + spin_delta_y,
         a_state.angular_velocity.z().as_f64() + spin_delta_z,
     );
     let b_angular_velocity = AngularVelocity3::new(
-        b_state.angular_velocity.x().as_f64() + spin_delta_x,
-        b_state.angular_velocity.y().as_f64() + spin_delta_y,
+        b_state.angular_velocity.x().as_f64() + object_horizontal_spin_scale * spin_delta_x,
+        b_state.angular_velocity.y().as_f64() + object_horizontal_spin_scale * spin_delta_y,
         b_state.angular_velocity.z().as_f64() + spin_delta_z,
     );
 
@@ -10724,12 +10765,16 @@ fn spin_friction_collision_outcome_on_table_with_config(
 ///   the contact slip into horizontal throw and vertical follow/draw components.
 /// - `whitepapers/collision_of_billiard_balls_in_3d_with_spin_and_friction.pdf` shows that equal
 ///   contact torques change both identical balls' angular velocities by the same increment.
+/// - `whitepapers/motions_of_a_billiard_ball_after_a_cue_stroke.pdf` adds a first-order
+///   object-ball/table static-friction correction during topspin impacts.
 ///
 /// The friction impulse is capped by both `mu * Jn` and the equal-solid-sphere no-slip value
 /// `|slip| / 7`, then applied consistently to both balls' horizontal velocity and angular velocity.
-/// This keeps horizontal momentum conserved and makes reported throw the object-ball departure
-/// angle implied by that contact impulse. Vertical center-of-mass hop/swerve remains outside this
-/// on-table 2D state model.
+/// With nonzero `object_table_static_friction_coefficient`, Kim's table-coupled normal-speed and
+/// object-spin corrections add an external table impulse, so horizontal momentum is no longer
+/// conserved by the two-ball subsystem. Reported throw remains the object-ball departure angle
+/// implied by the final on-table velocity. Vertical center-of-mass hop remains outside this on-table
+/// 2D state model.
 pub fn collide_ball_ball_detailed_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,

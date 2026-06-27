@@ -1177,7 +1177,6 @@ fn frontal_rolling_impact_transfers_spin_and_leaves_object_ball_sliding() {
 }
 
 #[test]
-#[ignore = "current ThrowAware model omits Kim 2024 in-collision object-ball/table static-friction coupling"]
 fn kim_table_coupled_head_on_topspin_impact_recoils_cue_ball_and_reduces_object_speed() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let speed = 10.0;
@@ -1190,7 +1189,10 @@ fn kim_table_coupled_head_on_topspin_impact_recoils_cue_ball_and_reduces_object_
     ));
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let config =
-        BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(ball_ball_friction));
+        BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(ball_ball_friction))
+            .with_object_table_static_friction_coefficient(Scale::from_f64(
+                object_table_static_friction,
+            ));
 
     let outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
         &cue_ball,

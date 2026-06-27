@@ -3119,16 +3119,42 @@ pub fn cue_squirt_angle_degrees_from_endmass_ratio(
         return 0.0;
     }
 
+    let transverse_contact_factor = (1.0 - normalized_offset * normalized_offset).sqrt();
+    cue_squirt_angle_degrees_from_contact_geometry(
+        normalized_offset,
+        transverse_contact_factor,
+        cue_ball_to_endmass_ratio,
+    )
+}
+
+fn cue_squirt_angle_degrees_from_contact_geometry(
+    normalized_side_offset: f64,
+    forward_contact_factor: f64,
+    cue_ball_to_endmass_ratio: Scale,
+) -> f64 {
+    if normalized_side_offset <= f64::EPSILON {
+        return 0.0;
+    }
+
+    assert!(
+        normalized_side_offset.is_finite() && normalized_side_offset > 0.0,
+        "normalized side offset must be finite and positive"
+    );
+    assert!(
+        forward_contact_factor.is_finite() && forward_contact_factor >= 0.0,
+        "forward contact factor must be finite and non-negative"
+    );
     let endmass_ratio = cue_ball_to_endmass_ratio.as_f64();
     assert!(
         endmass_ratio.is_finite() && endmass_ratio > 0.0,
         "cue-ball to endmass ratio must be finite and positive"
     );
 
-    let transverse_contact_factor = (1.0 - normalized_offset * normalized_offset).sqrt();
-    let numerator = 2.5 * normalized_offset * transverse_contact_factor;
-    let denominator =
-        1.0 + endmass_ratio + 2.5 * transverse_contact_factor * transverse_contact_factor;
+    // TP A.31 Eq. 13 uses the forward projection of the cue-ball surface at the contact point.
+    // For pure side hits this is sqrt(1 - b^2), while diagonal side+height hits reduce it by the
+    // full radial tip offset.
+    let numerator = 2.5 * normalized_side_offset * forward_contact_factor;
+    let denominator = 1.0 + endmass_ratio + 2.5 * forward_contact_factor * forward_contact_factor;
 
     (numerator / denominator).atan().to_degrees()
 }
@@ -3284,15 +3310,17 @@ fn compute_post_strike_speed(
 
 fn cue_squirt_angle_degrees(tip_contact: &CueTipContact, cue: &CueStrikeConfig) -> f64 {
     let side_offset = tip_contact.side_offset.as_f64();
-    let normalized_offset = side_offset.abs();
-    if normalized_offset <= f64::EPSILON {
+    let normalized_side_offset = side_offset.abs();
+    if normalized_side_offset <= f64::EPSILON {
         return 0.0;
     }
+    let offset_radius_squared = tip_contact.offset_radius().as_f64().powi(2);
+    let forward_contact_factor = (1.0 - offset_radius_squared).max(0.0).sqrt();
 
-    let magnitude = cue_squirt_angle_degrees_from_endmass_ratio(
-        Inches::from_f64(normalized_offset),
+    let magnitude = cue_squirt_angle_degrees_from_contact_geometry(
+        normalized_side_offset,
+        forward_contact_factor,
         cue.cue_ball_to_endmass_ratio.clone(),
-        Inches::from_f64(1.0),
     );
 
     -side_offset.signum() * magnitude
@@ -3308,7 +3336,10 @@ fn cue_effective_side_spin_offset(tip_contact: &CueTipContact, cue: &CueStrikeCo
     let squirt_angle = cue_squirt_angle_degrees(tip_contact, cue)
         .abs()
         .to_radians();
-    let effective_offset = (normalized_offset.asin() - squirt_angle).sin();
+    let offset_radius_squared = tip_contact.offset_radius().as_f64().powi(2);
+    let forward_contact_factor = (1.0 - offset_radius_squared).max(0.0).sqrt();
+    let effective_offset =
+        normalized_offset * squirt_angle.cos() - forward_contact_factor * squirt_angle.sin();
 
     side_offset.signum() * effective_offset.max(0.0)
 }
@@ -3610,14 +3641,47 @@ fn raw_compute_next_transition_on_table(
 ) -> Option<NextTransition> {
     match phase {
         MotionPhase::Rest => None,
-        MotionPhase::Sliding => Some(NextTransition {
-            phase_before: MotionPhase::Sliding,
-            phase_after: MotionPhase::Rolling,
-            time_until_transition: Seconds::new(
+        MotionPhase::Sliding => {
+            let time_until_transition = Seconds::new(
                 (2.0 / 7.0) * state.cloth_contact_speed(radius)
                     / sliding_friction_acceleration(config),
-            ),
-        }),
+            );
+            let endpoint = raw_advance_within_phase_on_table(
+                state,
+                MotionPhase::Sliding,
+                time_until_transition.as_f64(),
+                radius,
+                config,
+            );
+            let near_zero = |value: f64, threshold: f64| value.abs() <= threshold;
+            let linear_stopped =
+                endpoint.speed() <= config.phase.thresholds.rest_linear_speed.as_f64();
+            let horizontal_spin_stopped = near_zero(
+                endpoint.wx,
+                config.phase.thresholds.rest_angular_speed.as_f64(),
+            ) && near_zero(
+                endpoint.wy,
+                config.phase.thresholds.rest_angular_speed.as_f64(),
+            );
+            let vertical_spin_stopped = near_zero(
+                endpoint.wz,
+                config.phase.thresholds.rest_angular_speed.as_f64(),
+            );
+            let phase_after = if linear_stopped && horizontal_spin_stopped && vertical_spin_stopped
+            {
+                MotionPhase::Rest
+            } else if linear_stopped && horizontal_spin_stopped {
+                MotionPhase::Spinning
+            } else {
+                MotionPhase::Rolling
+            };
+
+            Some(NextTransition {
+                phase_before: MotionPhase::Sliding,
+                phase_after,
+                time_until_transition,
+            })
+        }
         MotionPhase::Rolling => {
             let time_until_transition =
                 Seconds::new(state.speed() / rolling_linear_deceleration(config));

@@ -338,6 +338,45 @@ fn cue_squirt_matches_tp_b1_real_cue_examples() {
 }
 
 #[test]
+fn diagonal_side_height_squirt_uses_full_contact_geometry() {
+    let ball = BallSetPhysicsSpec::default();
+    let side = 0.3_f64;
+    let height = 0.4_f64;
+    let forward_contact_factor = (1.0 - side * side - height * height).sqrt();
+    let cue = cue_config();
+    let shot = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::new(Scale::from_f64(side), Scale::from_f64(height))
+            .expect("diagonal half-radius tip contact should validate"),
+    )
+    .expect("diagonal shot should validate");
+
+    let struck = strike_resting_ball_on_table(&resting_ball(), &shot, &cue, &ball)
+        .expect("diagonal strike should succeed");
+    let heading = struck
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("struck cue ball should move")
+        .as_degrees();
+    let squirt = (360.0 - heading).rem_euclid(360.0);
+    let expected_squirt_degrees = (2.5 * side * forward_contact_factor
+        / (1.0 + 20.151 + 2.5 * forward_contact_factor * forward_contact_factor))
+        .atan()
+        .to_degrees();
+    let expected_effective_offset = side * expected_squirt_degrees.to_radians().cos()
+        - forward_contact_factor * expected_squirt_degrees.to_radians().sin();
+    let post_strike_speed = struck.as_ball_state().speed().as_f64();
+
+    assert_close(squirt, expected_squirt_degrees);
+    assert_close(
+        struck.as_ball_state().angular_velocity.z().as_f64(),
+        2.5 * post_strike_speed / TYPICAL_BALL_RADIUS.as_f64() * expected_effective_offset,
+    );
+}
+
+#[test]
 fn tp_b7_low_squirt_cue_generates_two_percent_more_side_spin_at_max_offset() {
     let ball = BallSetPhysicsSpec::default();
     let max_side_offset = 0.5_f64;

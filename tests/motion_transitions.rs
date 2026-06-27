@@ -174,6 +174,68 @@ fn a_sliding_draw_ball_uses_initial_cloth_contact_slip_speed_in_the_transition_t
 }
 
 #[test]
+fn a_strong_draw_boundary_predicts_rest_without_a_rolling_phase() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(25.0 / radius.as_f64(), 0.0, 0.0),
+    ));
+
+    let transition = compute_next_transition_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &transition_config(),
+    )
+    .expect("strong-draw boundary should predict the end of sliding");
+    let advanced = advance_motion_on_table(
+        &state,
+        transition.time_until_transition,
+        &BallSetPhysicsSpec::default(),
+        &transition_config(),
+    );
+
+    assert_eq!(transition.phase_before, MotionPhase::Sliding);
+    assert_eq!(transition.phase_after, MotionPhase::Rest);
+    assert_close(transition.time_until_transition.as_f64(), 2.0);
+    assert_close(advanced.state.speed().as_f64(), 0.0);
+    assert_close(advanced.state.angular_velocity.x().as_f64(), 0.0);
+    assert_close(advanced.state.angular_velocity.y().as_f64(), 0.0);
+    assert_close(advanced.state.angular_velocity.z().as_f64(), 0.0);
+}
+
+#[test]
+fn a_strong_draw_boundary_with_residual_side_spin_predicts_spinning() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    let state = on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(25.0 / radius.as_f64(), 0.0, 30.0),
+    ));
+
+    let transition = compute_next_transition_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &transition_config(),
+    )
+    .expect("strong-draw boundary should predict the end of sliding");
+    let advanced = advance_motion_on_table(
+        &state,
+        transition.time_until_transition,
+        &BallSetPhysicsSpec::default(),
+        &transition_config(),
+    );
+
+    assert_eq!(transition.phase_before, MotionPhase::Sliding);
+    assert_eq!(transition.phase_after, MotionPhase::Spinning);
+    assert_close(transition.time_until_transition.as_f64(), 2.0);
+    assert_close(advanced.state.speed().as_f64(), 0.0);
+    assert_close(advanced.state.angular_velocity.x().as_f64(), 0.0);
+    assert_close(advanced.state.angular_velocity.y().as_f64(), 0.0);
+    assert_close(advanced.state.angular_velocity.z().as_f64(), 26.0);
+}
+
+#[test]
 fn a_rolling_ball_without_residual_z_spin_predicts_rest_at_linear_stop() {
     let radius = TYPICAL_BALL_RADIUS.clone();
     let state = on_table(BallState::on_table(

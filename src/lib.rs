@@ -6193,6 +6193,31 @@ fn side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
     false
 }
 
+fn corner_pocket_post_jaw_state_stays_inside_signed_target_envelope(
+    state: &OnTableBallState,
+    pocket: Pocket,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+) -> bool {
+    debug_assert!(matches!(table.pocket_spec(pocket).ty, PocketType::Corner));
+
+    let raw_state = RawOnTableBallState::from_on_table(state);
+    let signed_entry_angle =
+        pocket_signed_entry_angle_degrees_raw(raw_state, pocket).unwrap_or(0.0);
+    let (left_bound, right_bound) = pocket_target_bounds_in_inches(
+        pocket,
+        signed_entry_angle,
+        raw_state.speed(),
+        ball.radius.as_f64(),
+        table,
+    );
+    let lateral_offset = pocket_lateral_offset_raw(raw_state, pocket, table);
+    let target_gap = (lateral_offset - left_bound).max(-right_bound - lateral_offset);
+    let angle_gap = pocket_acceptance_gap_raw(raw_state, pocket, table);
+
+    target_gap.max(angle_gap) <= 1e-9
+}
+
 fn should_capture_after_jaw_impact(
     state: &OnTableBallState,
     pocket: Pocket,
@@ -6203,7 +6228,9 @@ fn should_capture_after_jaw_impact(
     on_table_state_is_within_pocket_mouth_region(state, pocket, table)
         && on_table_state_velocity_points_toward_pocket_center(state, pocket, table)
         && match table.pocket_spec(pocket).ty {
-            PocketType::Corner => true,
+            PocketType::Corner => corner_pocket_post_jaw_state_stays_inside_signed_target_envelope(
+                state, pocket, ball, table,
+            ),
             PocketType::Side => side_pocket_post_jaw_path_reaches_centerline_inside_capture_region(
                 state, pocket, ball, table, config,
             ),
@@ -6348,6 +6375,60 @@ mod pocket_mouth_tests {
                 &table,
                 &fast_post_jaw_motion,
             )
+        );
+    }
+
+    #[test]
+    fn corner_pocket_post_jaw_late_drop_rechecks_the_signed_tp38_target_envelope() {
+        let table = TableSpec::default();
+        let ball = BallSetPhysicsSpec::default();
+        let radius = ball.radius.as_f64();
+        let rejected = raw_state_on_pocket_mouth_with_local_offset(
+            Pocket::TopRight,
+            45.0,
+            0.70,
+            120.0,
+            radius,
+            &table,
+        )
+        .into_on_table_state();
+        let accepted = raw_state_on_pocket_mouth_with_local_offset(
+            Pocket::TopRight,
+            45.0,
+            -0.70,
+            120.0,
+            radius,
+            &table,
+        )
+        .into_on_table_state();
+
+        assert!(on_table_state_is_within_pocket_mouth_region(
+            &rejected,
+            Pocket::TopRight,
+            &table,
+        ));
+        assert!(on_table_state_velocity_points_toward_pocket_center(
+            &rejected,
+            Pocket::TopRight,
+            &table,
+        ));
+        assert!(
+            !corner_pocket_post_jaw_state_stays_inside_signed_target_envelope(
+                &rejected,
+                Pocket::TopRight,
+                &ball,
+                &table,
+            ),
+            "TP 3.8 rejects the near-point side even when a corner post-jaw state is already inside the mouth"
+        );
+        assert!(
+            corner_pocket_post_jaw_state_stays_inside_signed_target_envelope(
+                &accepted,
+                Pocket::TopRight,
+                &ball,
+                &table,
+            ),
+            "TP 3.8 accepts the wider far-wall side for a corner post-jaw late drop"
         );
     }
 

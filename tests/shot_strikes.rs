@@ -338,6 +338,50 @@ fn cue_squirt_matches_tp_b1_real_cue_examples() {
 }
 
 #[test]
+fn tp_b7_low_squirt_cue_generates_two_percent_more_side_spin_at_max_offset() {
+    let ball = BallSetPhysicsSpec::default();
+    let max_side_offset = 0.5_f64;
+    let max_tip_offset = Inches::from_f64(max_side_offset * TYPICAL_BALL_RADIUS.as_f64());
+    let regular_endmass_ratio =
+        cue_endmass_ratio_from_squirt(max_tip_offset.clone(), 2.5, TYPICAL_BALL_RADIUS.clone());
+    let low_squirt_endmass_ratio =
+        cue_endmass_ratio_from_squirt(max_tip_offset, 1.8, TYPICAL_BALL_RADIUS.clone());
+    let regular_cue = CueStrikeConfig::new_with_endmass_ratio(
+        Scale::from_f64(1.0),
+        Scale::from_f64(0.1),
+        regular_endmass_ratio,
+    )
+    .expect("regular TP B.1 cue should validate");
+    let low_squirt_cue = CueStrikeConfig::new_with_endmass_ratio(
+        Scale::from_f64(1.0),
+        Scale::from_f64(0.1),
+        low_squirt_endmass_ratio,
+    )
+    .expect("low-squirt TP B.1 cue should validate");
+    let shot = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::new(Scale::from_f64(max_side_offset), Scale::zero())
+            .expect("TP B.7 max side-offset tip contact should validate"),
+    )
+    .expect("TP B.7 max side-offset shot should validate");
+
+    let regular = strike_resting_ball_on_table(&resting_ball(), &shot, &regular_cue, &ball)
+        .expect("regular TP B.7 strike should succeed");
+    let low_squirt = strike_resting_ball_on_table(&resting_ball(), &shot, &low_squirt_cue, &ball)
+        .expect("low-squirt TP B.7 strike should succeed");
+    let spin_gain = low_squirt.as_ball_state().angular_velocity.z().as_f64()
+        / regular.as_ball_state().angular_velocity.z().as_f64()
+        - 1.0;
+    let expected_gain = (max_side_offset.asin() - 1.8_f64.to_radians()).sin()
+        / (max_side_offset.asin() - 2.5_f64.to_radians()).sin()
+        - 1.0;
+
+    assert_close_with_tolerance(expected_gain, 0.023_394_009_910_153_724, 1e-12);
+    assert_close_with_tolerance(spin_gain, expected_gain, 0.000_002);
+}
+
+#[test]
 fn tp_a31_squirt_model_intentionally_differs_from_shepard_table_i() {
     let ball_radius = Inches::from_f64(2.25 / 2.0);
     let tip_offset = Inches::from_f64(ball_radius.as_f64() * 3.0 / 8.0);

@@ -186,6 +186,16 @@ fn shared_three_ball_contact_fixture() -> Vec<OnTableBallState> {
     ]
 }
 
+fn rolling_transition_just_before_shared_contact() -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let speed = 5.0 * (1.0 - 5e-13);
+    on_table(BallState::on_table(
+        inches2(40.0, 40.0),
+        Velocity2::new(Inches::from_f64(speed), Inches::zero()),
+        AngularVelocity3::new(0.0, speed / radius, 0.0),
+    ))
+}
+
 fn rolling_toward_center_right_side_pocket() -> OnTableBallState {
     let table = TableSpec::default();
     on_table(BallState::on_table(
@@ -1076,6 +1086,43 @@ fn pocket_aware_advancing_matches_rail_aware_advancing_when_pockets_are_irreleva
         ("rail impact", rail_impact),
     ] {
         assert_pocket_aware_matches_rail_aware(&states, label);
+    }
+}
+
+#[test]
+fn pocket_aware_shared_contact_uses_the_ball_ball_time_when_an_unrelated_transition_is_tied() {
+    let table = TableSpec::default();
+    let mut states = shared_three_ball_contact_fixture()
+        .into_iter()
+        .map(NBallSystemState::from)
+        .collect::<Vec<_>>();
+    states.push(NBallSystemState::from(
+        rolling_transition_just_before_shared_contact(),
+    ));
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect("an event should be predicted");
+
+    match event {
+        NBallSystemEvent::SharedBallBallContact {
+            time_until_contact,
+            ball_indices,
+            ball_ball_pairs,
+            ..
+        } => {
+            assert!(
+                (time_until_contact.as_f64() - 1.0).abs() <= 1e-13,
+                "shared contact should be reported at the ball-ball contact time, not an unrelated transition time: {time_until_contact:?}"
+            );
+            assert_eq!(ball_indices, vec![0, 1, 2]);
+            assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
+        }
+        other => panic!("expected shared contact, got {other:?}"),
     }
 }
 

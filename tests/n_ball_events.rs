@@ -54,6 +54,30 @@ fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
 }
 
+fn symmetric_shared_contact_fixture() -> [OnTableBallState; 3] {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let contact_y = -3.0_f64.sqrt() * radius;
+    [
+        on_table(BallState::on_table(
+            inches2(0.0, contact_y - 7.5),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+        )),
+        on_table(BallState::resting_at(inches2(-radius, 0.0))),
+        on_table(BallState::resting_at(inches2(radius, 0.0))),
+    ]
+}
+
+fn rolling_transition_just_before_shared_contact() -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let speed = 5.0 * (1.0 - 5e-13);
+    on_table(BallState::on_table(
+        inches2(40.0, 40.0),
+        Velocity2::new(Inches::from_f64(speed), Inches::zero()),
+        AngularVelocity3::new(0.0, speed / radius, 0.0),
+    ))
+}
+
 #[test]
 fn the_n_ball_scheduler_picks_the_earliest_ball_ball_collision_across_pairs() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
@@ -87,6 +111,36 @@ fn the_n_ball_scheduler_picks_the_earliest_ball_ball_collision_across_pairs() {
             assert_close(collision.time_until_impact.as_f64(), 1.0);
         }
         other => panic!("expected ball-ball collision, got {other:?}"),
+    }
+}
+
+#[test]
+fn shared_contact_uses_the_ball_ball_time_when_an_unrelated_transition_is_tied() {
+    let [cue_ball, left_object, right_object] = symmetric_shared_contact_fixture();
+    let unrelated = rolling_transition_just_before_shared_contact();
+
+    let event = compute_next_n_ball_event_on_table(
+        &[&cue_ball, &left_object, &right_object, &unrelated],
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("an event should be predicted");
+
+    match event {
+        NBallOnTableEvent::SharedBallBallContact {
+            time_until_contact,
+            ball_indices,
+            ball_ball_pairs,
+            ..
+        } => {
+            assert!(
+                (time_until_contact.as_f64() - 1.0).abs() <= 1e-13,
+                "shared contact should be reported at the ball-ball contact time, not an unrelated transition time: {time_until_contact:?}"
+            );
+            assert_eq!(ball_indices, vec![0, 1, 2]);
+            assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
+        }
+        other => panic!("expected shared contact, got {other:?}"),
     }
 }
 

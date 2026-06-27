@@ -7554,6 +7554,19 @@ fn shared_ball_ball_contact_from_candidates(
         .iter()
         .map(|candidate| candidate.event.time().as_f64())
         .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
+    let earliest_ball_ball_time = candidates
+        .iter()
+        .filter_map(|candidate| match &candidate.event {
+            NBallOnTableEvent::BallBallCollision { collision, .. } => {
+                Some(collision.time_until_impact.as_f64())
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
+    if earliest_ball_ball_time - earliest_time > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+        return None;
+    }
+
     let mut ball_ball_pairs = candidates
         .iter()
         .filter_map(|candidate| match &candidate.event {
@@ -7561,7 +7574,7 @@ fn shared_ball_ball_contact_from_candidates(
                 first_ball_index,
                 second_ball_index,
                 ..
-            } if (candidate.event.time().as_f64() - earliest_time).abs()
+            } if (candidate.event.time().as_f64() - earliest_ball_ball_time).abs()
                 <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS =>
             {
                 Some((*first_ball_index, *second_ball_index))
@@ -7587,7 +7600,7 @@ fn shared_ball_ball_contact_from_candidates(
     }
 
     Some(NBallOnTableEvent::SharedBallBallContact {
-        time_until_contact: Seconds::new(earliest_time),
+        time_until_contact: Seconds::new(earliest_ball_ball_time),
         ball_indices,
         ball_ball_pairs,
         resolution: shared_ball_ball_contact_resolution(),
@@ -7620,6 +7633,19 @@ fn shared_ball_ball_contact_from_pocket_candidates(
         .iter()
         .map(|candidate| candidate.event.time().as_f64())
         .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
+    let earliest_ball_ball_time = candidates
+        .iter()
+        .filter_map(|candidate| match &candidate.event {
+            NBallSystemEvent::BallBallCollision { collision, .. } => {
+                Some(collision.time_until_impact.as_f64())
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
+    if earliest_ball_ball_time - earliest_time > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+        return None;
+    }
+
     let mut ball_ball_pairs = candidates
         .iter()
         .filter_map(|candidate| match &candidate.event {
@@ -7627,7 +7653,7 @@ fn shared_ball_ball_contact_from_pocket_candidates(
                 first_ball_index,
                 second_ball_index,
                 ..
-            } if (candidate.event.time().as_f64() - earliest_time).abs()
+            } if (candidate.event.time().as_f64() - earliest_ball_ball_time).abs()
                 <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS =>
             {
                 Some((*first_ball_index, *second_ball_index))
@@ -7653,7 +7679,7 @@ fn shared_ball_ball_contact_from_pocket_candidates(
     }
 
     Some(NBallSystemEvent::SharedBallBallContact {
-        time_until_contact: Seconds::new(earliest_time),
+        time_until_contact: Seconds::new(earliest_ball_ball_time),
         ball_indices,
         ball_ball_pairs,
         resolution: shared_ball_ball_contact_resolution(),

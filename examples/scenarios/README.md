@@ -18,6 +18,54 @@ The CLI will:
 
 ## Included scenarios
 
+### Professional / practice-book manual checks
+
+These scenarios are source-grounded layouts for manual physics review. They intentionally favor
+diagnostic trace visibility over exact tournament-table replication; use `--trace-labels true` and
+`--trace-color-mode motion-phase` when reviewing.
+
+### `corey_deuel_power_draw.billiards`
+Source: `whitepapers/corey_deuel_s_famous_draw_shot.pdf`.
+
+Expected flavor:
+- heavy draw and slight outside/right spin after potting the 4 up-table
+- cue ball bends after the first cushion toward the down-table shape marker
+
+### `golden_break_cut_break.billiards`
+Source: `whitepapers/golden_break.pdf`.
+
+Expected flavor:
+- non-square 1-ball hit opens the tight 9-ball rack
+- cue ball routes toward the side rail and back into the rack/9-ball region
+
+### `frozen_proposition_kiss.billiards`
+Source: `whitepapers/frozen_proposition_shot.pdf`.
+
+Expected flavor:
+- near-frozen 8/9 one ball off the foot rail
+- fuller-than-obvious hit line with draw-assisted kissed 8-ball motion
+
+### `magic_spot_three_rail_kick.billiards`
+Source: `whitepapers/magic_spot_kicks.pdf`.
+
+Expected flavor:
+- running-spin cue-ball kick with multiple rail contacts
+- cue path approaches the symmetric target-ball lane
+
+### `bank_reference_track_one_rail.billiards`
+Source: `whitepapers/bank_shot_reference_tracks.pdf`.
+
+Expected flavor:
+- object ball starts one diamond off the side rail
+- one-rail bank track can be compared against the reference lane to the bottom-right corner
+
+### `hustler_frozen_rail_bank.billiards`
+Source: `whitepapers/billiards_on_the_big_screen_the_hustler.pdf`.
+
+Expected flavor:
+- cue ball starts near-frozen to a rail-frozen 8
+- firm top-right-English hit shows transferred spin/throw and bank response
+
 ### Lag-shot Dr. Dave speed ladder
 
 The `lag_shot_00_touch.billiards` through `lag_shot_08_exceptional_power_break.billiards`

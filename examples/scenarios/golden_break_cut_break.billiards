@@ -1,0 +1,18 @@
+# Golden-break cut-break manual check.
+# Source: whitepapers/golden_break.pdf
+# Goal: a non-square hit on the 1 sends the cue ball toward the side rail and into the
+# near-stationary 9 in a tight rack; inspect rack transfer and cue-ball route.
+table brunswick_gc4_9ft
+ball cue at (1.35, 6.25)
+ball one at (2.0, 2.0)
+ball two at (1.9028, 1.823644661504305)
+ball three at (2.0972, 1.823644661504305)
+ball four at (1.8056, 1.663289323008610)
+ball nine at (2.0, 1.663289323008610)
+ball five at (2.1944, 1.663289323008610)
+ball six at (1.9028, 1.494933984512916)
+ball seven at (2.0972, 1.494933984512916)
+ball eight at (2.0, 1.326578646017221)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 12)
+shot(cue).heading(169deg).speed(typical-power-break).tip(side: -0.08R, height: -0.1R).using(default)

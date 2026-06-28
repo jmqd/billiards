@@ -1,0 +1,11 @@
+# Corey Deuel famous power draw manual check.
+# Source: whitepapers/corey_deuel_s_famous_draw_shot.pdf
+# Goal: pot the 4 up-table, then inspect whether heavy draw plus slight outside/right spin
+# bends the cue ball down-table after the first cushion toward shape on the 5.
+table brunswick_gc4_9ft
+ball cue at (1.20, 2.35)
+ball four at (2.65, 5.95)
+ball one at (0.95, 1.20)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 10)
+shot(cue).to_pocket(four, top-right).speed(power).tip(side: 0.18R, height: -0.45R).using(default)

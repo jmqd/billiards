@@ -1,0 +1,11 @@
+# Frozen proposition kiss manual check.
+# Source: whitepapers/frozen_proposition_shot.pdf
+# Goal: the 8 and 13 are nearly frozen one ball off the foot rail; inspect the fuller-than-obvious
+# hit line and the effect of draw on the 8's kissed path toward the bottom-left corner.
+table brunswick_gc4_9ft
+ball cue at (2.30, 2.15)
+ball eight at (1.92, 0.36)
+ball nine at (2.10, 0.36)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 8)
+shot(cue).heading(191deg).speed(56ips).tip(side: 0.0R, height: -0.32R).using(default)

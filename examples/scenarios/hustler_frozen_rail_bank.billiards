@@ -1,0 +1,10 @@
+# The Hustler frozen-rail bank manual check.
+# Source: whitepapers/billiards_on_the_big_screen_the_hustler.pdf
+# Goal: rail-frozen 8 banks toward the top-right corner from a nearly frozen cue-ball contact;
+# inspect transferred spin/throw and rail response from a firm top-right-English hit.
+table brunswick_gc4_9ft
+ball cue at (3.56, 5.85)
+ball eight frozen right (5.85)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 8)
+shot(cue).heading(86deg).speed(88ips).tip(side: 0.22R, height: 0.28R).using(default)

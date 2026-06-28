@@ -1266,12 +1266,31 @@ impl Default for BallBallCollisionConfig {
 /// reduced on-table model. If Kim-style object/table static friction is enabled, the object ball can
 /// receive an additional horizontal-axis spin increment from the table-coupled vertical impulse.
 /// Full vertical center-of-mass hop remains outside scope.
+///
+/// `diagnostics` exposes the contact basis, slip vector, impulse terms, and friction coefficient
+/// used by non-ideal contact solves. It is `None` for `CollisionModel::Ideal`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollisionOutcome {
     pub a_after: OnTableBallState,
     pub b_after: OnTableBallState,
     pub throw_angle_degrees: Option<f64>,
     pub transferred_spin: Option<AngularVelocity3>,
+    pub diagnostics: Option<CollisionDiagnostics>,
+}
+
+/// Contact-space details for debugging and validating a non-ideal ball-ball collision.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollisionDiagnostics {
+    pub normal_basis: (f64, f64),
+    pub tangent_basis: (f64, f64),
+    pub normal_relative_speed_before: f64,
+    pub normal_impulse_per_mass: f64,
+    pub tangential_contact_slip_before: f64,
+    pub vertical_contact_slip_before: f64,
+    pub tangential_impulse_per_mass: f64,
+    pub vertical_impulse_per_mass: f64,
+    pub contact_friction_coefficient: f64,
+    pub kim_table_coupled_normal_correction: f64,
 }
 
 /// Analytic TP B.21 prediction for a small-gap combination shot.
@@ -1296,11 +1315,12 @@ pub struct SmallGapCombinationThrowPrediction {
     pub max_first_object_ball_angle_degrees: f64,
 }
 
-/// A collision outcome bundled with the current cue-ball bend estimate convenience data.
+/// A collision outcome bundled with current cue-ball continuation estimates.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollisionAnalysis {
     pub outcome: CollisionOutcome,
     pub cue_ball_bend: Option<PostContactCueBallBend>,
+    pub cue_ball_curve: Option<PostContactCueBallCurve>,
 }
 
 /// A convenience handle for continuing analysis or scheduling from a cue ball's immediate
@@ -10667,6 +10687,7 @@ fn ideal_collision_outcome_on_table_with_config(
         ),
         throw_angle_degrees: None,
         transferred_spin: None,
+        diagnostics: None,
     }
 }
 
@@ -10876,6 +10897,18 @@ fn frictional_collision_outcome_on_table_with_config(
         ),
         throw_angle_degrees: Some(throw_angle_degrees),
         transferred_spin,
+        diagnostics: Some(CollisionDiagnostics {
+            normal_basis: (normal_x, normal_y),
+            tangent_basis: (tangent_x, tangent_y),
+            normal_relative_speed_before: normal_relative_speed,
+            normal_impulse_per_mass,
+            tangential_contact_slip_before: tangential_contact_slip,
+            vertical_contact_slip_before: vertical_contact_slip,
+            tangential_impulse_per_mass,
+            vertical_impulse_per_mass,
+            contact_friction_coefficient: tangential_friction_coefficient,
+            kim_table_coupled_normal_correction,
+        }),
     }
 }
 
@@ -11208,8 +11241,8 @@ impl CollisionOutcome {
         estimate_post_contact_cue_ball_curve_on_table(&self.a_after, ball, motion)
     }
 
-    /// Bundle this outcome with the current cue-ball bend estimate convenience data.
-    pub fn with_post_contact_cue_ball_bend(
+    /// Bundle this outcome with current cue-ball continuation estimates.
+    pub fn with_post_contact_cue_ball_analysis(
         &self,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
@@ -11217,7 +11250,17 @@ impl CollisionOutcome {
         CollisionAnalysis {
             outcome: self.clone(),
             cue_ball_bend: self.estimate_post_contact_cue_ball_bend(ball, motion),
+            cue_ball_curve: self.estimate_post_contact_cue_ball_curve(ball, motion),
         }
+    }
+
+    /// Bundle this outcome with the current cue-ball bend/curve estimate convenience data.
+    pub fn with_post_contact_cue_ball_bend(
+        &self,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> CollisionAnalysis {
+        self.with_post_contact_cue_ball_analysis(ball, motion)
     }
 }
 

@@ -1,0 +1,10 @@
+# Bank Shot Reference Tracks one-rail manual check.
+# Source: whitepapers/bank_shot_reference_tracks.pdf
+# Goal: object ball one diamond off the side rail banks toward the bottom-right corner at pocket
+# speed; inspect whether the one-rail track is near the expected reference lane.
+table brunswick_gc4_9ft
+ball cue at (1.35, 4.30)
+ball two at (3.00, 4.85)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 8)
+shot(cue).heading(72deg).speed(54ips).tip(side: 0.0R, height: 0.0R).using(default)

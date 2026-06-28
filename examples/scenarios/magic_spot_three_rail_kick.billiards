@@ -1,0 +1,11 @@
+# Magic-spot three-rail kick manual check.
+# Source: whitepapers/magic_spot_kicks.pdf
+# Goal: with running spin, the cue travels three rails through a table-specific spot near the side
+# pocket toward a symmetric one-pocket target ball.
+table brunswick_gc4_9ft
+ball cue at (0.75, 2.0)
+ball nine at (3.25, 6.0)
+ball one at (0.55, 5.8)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 8)
+shot(cue).heading(20deg).speed(116ips).tip(side: 0.24R, height: 0.12R).using(default)

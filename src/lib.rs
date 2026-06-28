@@ -5659,6 +5659,7 @@ struct FastPocketTargetGeometry {
     mouth_width: f64,
     wall_angle_radians: f64,
     shelf_depth: f64,
+    max_entry_angle_degrees: f64,
     critical_angle_degrees: f64,
 }
 
@@ -5666,13 +5667,16 @@ fn fast_pocket_target_geometry(pocket: Pocket, table: &TableSpec) -> FastPocketT
     let pocket_spec = table.pocket_spec(pocket);
     let mouth_width = table.diamond_to_inches(pocket_spec.width.clone()).as_f64();
     let shelf_depth = table.diamond_to_inches(pocket_spec.depth.clone()).as_f64();
-    let (wall_angle_degrees, critical_angle_degrees) = match pocket_spec.ty {
+    let (wall_angle_degrees, max_entry_angle_degrees, critical_angle_degrees) = match pocket_spec.ty
+    {
         PocketType::Side => (
             SIDE_POCKET_WALL_ANGLE_DEGREES,
+            SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES,
             SIDE_POCKET_FAST_CRITICAL_ENTRY_ANGLE_DEGREES,
         ),
         PocketType::Corner => (
             CORNER_POCKET_WALL_ANGLE_DEGREES,
+            CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES,
             CORNER_POCKET_FAST_CRITICAL_ENTRY_ANGLE_DEGREES,
         ),
     };
@@ -5681,6 +5685,7 @@ fn fast_pocket_target_geometry(pocket: Pocket, table: &TableSpec) -> FastPocketT
         mouth_width,
         wall_angle_radians: wall_angle_degrees.to_radians(),
         shelf_depth,
+        max_entry_angle_degrees,
         critical_angle_degrees,
     }
 }
@@ -5780,6 +5785,10 @@ fn pocket_fast_target_bounds_in_inches(
     table: &TableSpec,
 ) -> (f64, f64) {
     let geometry = fast_pocket_target_geometry(pocket, table);
+    if signed_entry_angle_degrees.abs() > geometry.max_entry_angle_degrees {
+        return (0.0, 0.0);
+    }
+
     let theta = signed_entry_angle_degrees.to_radians();
 
     (
@@ -6524,6 +6533,55 @@ mod pocket_mouth_tests {
         assert!((side_right - 1.408_417_307_939_504).abs() < 1e-12);
         assert!((corner_left - 1.133_385_579_403_512_8).abs() < 1e-12);
         assert!((corner_right - 1.133_385_579_403_512_8).abs() < 1e-12);
+    }
+
+    #[test]
+    fn fast_pocket_target_bounds_are_empty_past_tp37_tp38_max_entry_angles() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let side_over_limit = SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES + 0.001;
+        let corner_over_limit = CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES + 0.001;
+
+        assert_eq!(
+            pocket_fast_target_bounds_in_inches(
+                Pocket::CenterRight,
+                side_over_limit,
+                radius,
+                &table
+            ),
+            (0.0, 0.0),
+            "TP 3.7 reports no fast side-pocket target beyond 50.688 degrees"
+        );
+        assert_eq!(
+            pocket_fast_target_bounds_in_inches(
+                Pocket::CenterRight,
+                -side_over_limit,
+                radius,
+                &table
+            ),
+            (0.0, 0.0),
+            "TP 3.7's side-pocket cap should apply symmetrically"
+        );
+        assert_eq!(
+            pocket_fast_target_bounds_in_inches(
+                Pocket::TopRight,
+                corner_over_limit,
+                radius,
+                &table
+            ),
+            (0.0, 0.0),
+            "TP 3.8 reports no fast corner-pocket target beyond 59.841 degrees"
+        );
+        assert_eq!(
+            pocket_fast_target_bounds_in_inches(
+                Pocket::TopRight,
+                -corner_over_limit,
+                radius,
+                &table
+            ),
+            (0.0, 0.0),
+            "TP 3.8's corner-pocket cap should apply symmetrically"
+        );
     }
 
     #[test]

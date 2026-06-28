@@ -115,3 +115,22 @@ fn angled_pocket_target_centers_shift_with_the_effective_target_model_and_speed(
         angle_degrees(object_ball.aim_angle(&fast_target, &shooting_position, &table)),
     );
 }
+
+#[test]
+fn over_limit_fast_side_pocket_target_falls_back_to_geometric_center() {
+    let table = TableSpec::default();
+    let object_ball = object_ball_at("2", "7");
+    let pocket_center = Pocket::CenterRight.aiming_center();
+
+    let fast_target =
+        object_ball.pocket_target_center(Pocket::CenterRight, InchesPerSecond::new("120"), &table);
+
+    assert_close(
+        diamond_value(&fast_target.x),
+        diamond_value(&pocket_center.x),
+    );
+    assert_close(
+        diamond_value(&fast_target.y),
+        diamond_value(&pocket_center.y),
+    );
+}

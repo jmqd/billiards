@@ -3,6 +3,11 @@ name = "billiards"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = [".", "xtask"]
+default-members = ["."]
+resolver = "2"
+
 [dependencies]
 bigdecimal = "0.4.8"
 clap = { version = "4.5", features = ["derive"] }

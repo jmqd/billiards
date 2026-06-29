@@ -16,6 +16,23 @@ The CLI will:
 - print a typed-event-log rendering
 - render the final layout with same-color-per-ball traces
 
+Generate and preview every scenario diagram as a local validation gallery with:
+
+```bash
+cargo xtask validation-suite
+xdg-open target/validation-suite/index.html
+```
+
+Or open it automatically:
+
+```bash
+cargo xtask validation-suite --open
+```
+
+The gallery writes fresh PNGs plus `target/validation-suite/index.html`, and includes the scenario
+comments, DSL shot line, simulation summary, event log, cue-ball launch speed in mph, and the nearest
+human-facing shot-speed label.
+
 ## Included scenarios
 
 ### Professional / practice-book manual checks

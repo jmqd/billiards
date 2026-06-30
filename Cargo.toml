@@ -17,6 +17,7 @@ redundant_clone = "deny"
 large_types_passed_by_value = "deny"
 large_stack_arrays = "deny"
 unnecessary_wraps = "deny"
+clone_on_ref_ptr = "deny"
 
 [dependencies]
 bigdecimal = "0.4.8"

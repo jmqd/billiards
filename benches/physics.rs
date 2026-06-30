@@ -10,18 +10,20 @@ use billiards::{
     compute_next_two_ball_event_with_rails_on_table,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest, simulate_two_on_table_balls,
     strike_resting_ball_on_table, trace_ball_path_with_rails_on_table, Angle, AngularVelocity3,
-    Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel,
-    CueStrikeConfig, CueTipContact, Diamond, GameState, Inches, Inches2, InchesPerSecond,
-    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, NBallSystemState,
-    OnTableBallState, OnTableMotionConfig, Position, RadiansPerSecondSq, Rail, RailAngleReference,
-    RailModel, RailTangentDirection, RestingOnTableBallState, RollingResistanceModel, Seconds,
-    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT, TYPICAL_BALL_RADIUS,
+    Ball, BallBallCollisionConfig, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
+    CollisionModel, CueStrikeConfig, CueTipContact, Diamond, GameState, Inches, Inches2,
+    InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, Position, RadiansPerSecondSq, Rail,
+    RailAngleReference, RailCollisionProfile, RailModel, RailTangentDirection,
+    RestingOnTableBallState, RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
+    TableSpec, Velocity2, CENTER_SPOT, TYPICAL_BALL_RADIUS,
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 
 const LAYOUT_DSL: &str = "ball cue at center\nball nine at (3, 7)\nball eight frozen left (6)\n";
 const SINGLE_BALL_SHOT_DSL: &str = "ball cue at center\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(30deg).speed(16ips).tip(side: 0.0R, height: 0.4R).using(default)\n";
 const TWO_BALL_SHOT_DSL: &str = "ball cue at center\nball nine at (2, 4.75)\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(0deg).speed(16ips).tip(side: 0.0R, height: 0.0R).using(default)\n";
+const THREE_BALL_PINBALL_DSL: &str = "ball cue at (1.0, 4.0)\nball one at (2.0, 4.2)\nball two at (3.0, 4.9)\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(80deg).speed(120ips).tip(side: 0.0R, height: 0.0R).using(default)\n";
 
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
@@ -283,6 +285,29 @@ fn run_preparsed_dsl_single_ball_shot_to_completion(
     );
 }
 
+fn run_preparsed_dsl_three_ball_pinball_event_limit(
+    scenario: &DslScenario,
+    ball_set: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_config: &BallBallCollisionConfig,
+    rail_profile: &RailCollisionProfile,
+) {
+    black_box(
+        scenario
+            .simulate_shot_trace_with_physics_on_table_until_event_limit(
+                ball_set,
+                motion,
+                CollisionModel::ThrowAware,
+                collision_config,
+                RailModel::SpinAware,
+                rail_profile,
+                8,
+            )
+            .expect("benchmark three-ball scenario trace should build")
+            .expect("benchmark three-ball scenario should contain a shot"),
+    );
+}
+
 fn run_direct_two_ball_shot_to_completion() {
     let (cue_ball, object_ball, ball_set, motion) = direct_two_ball_inputs();
     black_box(simulate_two_on_table_balls(
@@ -469,8 +494,12 @@ fn bench_core_functions(c: &mut Criterion) {
 fn bench_end_to_end(c: &mut Criterion) {
     let scenario = parse_dsl_to_scenario(SINGLE_BALL_SHOT_DSL)
         .expect("benchmark single-ball shot DSL should parse");
+    let three_ball_scenario = parse_dsl_to_scenario(THREE_BALL_PINBALL_DSL)
+        .expect("benchmark three-ball pinball DSL should parse");
     let ball_set = BallSetPhysicsSpec::default();
     let motion = motion_config();
+    let collision_config = BallBallCollisionConfig::default();
+    let rail_profile = RailCollisionProfile::default();
 
     let mut group = c.benchmark_group("end_to_end");
     group.measurement_time(Duration::from_secs(8));
@@ -484,6 +513,17 @@ fn bench_end_to_end(c: &mut Criterion) {
     });
     group.bench_function("dsl/preparsed_trace_until_rest", |b| {
         b.iter(|| run_preparsed_dsl_single_ball_shot_to_completion(&scenario, &ball_set, &motion))
+    });
+    group.bench_function("dsl/preparsed_three_ball_pinball_event_limit_8", |b| {
+        b.iter(|| {
+            run_preparsed_dsl_three_ball_pinball_event_limit(
+                &three_ball_scenario,
+                &ball_set,
+                &motion,
+                &collision_config,
+                &rail_profile,
+            )
+        })
     });
     group.bench_function("direct/two_ball_simulate_to_completion", |b| {
         b.iter(run_direct_two_ball_shot_to_completion)

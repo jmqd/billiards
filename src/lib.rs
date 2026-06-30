@@ -5,18 +5,20 @@
 )]
 
 mod assets;
+pub mod diagram;
 mod drawing;
 pub mod dsl;
 pub mod visualization;
 
-use crate::assets::diamond_to_pixel;
+use crate::diagram::{
+    render_scene_to_bytes, DiagramBall, DiagramElement, DiagramOutputFormat, DiagramScene,
+    DiagramViewport,
+};
 use crate::visualization::{
     AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
     EventMarkerStyle, GhostBallStyle, LabelOverlayStyle, SmoothPolylineStyle,
 };
-use assets::ideal_ball_size_px;
 use core::fmt;
-use image::imageops::{resize, FilterType};
 use image::Rgba;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
@@ -1580,6 +1582,161 @@ struct NBallPocketAwareSystemEventCandidate {
     event: NBallSystemEvent,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum NBallPocketAwareSystemEventCandidateRef<'a> {
+    BallBallCollision {
+        first_ball_index: usize,
+        second_ball_index: usize,
+        collision: &'a PredictedBallBallCollision,
+    },
+    BallJawImpact {
+        ball_index: usize,
+        impact: &'a PredictedBallJawImpact,
+    },
+    BallPocketCapture {
+        ball_index: usize,
+        capture: &'a PredictedBallPocketCapture,
+    },
+    BallRailImpact {
+        ball_index: usize,
+        impact: &'a PredictedBallRailImpact,
+    },
+    MotionTransition {
+        ball_index: usize,
+        transition: &'a NextTransition,
+    },
+}
+
+impl NBallPocketAwareSystemEventCandidateRef<'_> {
+    fn source(&self) -> NBallPocketAwareSystemEventSource {
+        match *self {
+            Self::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                ..
+            } => NBallPocketAwareSystemEventSource::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+            },
+            Self::BallJawImpact { ball_index, .. } => {
+                NBallPocketAwareSystemEventSource::BallJawImpact { ball_index }
+            }
+            Self::BallPocketCapture { ball_index, .. } => {
+                NBallPocketAwareSystemEventSource::BallPocketCapture { ball_index }
+            }
+            Self::BallRailImpact { ball_index, .. } => {
+                NBallPocketAwareSystemEventSource::BallRailImpact { ball_index }
+            }
+            Self::MotionTransition { ball_index, .. } => {
+                NBallPocketAwareSystemEventSource::MotionTransition { ball_index }
+            }
+        }
+    }
+
+    fn time_seconds(&self) -> f64 {
+        match *self {
+            Self::BallBallCollision { collision, .. } => collision.time_until_impact.as_f64(),
+            Self::BallJawImpact { impact, .. } => impact.time_until_impact.as_f64(),
+            Self::BallPocketCapture { capture, .. } => capture.time_until_capture.as_f64(),
+            Self::BallRailImpact { impact, .. } => impact.time_until_impact.as_f64(),
+            Self::MotionTransition { transition, .. } => transition.time_until_transition.as_f64(),
+        }
+    }
+
+    fn to_event(self) -> NBallSystemEvent {
+        match self {
+            Self::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                collision,
+            } => NBallSystemEvent::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                collision: collision.clone(),
+            },
+            Self::BallJawImpact { ball_index, impact } => NBallSystemEvent::BallJawImpact {
+                ball_index,
+                impact: impact.clone(),
+            },
+            Self::BallPocketCapture {
+                ball_index,
+                capture,
+            } => NBallSystemEvent::BallPocketCapture {
+                ball_index,
+                capture: capture.clone(),
+            },
+            Self::BallRailImpact { ball_index, impact } => NBallSystemEvent::BallRailImpact {
+                ball_index,
+                impact: impact.clone(),
+            },
+            Self::MotionTransition {
+                ball_index,
+                transition,
+            } => NBallSystemEvent::MotionTransition {
+                ball_index,
+                transition: transition.clone(),
+            },
+        }
+    }
+}
+
+fn prefer_explicit_jaw_over_nearby_capture_ref(
+    candidate: NBallPocketAwareSystemEventCandidateRef<'_>,
+    current: NBallPocketAwareSystemEventCandidateRef<'_>,
+) -> Option<bool> {
+    match (candidate, current) {
+        (
+            NBallPocketAwareSystemEventCandidateRef::BallJawImpact {
+                ball_index: candidate_ball,
+                impact,
+            },
+            NBallPocketAwareSystemEventCandidateRef::BallPocketCapture {
+                ball_index: current_ball,
+                capture,
+            },
+        ) if candidate_ball == current_ball
+            && impact.pocket == capture.pocket
+            && (impact.time_until_impact.as_f64() - capture.time_until_capture.as_f64()).abs()
+                <= NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS =>
+        {
+            Some(true)
+        }
+        (
+            NBallPocketAwareSystemEventCandidateRef::BallPocketCapture {
+                ball_index: candidate_ball,
+                capture,
+            },
+            NBallPocketAwareSystemEventCandidateRef::BallJawImpact {
+                ball_index: current_ball,
+                impact,
+            },
+        ) if candidate_ball == current_ball
+            && impact.pocket == capture.pocket
+            && (impact.time_until_impact.as_f64() - capture.time_until_capture.as_f64()).abs()
+                <= NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS =>
+        {
+            Some(false)
+        }
+        _ => None,
+    }
+}
+
+fn earlier_n_ball_pocket_aware_event_candidate_ref(
+    candidate: NBallPocketAwareSystemEventCandidateRef<'_>,
+    current: NBallPocketAwareSystemEventCandidateRef<'_>,
+) -> bool {
+    if let Some(prefer_candidate) = prefer_explicit_jaw_over_nearby_capture_ref(candidate, current)
+    {
+        return prefer_candidate;
+    }
+
+    let candidate_time = candidate.time_seconds();
+    let current_time = current.time_seconds();
+
+    candidate_time < current_time
+        || ((candidate_time - current_time).abs() <= 1e-12 && candidate.source() < current.source())
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct PocketAwareEventCache {
     ball_ball: HashMap<(usize, usize), PredictedBallBallCollision>,
@@ -1596,8 +1753,9 @@ impl PocketAwareEventCache {
         table: &TableSpec,
         config: &OnTableMotionConfig,
     ) -> Self {
+        let pair_capacity = states.len().saturating_mul(states.len().saturating_sub(1)) / 2;
         let mut cache = Self {
-            ball_ball: HashMap::new(),
+            ball_ball: HashMap::with_capacity(pair_capacity),
             jaw_impacts: vec![None; states.len()],
             pocket_captures: vec![None; states.len()],
             rail_impacts: vec![None; states.len()],
@@ -1668,75 +1826,121 @@ impl PocketAwareEventCache {
     }
 
     fn next_event(&self) -> Option<NBallSystemEvent> {
-        let mut candidates = Vec::new();
+        let mut best: Option<NBallPocketAwareSystemEventCandidateRef<'_>> = None;
+        let mut earliest_time = f64::INFINITY;
+        let mut earliest_ball_ball_time = f64::INFINITY;
 
         for (&(first_ball_index, second_ball_index), collision) in &self.ball_ball {
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::BallBallCollision {
-                    first_ball_index,
-                    second_ball_index,
-                },
-                event: NBallSystemEvent::BallBallCollision {
-                    first_ball_index,
-                    second_ball_index,
-                    collision: collision.clone(),
-                },
-            });
+            let candidate = NBallPocketAwareSystemEventCandidateRef::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                collision,
+            };
+            let candidate_time = candidate.time_seconds();
+            earliest_time = earliest_time.min(candidate_time);
+            earliest_ball_ball_time = earliest_ball_ball_time.min(candidate_time);
+            if best.is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
+            }) {
+                best = Some(candidate);
+            }
         }
 
         for (ball_index, impact) in self.jaw_impacts.iter().enumerate() {
             let Some(impact) = impact else {
                 continue;
             };
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::BallJawImpact { ball_index },
-                event: NBallSystemEvent::BallJawImpact {
-                    ball_index,
-                    impact: impact.clone(),
-                },
-            });
+            let candidate =
+                NBallPocketAwareSystemEventCandidateRef::BallJawImpact { ball_index, impact };
+            earliest_time = earliest_time.min(candidate.time_seconds());
+            if best.is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
+            }) {
+                best = Some(candidate);
+            }
         }
 
         for (ball_index, capture) in self.pocket_captures.iter().enumerate() {
             let Some(capture) = capture else {
                 continue;
             };
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::BallPocketCapture { ball_index },
-                event: NBallSystemEvent::BallPocketCapture {
-                    ball_index,
-                    capture: capture.clone(),
-                },
-            });
+            let candidate = NBallPocketAwareSystemEventCandidateRef::BallPocketCapture {
+                ball_index,
+                capture,
+            };
+            earliest_time = earliest_time.min(candidate.time_seconds());
+            if best.is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
+            }) {
+                best = Some(candidate);
+            }
         }
 
         for (ball_index, impact) in self.rail_impacts.iter().enumerate() {
             let Some(impact) = impact else {
                 continue;
             };
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::BallRailImpact { ball_index },
-                event: NBallSystemEvent::BallRailImpact {
-                    ball_index,
-                    impact: impact.clone(),
-                },
-            });
+            let candidate =
+                NBallPocketAwareSystemEventCandidateRef::BallRailImpact { ball_index, impact };
+            earliest_time = earliest_time.min(candidate.time_seconds());
+            if best.is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
+            }) {
+                best = Some(candidate);
+            }
         }
 
         for (ball_index, transition) in self.transitions.iter().enumerate() {
             let Some(transition) = transition else {
                 continue;
             };
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::MotionTransition { ball_index },
-                event: NBallSystemEvent::MotionTransition {
-                    ball_index,
-                    transition: transition.clone(),
-                },
-            });
+            let candidate = NBallPocketAwareSystemEventCandidateRef::MotionTransition {
+                ball_index,
+                transition,
+            };
+            earliest_time = earliest_time.min(candidate.time_seconds());
+            if best.is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
+            }) {
+                best = Some(candidate);
+            }
         }
 
-        select_earliest_n_ball_pocket_aware_event_candidate(candidates)
+        let best = best?;
+        if earliest_ball_ball_time.is_finite()
+            && earliest_ball_ball_time - earliest_time <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
+        {
+            let mut ball_ball_pairs = self
+                .ball_ball
+                .iter()
+                .filter_map(|(&(first_ball_index, second_ball_index), collision)| {
+                    ((collision.time_until_impact.as_f64() - earliest_ball_ball_time).abs()
+                        <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS)
+                        .then_some((first_ball_index, second_ball_index))
+                })
+                .collect::<Vec<_>>();
+            ball_ball_pairs.sort_unstable();
+
+            if ball_ball_pairs.len() >= 2 {
+                let mut ball_indices = ball_ball_pairs
+                    .iter()
+                    .flat_map(|(first, second)| [*first, *second])
+                    .collect::<Vec<_>>();
+                ball_indices.sort_unstable();
+                ball_indices.dedup();
+
+                if ball_indices.len() != 2 * ball_ball_pairs.len() {
+                    return Some(NBallSystemEvent::SharedBallBallContact {
+                        time_until_contact: Seconds::new(earliest_ball_ball_time),
+                        ball_indices,
+                        ball_ball_pairs,
+                        resolution: shared_ball_ball_contact_resolution(),
+                    });
+                }
+            }
+        }
+
+        Some(best.to_event())
     }
 }
 
@@ -7789,7 +7993,9 @@ fn select_earliest_n_ball_event_from_states(
     table: Option<&TableSpec>,
     config: &OnTableMotionConfig,
 ) -> Option<NBallOnTableEvent> {
-    let mut candidates = Vec::new();
+    let single_ball_capacity = states.len() * if table.is_some() { 2 } else { 1 };
+    let pair_capacity = states.len().saturating_mul(states.len().saturating_sub(1)) / 2;
+    let mut candidates = Vec::with_capacity(pair_capacity + single_ball_capacity);
 
     for first_ball_index in 0..states.len() {
         for second_ball_index in first_ball_index + 1..states.len() {
@@ -9733,7 +9939,8 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<NBallSystemEvent> {
-    let mut candidates = Vec::new();
+    let pair_capacity = states.len().saturating_mul(states.len().saturating_sub(1)) / 2;
+    let mut candidates = Vec::with_capacity(pair_capacity + states.len() * 4);
 
     for first_ball_index in 0..states.len() {
         let Some(first_state) = states[first_ball_index].as_on_table() else {
@@ -14190,142 +14397,84 @@ impl GameState {
         self.add_dotted_aim_line_styled(object_ball, &target_center, shooting_position, style)
     }
 
+    /// Builds a backend-neutral scene for the current `GameState`.
+    pub fn to_diagram_scene(&self, options: &DiagramRenderOptions) -> DiagramScene {
+        let mut resolved = self.clone();
+        resolved.resolve_positions();
+
+        let balls = resolved
+            .ball_positions
+            .iter()
+            .map(|ball| DiagramBall {
+                ty: ball.ty.clone(),
+                position: ball.position.clone(),
+                spec: ball.spec.clone(),
+            })
+            .collect();
+
+        let elements = resolved
+            .lines_to_draw
+            .iter()
+            .map(|overlay| match overlay {
+                Overlay::DashedLine { start, end, style } => DiagramElement::DashedLine {
+                    start: start.clone(),
+                    end: end.clone(),
+                    style: style.clone(),
+                },
+                Overlay::SmoothPolyline { points, style } => DiagramElement::SmoothPolyline {
+                    points: points.clone(),
+                    style: style.clone(),
+                },
+                Overlay::GhostBall { center, style } => DiagramElement::GhostBall {
+                    center: center.clone(),
+                    style: style.clone(),
+                },
+                Overlay::CircleMarker { center, style } => DiagramElement::CircleMarker {
+                    center: center.clone(),
+                    style: style.clone(),
+                },
+                Overlay::TextLabel {
+                    anchor,
+                    text,
+                    style,
+                } => DiagramElement::TextLabel {
+                    anchor: anchor.clone(),
+                    text: text.clone(),
+                    style: style.clone(),
+                },
+            })
+            .collect();
+
+        DiagramScene {
+            table_spec: resolved.table_spec,
+            viewport: DiagramViewport::default(),
+            background: options.background,
+            balls,
+            elements,
+        }
+    }
+
+    pub fn render_2d_diagram_with_options(
+        &self,
+        format: DiagramOutputFormat,
+        options: &DiagramRenderOptions,
+    ) -> Vec<u8> {
+        let scene = self.to_diagram_scene(options);
+        render_scene_to_bytes(&scene, format, options)
+    }
+
     /// Draws a 2D diagram of the current `GameState` and returns encoded PNG bytes.
     pub fn draw_2d_diagram(&self) -> Vec<u8> {
         self.draw_2d_diagram_with_options(&DiagramRenderOptions::default())
     }
 
     pub fn draw_2d_diagram_with_options(&self, options: &DiagramRenderOptions) -> Vec<u8> {
-        use image::codecs::png::PngEncoder;
-        use image::imageops::overlay;
-        use image::{ImageEncoder, ImageFormat, RgbaImage};
+        self.render_2d_diagram_with_options(DiagramOutputFormat::Png, options)
+    }
 
-        let ball_diameter_px = ideal_ball_size_px();
-        let mut resolved = self.clone();
-        resolved.resolve_positions();
-
-        let table_asset: RgbaImage =
-            image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
-                .expect("broken table asset")
-                .into_rgba8();
-        let (tw, th) = table_asset.dimensions();
-        let mut table = match options.background {
-            DiagramBackground::Table => table_asset,
-            DiagramBackground::Transparent => RgbaImage::new(tw, th),
-        };
-
-        let draw_overlays_for_layer = |layer: OverlayLayer, table: &mut RgbaImage| {
-            for overlay in resolved.lines_to_draw.iter() {
-                match overlay {
-                    Overlay::DashedLine { start, end, style } if style.layer == layer => {
-                        drawing::draw_dashed_line_thick_mut(
-                            table,
-                            start,
-                            end,
-                            style.dash_px,
-                            style.gap_px,
-                            style.width_px,
-                            style.color,
-                        );
-                    }
-                    Overlay::SmoothPolyline { points, style } if style.layer == layer => {
-                        drawing::draw_smooth_polyline_mut(
-                            table,
-                            points,
-                            style.width_px,
-                            style.color,
-                        );
-                    }
-                    Overlay::GhostBall { center, style } if style.layer == layer => {
-                        drawing::draw_ghost_ball_mut(
-                            table,
-                            center,
-                            ball_diameter_px,
-                            style.fill_color,
-                            style.outline_color,
-                        );
-                    }
-                    Overlay::CircleMarker { center, style } if style.layer == layer => {
-                        drawing::draw_filled_circle_marker_mut(
-                            table,
-                            center,
-                            style.radius_px,
-                            style.color,
-                        );
-                    }
-                    Overlay::TextLabel {
-                        anchor,
-                        text,
-                        style,
-                    } if style.layer == layer => {
-                        drawing::draw_text_label_mut(
-                            table,
-                            anchor,
-                            text,
-                            style.offset_x_px,
-                            style.offset_y_px,
-                            style.scale_px,
-                            style.color,
-                        );
-                    }
-                    _ => {}
-                }
-            }
-        };
-
-        draw_overlays_for_layer(OverlayLayer::BelowBalls, &mut table);
-
-        for ball in &resolved.ball_positions {
-            let ball_png = assets::ball_img(ball.ty.clone());
-            let mut ball_img: RgbaImage =
-                image::load_from_memory_with_format(&ball_png, ImageFormat::Png)
-                    .expect("bad ball image")
-                    .into_rgba8();
-            ball_img = resize(
-                &ball_img,
-                ball_diameter_px,
-                ball_diameter_px,
-                FilterType::CatmullRom,
-            );
-            let (bw, bh) = ball_img.dimensions();
-
-            // Compute where the ball's *centre* should go
-            let (px, py) = diamond_to_pixel(&ball.position);
-
-            // Compute where to begin drawing the ball.
-            // We have to account for the width and height of the ball.
-            // Overlaying a png starts drawing at the top-left corner of the
-            // ball, so we need to start drawing at px - bw/2, py - bh/2
-            let mut px_shifted = px - (bw as i32 / 2);
-            let mut py_shifted = py - (bh as i32 / 2);
-
-            // Prevent any out of bounds weirdness (shouldn't happen).
-            px_shifted = px_shifted.clamp(0, (tw - bw) as i32);
-            py_shifted = py_shifted.clamp(0, (th - bh) as i32);
-
-            overlay(&mut table, &ball_img, px_shifted.into(), py_shifted.into());
-        }
-
-        draw_overlays_for_layer(OverlayLayer::AboveBalls, &mut table);
-
-        let scale_factor = options.scale_factor.max(1);
-        let output = if scale_factor == 1 {
-            table
-        } else {
-            resize(
-                &table,
-                tw * scale_factor,
-                th * scale_factor,
-                FilterType::CatmullRom,
-            )
-        };
-        let (ow, oh) = output.dimensions();
-
-        let mut buf = Vec::new();
-        PngEncoder::new(&mut buf)
-            .write_image(&output, ow, oh, image::ColorType::Rgba8.into())
-            .expect("PNG encode failed");
-        buf
+    pub fn draw_2d_svg_with_options(&self, options: &DiagramRenderOptions) -> String {
+        String::from_utf8(self.render_2d_diagram_with_options(DiagramOutputFormat::Svg, options))
+            .expect("SVG backend should emit UTF-8")
     }
 }
 

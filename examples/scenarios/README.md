@@ -29,7 +29,8 @@ Or open it automatically:
 cargo xtask validation-suite --open
 ```
 
-The gallery writes fresh PNGs plus `target/validation-suite/index.html`, and includes the scenario
+The gallery writes fresh SVG diagrams by default plus `target/validation-suite/index.html`; use
+`--format png` or `--format both` when raster exports are needed. The gallery includes the scenario
 comments, DSL shot line, simulation summary, event log, cue-ball launch speed in mph, and the nearest
 human-facing shot-speed label.
 

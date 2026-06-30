@@ -1,8 +1,9 @@
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioTraceRenderOptions};
 use billiards::{
+    diagram::DiagramOutputFormat,
     human_tuned_preview_motion_config,
     visualization::{BallPathRenderOptions, PathColorMode},
-    write_png_to_file, BallSetPhysicsSpec, CollisionModel, DiagramBackground, DiagramRenderOptions,
+    BallSetPhysicsSpec, CollisionModel, DiagramBackground, DiagramRenderOptions,
     OnTableMotionConfig, RailModel, Seconds,
 };
 use clap::{Parser, ValueEnum};
@@ -30,6 +31,21 @@ impl From<TraceColorModeArg> for PathColorMode {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum OutputFormatArg {
+    Png,
+    Svg,
+}
+
+impl From<OutputFormatArg> for DiagramOutputFormat {
+    fn from(value: OutputFormatArg) -> Self {
+        match value {
+            OutputFormatArg::Png => DiagramOutputFormat::Png,
+            OutputFormatArg::Svg => DiagramOutputFormat::Svg,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -37,9 +53,13 @@ struct Args {
     #[arg(required = true)]
     input: PathBuf,
 
-    /// Output .png file path (optional, defaults to input filename with .png extension)
+    /// Output diagram file path. The format is inferred from extension unless --format is set.
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// Output format. Defaults to SVG unless an output path extension says otherwise.
+    #[arg(long, value_enum)]
+    format: Option<OutputFormatArg>,
 
     /// Render translucent ghost balls at the start of each moving trace.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
@@ -65,7 +85,7 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     trace_max_events: usize,
 
-    /// Scale the final rendered PNG by this positive integer factor.
+    /// Scale PNG exports by this positive integer factor. SVG keeps a scalable viewBox.
     #[arg(long, default_value_t = 1)]
     scale_factor: u32,
 
@@ -162,25 +182,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         scenario.game_state
     };
 
-    let img = render_state.draw_2d_diagram_with_options(&DiagramRenderOptions {
+    let output_format = args
+        .format
+        .map(Into::into)
+        .or_else(|| {
+            args.output
+                .as_ref()
+                .and_then(|path| path.extension())
+                .and_then(|extension| extension.to_str())
+                .and_then(DiagramOutputFormat::from_extension)
+        })
+        .unwrap_or(DiagramOutputFormat::Svg);
+    let output_path = match args.output {
+        Some(path) => path,
+        None => {
+            let mut path = args.input.clone();
+            path.set_extension(output_format.extension());
+            path
+        }
+    };
+
+    let render_options = DiagramRenderOptions {
         scale_factor: args.scale_factor.max(1),
         background: if args.transparent_background {
             DiagramBackground::Transparent
         } else {
             DiagramBackground::Table
         },
-    });
-
-    let output_path = match args.output {
-        Some(path) => path,
-        None => {
-            let mut path = args.input.clone();
-            path.set_extension("png");
-            path
-        }
     };
+    let diagram = render_state.render_2d_diagram_with_options(output_format, &render_options);
 
-    write_png_to_file(&img, Some(&output_path));
+    fs::write(&output_path, diagram)?;
     println!("Diagram written to {:?}", output_path);
 
     Ok(())

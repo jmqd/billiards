@@ -1,3 +1,4 @@
+use billiards::diagram::{DiagramLayerId, DiagramOutputFormat};
 use billiards::{
     trace_ball_path_with_rails_on_table,
     visualization::{
@@ -23,6 +24,11 @@ fn render_with_options(state: &GameState, options: &DiagramRenderOptions) -> Rgb
     load_from_memory(&state.draw_2d_diagram_with_options(options))
         .expect("png decode")
         .into_rgba8()
+}
+
+fn render_svg_with_options(state: &GameState, options: &DiagramRenderOptions) -> String {
+    String::from_utf8(state.render_2d_diagram_with_options(DiagramOutputFormat::Svg, options))
+        .expect("svg should be utf-8")
 }
 
 fn diff_bbox(a: &RgbaImage, b: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
@@ -256,6 +262,55 @@ fn drawing_with_a_transparent_background_still_renders_visible_balls() {
     );
 
     assert!(rendered.pixels().any(|pixel| pixel[3] > 0));
+}
+
+#[test]
+fn diagram_scene_exposes_backend_neutral_balls_and_overlay_layers() {
+    let mut state = cue_ball_at("2", "4");
+    state.add_event_marker_styled(
+        &Position::new(2u8, 4u8),
+        EventMarkerStyle::enabled(image::Rgba([255, 0, 0, 255])),
+    );
+
+    let scene = state.to_diagram_scene(&DiagramRenderOptions {
+        background: DiagramBackground::Transparent,
+        ..DiagramRenderOptions::default()
+    });
+
+    assert_eq!(scene.background, DiagramBackground::Transparent);
+    assert_eq!(scene.balls.len(), 1);
+    assert_eq!(
+        scene
+            .elements_for_layer(DiagramLayerId::OverlaysAboveBalls)
+            .count(),
+        1
+    );
+    assert_eq!(scene.elements_for_layer(DiagramLayerId::Balls).count(), 0);
+}
+
+#[test]
+fn svg_backend_emits_layered_scalable_markup_for_a_ball_layout() {
+    let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
+
+    assert!(svg.starts_with("<svg "));
+    assert!(svg.contains("viewBox=\"0 0 1089 1938\""));
+    assert!(svg.contains("data-layer=\"table\""));
+    assert!(svg.contains("data-layer=\"balls\""));
+    assert!(svg.contains("class=\"ball ball-cue\""));
+}
+
+#[test]
+fn svg_transparent_background_omits_table_art_but_keeps_balls() {
+    let svg = render_svg_with_options(
+        &cue_ball_at("2", "4"),
+        &DiagramRenderOptions {
+            background: DiagramBackground::Transparent,
+            ..DiagramRenderOptions::default()
+        },
+    );
+
+    assert!(!svg.contains("class=\"table-cloth\""));
+    assert!(svg.contains("class=\"ball ball-cue\""));
 }
 
 #[test]

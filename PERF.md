@@ -31,6 +31,8 @@ It includes:
   - pre-parsed DSL trace until rest
   - direct strike + two-ball simulate to completion
   - DSL parse + strike + two-ball simulate to completion
+  - pre-parsed three-ball pinball trace to an event limit
+  - direct pocket-aware N-ball simulate until rest, cached and manual schedulers
 
 Use this suite when asking questions like:
 
@@ -202,7 +204,7 @@ From the initial smoke runs:
 - The heavier hotspots are in the simulation core, especially:
   - rail-impact prediction,
   - path tracing,
-  - full two-ball simulation-to-completion flows.
+  - full two-ball and pocket-aware N-ball simulation-to-completion flows.
 - This supports the current roadmap direction:
   - optimize hot simulation math first,
   - then add batch APIs,

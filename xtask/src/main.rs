@@ -7,9 +7,9 @@ use std::process::Command;
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioTraceRenderOptions};
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
-    human_tuned_preview_motion_config, BallSetPhysicsSpec, CollisionModel, DiagramBackground,
-    DiagramRenderOptions, HumanShotSpeedBand, NBallSystemState, RailModel, Seconds,
-    ShotSpeedPreset,
+    diagram::DiagramOutputFormat, human_tuned_preview_motion_config, BallSetPhysicsSpec,
+    CollisionModel, DiagramBackground, DiagramRenderOptions, HumanShotSpeedBand, NBallSystemState,
+    RailModel, Seconds, ShotSpeedPreset,
 };
 
 fn main() {
@@ -41,6 +41,42 @@ enum CommandName {
     ValidationSuite(ValidationSuiteOptions),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ValidationDiagramFormat {
+    Svg,
+    Png,
+    Both,
+}
+
+impl ValidationDiagramFormat {
+    fn parse(raw: &str) -> Result<Self, String> {
+        match raw {
+            "svg" => Ok(Self::Svg),
+            "png" => Ok(Self::Png),
+            "both" => Ok(Self::Both),
+            other => Err(format!(
+                "invalid --format `{other}`; expected svg, png, or both"
+            )),
+        }
+    }
+
+    fn writes_svg(self) -> bool {
+        matches!(self, Self::Svg | Self::Both)
+    }
+
+    fn writes_png(self) -> bool {
+        matches!(self, Self::Png | Self::Both)
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Svg => "SVG",
+            Self::Png => "PNG",
+            Self::Both => "SVG + PNG",
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ValidationSuiteOptions {
     scenario_dir: PathBuf,
@@ -49,6 +85,7 @@ struct ValidationSuiteOptions {
     trace_sample_step_seconds: f64,
     max_events_override: Option<usize>,
     transparent_background: bool,
+    format: ValidationDiagramFormat,
     open: bool,
 }
 
@@ -61,6 +98,7 @@ impl Default for ValidationSuiteOptions {
             trace_sample_step_seconds: 0.02,
             max_events_override: None,
             transparent_background: false,
+            format: ValidationDiagramFormat::Svg,
             open: false,
         }
     }
@@ -137,6 +175,11 @@ impl ValidationSuiteOptions {
                             .parse::<usize>()
                             .map_err(|error| format!("invalid --max-events: {error}"))?,
                     );
+                }
+                "--format" => {
+                    index += 1;
+                    options.format =
+                        ValidationDiagramFormat::parse(value_after(raw_args, index, "--format")?)?;
                 }
                 "--transparent" => {
                     options.transparent_background = true;
@@ -227,6 +270,8 @@ struct ScenarioReport {
     name: String,
     source_path: PathBuf,
     image_file_name: String,
+    extra_file_names: Vec<String>,
+    inline_svg: Option<String>,
     notes: Vec<String>,
     shot_line: Option<String>,
     speed_summary: Option<String>,
@@ -326,29 +371,64 @@ fn render_scenario(
         )
     };
 
-    let image = render_state.draw_2d_diagram_with_options(&DiagramRenderOptions {
+    let stem = scenario_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| format!("invalid scenario file name {}", scenario_path.display()))?;
+    let render_options = DiagramRenderOptions {
         scale_factor: options.scale_factor,
         background: if options.transparent_background {
             DiagramBackground::Transparent
         } else {
             DiagramBackground::Table
         },
-    });
-    if image.is_empty() {
-        return Err(format!(
-            "rendered empty PNG for {}",
-            scenario_path.display()
-        ));
+    };
+    let mut image_file_name = String::new();
+    let mut extra_file_names = Vec::new();
+    let mut inline_svg = None;
+
+    if options.format.writes_svg() {
+        let svg =
+            render_state.render_2d_diagram_with_options(DiagramOutputFormat::Svg, &render_options);
+        if svg.is_empty() {
+            return Err(format!(
+                "rendered empty SVG for {}",
+                scenario_path.display()
+            ));
+        }
+        let svg = String::from_utf8(svg).map_err(|error| {
+            format!(
+                "rendered invalid UTF-8 SVG for {}: {error}",
+                scenario_path.display()
+            )
+        })?;
+        let svg_file_name = format!("{stem}.svg");
+        let svg_path = options.output_dir.join(&svg_file_name);
+        fs::write(&svg_path, svg.as_bytes())
+            .map_err(|error| format!("failed to write {}: {error}", svg_path.display()))?;
+        image_file_name = svg_file_name;
+        inline_svg = Some(svg);
     }
 
-    let stem = scenario_path
-        .file_stem()
-        .and_then(OsStr::to_str)
-        .ok_or_else(|| format!("invalid scenario file name {}", scenario_path.display()))?;
-    let image_file_name = format!("{stem}.png");
-    let image_path = options.output_dir.join(&image_file_name);
-    fs::write(&image_path, image)
-        .map_err(|error| format!("failed to write {}: {error}", image_path.display()))?;
+    if options.format.writes_png() {
+        let png =
+            render_state.render_2d_diagram_with_options(DiagramOutputFormat::Png, &render_options);
+        if png.is_empty() {
+            return Err(format!(
+                "rendered empty PNG for {}",
+                scenario_path.display()
+            ));
+        }
+        let png_file_name = format!("{stem}.png");
+        let png_path = options.output_dir.join(&png_file_name);
+        fs::write(&png_path, png)
+            .map_err(|error| format!("failed to write {}: {error}", png_path.display()))?;
+        if image_file_name.is_empty() {
+            image_file_name = png_file_name;
+        } else {
+            extra_file_names.push(png_file_name);
+        }
+    }
 
     let speed_summary = scenario
         .validate_shot_human_speed()
@@ -385,6 +465,8 @@ fn render_scenario(
     Ok(ScenarioReport {
         name: stem.replace('_', " "),
         source_path: scenario_path.to_path_buf(),
+        extra_file_names,
+        inline_svg,
         image_file_name,
         notes: scenario_notes(&source),
         shot_line: source
@@ -449,6 +531,14 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
          .meta strong{display:block;color:#f7fff2;margin-bottom:.2rem;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}\n\
          figure{margin:0;background:#253025;padding:1rem;border-top:1px solid #354635;border-bottom:1px solid #354635}\n\
          img{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:10px;background:#0a0d0a}\n\
+         .svg-viewer{display:grid;gap:.7rem}\n\
+         .viewer-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;color:#d5e4d0;font-size:.9rem}\n\
+         .viewer-controls button{background:#111811;color:#f1f5ef;border:1px solid #405440;border-radius:8px;padding:.3rem .55rem;cursor:pointer}\n\
+         .viewer-controls label{display:inline-flex;align-items:center;gap:.25rem;background:#182018;border:1px solid #405440;border-radius:999px;padding:.25rem .55rem}\n\
+         .svg-frame{overflow:hidden;border-radius:10px;background:#0a0d0a;touch-action:none}\n\
+         .svg-frame svg{display:block;width:100%;height:auto;max-height:82vh;cursor:grab}\n\
+         .svg-frame svg.dragging{cursor:grabbing}\n\
+         .downloads{display:flex;flex-wrap:wrap;gap:.5rem;margin:.55rem 0 0;font-size:.9rem}\n\
          details{padding:.85rem 1rem 1rem}\n\
          summary{cursor:pointer;color:#f7fff2;font-weight:700}\n\
          pre{white-space:pre-wrap;overflow:auto;background:#0c110c;border:1px solid #2a382a;border-radius:10px;padding:.85rem;color:#dcead8}\n\
@@ -460,10 +550,11 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
     html.push_str("</style>\n</head>\n<body>\n");
     html.push_str("<header>\n<h1>Billiards scenario validation suite</h1>\n");
     html.push_str(&format!(
-        "<p class=\"subtitle\">{} scenario diagram(s), generated from <code>{}</code> into <code>{}</code>. Speeds are cue-ball launch estimates unless noted.</p>\n",
+        "<p class=\"subtitle\">{} scenario diagram(s), generated from <code>{}</code> into <code>{}</code> as {}. Speeds are cue-ball launch estimates unless noted.</p>\n",
         reports.len(),
         escape_html(&options.scenario_dir.display().to_string()),
-        escape_html(&options.output_dir.display().to_string())
+        escape_html(&options.output_dir.display().to_string()),
+        options.format.label()
     ));
     html.push_str("</header>\n<main>\n<nav class=\"toc\" aria-label=\"Scenario list\">\n");
     for report in reports {
@@ -506,11 +597,33 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
             }
             html.push_str("</ul></details>\n");
         }
-        html.push_str(&format!(
-            "<figure><img src=\"{}\" alt=\"{} scenario diagram\"></figure>\n",
-            escape_html(&report.image_file_name),
-            escape_html(&report.name)
-        ));
+        if let Some(svg) = &report.inline_svg {
+            html.push_str("<figure class=\"svg-viewer\" data-viewer>\n");
+            html.push_str(
+                "<div class=\"viewer-controls\" aria-label=\"Diagram controls\">\n\
+                 <button type=\"button\" data-zoom=\"in\">Zoom in</button>\n\
+                 <button type=\"button\" data-zoom=\"out\">Zoom out</button>\n\
+                 <button type=\"button\" data-zoom=\"reset\">Reset</button>\n\
+                 <label><input type=\"checkbox\" data-layer-toggle=\"table\" checked>Table</label>\n\
+                 <label><input type=\"checkbox\" data-layer-toggle=\"overlays-below-balls\" checked>Below-ball overlays</label>\n\
+                 <label><input type=\"checkbox\" data-layer-toggle=\"balls\" checked>Balls</label>\n\
+                 <label><input type=\"checkbox\" data-layer-toggle=\"overlays-above-balls\" checked>Above-ball overlays</label>\n\
+                 </div>\n\
+                 <div class=\"svg-frame\">\n",
+            );
+            html.push_str(svg);
+            html.push_str("</div>\n");
+            push_download_links(&mut html, report);
+            html.push_str("</figure>\n");
+        } else {
+            html.push_str(&format!(
+                "<figure><img src=\"{}\" alt=\"{} scenario diagram\">",
+                escape_html(&report.image_file_name),
+                escape_html(&report.name)
+            ));
+            push_download_links(&mut html, report);
+            html.push_str("</figure>\n");
+        }
         if !report.event_lines.is_empty() {
             html.push_str("<details><summary>Event log</summary><pre><code>");
             html.push_str(&escape_html(&report.event_lines.join("\n")));
@@ -519,8 +632,83 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
         html.push_str("</section>\n");
     }
 
+    html.push_str(
+        r#"<script>
+document.querySelectorAll('[data-viewer]').forEach((viewer) => {
+  const svg = viewer.querySelector('svg');
+  if (!svg || !svg.viewBox || !svg.viewBox.baseVal) return;
+  const base = svg.viewBox.baseVal;
+  let box = { x: base.x, y: base.y, width: base.width, height: base.height };
+  const apply = () => svg.setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);
+  const zoom = (factor, cx = box.x + box.width / 2, cy = box.y + box.height / 2) => {
+    const nextWidth = box.width * factor;
+    const nextHeight = box.height * factor;
+    const rx = (cx - box.x) / box.width;
+    const ry = (cy - box.y) / box.height;
+    box = { x: cx - nextWidth * rx, y: cy - nextHeight * ry, width: nextWidth, height: nextHeight };
+    apply();
+  };
+  viewer.querySelectorAll('[data-zoom]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.zoom;
+      if (action === 'in') zoom(0.8);
+      if (action === 'out') zoom(1.25);
+      if (action === 'reset') { box = { x: base.x, y: base.y, width: base.width, height: base.height }; apply(); }
+    });
+  });
+  viewer.querySelectorAll('[data-layer-toggle]').forEach((input) => {
+    input.addEventListener('change', () => {
+      svg.querySelectorAll(`[data-layer="${input.dataset.layerToggle}"]`).forEach((layer) => {
+        layer.style.display = input.checked ? '' : 'none';
+      });
+    });
+  });
+  svg.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    const cx = box.x + ((event.clientX - rect.left) / rect.width) * box.width;
+    const cy = box.y + ((event.clientY - rect.top) / rect.height) * box.height;
+    zoom(event.deltaY < 0 ? 0.9 : 1.1, cx, cy);
+  }, { passive: false });
+  let drag = null;
+  svg.addEventListener('pointerdown', (event) => {
+    svg.setPointerCapture(event.pointerId);
+    svg.classList.add('dragging');
+    drag = { x: event.clientX, y: event.clientY, box: { ...box } };
+  });
+  svg.addEventListener('pointermove', (event) => {
+    if (!drag) return;
+    const rect = svg.getBoundingClientRect();
+    box.x = drag.box.x - ((event.clientX - drag.x) / rect.width) * drag.box.width;
+    box.y = drag.box.y - ((event.clientY - drag.y) / rect.height) * drag.box.height;
+    apply();
+  });
+  const stopDrag = () => { drag = null; svg.classList.remove('dragging'); };
+  svg.addEventListener('pointerup', stopDrag);
+  svg.addEventListener('pointercancel', stopDrag);
+});
+</script>
+"#,
+    );
     html.push_str("</main>\n</body>\n</html>\n");
     html
+}
+
+fn push_download_links(html: &mut String, report: &ScenarioReport) {
+    html.push_str("<div class=\"downloads\">Downloads: ");
+    html.push_str(&format!(
+        "<a href=\"{}\">{}</a>",
+        escape_html(&report.image_file_name),
+        escape_html(&report.image_file_name)
+    ));
+    for file_name in &report.extra_file_names {
+        html.push_str(&format!(
+            " <a href=\"{}\">{}</a>",
+            escape_html(file_name),
+            escape_html(file_name)
+        ));
+    }
+    html.push_str("</div>\n");
 }
 
 fn meta_block(label: &str, value: &str) -> String {
@@ -591,5 +779,5 @@ fn print_usage() {
 }
 
 fn usage_text() -> &'static str {
-    "Usage:\n  cargo xtask validation-suite [options]\n\nOptions:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for PNGs and index.html [default: target/validation-suite]\n  --scale-factor <n>                 Positive integer render scale [default: 1]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.02]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n"
+    "Usage:\n  cargo xtask validation-suite [options]\n\nOptions:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for diagrams and index.html [default: target/validation-suite]\n  --format <svg|png|both>            Diagram output format [default: svg]\n  --scale-factor <n>                 Positive integer render scale for PNG exports [default: 1]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.02]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n"
 }

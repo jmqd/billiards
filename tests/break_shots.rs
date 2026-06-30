@@ -7,19 +7,15 @@ use billiards::{
     CollisionModel, NBallSystemEvent, NBallSystemState, RailCollisionProfile, RailModel,
 };
 
-fn position_xy(state: &NBallSystemState) -> Option<(f64, f64)> {
-    match state {
-        NBallSystemState::OnTable(on_table) => {
-            let state = on_table.as_ball_state();
-            Some((state.position.x().as_f64(), state.position.y().as_f64()))
-        }
+fn position_xy(state: &NBallSystemState) -> (f64, f64) {
+    let state = match state {
+        NBallSystemState::OnTable(on_table) => on_table.as_ball_state(),
         NBallSystemState::Pocketed {
             state_at_capture, ..
-        } => {
-            let state = state_at_capture.as_ball_state();
-            Some((state.position.x().as_f64(), state.position.y().as_f64()))
-        }
-    }
+        } => state_at_capture.as_ball_state(),
+    };
+
+    (state.position.x().as_f64(), state.position.y().as_f64())
 }
 
 fn displaced_object_balls(
@@ -33,12 +29,8 @@ fn displaced_object_balls(
         .zip(after)
         .filter(|((ball, _), _)| ball.ty != BallType::Cue)
         .filter(|((_, before), after)| {
-            let Some((before_x, before_y)) = position_xy(before) else {
-                return true;
-            };
-            let Some((after_x, after_y)) = position_xy(after) else {
-                return true;
-            };
+            let (before_x, before_y) = position_xy(before);
+            let (after_x, after_y) = position_xy(after);
 
             (after_x - before_x).hypot(after_y - before_y) > 0.25
         })

@@ -12,6 +12,7 @@ resolver = "2"
 workspace = true
 
 [workspace.lints.clippy]
+perf = "deny"
 
 [dependencies]
 bigdecimal = "0.4.8"

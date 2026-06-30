@@ -1,0 +1,7 @@
+# Project-wide Clippy configuration.
+# Backwards compatibility is not a project goal; allow Clippy to flag public APIs too.
+avoid-breaking-exported-api = false
+
+# Keep type/argument lints focused on genuinely hard-to-maintain cases.
+too-many-arguments-threshold = 10
+type-complexity-threshold = 250

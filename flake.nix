@@ -39,6 +39,7 @@
           packages = with pkgs; [
             rustToolchain
             openssl
+            pkg-config
             llvmPackages.bolt
             python
             uv
@@ -65,6 +66,10 @@
             # Prefer the uv-managed project venv once synced; otherwise prefer Nix Python/tools
             # over user pyenv/asdf shims.
             export PATH=$PWD/gymnasium/.venv/bin:${python}/bin:${pkgs.uv}/bin:$PATH
+
+            # Dylint lint libraries must be built through rustup's cargo shim; keep
+            # the Nix shell toolchain available for normal Rust commands.
+            export DYLINT_PATH=$HOME/.cargo/bin:$(printf '%s' "$PATH" | tr ':' '\n' | grep -v 'rust-default-' | paste -sd: -)
             hash -r 2>/dev/null || true
 
             # Tells rust-analyzer where the stdlib sources are

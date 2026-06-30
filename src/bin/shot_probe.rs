@@ -204,7 +204,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let output_dir = args.output_dir.clone().unwrap_or_else(default_output_dir);
-    fs::create_dir_all(&output_dir)?;
+    fs::create_dir_all(&output_dir).map_err(|error| {
+        format!(
+            "failed to create output dir {}: {error}",
+            output_dir.display()
+        )
+    })?;
 
     let table = TableSpec::default();
     let ball_set = BallSetPhysicsSpec::default();
@@ -260,13 +265,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if args.write_summary_csv {
-        fs::write(output_dir.join("summary.csv"), summary_csv(&results, &args))?;
+        let summary_csv_path = output_dir.join("summary.csv");
+        fs::write(&summary_csv_path, summary_csv(&results, &args))
+            .map_err(|error| format!("failed to write {}: {error}", summary_csv_path.display()))?;
     }
     if args.write_summary_md {
+        let summary_md_path = output_dir.join("summary.md");
         fs::write(
-            output_dir.join("summary.md"),
+            &summary_md_path,
             summary_markdown(&results, &args, &output_dir),
-        )?;
+        )
+        .map_err(|error| format!("failed to write {}: {error}", summary_md_path.display()))?;
     }
 
     println!("Done: {}", output_dir.display());
@@ -291,10 +300,9 @@ fn run_probe_case(
     args: &Args,
 ) -> Result<ProbeResult, Box<dyn std::error::Error>> {
     if args.write_scenarios {
-        fs::write(
-            output_dir.join(format!("{}.billiards", probe.stem)),
-            &probe.dsl,
-        )?;
+        let scenario_path = output_dir.join(format!("{}.billiards", probe.stem));
+        fs::write(&scenario_path, &probe.dsl)
+            .map_err(|error| format!("failed to write {}: {error}", scenario_path.display()))?;
     }
 
     let scenario = parse_dsl_to_scenario(&probe.dsl)?;
@@ -449,7 +457,8 @@ fn run_probe_case(
                 raw_cue_bend.as_ref(),
                 args,
             ),
-        )?;
+        )
+        .map_err(|error| format!("failed to write {}: {error}", log_path.display()))?;
         result.log_filename = Some(file_name_string(&log_path));
     }
 

@@ -212,7 +212,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let diagram = render_state.render_2d_diagram_with_options(output_format, &render_options);
 
-    fs::write(&output_path, diagram)?;
+    fs::write(&output_path, diagram)
+        .map_err(|error| format!("Failed to write output file {:?}: {}", output_path, error))?;
     println!("Diagram written to {:?}", output_path);
 
     Ok(())

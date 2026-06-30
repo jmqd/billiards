@@ -1,9 +1,3 @@
-#![allow(
-    clippy::large_enum_variant,
-    clippy::result_large_err,
-    clippy::too_many_arguments
-)]
-
 mod assets;
 pub mod diagram;
 mod drawing;

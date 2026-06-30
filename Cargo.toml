@@ -12,7 +12,7 @@ resolver = "2"
 workspace = true
 
 [workspace.lints.clippy]
-perf = "deny"
+perf = { level = "deny", priority = -1 }
 redundant_clone = "deny"
 large_types_passed_by_value = "deny"
 large_stack_arrays = "deny"
@@ -21,6 +21,9 @@ clone_on_ref_ptr = "deny"
 needless_pass_by_ref_mut = "deny"
 manual_let_else = "deny"
 match_same_arms = "deny"
+large_enum_variant = "allow"
+result_large_err = "allow"
+too_many_arguments = "allow"
 
 [dependencies]
 bigdecimal = "0.4.8"

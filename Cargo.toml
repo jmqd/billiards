@@ -15,6 +15,7 @@ workspace = true
 perf = "deny"
 redundant_clone = "deny"
 large_types_passed_by_value = "deny"
+large_stack_arrays = "deny"
 
 [dependencies]
 bigdecimal = "0.4.8"

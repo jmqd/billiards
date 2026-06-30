@@ -2557,14 +2557,14 @@ impl OnTableBallState {
     pub fn try_new(state: BallState) -> Result<Self, OnTableStateError> {
         if state.height.as_f64() > 0.0 {
             return Err(OnTableStateError::HeightAboveTablePlane {
-                height: state.height.clone(),
+                height: state.height,
                 allowed_height: Inches::zero(),
             });
         }
 
         if state.vertical_velocity.as_f64().abs() > 0.0 {
             return Err(OnTableStateError::VerticalVelocityPresent {
-                vertical_velocity: state.vertical_velocity.clone(),
+                vertical_velocity: state.vertical_velocity,
                 allowed_vertical_velocity: InchesPerSecond::zero(),
             });
         }
@@ -2578,14 +2578,14 @@ impl OnTableBallState {
     ) -> Result<Self, OnTableStateError> {
         if state.height.as_f64() > thresholds.airborne_height.as_f64() {
             return Err(OnTableStateError::HeightAboveTablePlane {
-                height: state.height.clone(),
+                height: state.height,
                 allowed_height: thresholds.airborne_height.clone(),
             });
         }
 
         if state.vertical_velocity.as_f64().abs() > thresholds.airborne_vertical_speed.as_f64() {
             return Err(OnTableStateError::VerticalVelocityPresent {
-                vertical_velocity: state.vertical_velocity.clone(),
+                vertical_velocity: state.vertical_velocity,
                 allowed_vertical_velocity: thresholds.airborne_vertical_speed.clone(),
             });
         }
@@ -4864,12 +4864,7 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
         // sliding friction will accelerate the centers inward, preserve that follow-on contact as
         // an immediate t=0 collision instead of dropping it.
         if raw_ball_ball_contact_is_closing_or_accelerating_inward(
-            a_raw,
-            a_phase.clone(),
-            b_raw,
-            b_phase.clone(),
-            radius,
-            config,
+            a_raw, a_phase, b_raw, b_phase, radius, config,
         ) {
             return Some(PredictedBallBallCollision {
                 time_until_impact: Seconds::zero(),
@@ -12673,12 +12668,12 @@ impl Position {
     }
 
     pub fn shift_horizontally(&mut self, distance: Diamond) -> &mut Self {
-        self.x = self.x.clone() + distance.clone();
+        self.x = self.x.clone() + distance;
         self
     }
 
     pub fn shift_vertically(&mut self, distance: Diamond) -> &mut Self {
-        self.y = self.y.clone() + distance.clone();
+        self.y = self.y.clone() + distance;
         self
     }
 
@@ -12723,7 +12718,7 @@ impl Position {
             magnitude: dd.magnitude.clone() * BigDecimal::from_f64(ux).unwrap(),
         };
         let dy = Diamond {
-            magnitude: dd.magnitude.clone() * BigDecimal::from_f64(uy).unwrap(),
+            magnitude: dd.magnitude * BigDecimal::from_f64(uy).unwrap(),
         };
 
         Position {
@@ -12747,7 +12742,7 @@ impl Position {
             magnitude: inches.magnitude.clone() * BigDecimal::from_f64(ux).unwrap(),
         };
         let dy = Inches {
-            magnitude: inches.magnitude.clone() * BigDecimal::from_f64(uy).unwrap(),
+            magnitude: inches.magnitude * BigDecimal::from_f64(uy).unwrap(),
         };
 
         Self {
@@ -13283,7 +13278,7 @@ impl TableSpec {
                 Self::brunswick_gc4_corner_pocket(diamond_length.clone()),
                 Self::brunswick_gc4_corner_pocket(diamond_length.clone()),
                 Self::brunswick_gc4_side_pocket(diamond_length.clone()),
-                Self::brunswick_gc4_corner_pocket(diamond_length.clone()),
+                Self::brunswick_gc4_corner_pocket(diamond_length),
             ],
         }
     }
@@ -13296,8 +13291,7 @@ impl TableSpec {
                 magnitude: GC4_POCKET_DEPTH.magnitude.clone() / diamond_length.magnitude.clone(),
             },
             width: Diamond {
-                magnitude: GC4_CORNER_POCKET_WIDTH.magnitude.clone()
-                    / diamond_length.magnitude.clone(),
+                magnitude: GC4_CORNER_POCKET_WIDTH.magnitude.clone() / diamond_length.magnitude,
             },
             shape: Self::brunswick_gc4_corner_pocket_shape(),
         }
@@ -13311,8 +13305,7 @@ impl TableSpec {
                 magnitude: GC4_POCKET_DEPTH.magnitude.clone() / diamond_length.magnitude.clone(),
             },
             width: Diamond {
-                magnitude: GC4_SIDE_POCKET_WIDTH.magnitude.clone()
-                    / diamond_length.magnitude.clone(),
+                magnitude: GC4_SIDE_POCKET_WIDTH.magnitude.clone() / diamond_length.magnitude,
             },
             shape: Self::brunswick_gc4_side_pocket_shape(),
         }

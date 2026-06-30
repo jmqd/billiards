@@ -654,7 +654,7 @@ fn a_rolling_low_english_entry_leaves_the_rail_with_bounded_horizontal_cloth_sli
         AngularVelocity3::new(-5.0 / radius_value, 5.0 / radius_value, 0.0),
     ));
     let reflected = collide_ball_rail_on_table(&rolling, Rail::Top, RailModel::SpinAware);
-    let slip = cloth_contact_velocity_on_table(reflected.as_ball_state(), radius.clone());
+    let slip = cloth_contact_velocity_on_table(reflected.as_ball_state(), radius);
     let slip_ratio =
         slip.x().as_f64().hypot(slip.y().as_f64()) / reflected.as_ball_state().speed().as_f64();
 
@@ -942,7 +942,7 @@ fn a_rolling_ball_rebounding_from_a_rail_carries_draw_like_spin_relative_to_its_
     let slip = cloth_contact_velocity_on_table(reflected.as_ball_state(), radius.clone());
 
     assert_eq!(
-        reflected.as_ball_state().motion_phase(radius.clone()),
+        reflected.as_ball_state().motion_phase(radius),
         MotionPhase::Sliding,
         "a rail rebound should generally break the no-slip rolling condition"
     );

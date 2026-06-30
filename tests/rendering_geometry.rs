@@ -522,8 +522,8 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
                 outline_color: ghost_outline_color(),
                 ..Default::default()
             })
-            .with_event_markers(marker_style.clone())
-            .with_labels(label_style.clone()),
+            .with_event_markers(marker_style)
+            .with_labels(label_style),
     );
 
     assert_eq!(render(&helper_with_markers), render(&manual_with_markers));

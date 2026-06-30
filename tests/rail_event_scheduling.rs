@@ -164,7 +164,7 @@ fn post_collision_side_spin_can_change_whether_the_cue_ball_reaches_a_rail_durin
             Velocity2::new("0", "10"),
             AngularVelocity3::new(-10.0 / radius, 0.0, -6.0),
         )),
-        &object_ball.clone(),
+        &object_ball,
         CollisionModel::ThrowAware,
     )
     .into_cue_ball_continuation();
@@ -245,7 +245,7 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
             Velocity2::new("0", "10"),
             AngularVelocity3::new(-6.0, 0.0, -6.0),
         )),
-        &object_ball_1.clone(),
+        &object_ball_1,
         CollisionModel::ThrowAware,
     )
     .into_cue_ball_continuation();

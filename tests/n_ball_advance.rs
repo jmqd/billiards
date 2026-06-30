@@ -81,7 +81,7 @@ fn advancing_to_a_motion_transition_advances_all_n_balls_to_that_time() {
     let c = on_table(BallState::resting_at(inches2(-20.0, 0.0)));
 
     let advanced = advance_to_next_n_ball_event_on_table(
-        &[a.clone(), b.clone(), c.clone()],
+        &[a, b, c.clone()],
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
@@ -233,7 +233,7 @@ fn advancing_with_explicit_ball_ball_physics_uses_that_collision_config() {
     let old_default = collide_ball_ball_on_table_with_radius_and_config(
         &collision.a_at_impact,
         &collision.b_at_impact,
-        ball.radius.clone(),
+        ball.radius,
         CollisionModel::ThrowAware,
         &ideal_config,
     );

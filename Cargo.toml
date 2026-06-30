@@ -13,6 +13,7 @@ workspace = true
 
 [workspace.lints.clippy]
 perf = "deny"
+redundant_clone = "deny"
 
 [dependencies]
 bigdecimal = "0.4.8"

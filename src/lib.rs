@@ -5068,16 +5068,16 @@ fn pocket_face_coordinates_in_inches(table: &TableSpec) -> (f64, f64, f64, f64) 
 
 fn pocket_jaw_associated_rail(pocket: Pocket, jaw: PocketJaw) -> Rail {
     match (pocket, jaw) {
-        (Pocket::TopRight, PocketJaw::First) => Rail::Top,
-        (Pocket::TopRight, PocketJaw::Second) => Rail::Right,
-        (Pocket::CenterRight, _) => Rail::Right,
-        (Pocket::BottomRight, PocketJaw::First) => Rail::Right,
-        (Pocket::BottomRight, PocketJaw::Second) => Rail::Bottom,
-        (Pocket::BottomLeft, PocketJaw::First) => Rail::Bottom,
-        (Pocket::BottomLeft, PocketJaw::Second) => Rail::Left,
-        (Pocket::CenterLeft, _) => Rail::Left,
-        (Pocket::TopLeft, PocketJaw::First) => Rail::Left,
-        (Pocket::TopLeft, PocketJaw::Second) => Rail::Top,
+        (Pocket::TopRight, PocketJaw::First) | (Pocket::TopLeft, PocketJaw::Second) => Rail::Top,
+        (Pocket::TopRight, PocketJaw::Second)
+        | (Pocket::CenterRight, _)
+        | (Pocket::BottomRight, PocketJaw::First) => Rail::Right,
+        (Pocket::BottomRight, PocketJaw::Second) | (Pocket::BottomLeft, PocketJaw::First) => {
+            Rail::Bottom
+        }
+        (Pocket::BottomLeft, PocketJaw::Second)
+        | (Pocket::CenterLeft, _)
+        | (Pocket::TopLeft, PocketJaw::First) => Rail::Left,
     }
 }
 
@@ -13571,12 +13571,7 @@ impl Rail {
                 y: Diamond::zero(),
                 ..Default::default()
             },
-            Rail::Bottom => Position {
-                x: Diamond::zero(),
-                y: Diamond::zero(),
-                ..Default::default()
-            },
-            Rail::Left => Position {
+            Rail::Bottom | Rail::Left => Position {
                 x: Diamond::zero(),
                 y: Diamond::zero(),
                 ..Default::default()

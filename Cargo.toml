@@ -20,6 +20,7 @@ unnecessary_wraps = "deny"
 clone_on_ref_ptr = "deny"
 needless_pass_by_ref_mut = "deny"
 manual_let_else = "deny"
+match_same_arms = "deny"
 
 [dependencies]
 bigdecimal = "0.4.8"

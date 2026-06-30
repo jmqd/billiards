@@ -1215,7 +1215,7 @@ fn jaw_name(jaw: PocketJaw) -> &'static str {
 fn ball_trace_color(ball: &BallType) -> Rgba<u8> {
     match ball {
         BallType::Cue => Rgba([225, 225, 225, 255]),
-        BallType::One => Rgba([255, 215, 0, 255]),
+        BallType::One | BallType::Nine => Rgba([255, 215, 0, 255]),
         BallType::Two => Rgba([65, 105, 225, 255]),
         BallType::Three => Rgba([220, 20, 60, 255]),
         BallType::Four => Rgba([138, 43, 226, 255]),
@@ -1223,7 +1223,6 @@ fn ball_trace_color(ball: &BallType) -> Rgba<u8> {
         BallType::Six => Rgba([34, 139, 34, 255]),
         BallType::Seven => Rgba([128, 0, 0, 255]),
         BallType::Eight => Rgba([32, 32, 32, 255]),
-        BallType::Nine => Rgba([255, 215, 0, 255]),
     }
 }
 

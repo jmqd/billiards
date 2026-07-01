@@ -217,15 +217,17 @@ a square hit on the 1-ball, and slight draw.
 Expected flavor:
 - cue -> one collision opens the rack
 - several early ball-ball collisions through the triangle
+- the default preview trace reaches the wing-ball pocket and follows multiple balls to rails
 - many balls begin moving quickly, with outcomes depending on the current break tuning
 
 ### `nine_ball_break_left_side_rail.billiards`
-A fuller nine-ball break from the left side rail near the second diamond from the top, again with a
-slight-draw hit and a direct line through the 1-ball.
+A fuller nine-ball cut break from the left side rail near the second diamond from the top, with a
+slight-draw hit that drives the wing ball toward the corner.
 
 Expected flavor:
 - cue -> one collision opens from a more off-axis approach
 - several early collisions spread through the rack
+- the default preview trace follows the longer cut-break spread past the first rail contacts
 - typically less symmetric motion than the head-rail break
 
 ### `three_ball_pinball.billiards`

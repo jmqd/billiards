@@ -123,7 +123,7 @@ fn balls_moving_apart_do_not_predict_a_future_collision() {
 }
 
 #[test]
-fn touching_balls_accelerating_inward_predict_an_immediate_collision() {
+fn touching_balls_accelerating_inward_do_not_emit_zero_impulse_collision() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
         inches2(0.0, -2.0 * radius),
@@ -137,13 +137,11 @@ fn touching_balls_accelerating_inward_predict_an_immediate_collision() {
         &object_ball,
         &BallSetPhysicsSpec::default(),
         &motion_config(),
-    )
-    .expect("sliding friction should accelerate the touching cue ball into the object ball");
+    );
 
-    assert_close(predicted.time_until_impact.as_f64(), 0.0);
-    assert_close(
-        center_distance(&predicted.a_at_impact, &predicted.b_at_impact),
-        2.0 * radius,
+    assert!(
+        predicted.is_none(),
+        "acceleration-only contact has no instantaneous normal speed, so reporting it as a t=0 event creates a zero-impulse/no-progress collision"
     );
 }
 

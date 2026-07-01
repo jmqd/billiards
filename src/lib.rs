@@ -4790,14 +4790,7 @@ pub fn compute_next_ball_ball_collision_on_table(
     })
 }
 
-fn raw_ball_ball_contact_is_closing_or_accelerating_inward(
-    a: RawOnTableBallState,
-    a_phase: MotionPhase,
-    b: RawOnTableBallState,
-    b_phase: MotionPhase,
-    ball_radius: f64,
-    config: &OnTableMotionConfig,
-) -> bool {
+fn raw_ball_ball_contact_is_closing(a: RawOnTableBallState, b: RawOnTableBallState) -> bool {
     let rx = b.x - a.x;
     let ry = b.y - a.y;
     let rvx = b.vx - a.vx;
@@ -4805,19 +4798,8 @@ fn raw_ball_ball_contact_is_closing_or_accelerating_inward(
     let radial_velocity = rx * rvx + ry * rvy;
     let relative_speed = rvx.hypot(rvy);
     let tolerance = 1e-10 * (rx.hypot(ry) * relative_speed).max(1.0);
-    if radial_velocity < -tolerance {
-        return true;
-    }
-    if radial_velocity.abs() > tolerance {
-        return false;
-    }
 
-    let (a_ax, a_ay) = raw_planar_acceleration_during_phase(a, a_phase, ball_radius, config);
-    let (b_ax, b_ay) = raw_planar_acceleration_during_phase(b, b_phase, ball_radius, config);
-    let relative_acceleration_term =
-        rvx * rvx + rvy * rvy + rx * (b_ax - a_ax) + ry * (b_ay - a_ay);
-
-    relative_acceleration_term < -tolerance
+    radial_velocity < -tolerance
 }
 
 /// Predict the next future ball-ball impact that occurs before either ball leaves its current
@@ -4855,12 +4837,11 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     let b_phase = classify_motion_phase(b.as_ball_state(), ball, &config.phase);
     if initial_gap <= 0.0 {
         // Indexed N-ball tie-breaking can intentionally land exactly on another contact boundary in
-        // a frozen cluster. If the pair is already touching and still has positive closing speed or
-        // sliding friction will accelerate the centers inward, preserve that follow-on contact as
-        // an immediate t=0 collision instead of dropping it.
-        if raw_ball_ball_contact_is_closing_or_accelerating_inward(
-            a_raw, a_phase, b_raw, b_phase, radius, config,
-        ) {
+        // a frozen cluster. Preserve only contacts that already have inward normal velocity. Sliding
+        // friction can make a resting touching pair accelerate inward, but the instantaneous impulse
+        // solver is velocity-based; reporting that acceleration-only case as a t=0 collision creates
+        // a zero-impulse/no-progress event.
+        if raw_ball_ball_contact_is_closing(a_raw, b_raw) {
             return Some(PredictedBallBallCollision {
                 time_until_impact: Seconds::zero(),
                 a_at_impact: a.clone(),

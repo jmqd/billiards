@@ -1,5 +1,5 @@
 # Nine-ball break from the left side rail near the second diamond from the top.
-# Slightly loosened/asymmetric rack layout based on `rack_9_ball()` on the default 9ft table.
+# Deliberately loose/asymmetric rack layout tuned for the current break preview.
 ball cue at (0.32, 6.0)
 ball one at (2.0, 2.0)
 ball two at (1.9028, 1.823644661504305)
@@ -11,5 +11,5 @@ ball six at (1.9028, 1.494933984512916)
 ball seven at (2.0972, 1.494933984512916)
 ball eight at (2.0, 1.326578646017221)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
-trace(max_events: 8)
-shot(cue).heading(157.217594deg).speed(352ips).tip(side: 0.0R, height: -0.1R).using(default)
+trace(max_events: 32)
+shot(cue).heading(156deg).speed(352ips).tip(side: 0.0R, height: -0.1R).using(default)

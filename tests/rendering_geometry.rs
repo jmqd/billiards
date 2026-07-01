@@ -311,6 +311,47 @@ fn svg_table_uses_cut_pockets_and_eighteen_diamond_sights() {
 }
 
 #[test]
+fn svg_trace_event_labels_are_parenthesized_to_match_event_log_markers() {
+    let table_spec = TableSpec::default();
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let start = on_table(BallState::on_table(
+        inches2(
+            table_spec.diamond_to_inches(Diamond::two()).as_f64(),
+            table_spec.diamond_to_inches(Diamond::one()).as_f64(),
+        ),
+        Velocity2::new("0", "24"),
+        AngularVelocity3::zero(),
+    ));
+    let path = trace_ball_path_with_rails_on_table(
+        &start,
+        BallPathStop::RailImpacts(1),
+        &ball_set,
+        &table_spec,
+        &motion,
+        RailModel::SpinAware,
+    );
+    let mut state = GameState::new(table_spec);
+    state.add_dotted_ball_path_styled(
+        &path,
+        &BallPathStyle::new(image::Rgba([255, 255, 255, 255]))
+            .with_event_markers(EventMarkerStyle::enabled(image::Rgba([0, 0, 0, 255])))
+            .with_labels(LabelOverlayStyle::enabled(image::Rgba([0, 0, 0, 255]))),
+    );
+
+    let svg = render_svg_with_options(
+        &state,
+        &DiagramRenderOptions {
+            background: DiagramBackground::Transparent,
+            ..DiagramRenderOptions::default()
+        },
+    );
+
+    assert!(svg.contains(">(1)</text>"));
+    assert!(!svg.contains(">1</text>"));
+}
+
+#[test]
 fn svg_transparent_background_omits_table_art_but_keeps_balls() {
     let svg = render_svg_with_options(
         &cue_ball_at("2", "4"),
@@ -521,8 +562,8 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
     manual_with_markers.add_dotted_line(&second_start, &second_end, color);
     manual_with_markers.add_event_marker_styled(&points[1], marker_style.clone());
     manual_with_markers.add_event_marker_styled(&points[2], marker_style.clone());
-    manual_with_markers.add_text_label_styled(&points[1], "1", label_style.clone());
-    manual_with_markers.add_text_label_styled(&points[2], "2", label_style.clone());
+    manual_with_markers.add_text_label_styled(&points[1], "(1)", label_style.clone());
+    manual_with_markers.add_text_label_styled(&points[2], "(2)", label_style.clone());
 
     let mut helper_with_markers = GameState::new(table_spec.clone());
     helper_with_markers.add_dotted_ball_path_styled(

@@ -2109,6 +2109,7 @@ pub struct BallPathSegment {
     pub end: OnTableBallState,
     pub duration: Seconds,
     pub event_marker_at_end: bool,
+    pub event_marker_label: Option<String>,
 }
 
 /// A first-pass traced single-ball path across the table.
@@ -10522,6 +10523,7 @@ fn push_visible_ball_path_segment(
             end: end.clone(),
             duration,
             event_marker_at_end: true,
+            event_marker_label: None,
         });
     }
 }
@@ -14087,11 +14089,11 @@ impl GameState {
                 self.add_event_marker_styled(&projected_end, style.event_markers.clone());
             }
             if style.labels.enabled && segment.event_marker_at_end {
-                self.add_text_label_styled(
-                    &projected_end,
-                    (index + 1).to_string(),
-                    style.labels.clone(),
-                );
+                let label = segment
+                    .event_marker_label
+                    .clone()
+                    .unwrap_or_else(|| format!("({})", index + 1));
+                self.add_text_label_styled(&projected_end, label, style.labels.clone());
             }
 
             elapsed_before_segment =
@@ -14244,11 +14246,11 @@ impl GameState {
                 self.add_event_marker_styled(&projected_end, style.event_markers.clone());
             }
             if style.labels.enabled && segment.event_marker_at_end {
-                self.add_text_label_styled(
-                    &projected_end,
-                    (index + 1).to_string(),
-                    style.labels.clone(),
-                );
+                let label = segment
+                    .event_marker_label
+                    .clone()
+                    .unwrap_or_else(|| format!("({})", index + 1));
+                self.add_text_label_styled(&projected_end, label, style.labels.clone());
             }
 
             elapsed_before_segment =

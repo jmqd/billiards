@@ -571,7 +571,7 @@ impl DslScenario {
             })
             .collect::<Vec<_>>();
 
-        for event in &simulation.events {
+        for (event_index, event) in simulation.events.iter().enumerate() {
             let step_time = event.time();
             for (ball_index, (trace, state)) in traces.iter_mut().zip(&current_states).enumerate() {
                 let Some(start) = state.as_on_table() else {
@@ -581,12 +581,15 @@ impl DslScenario {
                     advance_motion_on_table(start, step_time, ball_set, motion).state,
                 )
                 .expect("shot trace sub-advance should preserve on-table invariants");
+                let event_marker_label = scenario_event_involves_ball(event, ball_index)
+                    .then(|| format!("({})", event_index + 1));
                 push_visible_trace_segment(
                     &mut trace.segments,
                     start,
                     &end,
                     step_time,
-                    scenario_event_involves_ball(event, ball_index),
+                    event_marker_label.is_some(),
+                    event_marker_label,
                 );
             }
 
@@ -1043,6 +1046,7 @@ fn push_visible_trace_segment(
     end: &OnTableBallState,
     duration: Seconds,
     event_marker_at_end: bool,
+    event_marker_label: Option<String>,
 ) {
     if trace_segment_has_visible_displacement(start, end) {
         segments.push(BallPathSegment {
@@ -1050,6 +1054,7 @@ fn push_visible_trace_segment(
             end: end.clone(),
             duration,
             event_marker_at_end,
+            event_marker_label,
         });
     }
 }

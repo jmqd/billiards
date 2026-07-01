@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use billiards::dsl::{parse_dsl_to_scenario, ScenarioTraceRenderOptions};
+use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     diagram::DiagramOutputFormat, human_tuned_preview_motion_config, BallSetPhysicsSpec,
@@ -277,7 +277,15 @@ struct ScenarioReport {
     speed_summary: Option<String>,
     shot_summary: Option<String>,
     simulation_summary: String,
-    event_lines: Vec<String>,
+    events: Vec<ScenarioEventReport>,
+}
+
+#[derive(Debug)]
+struct ScenarioEventReport {
+    label: String,
+    time: String,
+    summary: String,
+    payload: String,
 }
 
 fn render_scenario(
@@ -330,7 +338,7 @@ fn render_scenario(
     }
     .map_err(|error| format!("failed to simulate {}: {error}", scenario_path.display()))?;
 
-    let (render_state, simulation_summary, event_lines) = if let Some(trace) = trace {
+    let (render_state, simulation_summary, events) = if let Some(trace) = trace {
         let pocketed = trace
             .simulation
             .states
@@ -357,11 +365,11 @@ fn render_scenario(
             pocketed,
             remaining
         );
-        let event_lines = trace.event_lines();
+        let events = scenario_event_reports(&trace);
         (
             trace.rendered_final_layout_with_trace_options(&scenario, &trace_render),
             summary,
-            event_lines,
+            events,
         )
     } else {
         (
@@ -476,7 +484,7 @@ fn render_scenario(
         speed_summary,
         shot_summary,
         simulation_summary,
-        event_lines,
+        events,
     })
 }
 
@@ -507,6 +515,44 @@ fn scenario_notes(source: &str) -> Vec<String> {
                 .map(str::to_string)
         })
         .collect()
+}
+
+fn scenario_event_reports(trace: &ScenarioShotTrace) -> Vec<ScenarioEventReport> {
+    trace
+        .event_log
+        .iter()
+        .enumerate()
+        .map(|(index, event)| ScenarioEventReport {
+            label: format!("({})", index + 1),
+            time: format!("{:.6}", event.time.as_f64()),
+            summary: event.kind.format_human(),
+            payload: format!("{:#?}", event.kind),
+        })
+        .collect()
+}
+
+fn push_event_log(html: &mut String, report: &ScenarioReport) {
+    if report.events.is_empty() {
+        return;
+    }
+
+    html.push_str(
+        "<details class=\"event-log\"><summary>Event log</summary><ol class=\"event-list\">\n",
+    );
+    for event in &report.events {
+        let title = format!("{} @ t={}s\n{}", event.summary, event.time, event.payload);
+        html.push_str(&format!(
+            "<li data-event-label=\"{}\" data-event-title=\"{}\"><span class=\"event-badge\" title=\"{}\">{}</span><code class=\"event-time\">t={}s</code><span class=\"event-summary\">{}</span><pre class=\"event-payload\"><code>{}</code></pre></li>\n",
+            escape_html(&event.label),
+            escape_html(&title),
+            escape_html(&title),
+            escape_html(&event.label),
+            escape_html(&event.time),
+            escape_html(&event.summary),
+            escape_html(&event.payload)
+        ));
+    }
+    html.push_str("</ol></details>\n");
 }
 
 fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> String {
@@ -547,6 +593,13 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
          code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere}\n\
          .notes{margin:.25rem 0 0;padding-left:1.1rem;overflow-wrap:anywhere}\n\
          .notes li{margin:.2rem 0}\n\
+         .event-log{padding-top:1rem}\n\
+         .event-list{list-style:none;margin:.75rem 0 0;padding:0;display:grid;gap:.65rem}\n\
+         .event-list li{min-width:0;background:#111811;border:1px solid #293829;border-radius:10px;padding:.65rem;display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:.35rem .6rem;align-items:start}\n\
+         .event-badge{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;color:#101410;background:#a8e89a;border-radius:999px;padding:.05rem .45rem;cursor:help}\n\
+         .event-time{color:#bfd0bb;white-space:nowrap}\n\
+         .event-summary{min-width:0;overflow-wrap:anywhere}\n\
+         .event-payload{grid-column:1 / -1;margin:.2rem 0 0;max-height:9rem;font-size:.82rem}\n\
          a{color:#a8e89a}\n\
          @media (max-width:720px){header{position:static;padding:.85rem}main{padding:.75rem}.toc{gap:.35rem}.card{border-radius:12px}figure{padding:.65rem}.viewer-controls{align-items:stretch}.viewer-controls button,.viewer-controls label{flex:1 1 auto;justify-content:center}}\n",
     );
@@ -627,11 +680,7 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
             push_download_links(&mut html, report);
             html.push_str("</figure>\n");
         }
-        if !report.event_lines.is_empty() {
-            html.push_str("<details><summary>Event log</summary><pre><code>");
-            html.push_str(&escape_html(&report.event_lines.join("\n")));
-            html.push_str("</code></pre></details>\n");
-        }
+        push_event_log(&mut html, report);
         html.push_str("</section>\n");
     }
 
@@ -665,6 +714,21 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
         layer.style.display = input.checked ? '' : 'none';
       });
     });
+  });
+  const card = viewer.closest('.card');
+  const eventTitles = new Map(Array.from(card?.querySelectorAll('[data-event-label]') ?? []).map((row) => [row.dataset.eventLabel, row.dataset.eventTitle]));
+  svg.querySelectorAll('text.overlay-label').forEach((label) => {
+    const marker = (label.childNodes[0]?.nodeValue ?? label.textContent).trim();
+    const titleText = eventTitles.get(marker);
+    if (!titleText) return;
+    label.setAttribute('tabindex', '0');
+    label.setAttribute('aria-label', titleText);
+    label.classList.add('event-label-tooltip');
+    if (!label.querySelector('title')) {
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = titleText;
+      label.appendChild(title);
+    }
   });
   svg.addEventListener('wheel', (event) => {
     event.preventDefault();

@@ -947,6 +947,9 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
     ));
     assert_eq!(trace.event_lines().len(), 1);
     assert!(trace.event_lines()[0].contains("cue pocketed in center-right"));
+    assert!(trace.ball_traces[0].segments.iter().any(|segment| {
+        segment.event_marker_at_end && segment.event_marker_label.as_deref() == Some("(1)")
+    }));
     assert_eq!(trace.ball_traces.len(), 2);
     assert!(!trace.ball_traces[0].segments.is_empty());
     assert!(trace.ball_traces[1].segments.is_empty());

@@ -300,6 +300,17 @@ fn svg_backend_emits_layered_scalable_markup_for_a_ball_layout() {
 }
 
 #[test]
+fn svg_table_uses_cut_pockets_and_eighteen_diamond_sights() {
+    let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
+
+    assert_eq!(svg.matches("class=\"table-diamond\"").count(), 18);
+    assert_eq!(svg.matches("data-pocket=\"corner\"").count(), 4);
+    assert_eq!(svg.matches("data-pocket=\"side\"").count(), 2);
+    assert!(svg.contains("<polygon class=\"table-diamond\""));
+    assert!(!svg.contains("<circle class=\"table-pocket\""));
+}
+
+#[test]
 fn svg_transparent_background_omits_table_art_but_keeps_balls() {
     let svg = render_svg_with_options(
         &cue_ball_at("2", "4"),

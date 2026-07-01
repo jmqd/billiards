@@ -18,6 +18,16 @@ const PLAYFIELD_TOP_PX: f32 = 110.0;
 const PLAYFIELD_BOTTOM_PX: f32 = 1828.0;
 const TABLE_DIAMONDS_X: f32 = 4.0;
 const TABLE_DIAMONDS_Y: f32 = 8.0;
+const PLAYFIELD_WIDTH_IN: f32 = 50.0;
+const PLAYFIELD_LENGTH_IN: f32 = 100.0;
+const CUSHION_WIDTH_IN: f32 = 1.9;
+const DIAMOND_SIGHT_SETBACK_IN: f32 = 3.6875;
+const DIAMOND_SIGHT_WIDTH_IN: f32 = 1.125;
+const DIAMOND_SIGHT_HEIGHT_IN: f32 = 0.5;
+const CORNER_POCKET_MOUTH_IN: f32 = 4.5;
+const SIDE_POCKET_MOUTH_IN: f32 = 5.0;
+const CORNER_POCKET_SHELF_IN: f32 = 1.75;
+const SIDE_POCKET_SHELF_IN: f32 = 0.375;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiagramOutputFormat {
@@ -272,7 +282,7 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}\n");
-        svg.push_str(".table-cloth{fill:#176640}.table-rail{fill:#553519}.table-cushion{fill:#0f4f34}.table-pocket{fill:#050505}.table-diamond{fill:#f3ead1;opacity:.86}\n");
+        svg.push_str(".table-cloth{fill:#176640}.table-rail{fill:#4a2d18}.table-cushion{fill:#0d5638}.table-pocket{fill:#020202}.table-pocket-facing{stroke:#211914;stroke-width:4;stroke-linecap:round}.table-diamond{fill:#f3ead1;stroke:#8f7f55;stroke-width:.75;opacity:.94}\n");
         svg.push_str("</style>\n");
 
         svg.push_str(&format!(
@@ -388,6 +398,10 @@ fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage, tw: u32, th: u
 }
 
 fn push_svg_table(svg: &mut String, viewport: DiagramViewport) {
+    // WPA tournament dimensions used by Diamond-style 9 ft tables:
+    // 100 x 50 in playing surface, sights 3 11/16 in from cushion nose,
+    // 4.5 in corner mouths, 5.0 in side mouths, and cut pockets instead of
+    // circular holes drawn on the playfield.
     let w = viewport.width_px;
     let h = viewport.height_px;
     let left = viewport.playfield_left_px;
@@ -396,61 +410,255 @@ fn push_svg_table(svg: &mut String, viewport: DiagramViewport) {
     let bottom = viewport.playfield_bottom_px;
     let cloth_w = right - left;
     let cloth_h = bottom - top;
+    let center_y = (top + bottom) * 0.5;
+
+    let cushion_x = viewport.x_inches(CUSHION_WIDTH_IN);
+    let cushion_y = viewport.y_inches(CUSHION_WIDTH_IN);
+    let corner_run_x = viewport.x_inches(CORNER_POCKET_MOUTH_IN / 2.0_f32.sqrt());
+    let corner_run_y = viewport.y_inches(CORNER_POCKET_MOUTH_IN / 2.0_f32.sqrt());
+    let corner_shelf_x = viewport.x_inches(CORNER_POCKET_SHELF_IN);
+    let corner_shelf_y = viewport.y_inches(CORNER_POCKET_SHELF_IN);
+    let side_mouth_y = viewport.y_inches(SIDE_POCKET_MOUTH_IN);
+    let side_shelf_x = viewport.x_inches(SIDE_POCKET_SHELF_IN);
 
     svg.push_str(&format!(
-        "<rect class=\"table-rail\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"42\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<rect class=\"table-cushion\" x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" rx=\"18\"/>\n",
-        left - 34.0,
-        top - 34.0,
-        cloth_w + 68.0,
-        cloth_h + 68.0
+        "<rect class=\"table-rail\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/>\n"
     ));
     svg.push_str(&format!(
         "<rect class=\"table-cloth\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
     ));
 
-    let pocket_radius = 28.0;
-    let center_y = (top + bottom) * 0.5;
-    for (x, y) in [
-        (left, top),
-        (right, top),
-        (left, bottom),
-        (right, bottom),
-        (left, center_y),
-        (right, center_y),
+    push_svg_cushion_rect(
+        svg,
+        left + corner_run_x,
+        top - cushion_y,
+        cloth_w - 2.0 * corner_run_x,
+        cushion_y,
+    );
+    push_svg_cushion_rect(
+        svg,
+        left + corner_run_x,
+        bottom,
+        cloth_w - 2.0 * corner_run_x,
+        cushion_y,
+    );
+    push_svg_cushion_rect(
+        svg,
+        left - cushion_x,
+        top + corner_run_y,
+        cushion_x,
+        center_y - side_mouth_y * 0.5 - top - corner_run_y,
+    );
+    push_svg_cushion_rect(
+        svg,
+        left - cushion_x,
+        center_y + side_mouth_y * 0.5,
+        cushion_x,
+        bottom - corner_run_y - center_y - side_mouth_y * 0.5,
+    );
+    push_svg_cushion_rect(
+        svg,
+        right,
+        top + corner_run_y,
+        cushion_x,
+        center_y - side_mouth_y * 0.5 - top - corner_run_y,
+    );
+    push_svg_cushion_rect(
+        svg,
+        right,
+        center_y + side_mouth_y * 0.5,
+        cushion_x,
+        bottom - corner_run_y - center_y - side_mouth_y * 0.5,
+    );
+
+    for (corner_x, corner_y, x_sign, y_sign) in [
+        (left, top, -1.0, -1.0),
+        (right, top, 1.0, -1.0),
+        (left, bottom, -1.0, 1.0),
+        (right, bottom, 1.0, 1.0),
     ] {
-        svg.push_str(&format!(
-            "<circle class=\"table-pocket\" cx=\"{x:.3}\" cy=\"{y:.3}\" r=\"{pocket_radius:.3}\"/>\n"
-        ));
+        push_svg_corner_pocket(
+            svg,
+            corner_x,
+            corner_y,
+            x_sign,
+            y_sign,
+            corner_run_x,
+            corner_run_y,
+            corner_shelf_x,
+            corner_shelf_y,
+        );
+    }
+    push_svg_side_pocket(
+        svg,
+        left,
+        center_y,
+        -1.0,
+        side_mouth_y,
+        side_shelf_x,
+        cushion_x,
+    );
+    push_svg_side_pocket(
+        svg,
+        right,
+        center_y,
+        1.0,
+        side_mouth_y,
+        side_shelf_x,
+        cushion_x,
+    );
+
+    push_svg_table_sights(svg, viewport);
+}
+
+impl DiagramViewport {
+    fn x_inches(self, inches: f32) -> f32 {
+        inches * (self.playfield_right_px - self.playfield_left_px) / PLAYFIELD_WIDTH_IN
     }
 
-    let diamond_radius = 7.0;
-    for index in 1..4 {
-        let fraction = index as f32 / 4.0;
+    fn y_inches(self, inches: f32) -> f32 {
+        inches * (self.playfield_bottom_px - self.playfield_top_px) / PLAYFIELD_LENGTH_IN
+    }
+}
+
+fn push_svg_cushion_rect(svg: &mut String, x: f32, y: f32, width: f32, height: f32) {
+    svg.push_str(&format!(
+        "<rect class=\"table-cushion\" x=\"{x:.3}\" y=\"{y:.3}\" width=\"{width:.3}\" height=\"{height:.3}\"/>\n"
+    ));
+}
+
+fn push_svg_corner_pocket(
+    svg: &mut String,
+    corner_x: f32,
+    corner_y: f32,
+    x_sign: f32,
+    y_sign: f32,
+    run_x: f32,
+    run_y: f32,
+    shelf_x: f32,
+    shelf_y: f32,
+) {
+    let horizontal_x = corner_x - x_sign * run_x;
+    let horizontal_y = corner_y;
+    let vertical_x = corner_x;
+    let vertical_y = corner_y - y_sign * run_y;
+    let inner_x = corner_x - x_sign * shelf_x;
+    let inner_y = corner_y - y_sign * shelf_y;
+    let well_x = corner_x + x_sign * shelf_x * 1.45;
+    let well_y = corner_y + y_sign * shelf_y * 1.45;
+
+    svg.push_str(&format!(
+        "<path class=\"table-pocket\" data-pocket=\"corner\" d=\"M {horizontal_x:.3} {horizontal_y:.3} Q {inner_x:.3} {inner_y:.3} {vertical_x:.3} {vertical_y:.3} Q {well_x:.3} {well_y:.3} {horizontal_x:.3} {horizontal_y:.3} Z\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" x1=\"{horizontal_x:.3}\" y1=\"{horizontal_y:.3}\" x2=\"{inner_x:.3}\" y2=\"{inner_y:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" x1=\"{vertical_x:.3}\" y1=\"{vertical_y:.3}\" x2=\"{inner_x:.3}\" y2=\"{inner_y:.3}\"/>\n"
+    ));
+}
+
+fn push_svg_side_pocket(
+    svg: &mut String,
+    rail_x: f32,
+    center_y: f32,
+    x_sign: f32,
+    mouth_y: f32,
+    shelf_x: f32,
+    cushion_x: f32,
+) {
+    let top_y = center_y - mouth_y * 0.5;
+    let bottom_y = center_y + mouth_y * 0.5;
+    let throat_x = rail_x + x_sign * (shelf_x + cushion_x * 1.15);
+    let lip_x = rail_x + x_sign * shelf_x;
+
+    svg.push_str(&format!(
+        "<path class=\"table-pocket\" data-pocket=\"side\" d=\"M {rail_x:.3} {top_y:.3} Q {lip_x:.3} {center_y:.3} {rail_x:.3} {bottom_y:.3} Q {throat_x:.3} {center_y:.3} {rail_x:.3} {top_y:.3} Z\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{top_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{center_y:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{bottom_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{center_y:.3}\"/>\n"
+    ));
+}
+
+fn push_svg_table_sights(svg: &mut String, viewport: DiagramViewport) {
+    let left = viewport.playfield_left_px;
+    let right = viewport.playfield_right_px;
+    let top = viewport.playfield_top_px;
+    let bottom = viewport.playfield_bottom_px;
+    let cloth_w = right - left;
+    let cloth_h = bottom - top;
+    let sight_setback_x = viewport.x_inches(DIAMOND_SIGHT_SETBACK_IN);
+    let sight_setback_y = viewport.y_inches(DIAMOND_SIGHT_SETBACK_IN);
+    let sight_half_along_x = viewport.x_inches(DIAMOND_SIGHT_WIDTH_IN) * 0.5;
+    let sight_half_along_y = viewport.y_inches(DIAMOND_SIGHT_WIDTH_IN) * 0.5;
+    let sight_half_cross_x = viewport.x_inches(DIAMOND_SIGHT_HEIGHT_IN) * 0.5;
+    let sight_half_cross_y = viewport.y_inches(DIAMOND_SIGHT_HEIGHT_IN) * 0.5;
+
+    for fraction in [0.25, 0.5, 0.75] {
         let x = left + fraction * cloth_w;
-        svg.push_str(&format!(
-            "<circle class=\"table-diamond\" cx=\"{x:.3}\" cy=\"{:.3}\" r=\"{diamond_radius:.3}\"/>\n",
-            top - 58.0
-        ));
-        svg.push_str(&format!(
-            "<circle class=\"table-diamond\" cx=\"{x:.3}\" cy=\"{:.3}\" r=\"{diamond_radius:.3}\"/>\n",
-            bottom + 58.0
-        ));
+        push_svg_horizontal_sight(
+            svg,
+            x,
+            top - sight_setback_y,
+            sight_half_along_x,
+            sight_half_cross_y,
+        );
+        push_svg_horizontal_sight(
+            svg,
+            x,
+            bottom + sight_setback_y,
+            sight_half_along_x,
+            sight_half_cross_y,
+        );
     }
-    for index in 1..8 {
-        let fraction = index as f32 / 8.0;
+    for fraction in [0.125, 0.25, 0.375, 0.625, 0.75, 0.875] {
         let y = bottom - fraction * cloth_h;
-        svg.push_str(&format!(
-            "<circle class=\"table-diamond\" cx=\"{:.3}\" cy=\"{y:.3}\" r=\"{diamond_radius:.3}\"/>\n",
-            left - 58.0
-        ));
-        svg.push_str(&format!(
-            "<circle class=\"table-diamond\" cx=\"{:.3}\" cy=\"{y:.3}\" r=\"{diamond_radius:.3}\"/>\n",
-            right + 58.0
-        ));
+        push_svg_vertical_sight(
+            svg,
+            left - sight_setback_x,
+            y,
+            sight_half_along_y,
+            sight_half_cross_x,
+        );
+        push_svg_vertical_sight(
+            svg,
+            right + sight_setback_x,
+            y,
+            sight_half_along_y,
+            sight_half_cross_x,
+        );
     }
+}
+
+fn push_svg_horizontal_sight(svg: &mut String, cx: f32, cy: f32, half_along: f32, half_cross: f32) {
+    svg.push_str(&format!(
+        "<polygon class=\"table-diamond\" points=\"{:.3},{:.3} {:.3},{:.3} {:.3},{:.3} {:.3},{:.3}\"/>\n",
+        cx,
+        cy - half_cross,
+        cx + half_along,
+        cy,
+        cx,
+        cy + half_cross,
+        cx - half_along,
+        cy
+    ));
+}
+
+fn push_svg_vertical_sight(svg: &mut String, cx: f32, cy: f32, half_along: f32, half_cross: f32) {
+    svg.push_str(&format!(
+        "<polygon class=\"table-diamond\" points=\"{:.3},{:.3} {:.3},{:.3} {:.3},{:.3} {:.3},{:.3}\"/>\n",
+        cx,
+        cy - half_along,
+        cx + half_cross,
+        cy,
+        cx,
+        cy + half_along,
+        cx - half_cross,
+        cy
+    ));
 }
 
 fn push_svg_element_layer(svg: &mut String, scene: &DiagramScene, layer: DiagramLayerId) {

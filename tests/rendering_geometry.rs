@@ -300,7 +300,7 @@ fn svg_backend_emits_layered_scalable_markup_for_a_ball_layout() {
 }
 
 #[test]
-fn svg_table_uses_cut_pockets_and_eighteen_diamond_sights() {
+fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 
     assert_eq!(svg.matches("class=\"table-diamond\"").count(), 18);
@@ -308,6 +308,20 @@ fn svg_table_uses_cut_pockets_and_eighteen_diamond_sights() {
     assert_eq!(svg.matches("data-pocket=\"side\"").count(), 2);
     assert!(svg.contains("<polygon class=\"table-diamond\""));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
+    assert!(svg.contains("id=\"tournament-blue-cloth\""));
+    assert!(svg.contains("id=\"rosewood-grain\""));
+    assert!(svg.contains("class=\"table-cloth-texture\""));
+    assert!(svg.contains("class=\"table-cushion-nose\""));
+}
+
+#[test]
+fn svg_table_uses_deeper_diamond_style_side_pocket_wells() {
+    let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
+
+    assert!(svg.contains("24.200 936.358"));
+    assert!(svg.contains("24.200 1001.642"));
+    assert!(svg.contains("1053.800 936.358"));
+    assert!(svg.contains("1053.800 1001.642"));
 }
 
 #[test]

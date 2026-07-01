@@ -22,12 +22,15 @@ const PLAYFIELD_WIDTH_IN: f32 = 50.0;
 const PLAYFIELD_LENGTH_IN: f32 = 100.0;
 const CUSHION_WIDTH_IN: f32 = 1.9;
 const DIAMOND_SIGHT_SETBACK_IN: f32 = 3.6875;
-const DIAMOND_SIGHT_WIDTH_IN: f32 = 1.125;
-const DIAMOND_SIGHT_HEIGHT_IN: f32 = 0.5;
+const DIAMOND_SIGHT_WIDTH_IN: f32 = 1.35;
+const DIAMOND_SIGHT_HEIGHT_IN: f32 = 0.62;
 const CORNER_POCKET_MOUTH_IN: f32 = 4.5;
 const SIDE_POCKET_MOUTH_IN: f32 = 5.0;
 const CORNER_POCKET_SHELF_IN: f32 = 1.75;
-const SIDE_POCKET_SHELF_IN: f32 = 0.375;
+const CORNER_POCKET_WELL_IN: f32 = 3.05;
+const SIDE_POCKET_LIP_IN: f32 = 1.6;
+const SIDE_POCKET_WELL_IN: f32 = 5.0;
+const CUSHION_BEVEL_IN: f32 = 1.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiagramOutputFormat {
@@ -282,8 +285,9 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}\n");
-        svg.push_str(".table-cloth{fill:#176640}.table-rail{fill:#4a2d18}.table-cushion{fill:#0d5638}.table-pocket{fill:#020202}.table-pocket-facing{stroke:#211914;stroke-width:4;stroke-linecap:round}.table-diamond{fill:#f3ead1;stroke:#8f7f55;stroke-width:.75;opacity:.94}\n");
+        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket{fill:#030202;stroke:#24211f;stroke-width:1.5}.table-pocket-facing{stroke:#1b120e;stroke-width:5;stroke-linecap:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.98}\n");
         svg.push_str("</style>\n");
+        push_svg_table_defs(&mut svg);
 
         svg.push_str(&format!(
             "<g class=\"diagram-layer\" id=\"layer-{}\" data-layer=\"{}\">\n",
@@ -302,6 +306,48 @@ impl DiagramBackend for SvgBackend {
         svg.push_str("</svg>\n");
         svg
     }
+}
+
+fn push_svg_table_defs(svg: &mut String) {
+    svg.push_str(
+        r##"<defs>
+<linearGradient id="tournament-blue-cloth" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#02a7d8"/>
+<stop offset="48%" stop-color="#058dbc"/>
+<stop offset="100%" stop-color="#02749f"/>
+</linearGradient>
+<pattern id="cloth-weave" patternUnits="userSpaceOnUse" width="14" height="14">
+<path d="M0 3.5H14M0 10.5H14" stroke="#4ecbe1" stroke-width=".45" opacity=".55"/>
+<path d="M3.5 0V14M10.5 0V14" stroke="#006f95" stroke-width=".45" opacity=".35"/>
+</pattern>
+<linearGradient id="blue-cushion" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#20c8e4"/>
+<stop offset="52%" stop-color="#0aa1c8"/>
+<stop offset="100%" stop-color="#047999"/>
+</linearGradient>
+<linearGradient id="rosewood-rail" x1="0" y1="0" x2=".35" y2="1">
+<stop offset="0%" stop-color="#7b2f22"/>
+<stop offset="35%" stop-color="#5a1f17"/>
+<stop offset="62%" stop-color="#8d3d27"/>
+<stop offset="100%" stop-color="#3b130f"/>
+</linearGradient>
+<pattern id="rosewood-grain" patternUnits="userSpaceOnUse" width="180" height="64">
+<rect width="180" height="64" fill="transparent"/>
+<path d="M-18 17C25 5 62 30 105 16C139 5 163 9 198 25" stroke="#2b100c" stroke-width="5" opacity=".48" fill="none"/>
+<path d="M-12 31C33 47 74 20 116 38C143 50 165 46 192 34" stroke="#b5663d" stroke-width="3" opacity=".34" fill="none"/>
+<path d="M-28 48C16 37 47 55 82 45C124 32 151 60 205 45" stroke="#1d0907" stroke-width="4" opacity=".38" fill="none"/>
+<path d="M0 8C40 16 63 4 96 10C127 16 150 3 180 11" stroke="#d0834d" stroke-width="1.5" opacity=".28" fill="none"/>
+</pattern>
+<pattern id="rosewood-grain-vertical" patternUnits="userSpaceOnUse" width="64" height="180">
+<rect width="64" height="180" fill="transparent"/>
+<path d="M17 -18C5 25 30 62 16 105C5 139 9 163 25 198" stroke="#2b100c" stroke-width="5" opacity=".48" fill="none"/>
+<path d="M31 -12C47 33 20 74 38 116C50 143 46 165 34 192" stroke="#b5663d" stroke-width="3" opacity=".34" fill="none"/>
+<path d="M48 -28C37 16 55 47 45 82C32 124 60 151 45 205" stroke="#1d0907" stroke-width="4" opacity=".38" fill="none"/>
+<path d="M8 0C16 40 4 63 10 96C16 127 3 150 11 180" stroke="#d0834d" stroke-width="1.5" opacity=".28" fill="none"/>
+</pattern>
+</defs>
+"##,
+    );
 }
 
 pub fn render_scene_to_bytes(
@@ -410,6 +456,8 @@ fn push_svg_table(svg: &mut String, viewport: DiagramViewport) {
     let bottom = viewport.playfield_bottom_px;
     let cloth_w = right - left;
     let cloth_h = bottom - top;
+    let bottom_rail_h = h - bottom;
+    let right_rail_w = w - right;
     let center_y = (top + bottom) * 0.5;
 
     let cushion_x = viewport.x_inches(CUSHION_WIDTH_IN);
@@ -419,56 +467,82 @@ fn push_svg_table(svg: &mut String, viewport: DiagramViewport) {
     let corner_shelf_x = viewport.x_inches(CORNER_POCKET_SHELF_IN);
     let corner_shelf_y = viewport.y_inches(CORNER_POCKET_SHELF_IN);
     let side_mouth_y = viewport.y_inches(SIDE_POCKET_MOUTH_IN);
-    let side_shelf_x = viewport.x_inches(SIDE_POCKET_SHELF_IN);
-
+    let side_lip_x = viewport.x_inches(SIDE_POCKET_LIP_IN);
+    let side_well_x = viewport.x_inches(SIDE_POCKET_WELL_IN);
+    let cushion_bevel_x = viewport.x_inches(CUSHION_BEVEL_IN);
+    let cushion_bevel_y = viewport.y_inches(CUSHION_BEVEL_IN);
     svg.push_str(&format!(
         "<rect class=\"table-rail\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/>\n"
     ));
     svg.push_str(&format!(
+        "<clipPath id=\"table-rail-clip\"><rect x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/></clipPath>\n"
+    ));
+    svg.push_str(&format!(
+        "<g clip-path=\"url(#table-rail-clip)\"><rect class=\"table-rail-grain table-rail-grain-horizontal\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{top:.3}\"/><rect class=\"table-rail-grain table-rail-grain-horizontal\" x=\"0\" y=\"{bottom:.3}\" width=\"{w:.3}\" height=\"{bottom_rail_h:.3}\"/><rect class=\"table-rail-grain table-rail-grain-vertical\" x=\"0\" y=\"{top:.3}\" width=\"{left:.3}\" height=\"{cloth_h:.3}\"/><rect class=\"table-rail-grain table-rail-grain-vertical\" x=\"{right:.3}\" y=\"{top:.3}\" width=\"{right_rail_w:.3}\" height=\"{cloth_h:.3}\"/></g>\n"
+    ));
+    svg.push_str(&format!(
         "<rect class=\"table-cloth\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
     ));
+    svg.push_str(&format!(
+        "<rect class=\"table-cloth-texture\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<rect class=\"table-rail-inner-shadow\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
+    ));
 
-    push_svg_cushion_rect(
+    push_svg_horizontal_cushion(
         svg,
         left + corner_run_x,
         top - cushion_y,
         cloth_w - 2.0 * corner_run_x,
         cushion_y,
+        -1.0,
+        cushion_bevel_x,
     );
-    push_svg_cushion_rect(
+    push_svg_horizontal_cushion(
         svg,
         left + corner_run_x,
         bottom,
         cloth_w - 2.0 * corner_run_x,
         cushion_y,
+        1.0,
+        cushion_bevel_x,
     );
-    push_svg_cushion_rect(
+    push_svg_vertical_cushion(
         svg,
         left - cushion_x,
         top + corner_run_y,
         cushion_x,
         center_y - side_mouth_y * 0.5 - top - corner_run_y,
+        -1.0,
+        cushion_bevel_y,
     );
-    push_svg_cushion_rect(
+    push_svg_vertical_cushion(
         svg,
         left - cushion_x,
         center_y + side_mouth_y * 0.5,
         cushion_x,
         bottom - corner_run_y - center_y - side_mouth_y * 0.5,
+        -1.0,
+        cushion_bevel_y,
     );
-    push_svg_cushion_rect(
+    push_svg_vertical_cushion(
         svg,
         right,
         top + corner_run_y,
         cushion_x,
         center_y - side_mouth_y * 0.5 - top - corner_run_y,
+        1.0,
+        cushion_bevel_y,
     );
-    push_svg_cushion_rect(
+    push_svg_vertical_cushion(
         svg,
         right,
         center_y + side_mouth_y * 0.5,
         cushion_x,
         bottom - corner_run_y - center_y - side_mouth_y * 0.5,
+        1.0,
+        cushion_bevel_y,
     );
 
     for (corner_x, corner_y, x_sign, y_sign) in [
@@ -495,7 +569,8 @@ fn push_svg_table(svg: &mut String, viewport: DiagramViewport) {
         center_y,
         -1.0,
         side_mouth_y,
-        side_shelf_x,
+        side_lip_x,
+        side_well_x,
         cushion_x,
     );
     push_svg_side_pocket(
@@ -504,7 +579,8 @@ fn push_svg_table(svg: &mut String, viewport: DiagramViewport) {
         center_y,
         1.0,
         side_mouth_y,
-        side_shelf_x,
+        side_lip_x,
+        side_well_x,
         cushion_x,
     );
 
@@ -521,9 +597,55 @@ impl DiagramViewport {
     }
 }
 
-fn push_svg_cushion_rect(svg: &mut String, x: f32, y: f32, width: f32, height: f32) {
+fn push_svg_horizontal_cushion(
+    svg: &mut String,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    y_sign: f32,
+    bevel: f32,
+) {
+    let nose_y = if y_sign < 0.0 { y + height } else { y };
+    let back_y = if y_sign < 0.0 { y } else { y + height };
+    let back_left_x = x - bevel;
+    let back_right_x = x + width + bevel;
+    let right_x = x + width;
+
     svg.push_str(&format!(
-        "<rect class=\"table-cushion\" x=\"{x:.3}\" y=\"{y:.3}\" width=\"{width:.3}\" height=\"{height:.3}\"/>\n"
+        "<path class=\"table-cushion\" d=\"M {x:.3} {nose_y:.3} L {right_x:.3} {nose_y:.3} L {back_right_x:.3} {back_y:.3} L {back_left_x:.3} {back_y:.3} Z\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-nose\" x1=\"{x:.3}\" y1=\"{nose_y:.3}\" x2=\"{right_x:.3}\" y2=\"{nose_y:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-back\" x1=\"{back_left_x:.3}\" y1=\"{back_y:.3}\" x2=\"{back_right_x:.3}\" y2=\"{back_y:.3}\"/>\n"
+    ));
+}
+
+fn push_svg_vertical_cushion(
+    svg: &mut String,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    x_sign: f32,
+    bevel: f32,
+) {
+    let nose_x = if x_sign < 0.0 { x + width } else { x };
+    let back_x = if x_sign < 0.0 { x } else { x + width };
+    let back_top_y = y - bevel;
+    let back_bottom_y = y + height + bevel;
+    let bottom_y = y + height;
+
+    svg.push_str(&format!(
+        "<path class=\"table-cushion\" d=\"M {nose_x:.3} {y:.3} L {nose_x:.3} {bottom_y:.3} L {back_x:.3} {back_bottom_y:.3} L {back_x:.3} {back_top_y:.3} Z\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-nose\" x1=\"{nose_x:.3}\" y1=\"{y:.3}\" x2=\"{nose_x:.3}\" y2=\"{bottom_y:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-back\" x1=\"{back_x:.3}\" y1=\"{back_top_y:.3}\" x2=\"{back_x:.3}\" y2=\"{back_bottom_y:.3}\"/>\n"
     ));
 }
 
@@ -542,19 +664,24 @@ fn push_svg_corner_pocket(
     let horizontal_y = corner_y;
     let vertical_x = corner_x;
     let vertical_y = corner_y - y_sign * run_y;
-    let inner_x = corner_x - x_sign * shelf_x;
-    let inner_y = corner_y - y_sign * shelf_y;
-    let well_x = corner_x + x_sign * shelf_x * 1.45;
-    let well_y = corner_y + y_sign * shelf_y * 1.45;
+    let jaw_x = corner_x - x_sign * shelf_x;
+    let jaw_y = corner_y - y_sign * shelf_y;
+    let well_scale = CORNER_POCKET_WELL_IN / CORNER_POCKET_SHELF_IN;
+    let well_x = corner_x + x_sign * shelf_x * well_scale;
+    let well_y = corner_y + y_sign * shelf_y * well_scale;
+    let vertical_outer_x = corner_x + x_sign * shelf_x * 1.65;
+    let well_entry_y = corner_y + y_sign * shelf_y * 0.7;
+    let well_exit_x = corner_x + x_sign * shelf_x * 0.7;
+    let horizontal_outer_y = corner_y + y_sign * shelf_y * 1.65;
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket\" data-pocket=\"corner\" d=\"M {horizontal_x:.3} {horizontal_y:.3} Q {inner_x:.3} {inner_y:.3} {vertical_x:.3} {vertical_y:.3} Q {well_x:.3} {well_y:.3} {horizontal_x:.3} {horizontal_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket\" data-pocket=\"corner\" d=\"M {horizontal_x:.3} {horizontal_y:.3} C {jaw_x:.3} {horizontal_y:.3} {jaw_x:.3} {jaw_y:.3} {vertical_x:.3} {vertical_y:.3} C {vertical_outer_x:.3} {vertical_y:.3} {well_x:.3} {well_entry_y:.3} {well_x:.3} {well_y:.3} C {well_exit_x:.3} {well_y:.3} {horizontal_x:.3} {horizontal_outer_y:.3} {horizontal_x:.3} {horizontal_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" x1=\"{horizontal_x:.3}\" y1=\"{horizontal_y:.3}\" x2=\"{inner_x:.3}\" y2=\"{inner_y:.3}\"/>\n"
+        "<line class=\"table-pocket-facing\" x1=\"{horizontal_x:.3}\" y1=\"{horizontal_y:.3}\" x2=\"{jaw_x:.3}\" y2=\"{jaw_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" x1=\"{vertical_x:.3}\" y1=\"{vertical_y:.3}\" x2=\"{inner_x:.3}\" y2=\"{inner_y:.3}\"/>\n"
+        "<line class=\"table-pocket-facing\" x1=\"{vertical_x:.3}\" y1=\"{vertical_y:.3}\" x2=\"{jaw_x:.3}\" y2=\"{jaw_y:.3}\"/>\n"
     ));
 }
 
@@ -564,22 +691,29 @@ fn push_svg_side_pocket(
     center_y: f32,
     x_sign: f32,
     mouth_y: f32,
-    shelf_x: f32,
+    lip_depth_x: f32,
+    well_depth_x: f32,
     cushion_x: f32,
 ) {
     let top_y = center_y - mouth_y * 0.5;
     let bottom_y = center_y + mouth_y * 0.5;
-    let throat_x = rail_x + x_sign * (shelf_x + cushion_x * 1.15);
-    let lip_x = rail_x + x_sign * shelf_x;
+    let upper_throat_y = center_y - mouth_y * 0.38;
+    let lower_throat_y = center_y + mouth_y * 0.38;
+    let upper_belly_y = center_y - mouth_y * 0.56;
+    let lower_belly_y = center_y + mouth_y * 0.56;
+    let lip_x = rail_x + x_sign * lip_depth_x;
+    let throat_x = rail_x + x_sign * well_depth_x * 0.62;
+    let well_x = rail_x + x_sign * well_depth_x;
+    let rail_belly_x = rail_x + x_sign * cushion_x * 0.18;
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket\" data-pocket=\"side\" d=\"M {rail_x:.3} {top_y:.3} Q {lip_x:.3} {center_y:.3} {rail_x:.3} {bottom_y:.3} Q {throat_x:.3} {center_y:.3} {rail_x:.3} {top_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket\" data-pocket=\"side\" d=\"M {rail_x:.3} {top_y:.3} C {lip_x:.3} {top_y:.3} {throat_x:.3} {upper_belly_y:.3} {throat_x:.3} {upper_throat_y:.3} C {well_x:.3} {upper_throat_y:.3} {well_x:.3} {lower_throat_y:.3} {throat_x:.3} {lower_throat_y:.3} C {throat_x:.3} {lower_belly_y:.3} {lip_x:.3} {bottom_y:.3} {rail_x:.3} {bottom_y:.3} C {rail_belly_x:.3} {lower_belly_y:.3} {rail_belly_x:.3} {upper_belly_y:.3} {rail_x:.3} {top_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{top_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{center_y:.3}\"/>\n"
+        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{top_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{upper_throat_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{bottom_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{center_y:.3}\"/>\n"
+        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{bottom_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{lower_throat_y:.3}\"/>\n"
     ));
 }
 

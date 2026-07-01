@@ -517,35 +517,38 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
     html.push_str("<style>\n");
     html.push_str(
         ":root{color-scheme:light dark;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;line-height:1.45}\n\
+         *{box-sizing:border-box}\n\
          body{margin:0;background:#101410;color:#f1f5ef}\n\
          header{position:sticky;top:0;z-index:2;background:rgba(16,20,16,.94);backdrop-filter:blur(8px);border-bottom:1px solid #314131;padding:1rem 1.25rem}\n\
-         h1{margin:.1rem 0 .35rem;font-size:1.55rem}\n\
-         .subtitle{color:#bfd0bb;margin:0}\n\
-         main{max-width:1220px;margin:0 auto;padding:1.25rem}\n\
+         h1{margin:.1rem 0 .35rem;font-size:clamp(1.25rem,2.4vw,1.65rem)}\n\
+         .subtitle{color:#bfd0bb;margin:0;overflow-wrap:anywhere}\n\
+         main{width:min(100%,1220px);margin:0 auto;padding:1.25rem}\n\
          .toc{display:flex;flex-wrap:wrap;gap:.45rem;margin:1rem 0 1.25rem}\n\
-         .toc a{color:#dff5d7;background:#263326;border:1px solid #405440;border-radius:999px;padding:.3rem .65rem;text-decoration:none;font-size:.9rem}\n\
+         .toc a{color:#dff5d7;background:#263326;border:1px solid #405440;border-radius:999px;padding:.3rem .65rem;text-decoration:none;font-size:.9rem;overflow-wrap:anywhere}\n\
          .card{background:#182018;border:1px solid #354635;border-radius:16px;margin:0 0 1.25rem;overflow:hidden;box-shadow:0 12px 30px rgba(0,0,0,.24)}\n\
-         .card h2{margin:0;padding:1rem 1rem .35rem;font-size:1.25rem}\n\
-         .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.55rem;padding:0 1rem 1rem;color:#d5e4d0}\n\
-         .meta div{background:#111811;border:1px solid #293829;border-radius:10px;padding:.55rem .65rem}\n\
+         .card h2{margin:0;padding:1rem 1rem .35rem;font-size:1.25rem;overflow-wrap:anywhere}\n\
+         .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:.55rem;padding:0 1rem 1rem;color:#d5e4d0}\n\
+         .meta div{min-width:0;background:#111811;border:1px solid #293829;border-radius:10px;padding:.55rem .65rem;overflow-wrap:anywhere}\n\
          .meta strong{display:block;color:#f7fff2;margin-bottom:.2rem;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}\n\
-         figure{margin:0;background:#253025;padding:1rem;border-top:1px solid #354635;border-bottom:1px solid #354635}\n\
+         figure{min-width:0;margin:0;background:#253025;padding:1rem;border-top:1px solid #354635;border-bottom:1px solid #354635}\n\
          img{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:10px;background:#0a0d0a}\n\
-         .svg-viewer{display:grid;gap:.7rem}\n\
+         .svg-viewer{display:grid;gap:.7rem;min-width:0}\n\
          .viewer-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;color:#d5e4d0;font-size:.9rem}\n\
          .viewer-controls button{background:#111811;color:#f1f5ef;border:1px solid #405440;border-radius:8px;padding:.3rem .55rem;cursor:pointer}\n\
-         .viewer-controls label{display:inline-flex;align-items:center;gap:.25rem;background:#182018;border:1px solid #405440;border-radius:999px;padding:.25rem .55rem}\n\
-         .svg-frame{overflow:hidden;border-radius:10px;background:#0a0d0a;touch-action:none}\n\
-         .svg-frame svg{display:block;width:100%;height:auto;max-height:82vh;cursor:grab}\n\
+         .viewer-controls label{display:inline-flex;align-items:center;gap:.25rem;background:#182018;border:1px solid #405440;border-radius:999px;padding:.25rem .55rem;max-width:100%;overflow-wrap:anywhere}\n\
+         .svg-frame{overflow:hidden;border-radius:10px;background:#0a0d0a;touch-action:none;min-width:0}\n\
+         .svg-frame svg{display:block;width:100%;height:auto;max-height:min(82vh,1100px);cursor:grab}\n\
          .svg-frame svg.dragging{cursor:grabbing}\n\
          .downloads{display:flex;flex-wrap:wrap;gap:.5rem;margin:.55rem 0 0;font-size:.9rem}\n\
-         details{padding:.85rem 1rem 1rem}\n\
+         .downloads a{overflow-wrap:anywhere}\n\
+         details{padding:.85rem 1rem 1rem;min-width:0}\n\
          summary{cursor:pointer;color:#f7fff2;font-weight:700}\n\
-         pre{white-space:pre-wrap;overflow:auto;background:#0c110c;border:1px solid #2a382a;border-radius:10px;padding:.85rem;color:#dcead8}\n\
-         code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}\n\
-         .notes{margin:.25rem 0 0;padding-left:1.1rem}\n\
+         pre{white-space:pre-wrap;overflow:auto;max-height:28rem;background:#0c110c;border:1px solid #2a382a;border-radius:10px;padding:.85rem;color:#dcead8;overflow-wrap:anywhere}\n\
+         code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere}\n\
+         .notes{margin:.25rem 0 0;padding-left:1.1rem;overflow-wrap:anywhere}\n\
          .notes li{margin:.2rem 0}\n\
-         a{color:#a8e89a}\n",
+         a{color:#a8e89a}\n\
+         @media (max-width:720px){header{position:static;padding:.85rem}main{padding:.75rem}.toc{gap:.35rem}.card{border-radius:12px}figure{padding:.65rem}.viewer-controls{align-items:stretch}.viewer-controls button,.viewer-controls label{flex:1 1 auto;justify-content:center}}\n",
     );
     html.push_str("</style>\n</head>\n<body>\n");
     html.push_str("<header>\n<h1>Billiards scenario validation suite</h1>\n");

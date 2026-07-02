@@ -183,10 +183,15 @@ pub enum DiagramElement {
         center: Position,
         style: GhostBallStyle,
     },
+    OriginMarker {
+        center: Position,
+        style: LabelOverlayStyle,
+    },
     CircleMarker {
         center: Position,
         style: EventMarkerStyle,
         event_label: Option<String>,
+        event_title: Option<String>,
     },
     TextLabel {
         anchor: Position,
@@ -202,6 +207,7 @@ impl DiagramElement {
             Self::SmoothPolyline { style, .. } => style.layer.into(),
             Self::HeadingChevron { style, .. } => style.layer.into(),
             Self::GhostBall { style, .. } => style.layer.into(),
+            Self::OriginMarker { style, .. } => style.layer.into(),
             Self::CircleMarker { style, .. } => style.layer.into(),
             Self::TextLabel { style, .. } => style.layer.into(),
         }
@@ -292,7 +298,7 @@ impl DiagramBackend for SvgBackend {
         svg.push_str("<style>\n");
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
-        svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}.event-marker[data-event-label]{cursor:help}\n");
+        svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}.origin-marker{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none}.event-marker[data-event-label]{cursor:help}\n");
         svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket{fill:#020202;stroke:#12100f;stroke-width:1.4}.table-pocket-rim{fill:none;stroke:#3a332e;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;opacity:.85}.table-pocket-facing{stroke:#16110f;stroke-width:5;stroke-linecap:round}.table-pocket-lip{stroke:#5b5149;stroke-width:1.4;stroke-linecap:round;opacity:.55}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.94}\n");
         svg.push_str(".carom-table .table-rail{fill:url(#carom-wood-rail)}.carom-table .table-cloth{fill:url(#heated-carom-cloth)}.carom-table .table-cloth-texture{opacity:.16}.carom-table .table-cushion{fill:url(#heated-carom-cushion)}.carom-table .table-cushion-nose{stroke:#88ecff;stroke-width:3.2}.carom-table .table-cushion-back{stroke:#064f69;stroke-width:3.2}.carom-table .table-rail-inner-shadow{stroke:#0b0705;stroke-width:12;opacity:.58}\n");
         svg.push_str("</style>\n");
@@ -425,6 +431,18 @@ fn draw_raster_elements_for_layer(
                         .ball_diameter_px(&scene.table_spec, &BallSpec::default()),
                     style.fill_color,
                     style.outline_color,
+                );
+            }
+            DiagramElement::OriginMarker { center, style } => {
+                let scale_px = style.scale_px.max(1);
+                drawing::draw_text_label_mut(
+                    table,
+                    center,
+                    "O",
+                    -((5 * scale_px as i32) / 2),
+                    -((7 * scale_px as i32) / 2),
+                    scale_px,
+                    style.color,
                 );
             }
             DiagramElement::CircleMarker { center, style, .. } => {
@@ -1169,18 +1187,33 @@ fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramEle
                 center.x, center.y, radius, fill, fill_opacity, stroke, stroke_opacity
             ));
         }
+        DiagramElement::OriginMarker { center, style } => {
+            let center = scene.viewport.position_to_scene_point(center);
+            let (fill, opacity) = svg_color(style.color);
+            svg.push_str(&format!(
+                "<text class=\"overlay origin-marker\" x=\"{:.3}\" y=\"{:.3}\" fill=\"{}\" fill-opacity=\"{:.3}\" font-size=\"{}\">O</text>\n",
+                center.x,
+                center.y,
+                fill,
+                opacity,
+                style.scale_px.max(1) * 7
+            ));
+        }
         DiagramElement::CircleMarker {
             center,
             style,
             event_label,
+            event_title,
         } => {
             let center = scene.viewport.position_to_scene_point(center);
             let (fill, opacity) = svg_color(style.color);
             if let Some(event_label) = event_label {
+                let event_title = event_title.as_ref().unwrap_or(event_label);
                 let event_label = escape_xml(event_label);
+                let event_title = escape_xml(event_title);
                 svg.push_str(&format!(
                     "<circle class=\"overlay event-marker\" cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"{}\" fill-opacity=\"{:.3}\" data-event-label=\"{}\"><title>{}</title></circle>\n",
-                    center.x, center.y, style.radius_px, fill, opacity, event_label, event_label
+                    center.x, center.y, style.radius_px, fill, opacity, event_label, event_title
                 ));
             } else {
                 svg.push_str(&format!(

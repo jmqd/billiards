@@ -580,6 +580,13 @@ impl DslScenario {
 
         for (event_index, event) in simulation.events.iter().enumerate() {
             let step_time = event.time();
+            let event_time = Seconds::new(elapsed.as_f64() + step_time.as_f64());
+            let event_human = format!(
+                "t={}  {}",
+                format_scenario_trace_time(event_time),
+                scenario_event_kind_from_system_event(event, self.game_state.balls())
+                    .format_human()
+            );
             for (ball_index, (trace, state)) in traces.iter_mut().zip(&current_states).enumerate() {
                 let Some(start) = state.as_on_table() else {
                     continue;
@@ -596,6 +603,9 @@ impl DslScenario {
                 });
                 let event_marker_label = scenario_event_involves_ball(event, ball_index)
                     .then(|| format!("({})", event_index + 1));
+                let event_marker_title = event_marker_label
+                    .as_ref()
+                    .map(|label| format!("{label} {event_human}"));
                 push_visible_trace_segment(
                     &mut trace.segments,
                     start,
@@ -603,6 +613,7 @@ impl DslScenario {
                     step_time,
                     event_marker_label.is_some(),
                     event_marker_label,
+                    event_marker_title,
                 );
             }
 
@@ -872,6 +883,14 @@ impl ScenarioShotTrace {
                     &path_render,
                     &path_style,
                 );
+            }
+
+            if options.start_ghost_balls && ball_trace.ball == BallType::Cue {
+                let start = ball_trace
+                    .initial_state
+                    .as_ball_state()
+                    .projected_position(&scenario.game_state.table_spec);
+                game_state.add_origin_marker_styled(&start, cue_origin_marker_style());
             }
 
             if let Some(pocket_terminal) = ball_trace.pocket_terminal_point() {
@@ -1194,6 +1213,7 @@ fn push_visible_trace_segment(
     duration: Seconds,
     event_marker_at_end: bool,
     event_marker_label: Option<String>,
+    event_marker_title: Option<String>,
 ) {
     if trace_segment_has_visible_displacement(start, end) {
         segments.push(BallPathSegment {
@@ -1202,6 +1222,7 @@ fn push_visible_trace_segment(
             duration,
             event_marker_at_end,
             event_marker_label,
+            event_marker_title,
         });
     }
 }
@@ -1387,6 +1408,17 @@ fn ball_trace_ghost_style(color: Rgba<u8>) -> GhostBallStyle {
         fill_color: Rgba([color[0], color[1], color[2], 64]),
         outline_color: Rgba([color[0], color[1], color[2], 160]),
         ..GhostBallStyle::default()
+    }
+}
+
+fn cue_origin_marker_style() -> LabelOverlayStyle {
+    LabelOverlayStyle {
+        enabled: true,
+        color: Rgba([12, 20, 24, 176]),
+        offset_x_px: 0,
+        offset_y_px: 0,
+        scale_px: 2,
+        ..LabelOverlayStyle::default()
     }
 }
 

@@ -1,7 +1,10 @@
 use std::fs;
 
 use billiards::diagram::DiagramOutputFormat;
-use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioShotTraceEventKind};
+use billiards::dsl::{
+    parse_dsl_to_scenario, ScenarioShotTrace, ScenarioShotTraceEventKind,
+    ScenarioTraceRenderOptions,
+};
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     human_tuned_preview_motion_config, BallType, CollisionModel, DiagramBackground,
@@ -38,6 +41,38 @@ fn trace_scenario(
             .expect("scenario should contain a shot")
     };
     (scenario, trace)
+}
+
+#[test]
+fn svg_trace_marks_original_cue_ball_origin_without_restoring_event_numbers() {
+    let (scenario, trace) = trace_scenario(
+        "examples/scenarios/bank_reference_track_one_rail.billiards",
+        1,
+    );
+    let rendered = trace.rendered_final_layout_with_trace_options(
+        &scenario,
+        &ScenarioTraceRenderOptions {
+            start_ghost_balls: true,
+            event_markers: true,
+            labels: false,
+            ..ScenarioTraceRenderOptions::default()
+        },
+    );
+    let svg = String::from_utf8(rendered.render_2d_diagram_with_options(
+        DiagramOutputFormat::Svg,
+        &DiagramRenderOptions {
+            background: DiagramBackground::Transparent,
+            ..DiagramRenderOptions::default()
+        },
+    ))
+    .expect("scenario trace SVG should be UTF-8");
+
+    assert_eq!(svg.matches("class=\"overlay origin-marker\"").count(), 1);
+    assert!(svg.contains(">O</text>"));
+    assert!(svg.contains("data-event-label=\"(1)\""));
+    assert!(svg.contains("<title>(1) t="));
+    assert!(svg.contains("cue Sliding -&gt; Rolling"));
+    assert!(!svg.contains(">(1)</text>"));
 }
 
 fn has_pocket(trace: &ScenarioShotTrace, ball: BallType, pocket: Pocket) -> bool {

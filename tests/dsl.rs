@@ -1,16 +1,19 @@
 use bigdecimal::ToPrimitive;
 use billiards::dsl::{
     parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, CoordinateAxis, DslBuildError,
-    DslError, DslParseError, RailSide, ScenarioTraceRenderOptions,
+    DslError, DslParseError, RailSide, ScenarioBallTimelineSegment, ScenarioBallTrace,
+    ScenarioShotTrace, ScenarioTraceRenderOptions,
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
     visualization::{BallPathRenderOptions, PathColorMode},
-    Angle, BallSetPhysicsSpec, BallType, CollisionModel, Diamond, GameType, HumanShotSpeedBand,
-    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
-    NBallSystemState, OnTableMotionConfig, PlayingConditions, Pocket, RadiansPerSecondSq,
-    RailCollisionProfile, RailModel, RollingResistanceModel, ShotSpeedPreset, SlidingFrictionModel,
-    SpinDecayModel, TableKind, CAROM_BALL_RADIUS, TYPICAL_BALL_RADIUS,
+    Angle, AngularVelocity3, BallSetPhysicsSpec, BallState, BallType, CollisionModel, Diamond,
+    GameType, HumanShotSpeedBand, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
+    MotionTransitionConfig, NBallSystemEvent, NBallSystemSimulation, NBallSystemState,
+    OnTableBallState, OnTableMotionConfig, PlayingConditions, Pocket, RadiansPerSecondSq,
+    RailCollisionProfile, RailModel, RollingResistanceModel, Seconds, ShotSpeedPreset,
+    SlidingFrictionModel, SpinDecayModel, TableKind, Velocity2, CAROM_BALL_RADIUS,
+    TYPICAL_BALL_RADIUS,
 };
 use image::load_from_memory;
 
@@ -1087,6 +1090,136 @@ fn scenario_trace_can_limit_rendered_simulation_events() {
     .expect("expected shot DSL to build");
 
     assert_eq!(scenario.trace_max_events, Some(8));
+}
+
+#[test]
+fn playback_frames_snap_to_logged_event_times_and_sample_between_them() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.18, 4.12)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
+         rail_response(clean).normal_restitution(0.7).tangential_friction(0.17)\n\
+         rails(table).default(clean)\n\
+         simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).max_events(4)\n\
+         shot(cue).heading(9deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+    let trace = scenario
+        .simulate_shot_trace_with_simulation_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            "human_table",
+        )
+        .expect("preferred trace should succeed")
+        .expect("scenario should contain a shot");
+
+    let max_time_step = Seconds::new(0.02);
+    let frames = trace.playback_frames(max_time_step);
+
+    assert!(!frames.is_empty());
+    assert_close(frames[0].time.as_f64(), 0.0);
+    assert_close(
+        frames.last().expect("final playback frame").time.as_f64(),
+        trace.simulation.elapsed.as_f64(),
+    );
+    for event in &trace.event_log {
+        assert!(
+            frames
+                .iter()
+                .any(|frame| (frame.time.as_f64() - event.time.as_f64()).abs() < 1e-9),
+            "playback frames should include logged event time {:.9}",
+            event.time.as_f64()
+        );
+    }
+    for window in frames.windows(2) {
+        let gap = window[1].time.as_f64() - window[0].time.as_f64();
+        assert!(
+            gap <= max_time_step.as_f64() + 1e-9,
+            "playback frame gap {gap} should not exceed configured step"
+        );
+    }
+
+    let initial_cue = trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == BallType::Cue)
+        .expect("cue trace")
+        .initial_state
+        .as_ball_state();
+    let moved_cue = frames
+        .iter()
+        .find(|frame| frame.time.as_f64() > 0.0)
+        .and_then(|frame| frame.balls.iter().find(|ball| ball.ball == BallType::Cue))
+        .expect("sampled cue after shot starts")
+        .state
+        .as_ball_state();
+    assert!(
+        (moved_cue.position.x().as_f64() - initial_cue.position.x().as_f64()).abs() > 1e-9
+            || (moved_cue.position.y().as_f64() - initial_cue.position.y().as_f64()).abs() > 1e-9,
+        "playback should expose sub-event physics samples, not only event vertices"
+    );
+}
+
+#[test]
+fn playback_frames_omit_pocketed_balls_after_their_capture_time() {
+    let initial_state = OnTableBallState::try_from(BallState::on_table(
+        Inches2::new("20", "20"),
+        Velocity2::new("10", "0"),
+        AngularVelocity3::new(0.0, 0.0, 0.0),
+    ))
+    .expect("initial state should be on-table");
+    let captured_state = OnTableBallState::try_from(BallState::on_table(
+        Inches2::new("30", "20"),
+        Velocity2::new("0", "0"),
+        AngularVelocity3::new(0.0, 0.0, 0.0),
+    ))
+    .expect("captured state should be on-table");
+    let final_state = NBallSystemState::Pocketed {
+        pocket: Pocket::CenterRight,
+        state_at_capture: captured_state.clone(),
+    };
+    let trace = ScenarioShotTrace {
+        simulation: NBallSystemSimulation {
+            states: vec![final_state.clone()],
+            elapsed: Seconds::new(2.0),
+            events: Vec::new(),
+        },
+        event_log: Vec::new(),
+        ball_traces: vec![ScenarioBallTrace {
+            ball: BallType::Cue,
+            initial_state: initial_state.clone(),
+            final_state,
+            segments: Vec::new(),
+            timeline_segments: vec![ScenarioBallTimelineSegment {
+                start_time: Seconds::zero(),
+                start: initial_state,
+                end: captured_state,
+                duration: Seconds::new(1.0),
+            }],
+        }],
+        ball_set: BallSetPhysicsSpec::default(),
+        motion: motion_config(),
+    };
+
+    let frames = trace.playback_frames(Seconds::new(0.5));
+    let frame_before_capture = frames
+        .iter()
+        .find(|frame| (frame.time.as_f64() - 0.5).abs() < 1e-9)
+        .expect("pre-capture frame");
+    let frame_after_capture = frames
+        .iter()
+        .find(|frame| (frame.time.as_f64() - 2.0).abs() < 1e-9)
+        .expect("post-capture frame");
+
+    assert!(frame_before_capture
+        .balls
+        .iter()
+        .any(|ball| ball.ball == BallType::Cue));
+    assert!(
+        frame_after_capture.balls.is_empty(),
+        "pocketed balls should disappear after capture instead of snapping back onto the table"
+    );
 }
 
 #[test]

@@ -2146,6 +2146,7 @@ pub struct BallPathSegment {
     pub duration: Seconds,
     pub event_marker_at_end: bool,
     pub event_marker_label: Option<String>,
+    pub event_marker_title: Option<String>,
 }
 
 /// A first-pass traced single-ball path across the table.
@@ -10547,6 +10548,7 @@ fn push_visible_ball_path_segment(
             duration,
             event_marker_at_end: true,
             event_marker_label: None,
+            event_marker_title: None,
         });
     }
 }
@@ -13800,10 +13802,15 @@ enum Overlay {
         center: Position,
         style: GhostBallStyle,
     },
+    OriginMarker {
+        center: Position,
+        style: LabelOverlayStyle,
+    },
     CircleMarker {
         center: Position,
         style: EventMarkerStyle,
         event_label: Option<String>,
+        event_title: Option<String>,
     },
     TextLabel {
         anchor: Position,
@@ -14149,8 +14156,22 @@ impl GameState {
         });
     }
 
+    pub fn add_origin_marker_styled(&mut self, position: &Position, style: LabelOverlayStyle) {
+        if !style.enabled {
+            return;
+        }
+
+        let mut position = position.clone();
+        position.resolve_shifts(&self.table_spec);
+
+        self.lines_to_draw.push(Overlay::OriginMarker {
+            center: position,
+            style,
+        });
+    }
+
     pub fn add_event_marker_styled(&mut self, position: &Position, style: EventMarkerStyle) {
-        self.add_event_marker_styled_with_label(position, style, None);
+        self.add_event_marker_styled_with_label(position, style, None, None);
     }
 
     fn add_event_marker_styled_with_label(
@@ -14158,6 +14179,7 @@ impl GameState {
         position: &Position,
         style: EventMarkerStyle,
         event_label: Option<String>,
+        event_title: Option<String>,
     ) {
         let mut position = position.clone();
         position.resolve_shifts(&self.table_spec);
@@ -14166,6 +14188,7 @@ impl GameState {
             center: position,
             style,
             event_label,
+            event_title,
         });
     }
 
@@ -14235,11 +14258,16 @@ impl GameState {
                     .event_marker_label
                     .clone()
                     .unwrap_or_else(|| format!("({})", index + 1));
+                let title = segment
+                    .event_marker_title
+                    .clone()
+                    .unwrap_or_else(|| label.clone());
                 if style.event_markers.enabled {
                     self.add_event_marker_styled_with_label(
                         &projected_end,
                         style.event_markers.clone(),
                         Some(label.clone()),
+                        Some(title),
                     );
                 }
                 if style.labels.enabled {
@@ -14496,11 +14524,16 @@ impl GameState {
                     .event_marker_label
                     .clone()
                     .unwrap_or_else(|| format!("({})", index + 1));
+                let title = segment
+                    .event_marker_title
+                    .clone()
+                    .unwrap_or_else(|| label.clone());
                 if style.event_markers.enabled {
                     self.add_event_marker_styled_with_label(
                         &projected_end,
                         style.event_markers.clone(),
                         Some(label.clone()),
+                        Some(title),
                     );
                 }
                 if style.labels.enabled {
@@ -14677,14 +14710,20 @@ impl GameState {
                     center: center.clone(),
                     style: style.clone(),
                 },
+                Overlay::OriginMarker { center, style } => DiagramElement::OriginMarker {
+                    center: center.clone(),
+                    style: style.clone(),
+                },
                 Overlay::CircleMarker {
                     center,
                     style,
                     event_label,
+                    event_title,
                 } => DiagramElement::CircleMarker {
                     center: center.clone(),
                     style: style.clone(),
                     event_label: event_label.clone(),
+                    event_title: event_title.clone(),
                 },
                 Overlay::TextLabel {
                     anchor,

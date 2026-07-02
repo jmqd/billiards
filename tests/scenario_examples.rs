@@ -1,11 +1,11 @@
 use std::fs;
 
+use billiards::diagram::DiagramOutputFormat;
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioShotTraceEventKind};
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
-    human_tuned_preview_motion_config, BallBallCollisionConfig, BallSetPhysicsSpec, BallType,
-    CollisionModel, DiagramBackground, DiagramRenderOptions, Pocket, Rail, RailCollisionProfile,
-    RailModel, Seconds,
+    human_tuned_preview_motion_config, BallType, CollisionModel, DiagramBackground,
+    DiagramRenderOptions, Pocket, Rail, RailModel, Seconds, TableKind,
 };
 
 fn trace_scenario(
@@ -14,27 +14,24 @@ fn trace_scenario(
 ) -> (billiards::dsl::DslScenario, ScenarioShotTrace) {
     let source = fs::read_to_string(path).expect("scenario should read");
     let scenario = parse_dsl_to_scenario(&source).expect("scenario should parse");
+    let ball_set = scenario.ball_set_physics_spec();
     let trace = if max_events == 0 {
         scenario
-            .simulate_shot_trace_with_physics_on_table_until_rest(
-                &BallSetPhysicsSpec::default(),
+            .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+                &ball_set,
                 &human_tuned_preview_motion_config(),
                 CollisionModel::ThrowAware,
-                &BallBallCollisionConfig::human_tuned(),
                 RailModel::SpinAware,
-                &RailCollisionProfile::default(),
             )
             .expect("scenario should simulate")
             .expect("scenario should contain a shot")
     } else {
         scenario
-            .simulate_shot_trace_with_physics_on_table_until_event_limit(
-                &BallSetPhysicsSpec::default(),
+            .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+                &ball_set,
                 &human_tuned_preview_motion_config(),
                 CollisionModel::ThrowAware,
-                &BallBallCollisionConfig::human_tuned(),
                 RailModel::SpinAware,
-                &RailCollisionProfile::default(),
                 max_events,
             )
             .expect("scenario should simulate")
@@ -313,5 +310,42 @@ fn professional_manual_check_diagrams_parse_simulate_and_render_with_debug_overl
             background: DiagramBackground::Transparent,
         });
         assert!(!image.is_empty(), "{scenario_path}: empty render");
+    }
+}
+
+#[test]
+fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
+    for scenario_path in [
+        "examples/scenarios/three_cushion_opening_break.billiards",
+        "examples/scenarios/three_cushion_short_angle.billiards",
+        "examples/scenarios/three_cushion_long_rail_natural.billiards",
+    ] {
+        let (scenario, trace) = trace_scenario(scenario_path, 8);
+        assert_eq!(
+            scenario.game_state.table_spec.kind,
+            TableKind::ThreeCushionCarom
+        );
+        assert!(!trace.event_log.iter().any(|event| {
+            matches!(
+                &event.kind,
+                ScenarioShotTraceEventKind::BallPocketCapture { .. }
+                    | ScenarioShotTraceEventKind::BallJawImpact { .. }
+            )
+        }));
+        assert!(
+            trace.event_log.iter().any(|event| matches!(
+                &event.kind,
+                ScenarioShotTraceEventKind::BallRailImpact { .. }
+            )),
+            "{scenario_path}: expected at least one rail impact"
+        );
+
+        let svg = scenario.game_state.render_2d_diagram_with_options(
+            DiagramOutputFormat::Svg,
+            &DiagramRenderOptions::default(),
+        );
+        let svg = String::from_utf8(svg).expect("carom SVG should be UTF-8");
+        assert!(svg.contains("class=\"carom-table\""));
+        assert_eq!(svg.matches("data-pocket=").count(), 0);
     }
 }

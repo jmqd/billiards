@@ -1,0 +1,20 @@
+# Three-cushion opening-break layout on a pocketless heated carom table.
+# Goal: cue ball opens from the lower-left quadrant, travels to the long rail first, and leaves a trace suited for reviewing rail speed retention.
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (1.25, 1.40)
+ball yellow at (2.00, 4.00)
+ball red at (2.85, 6.75)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(14)
+trace(max_events: 14)
+shot(cue).heading(32deg).speed(96ips).tip(side: 0.15R, height: 0.15R).using(default)

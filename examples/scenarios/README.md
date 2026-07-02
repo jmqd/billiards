@@ -36,6 +36,27 @@ human-facing shot-speed label.
 
 ## Included scenarios
 
+### Three-cushion / carom examples
+
+These scenarios use `table three_cushion_carom_10ft`, `game three_cushion`, the carom ball names
+`cue`, `yellow`, and `red`, and the `heated_carom` condition preset for lower cloth drag and
+livelier rails.
+
+### `three_cushion_opening_break.billiards`
+Expected flavor:
+- pocketless 10 ft carom table render with three unnumbered carom balls
+- rail-first opening trace with heated-cloth speed retention
+
+### `three_cushion_short_angle.billiards`
+Expected flavor:
+- compact short-angle rail-first path
+- no pocket or jaw events because the table layout is pocketless
+
+### `three_cushion_long_rail_natural.billiards`
+Expected flavor:
+- longer natural-angle rail-first path on the carom table
+- carom ball and table scale rather than pool-ball physics
+
 ### Professional / practice-book manual checks
 
 These scenarios are source-grounded layouts for manual physics review. They intentionally favor

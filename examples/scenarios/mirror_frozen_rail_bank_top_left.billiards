@@ -1,0 +1,7 @@
+# Mirror frozen-rail bank: 6 and cue are frozen on the left rail; 6 banks into the top-left corner.
+table brunswick_gc4_9ft
+ball cue frozen left (5.67)
+ball six frozen left (5.85)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 12)
+shot(cue).heading(348deg).speed(88ips).tip(side: -0.22R, height: 0.28R).using(default)

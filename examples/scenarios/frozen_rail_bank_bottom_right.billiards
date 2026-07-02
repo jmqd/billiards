@@ -1,0 +1,7 @@
+# Frozen-rail bank: 7 and cue are frozen on the right rail; 7 banks into the bottom-right corner.
+table brunswick_gc4_9ft
+ball cue frozen right (2.33)
+ball seven frozen right (2.15)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 12)
+shot(cue).heading(168deg).speed(88ips).tip(side: 0.22R, height: 0.28R).using(default)

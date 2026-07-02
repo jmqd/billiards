@@ -64,6 +64,57 @@ fn has_collision(trace: &ScenarioShotTrace, first: BallType, second: BallType) -
         )
     })
 }
+
+fn trace_event_is_collision_between(
+    event: &ScenarioShotTraceEventKind,
+    first: &BallType,
+    second: &BallType,
+) -> bool {
+    match event {
+        ScenarioShotTraceEventKind::BallBallCollision {
+            first_ball,
+            second_ball,
+        } => {
+            (first_ball == first && second_ball == second)
+                || (first_ball == second && second_ball == first)
+        }
+        ScenarioShotTraceEventKind::SharedBallBallContact {
+            ball_ball_pairs, ..
+        } => ball_ball_pairs.iter().any(|(actual_first, actual_second)| {
+            (actual_first == first && actual_second == second)
+                || (actual_first == second && actual_second == first)
+        }),
+        _ => false,
+    }
+}
+
+fn legal_three_cushion_rail_sequence(trace: &ScenarioShotTrace) -> Option<Vec<Rail>> {
+    let mut first_object_contacted = false;
+    let mut cue_rails_after_first_object = Vec::new();
+
+    for event in &trace.event_log {
+        if trace_event_is_collision_between(&event.kind, &BallType::Cue, &BallType::YellowCue) {
+            first_object_contacted = true;
+            continue;
+        }
+
+        if trace_event_is_collision_between(&event.kind, &BallType::Cue, &BallType::Red) {
+            return (first_object_contacted && cue_rails_after_first_object.len() >= 3)
+                .then_some(cue_rails_after_first_object);
+        }
+
+        if let ScenarioShotTraceEventKind::BallRailImpact { ball, rail } = &event.kind {
+            if ball == &BallType::Cue {
+                if !first_object_contacted {
+                    return None;
+                }
+                cue_rails_after_first_object.push(*rail);
+            }
+        }
+    }
+
+    None
+}
 fn cue_rail_sequence(trace: &ScenarioShotTrace) -> Vec<Rail> {
     trace
         .event_log
@@ -75,6 +126,16 @@ fn cue_rail_sequence(trace: &ScenarioShotTrace) -> Vec<Rail> {
             _ => None,
         })
         .collect()
+}
+
+fn has_ball_rail_impact(trace: &ScenarioShotTrace, ball_type: BallType, rail_type: Rail) -> bool {
+    trace.event_log.iter().any(|event| {
+        matches!(
+            &event.kind,
+            ScenarioShotTraceEventKind::BallRailImpact { ball, rail }
+                if ball == &ball_type && *rail == rail_type
+        )
+    })
 }
 
 #[test]
@@ -219,6 +280,40 @@ fn corner_pocket_examples_match_claimed_outcomes() {
 }
 
 #[test]
+fn additional_pocket_billiards_examples_match_claimed_outcomes() {
+    let (_, thin_cut) = trace_scenario("examples/scenarios/thin_cut_top_left_corner.billiards", 0);
+    assert!(has_collision(&thin_cut, BallType::Cue, BallType::Seven));
+    assert!(has_pocket(&thin_cut, BallType::Seven, Pocket::TopLeft));
+    assert!(
+        cue_rail_sequence(&thin_cut).contains(&Rail::Left),
+        "thin-cut example should show the cue brushing the left rail"
+    );
+
+    let (_, long_rail_cut) =
+        trace_scenario("examples/scenarios/long_cut_bottom_left_rail.billiards", 0);
+    assert!(has_collision(
+        &long_rail_cut,
+        BallType::Cue,
+        BallType::Three
+    ));
+    assert!(has_ball_rail_impact(
+        &long_rail_cut,
+        BallType::Three,
+        Rail::Left
+    ));
+    assert!(has_pocket(
+        &long_rail_cut,
+        BallType::Three,
+        Pocket::BottomLeft
+    ));
+
+    let (_, combo) = trace_scenario("examples/scenarios/one_nine_corner_combo.billiards", 0);
+    assert!(has_collision(&combo, BallType::Cue, BallType::One));
+    assert!(has_collision(&combo, BallType::One, BallType::Nine));
+    assert!(has_pocket(&combo, BallType::Nine, Pocket::TopRight));
+}
+
+#[test]
 fn kick_bank_manual_checks_match_claimed_outcomes() {
     let (_, double_rail_kick) = trace_scenario(
         "examples/scenarios/double_rail_kick_side_pocket.billiards",
@@ -245,6 +340,33 @@ fn kick_bank_manual_checks_match_claimed_outcomes() {
     assert!(has_collision(&hustler_bank, BallType::Cue, BallType::Eight));
     assert!(has_pocket(&hustler_bank, BallType::Eight, Pocket::TopRight));
 
+    let (_, mirror_bank) = trace_scenario(
+        "examples/scenarios/mirror_frozen_rail_bank_top_left.billiards",
+        0,
+    );
+    assert!(has_collision(&mirror_bank, BallType::Cue, BallType::Six));
+    assert!(has_pocket(&mirror_bank, BallType::Six, Pocket::TopLeft));
+    assert!(
+        cue_rail_sequence(&mirror_bank).contains(&Rail::Left),
+        "mirror frozen-rail bank should show rail-frozen cue contact on the left rail"
+    );
+
+    let (_, bottom_bank) = trace_scenario(
+        "examples/scenarios/frozen_rail_bank_bottom_right.billiards",
+        0,
+    );
+    assert!(has_collision(&bottom_bank, BallType::Cue, BallType::Seven));
+    assert!(has_ball_rail_impact(
+        &bottom_bank,
+        BallType::Seven,
+        Rail::Right
+    ));
+    assert!(has_pocket(
+        &bottom_bank,
+        BallType::Seven,
+        Pocket::BottomRight
+    ));
+
     let (_, two_rail_scratch) =
         trace_scenario("examples/scenarios/two_rail_bank_scratch.billiards", 0);
     assert!(cue_rail_sequence(&two_rail_scratch).starts_with(&[Rail::Right, Rail::Top]));
@@ -255,16 +377,16 @@ fn kick_bank_manual_checks_match_claimed_outcomes() {
     ));
 
     let (_, golden_break) =
-        trace_scenario("examples/scenarios/golden_break_cut_break.billiards", 30);
+        trace_scenario("examples/scenarios/golden_break_cut_break.billiards", 48);
     let golden_rails = cue_rail_sequence(&golden_break);
     assert!(
-        golden_rails.contains(&Rail::Right) && golden_rails.contains(&Rail::Bottom),
-        "golden-break default trace should include cue-ball route to rails; got {golden_rails:?}"
+        golden_rails.contains(&Rail::Right)
+            && golden_rails.contains(&Rail::Bottom)
+            && golden_rails.contains(&Rail::Top),
+        "golden-break default trace should include cue-ball route to multiple rails; got {golden_rails:?}"
     );
-    assert!(
-        has_collision(&golden_break, BallType::Cue, BallType::Eight),
-        "golden-break default trace should follow the cue ball back into the rack region"
-    );
+    assert!(has_pocket(&golden_break, BallType::Eight, Pocket::TopRight));
+    assert!(has_pocket(&golden_break, BallType::Nine, Pocket::TopLeft));
 }
 
 #[test]
@@ -319,6 +441,12 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
         "examples/scenarios/three_cushion_opening_break.billiards",
         "examples/scenarios/three_cushion_short_angle.billiards",
         "examples/scenarios/three_cushion_long_rail_natural.billiards",
+        "examples/scenarios/three_cushion_right_top_left_score.billiards",
+        "examples/scenarios/three_cushion_left_top_right_score.billiards",
+        "examples/scenarios/three_cushion_bottom_left_top_score.billiards",
+        "examples/scenarios/three_cushion_top_right_left_score.billiards",
+        "examples/scenarios/three_cushion_left_bottom_right_score.billiards",
+        "examples/scenarios/three_cushion_bottom_right_top_score.billiards",
     ] {
         let (scenario, trace) = trace_scenario(scenario_path, 8);
         assert_eq!(
@@ -347,5 +475,43 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
         let svg = String::from_utf8(svg).expect("carom SVG should be UTF-8");
         assert!(svg.contains("class=\"carom-table\""));
         assert_eq!(svg.matches("data-pocket=").count(), 0);
+    }
+}
+
+#[test]
+fn three_cushion_score_examples_hit_first_object_then_three_rails_then_second_object() {
+    for (scenario_path, expected_rails) in [
+        (
+            "examples/scenarios/three_cushion_right_top_left_score.billiards",
+            [Rail::Right, Rail::Top, Rail::Left],
+        ),
+        (
+            "examples/scenarios/three_cushion_left_top_right_score.billiards",
+            [Rail::Left, Rail::Top, Rail::Right],
+        ),
+        (
+            "examples/scenarios/three_cushion_bottom_left_top_score.billiards",
+            [Rail::Bottom, Rail::Left, Rail::Top],
+        ),
+        (
+            "examples/scenarios/three_cushion_top_right_left_score.billiards",
+            [Rail::Top, Rail::Right, Rail::Left],
+        ),
+        (
+            "examples/scenarios/three_cushion_left_bottom_right_score.billiards",
+            [Rail::Left, Rail::Bottom, Rail::Right],
+        ),
+        (
+            "examples/scenarios/three_cushion_bottom_right_top_score.billiards",
+            [Rail::Bottom, Rail::Right, Rail::Top],
+        ),
+    ] {
+        let (_, trace) = trace_scenario(scenario_path, 24);
+        let rails = legal_three_cushion_rail_sequence(&trace)
+            .unwrap_or_else(|| panic!("{scenario_path}: expected legal three-cushion score"));
+        assert!(
+            rails.starts_with(&expected_rails),
+            "{scenario_path}: expected cue rail sequence to start with {expected_rails:?}, got {rails:?}"
+        );
     }
 }

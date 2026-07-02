@@ -1,0 +1,20 @@
+# Legal three-cushion scoring shot: cue contacts yellow, then right/top/left cushions, then red.
+# Goal: clean three-cushion sequence with no pockets on the 10 ft heated carom table.
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (0.700, 1.000)
+ball yellow at (1.200, 2.100)
+ball red at (0.850, 6.550)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(24)
+trace(max_events: 24)
+shot(cue).heading(25.694deg).speed(152ips).tip(side: -0.20R, height: 0.30R).using(default)

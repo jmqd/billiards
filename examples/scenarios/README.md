@@ -57,6 +57,41 @@ Expected flavor:
 - longer natural-angle rail-first path on the carom table
 - carom ball and table scale rather than pool-ball physics
 
+### Legal three-cushion scoring examples
+
+These layouts are tuned scoring paths: cue ball contacts `yellow` first, reaches at least three
+cushions, then contacts `red` before any pocket or jaw event can exist on the carom table.
+
+### `three_cushion_right_top_left_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- cue rail sequence starts right, top, left before scoring on red
+
+### `three_cushion_left_top_right_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- cue rail sequence starts left, top, right before scoring on red
+
+### `three_cushion_bottom_left_top_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- cue rail sequence starts bottom, left, top before scoring on red
+
+### `three_cushion_top_right_left_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- cue rail sequence starts top, right, left before scoring on red
+
+### `three_cushion_left_bottom_right_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- cue rail sequence starts left, bottom, right before scoring on red
+
+### `three_cushion_bottom_right_top_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- cue rail sequence starts bottom, right, top before scoring on red
+
 ### Professional / practice-book manual checks
 
 These scenarios are source-grounded layouts for manual physics review. They intentionally favor
@@ -102,8 +137,22 @@ Expected flavor:
 Source: `whitepapers/billiards_on_the_big_screen_the_hustler.pdf`.
 
 Expected flavor:
-- cue ball starts near-frozen to a rail-frozen 8
-- firm top-right-English hit banks the 8 into the top-right corner
+- cue ball is frozen directly behind a rail-frozen 8 on the right side rail
+- firm elevated top-right-English hit banks the 8 into the top-right corner
+
+### `mirror_frozen_rail_bank_top_left.billiards`
+A mirror-image frozen-rail bank from the left rail.
+
+Expected flavor:
+- cue and 6 are frozen together on the left side rail
+- elevated outside-English hit banks the 6 into the top-left corner
+
+### `frozen_rail_bank_bottom_right.billiards`
+A second frozen-rail bank, aimed down-table into the bottom-right corner.
+
+Expected flavor:
+- cue and 7 are frozen together on the right side rail
+- the 7 uses the rail contact and transferred spin to fall in bottom-right
 
 ### Lag-shot Dr. Dave speed ladder
 
@@ -180,6 +229,14 @@ Expected flavor:
 - object ball runs up the rail and now falls in top-right under the slightly more generous corner capture
 - cue continues with later rail contacts
 
+### `long_cut_bottom_left_rail.billiards`
+A mirror-image long cut where the object ball runs down the left rail toward the bottom-left corner.
+
+Expected flavor:
+- cue -> three collision
+- 3 brushes the left rail before falling in bottom-left
+- cue stays on the table
+
 ### `spot_shot_bottom_right.billiards`
 Object ball on the rack / spot region, cut toward the bottom-right corner pocket.
 
@@ -195,6 +252,22 @@ Expected flavor:
 - cue -> nine collision
 - nine pocketed in top-right
 - cue brushes the right rail and comes to rest on the table
+
+### `thin_cut_top_left_corner.billiards`
+A thin cut on the 7 near the left rail into the top-left corner.
+
+Expected flavor:
+- cue -> seven collision
+- seven pocketed in top-left
+- cue brushes the left rail after contact
+
+### `one_nine_corner_combo.billiards`
+A compact 1-9 combination into the top-right corner.
+
+Expected flavor:
+- cue -> one collision
+- one -> nine collision
+- nine pocketed in top-right
 
 ### `force_follow_scratch.billiards`
 A force-follow shot where the cue follows the object into the same side pocket.
@@ -238,12 +311,12 @@ a square hit on the 1-ball, and slight draw.
 Expected flavor:
 - cue -> one collision opens the rack
 - several early ball-ball collisions through the triangle
-- the default preview trace reaches the wing-ball pocket and follows multiple balls to rails
-- many balls begin moving quickly, with outcomes depending on the current break tuning
+- the default preview trace follows multiple object balls to rails without relying on a tuned make
+- many balls begin moving quickly from the frozen rack, with outcomes depending on break tuning
 
 ### `nine_ball_break_left_side_rail.billiards`
 A fuller nine-ball cut break from the left side rail near the second diamond from the top, with a
-slight-draw hit that drives the wing ball toward the corner.
+slight-draw hit into a frozen rack.
 
 Expected flavor:
 - cue -> one collision opens from a more off-axis approach

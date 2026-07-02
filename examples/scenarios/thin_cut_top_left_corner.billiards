@@ -1,0 +1,7 @@
+# Thin cut: 7 is near the left rail and is cut into the top-left corner.
+table brunswick_gc4_9ft
+ball cue at center
+ball seven at (0.16, 7.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 10)
+shot(cue).heading(326.8deg).speed(48ips).tip(side: 0.0R, height: 0.0R).using(default)

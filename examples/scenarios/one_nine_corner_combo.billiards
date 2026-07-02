@@ -1,0 +1,8 @@
+# Combination: 1 drives the 9 into the top-right corner.
+table brunswick_gc4_9ft
+ball cue at (2.90, 5.80)
+ball one at (3.20, 6.40)
+ball nine at (3.50, 7.00)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 12)
+shot(cue).heading(26.6deg).speed(72ips).tip(side: 0.0R, height: 0.05R).using(default)

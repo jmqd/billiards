@@ -1,0 +1,7 @@
+# Long cut: 3 runs down the left rail and drops in the bottom-left corner.
+table brunswick_gc4_9ft
+ball cue at (3.0, 4.5)
+ball three at (0.25, 2.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 10)
+shot(cue).heading(229.5deg).speed(88ips).tip(side: 0.0R, height: 0.0R).using(default)

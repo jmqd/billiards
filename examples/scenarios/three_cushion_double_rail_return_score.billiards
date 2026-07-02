@@ -1,0 +1,20 @@
+# Double-rail / snake score: cue returns to the first cushion as the third cue rail.
+# Goal: high-speed bottom/top/bottom rail pattern proving repeated-cushion counts before red.
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (2.721, 6.737)
+ball yellow at (3.407, 4.526)
+ball red at (0.579, 1.769)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(36)
+trace(max_events: 36)
+shot(cue).heading(165.967deg).speed(216ips).tip(side: -0.11R, height: 0.02R).using(default)

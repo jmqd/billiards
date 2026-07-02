@@ -59,8 +59,9 @@ Expected flavor:
 
 ### Legal three-cushion scoring examples
 
-These layouts are tuned scoring paths: cue ball contacts `yellow` first, reaches at least three
-cushions, then contacts `red` before any pocket or jaw event can exist on the carom table.
+These layouts are tuned scoring paths: cue ball contacts `yellow` before the final `red`, with at
+least three cue-ball cushion contacts before `red`; some legal examples put one or more cushions
+before `yellow`, and all run on a pocketless carom table.
 
 ### `three_cushion_right_top_left_score.billiards`
 Expected flavor:
@@ -91,6 +92,37 @@ Expected flavor:
 Expected flavor:
 - cue -> yellow first
 - cue rail sequence starts bottom, right, top before scoring on red
+
+### Named high-speed / rail-first scoring examples
+
+These expand the legal set with named carom routes: hako-dama / box-ball (`箱球`), teketeke/ticky,
+double-rail/snake, and a three-rails-first bank/bricole. They are tuned as fast diagnostic examples,
+not canonical tournament diagrams.
+
+### `three_cushion_teketeke_corner_score.billiards`
+Expected flavor:
+- rail-first cue route starts left, clips yellow, then returns to the same left cushion
+- cue rail sequence starts left, left, top before scoring on red
+
+### `three_cushion_double_rail_return_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- cue rail sequence starts bottom, top, bottom, returning to the first cushion before scoring
+
+### `three_cushion_three_rails_first_score.billiards`
+Expected flavor:
+- cue takes three cushions before yellow
+- cue rail sequence starts left, right, left before yellow -> red
+
+### `three_cushion_hako_dama_long_box_behind_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- high-speed hako-dama / box-ball route starts right, top, left and comes back behind red
+
+### `three_cushion_hako_dama_short_side_check_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- opposite-spin hako-dama route starts left, bottom, right and checks into red from the short side
 
 ### Professional / practice-book manual checks
 

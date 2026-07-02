@@ -103,7 +103,7 @@ fn trace_event_is_collision_between(
 
 fn legal_three_cushion_rail_sequence(trace: &ScenarioShotTrace) -> Option<Vec<Rail>> {
     let mut first_object_contacted = false;
-    let mut cue_rails_after_first_object = Vec::new();
+    let mut cue_rails_before_second_object = Vec::new();
 
     for event in &trace.event_log {
         if trace_event_is_collision_between(&event.kind, &BallType::Cue, &BallType::YellowCue) {
@@ -112,16 +112,13 @@ fn legal_three_cushion_rail_sequence(trace: &ScenarioShotTrace) -> Option<Vec<Ra
         }
 
         if trace_event_is_collision_between(&event.kind, &BallType::Cue, &BallType::Red) {
-            return (first_object_contacted && cue_rails_after_first_object.len() >= 3)
-                .then_some(cue_rails_after_first_object);
+            return (first_object_contacted && cue_rails_before_second_object.len() >= 3)
+                .then_some(cue_rails_before_second_object);
         }
 
         if let ScenarioShotTraceEventKind::BallRailImpact { ball, rail } = &event.kind {
             if ball == &BallType::Cue {
-                if !first_object_contacted {
-                    return None;
-                }
-                cue_rails_after_first_object.push(*rail);
+                cue_rails_before_second_object.push(*rail);
             }
         }
     }
@@ -460,7 +457,7 @@ fn professional_manual_check_diagrams_parse_simulate_and_render_with_debug_overl
             &billiards::dsl::ScenarioTraceRenderOptions {
                 path_render: BallPathRenderOptions {
                     max_time_step: Seconds::new(0.02),
-                    ..BallPathRenderOptions::default()
+                    ..billiards::dsl::ScenarioTraceRenderOptions::default().path_render
                 },
                 start_ghost_balls: true,
                 event_markers: true,
@@ -488,6 +485,11 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
         "examples/scenarios/three_cushion_top_right_left_score.billiards",
         "examples/scenarios/three_cushion_left_bottom_right_score.billiards",
         "examples/scenarios/three_cushion_bottom_right_top_score.billiards",
+        "examples/scenarios/three_cushion_teketeke_corner_score.billiards",
+        "examples/scenarios/three_cushion_double_rail_return_score.billiards",
+        "examples/scenarios/three_cushion_three_rails_first_score.billiards",
+        "examples/scenarios/three_cushion_hako_dama_long_box_behind_score.billiards",
+        "examples/scenarios/three_cushion_hako_dama_short_side_check_score.billiards",
     ] {
         let (scenario, trace) = trace_scenario(scenario_path, 8);
         assert_eq!(
@@ -520,7 +522,7 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
 }
 
 #[test]
-fn three_cushion_score_examples_hit_first_object_then_three_rails_then_second_object() {
+fn three_cushion_score_examples_make_legal_three_cushion_sequence() {
     for (scenario_path, expected_rails) in [
         (
             "examples/scenarios/three_cushion_right_top_left_score.billiards",
@@ -545,6 +547,26 @@ fn three_cushion_score_examples_hit_first_object_then_three_rails_then_second_ob
         (
             "examples/scenarios/three_cushion_bottom_right_top_score.billiards",
             [Rail::Bottom, Rail::Right, Rail::Top],
+        ),
+        (
+            "examples/scenarios/three_cushion_teketeke_corner_score.billiards",
+            [Rail::Left, Rail::Left, Rail::Top],
+        ),
+        (
+            "examples/scenarios/three_cushion_double_rail_return_score.billiards",
+            [Rail::Bottom, Rail::Top, Rail::Bottom],
+        ),
+        (
+            "examples/scenarios/three_cushion_three_rails_first_score.billiards",
+            [Rail::Left, Rail::Right, Rail::Left],
+        ),
+        (
+            "examples/scenarios/three_cushion_hako_dama_long_box_behind_score.billiards",
+            [Rail::Right, Rail::Top, Rail::Left],
+        ),
+        (
+            "examples/scenarios/three_cushion_hako_dama_short_side_check_score.billiards",
+            [Rail::Left, Rail::Bottom, Rail::Right],
         ),
     ] {
         let (_, trace) = trace_scenario(scenario_path, 24);

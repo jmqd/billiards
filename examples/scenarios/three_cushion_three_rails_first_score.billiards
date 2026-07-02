@@ -1,0 +1,20 @@
+# Three-rails-first bank/bricole score: cue takes three cushions before the first object ball.
+# Goal: high-speed left/right/left rail-first route, then yellow, then red.
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (3.014, 6.964)
+ball yellow at (1.726, 4.820)
+ball red at (1.904, 5.144)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(40)
+trace(max_events: 40)
+shot(cue).heading(262.827deg).speed(232ips).tip(side: -0.24R, height: 0.17R).using(default)

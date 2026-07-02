@@ -101,9 +101,172 @@ fn selected_manual_scenarios_keep_stable_current_event_flavor() {
         rails.starts_with(&[Rail::Right, Rail::Top]),
         "double-rail kick should open right-rail then top-rail; got {rails:?}"
     );
+    assert!(has_collision(
+        &double_rail_kick,
+        BallType::Cue,
+        BallType::One
+    ));
+    assert!(has_pocket(
+        &double_rail_kick,
+        BallType::One,
+        Pocket::CenterLeft
+    ));
+}
+
+#[test]
+fn source_grounded_manual_checks_pocket_the_claimed_object_balls() {
+    let (_, corey) = trace_scenario("examples/scenarios/corey_deuel_power_draw.billiards", 0);
     assert!(
-        !has_collision(&double_rail_kick, BallType::Cue, BallType::One),
-        "current manual kick layout is a near-miss diagnostic, not a pocketing oracle"
+        has_collision(&corey, BallType::Cue, BallType::Four),
+        "Corey Deuel draw setup should first contact the 4"
+    );
+    assert!(
+        has_pocket(&corey, BallType::Four, Pocket::TopRight),
+        "Corey Deuel draw setup should pocket the 4 in the top-right corner"
+    );
+
+    let (_, bank) = trace_scenario(
+        "examples/scenarios/bank_reference_track_one_rail.billiards",
+        0,
+    );
+    assert!(
+        has_collision(&bank, BallType::Cue, BallType::Two),
+        "bank reference setup should contact the 2"
+    );
+    assert!(
+        has_pocket(&bank, BallType::Two, Pocket::BottomRight),
+        "bank reference setup should pocket the 2 in the bottom-right corner"
+    );
+}
+
+#[test]
+fn side_pocket_examples_match_claimed_outcomes() {
+    let (_, five_degree) =
+        trace_scenario("examples/scenarios/five_degree_side_pocket.billiards", 0);
+    assert!(has_collision(&five_degree, BallType::Cue, BallType::One));
+    assert!(has_pocket(&five_degree, BallType::One, Pocket::CenterRight));
+    assert!(!has_pocket(
+        &five_degree,
+        BallType::Cue,
+        Pocket::CenterRight
+    ));
+
+    let (_, straight_follow) = trace_scenario(
+        "examples/scenarios/straight_follow_side_pocket.billiards",
+        0,
+    );
+    assert!(has_pocket(
+        &straight_follow,
+        BallType::One,
+        Pocket::CenterRight
+    ));
+    assert!(has_pocket(
+        &straight_follow,
+        BallType::Cue,
+        Pocket::CenterRight
+    ));
+
+    let (_, straight_draw) =
+        trace_scenario("examples/scenarios/straight_draw_side_pocket.billiards", 0);
+    assert!(has_pocket(
+        &straight_draw,
+        BallType::One,
+        Pocket::CenterRight
+    ));
+    assert!(has_pocket(
+        &straight_draw,
+        BallType::Cue,
+        Pocket::CenterLeft
+    ));
+
+    let (_, stop_shot) = trace_scenario("examples/scenarios/stop_shot_side_pocket.billiards", 0);
+    assert!(has_pocket(&stop_shot, BallType::One, Pocket::CenterRight));
+    assert!(
+        !has_pocket(&stop_shot, BallType::Cue, Pocket::CenterRight)
+            && !has_pocket(&stop_shot, BallType::Cue, Pocket::CenterLeft),
+        "stop shot should leave the cue ball on the table"
+    );
+
+    let (_, right_spin_stun) = trace_scenario(
+        "examples/scenarios/right_spin_stun_side_pocket.billiards",
+        0,
+    );
+    assert!(has_pocket(
+        &right_spin_stun,
+        BallType::One,
+        Pocket::CenterRight
+    ));
+    assert!(
+        !has_pocket(&right_spin_stun, BallType::Cue, Pocket::CenterRight),
+        "right-spin stun example should leave the cue ball on the table"
+    );
+}
+
+#[test]
+fn corner_pocket_examples_match_claimed_outcomes() {
+    let (_, routine_nine) = trace_scenario(
+        "examples/scenarios/routine_nine_ball_corner_cut.billiards",
+        0,
+    );
+    assert!(has_collision(&routine_nine, BallType::Cue, BallType::Nine));
+    assert!(has_pocket(&routine_nine, BallType::Nine, Pocket::TopRight));
+    assert!(
+        cue_rail_sequence(&routine_nine).contains(&Rail::Right),
+        "routine nine-ball cut should brush the right rail"
+    );
+
+    let (_, spot_shot) = trace_scenario("examples/scenarios/spot_shot_bottom_right.billiards", 0);
+    assert!(has_collision(&spot_shot, BallType::Cue, BallType::One));
+    assert!(has_pocket(&spot_shot, BallType::One, Pocket::BottomRight));
+    assert!(has_pocket(&spot_shot, BallType::Cue, Pocket::BottomLeft));
+}
+
+#[test]
+fn kick_bank_manual_checks_match_claimed_outcomes() {
+    let (_, double_rail_kick) = trace_scenario(
+        "examples/scenarios/double_rail_kick_side_pocket.billiards",
+        0,
+    );
+    assert!(cue_rail_sequence(&double_rail_kick).starts_with(&[Rail::Right, Rail::Top]));
+    assert!(has_collision(
+        &double_rail_kick,
+        BallType::Cue,
+        BallType::One
+    ));
+    assert!(has_pocket(
+        &double_rail_kick,
+        BallType::One,
+        Pocket::CenterLeft
+    ));
+    assert!(
+        !has_pocket(&double_rail_kick, BallType::Cue, Pocket::CenterLeft),
+        "double-rail kick should leave the cue ball on the table"
+    );
+
+    let (_, hustler_bank) =
+        trace_scenario("examples/scenarios/hustler_frozen_rail_bank.billiards", 0);
+    assert!(has_collision(&hustler_bank, BallType::Cue, BallType::Eight));
+    assert!(has_pocket(&hustler_bank, BallType::Eight, Pocket::TopRight));
+
+    let (_, two_rail_scratch) =
+        trace_scenario("examples/scenarios/two_rail_bank_scratch.billiards", 0);
+    assert!(cue_rail_sequence(&two_rail_scratch).starts_with(&[Rail::Right, Rail::Top]));
+    assert!(has_pocket(
+        &two_rail_scratch,
+        BallType::Cue,
+        Pocket::CenterLeft
+    ));
+
+    let (_, golden_break) =
+        trace_scenario("examples/scenarios/golden_break_cut_break.billiards", 30);
+    let golden_rails = cue_rail_sequence(&golden_break);
+    assert!(
+        golden_rails.contains(&Rail::Right) && golden_rails.contains(&Rail::Bottom),
+        "golden-break default trace should include cue-ball route to rails; got {golden_rails:?}"
+    );
+    assert!(
+        has_collision(&golden_break, BallType::Cue, BallType::Eight),
+        "golden-break default trace should follow the cue ball back into the rack region"
     );
 }
 

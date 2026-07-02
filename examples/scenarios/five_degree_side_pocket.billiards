@@ -3,4 +3,4 @@
 ball cue at center
 ball one at (2.8, 4.05)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
-shot(cue).heading(84.2deg).speed(32ips).tip(side: 0.0R, height: -0.3R).using(default)
+shot(cue).heading(84.2deg).speed(96ips).tip(side: 0.0R, height: -0.3R).using(default)

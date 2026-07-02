@@ -46,7 +46,7 @@ diagnostic trace visibility over exact tournament-table replication; use `--trac
 Source: `whitepapers/corey_deuel_s_famous_draw_shot.pdf`.
 
 Expected flavor:
-- heavy draw and slight outside/right spin after potting the 4 up-table
+- heavy draw and slight outside/right spin after pocketing the 4 up-table
 - cue ball bends after the first cushion toward the down-table shape marker
 
 ### `golden_break_cut_break.billiards`
@@ -74,15 +74,15 @@ Expected flavor:
 Source: `whitepapers/bank_shot_reference_tracks.pdf`.
 
 Expected flavor:
-- object ball starts one diamond off the side rail
-- one-rail bank track can be compared against the reference lane to the bottom-right corner
+- object ball starts one diamond off the side rail with cue ball in hand up-table
+- reference-track path pockets the object ball in the bottom-right corner
 
 ### `hustler_frozen_rail_bank.billiards`
 Source: `whitepapers/billiards_on_the_big_screen_the_hustler.pdf`.
 
 Expected flavor:
 - cue ball starts near-frozen to a rail-frozen 8
-- firm top-right-English hit shows transferred spin/throw and bank response
+- firm top-right-English hit banks the 8 into the top-right corner
 
 ### Lag-shot Dr. Dave speed ladder
 
@@ -194,12 +194,12 @@ Expected flavor:
 - cue stays on the table after the kick
 
 ### `two_rail_bank_scratch.billiards`
-Cue-only multi-rail bank path that used to scratch in the opposite side pocket.
+Cue-only multi-rail bank path that scratches in the opposite side pocket.
 
 Expected flavor:
 - right rail
 - top rail
-- current jaw-aware pocket gate keeps this one on the table as a near-miss instead of a scratch
+- cue scratches in center-left after the two-rail path
 
 ### `mini_break_cluster.billiards`
 A compact break-style shot into a slightly loosened six-ball cluster near the rack spot.

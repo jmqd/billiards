@@ -946,7 +946,7 @@ fn shot_scenarios_can_build_a_typed_trace_and_render_the_final_layout_with_ball_
         &ScenarioTraceRenderOptions {
             path_render: BallPathRenderOptions {
                 max_time_step: billiards::Seconds::new(0.02),
-                ..BallPathRenderOptions::default()
+                ..ScenarioTraceRenderOptions::default().path_render
             },
             ..ScenarioTraceRenderOptions::default()
         },

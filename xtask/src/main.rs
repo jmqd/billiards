@@ -276,6 +276,7 @@ struct ScenarioReport {
     shot_line: Option<String>,
     speed_summary: Option<String>,
     shot_summary: Option<String>,
+    cue_tip_diagram_svg: Option<String>,
     simulation_summary: String,
     events: Vec<ScenarioEventReport>,
 }
@@ -303,7 +304,7 @@ fn render_scenario(
     let trace_render = ScenarioTraceRenderOptions {
         path_render: BallPathRenderOptions {
             max_time_step: Seconds::new(options.trace_sample_step_seconds),
-            ..BallPathRenderOptions::default()
+            ..ScenarioTraceRenderOptions::default().path_render
         },
         start_ghost_balls: true,
         event_markers: true,
@@ -469,6 +470,13 @@ fn render_scenario(
             shot.shot.tip_contact().height_offset().as_f64()
         )
     });
+    let cue_tip_diagram_svg = scenario.shot.as_ref().map(|shot| {
+        render_cue_tip_diagram_svg(
+            shot.shot.tip_contact().side_offset().as_f64(),
+            shot.shot.tip_contact().height_offset().as_f64(),
+            shot.cue_strike.miscue_offset_limit().as_f64(),
+        )
+    });
 
     Ok(ScenarioReport {
         name: stem.replace('_', " "),
@@ -483,6 +491,7 @@ fn render_scenario(
             .map(|line| line.trim().to_string()),
         speed_summary,
         shot_summary,
+        cue_tip_diagram_svg,
         simulation_summary,
         events,
     })
@@ -529,6 +538,39 @@ fn scenario_event_reports(trace: &ScenarioShotTrace) -> Vec<ScenarioEventReport>
             payload: format!("{:#?}", event.kind),
         })
         .collect()
+}
+
+fn render_cue_tip_diagram_svg(
+    side_offset: f64,
+    height_offset: f64,
+    miscue_offset_limit: f64,
+) -> String {
+    let ball_radius = 72.0;
+    let ball_center = 90.0;
+    let tip_x = ball_center + side_offset * ball_radius;
+    let tip_y = ball_center - height_offset * ball_radius;
+    let limit_radius = miscue_offset_limit.clamp(0.0, 1.0) * ball_radius;
+    let offset_radius = side_offset.hypot(height_offset);
+    let limit_status = if offset_radius <= miscue_offset_limit + 1e-12 {
+        "inside"
+    } else {
+        "outside"
+    };
+
+    format!(
+        r##"<svg class="cue-tip-diagram" data-tip-side="{side_offset:.3}" data-tip-height="{height_offset:.3}" data-miscue-limit="{miscue_offset_limit:.3}" data-tip-x="{tip_x:.3}" data-tip-y="{tip_y:.3}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 184" role="img" aria-label="Cue ball tip contact: side {side_offset:+.2} ball radii, height {height_offset:+.2} ball radii, {limit_status} the {miscue_offset_limit:.2} ball-radius miscue limit">
+<ellipse class="cue-ball-shadow" cx="94" cy="165" rx="62" ry="16" fill="#000000" opacity=".35"/>
+<circle class="cue-ball-body" cx="{ball_center:.0}" cy="{ball_center:.0}" r="{ball_radius:.0}" fill="#e9e0c9" stroke="#fff9e9" stroke-width="1.5"/>
+<circle class="cue-ball-shade" cx="116" cy="118" r="48" fill="#000000" opacity=".10"/>
+<circle class="cue-ball-highlight" cx="64" cy="50" r="38" fill="#ffffff" opacity=".24"/>
+<ellipse class="cue-ball-glare" cx="61" cy="43" rx="20" ry="12" fill="#ffffff" opacity=".72" transform="rotate(-25 61 43)"/>
+<path d="M39 121C53 145 81 158 113 150" fill="none" stroke="#ffffff" stroke-opacity=".28" stroke-width="6" stroke-linecap="round"/>
+<circle class="miscue-limit" cx="{ball_center:.0}" cy="{ball_center:.0}" r="{limit_radius:.3}" fill="none" stroke="#090909" stroke-width="2.75"/>
+<circle class="cue-tip-marker" cx="{tip_x:.3}" cy="{tip_y:.3}" r="7" fill="#d91919" stroke="#ffffff" stroke-width="2"/>
+<circle class="cue-tip-marker-outline" cx="{tip_x:.3}" cy="{tip_y:.3}" r="10" fill="none" stroke="#7b0000" stroke-opacity=".65" stroke-width="1.5"/>
+</svg>
+"##
+    )
 }
 
 fn push_event_log(html: &mut String, report: &ScenarioReport) {
@@ -583,7 +625,7 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
          .viewer-controls button{background:#111811;color:#f1f5ef;border:1px solid #405440;border-radius:8px;padding:.3rem .55rem;cursor:pointer}\n\
          .viewer-controls label{display:inline-flex;align-items:center;gap:.25rem;background:#182018;border:1px solid #405440;border-radius:999px;padding:.25rem .55rem;max-width:100%;overflow-wrap:anywhere}\n\
          .svg-frame{overflow:hidden;border-radius:10px;background:#0a0d0a;touch-action:none;min-width:0}\n\
-         .svg-frame svg{display:block;width:100%;height:auto;max-height:min(82vh,1100px);cursor:grab}\n\
+         .svg-frame svg{display:block;max-width:100%;width:auto;height:auto;margin:0 auto;cursor:grab}\n\
          .svg-frame svg.dragging{cursor:grabbing}\n\
          .downloads{display:flex;flex-wrap:wrap;gap:.5rem;margin:.55rem 0 0;font-size:.9rem}\n\
          .downloads a{overflow-wrap:anywhere}\n\
@@ -602,6 +644,14 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
          .event-payload{grid-column:1 / -1;margin:.2rem 0 0;max-height:9rem;font-size:.82rem}\n\
          a{color:#a8e89a}\n\
          @media (max-width:720px){header{position:static;padding:.85rem}main{padding:.75rem}.toc{gap:.35rem}.card{border-radius:12px}figure{padding:.65rem}.viewer-controls{align-items:stretch}.viewer-controls button,.viewer-controls label{flex:1 1 auto;justify-content:center}}\n",
+    );
+    html.push_str(
+        ".cue-tip-card{display:grid;grid-template-columns:minmax(11rem,15rem) minmax(0,1fr);gap:1rem;align-items:center;margin:0 1rem 1rem;padding:1rem;background:#111811;border:1px solid #293829;border-radius:14px;color:#d5e4d0}\n\
+         .cue-tip-card h3{margin:0 0 .25rem;color:#f7fff2;font-size:1rem}\n\
+         .cue-tip-card p{margin:.25rem 0 0;overflow-wrap:anywhere}\n\
+         .cue-tip-card svg{width:100%;height:auto;max-width:15rem;justify-self:center}\n\
+         .cue-tip-marker{filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}\n\
+         @media (max-width:720px){.cue-tip-card{grid-template-columns:1fr;margin:.65rem;padding:.75rem}}\n",
     );
     html.push_str("</style>\n</head>\n<body>\n");
     html.push_str("<header>\n<h1>Billiards scenario validation suite</h1>\n");
@@ -652,6 +702,15 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
                 html.push_str(&format!("<li>{}</li>\n", escape_html(note)));
             }
             html.push_str("</ul></details>\n");
+        }
+        if let Some(cue_tip_diagram_svg) = &report.cue_tip_diagram_svg {
+            html.push_str(
+                "<aside class=\"cue-tip-card\" aria-label=\"Cue-tip placement diagram\">\n",
+            );
+            html.push_str(cue_tip_diagram_svg);
+            html.push_str(
+                "<div><h3>Cue-tip placement</h3><p>The red dot is the shot tip contact in cue-ball-radius units. The black circle is the configured maximum clean cuing offset before a miscue.</p></div>\n</aside>\n",
+            );
         }
         if let Some(svg) = &report.inline_svg {
             html.push_str("<figure class=\"svg-viewer\" data-viewer>\n");
@@ -847,4 +906,52 @@ fn print_usage() {
 
 fn usage_text() -> &'static str {
     "Usage:\n  cargo xtask validation-suite [options]\n\nOptions:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for diagrams and index.html [default: target/validation-suite]\n  --format <svg|png|both>            Diagram output format [default: svg]\n  --scale-factor <n>                 Positive integer render scale for PNG exports [default: 1]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.02]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cue_tip_diagram_places_marker_from_shot_offsets() {
+        let svg = render_cue_tip_diagram_svg(0.25, -0.5, 0.5);
+
+        assert!(svg.contains("class=\"cue-tip-diagram\""));
+        assert!(svg.contains("data-tip-side=\"0.250\""));
+        assert!(svg.contains("data-tip-height=\"-0.500\""));
+        assert!(svg.contains("data-miscue-limit=\"0.500\""));
+        assert!(svg.contains("data-tip-x=\"108.000\""));
+        assert!(svg.contains("data-tip-y=\"126.000\""));
+        assert!(svg.contains("class=\"miscue-limit\" cx=\"90\" cy=\"90\" r=\"36.000\""));
+        assert!(svg.contains("class=\"cue-tip-marker\" cx=\"108.000\" cy=\"126.000\""));
+        assert!(svg.contains("fill=\"#d91919\""));
+    }
+
+    #[test]
+    fn validation_report_embeds_cue_tip_diagram_panel() {
+        let report = ScenarioReport {
+            name: "cue tip test".to_string(),
+            source_path: PathBuf::from("examples/scenarios/cue_tip_test.billiards"),
+            image_file_name: "cue_tip_test.svg".to_string(),
+            extra_file_names: Vec::new(),
+            inline_svg: None,
+            notes: Vec::new(),
+            shot_line: None,
+            speed_summary: None,
+            shot_summary: Some(
+                "cue shot, heading 90.00°, tip side +0.25R, height -0.50R".to_string(),
+            ),
+            cue_tip_diagram_svg: Some(render_cue_tip_diagram_svg(0.25, -0.5, 0.5)),
+            simulation_summary: "Simulated shot to rest: 1 event(s)".to_string(),
+            events: Vec::new(),
+        };
+
+        let html = render_html(&[report], &ValidationSuiteOptions::default());
+
+        assert!(html.contains("Cue-tip placement"));
+        assert!(html.contains("<aside class=\"cue-tip-card\""));
+        assert!(html.contains("<svg class=\"cue-tip-diagram\""));
+        assert!(html.contains("data-tip-side=\"0.250\""));
+        assert!(html.contains("data-tip-height=\"-0.500\""));
+    }
 }

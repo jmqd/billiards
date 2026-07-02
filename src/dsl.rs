@@ -701,7 +701,8 @@ pub struct ScenarioTraceRenderOptions {
 impl Default for ScenarioTraceRenderOptions {
     fn default() -> Self {
         Self {
-            path_render: BallPathRenderOptions::default(),
+            path_render: BallPathRenderOptions::default()
+                .with_width_mode(BallPathWidthMode::ScaleBySpeed),
             start_ghost_balls: false,
             event_markers: false,
             labels: false,
@@ -766,7 +767,7 @@ impl ScenarioShotTrace {
             &ScenarioTraceRenderOptions {
                 path_render: BallPathRenderOptions {
                     max_time_step,
-                    ..BallPathRenderOptions::default()
+                    ..ScenarioTraceRenderOptions::default().path_render
                 },
                 ..ScenarioTraceRenderOptions::default()
             },
@@ -794,12 +795,7 @@ impl ScenarioShotTrace {
                     path_style.with_labels(LabelOverlayStyle::enabled(Rgba([0, 0, 0, 255])));
             }
 
-            let mut path_render = options.path_render.clone();
-            path_render.width_mode = if ball_trace.ball == BallType::Cue {
-                BallPathWidthMode::ScaleBySpeed
-            } else {
-                BallPathWidthMode::Fixed
-            };
+            let path_render = options.path_render.clone();
 
             if let Some(path) = ball_trace.as_ball_path() {
                 game_state.add_rendered_ball_path_styled(
@@ -820,7 +816,7 @@ impl ScenarioShotTrace {
                             .as_ball_state()
                             .projected_position(&scenario.game_state.table_spec);
                         let capture_width_px = path_render.width_px_for_speed(
-                            ball_trace.initial_state.as_ball_state().speed().as_f64(),
+                            ball_trace.reference_speed_ips(),
                             state_at_capture.as_ball_state().speed().as_f64(),
                         );
                         (capture_point, capture_width_px)
@@ -971,6 +967,24 @@ impl ScenarioBallTrace {
                 .map(|segment| segment.duration.as_f64())
                 .sum(),
         )
+    }
+
+    fn reference_speed_ips(&self) -> f64 {
+        let mut reference_speed_ips = self.initial_state.as_ball_state().speed().as_f64();
+        for segment in &self.segments {
+            reference_speed_ips =
+                reference_speed_ips.max(segment.start.as_ball_state().speed().as_f64());
+            reference_speed_ips =
+                reference_speed_ips.max(segment.end.as_ball_state().speed().as_f64());
+        }
+        if let NBallSystemState::Pocketed {
+            state_at_capture, ..
+        } = &self.final_state
+        {
+            reference_speed_ips =
+                reference_speed_ips.max(state_at_capture.as_ball_state().speed().as_f64());
+        }
+        reference_speed_ips
     }
 
     fn as_ball_path(&self) -> Option<BallPath> {

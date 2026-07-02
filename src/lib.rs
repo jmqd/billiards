@@ -10,7 +10,7 @@ use crate::diagram::{
 };
 use crate::visualization::{
     AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
-    EventMarkerStyle, GhostBallStyle, LabelOverlayStyle, SmoothPolylineStyle,
+    EventMarkerStyle, GhostBallStyle, HeadingChevronStyle, LabelOverlayStyle, SmoothPolylineStyle,
 };
 use core::fmt;
 use image::Rgba;
@@ -13791,6 +13791,11 @@ enum Overlay {
         points: Vec<Position>,
         style: SmoothPolylineStyle,
     },
+    HeadingChevron {
+        tip: Position,
+        heading: Angle,
+        style: HeadingChevronStyle,
+    },
     GhostBall {
         center: Position,
         style: GhostBallStyle,
@@ -14083,6 +14088,22 @@ impl GameState {
         });
     }
 
+    pub fn add_heading_chevron_styled(
+        &mut self,
+        tip: &Position,
+        heading: Angle,
+        style: HeadingChevronStyle,
+    ) {
+        let mut tip = tip.clone();
+        tip.resolve_shifts(&self.table_spec);
+
+        self.lines_to_draw.push(Overlay::HeadingChevron {
+            tip,
+            heading,
+            style,
+        });
+    }
+
     /// Add a translucent ghost-ball marker at `position`.
     pub fn add_ghost_ball(
         &mut self,
@@ -14254,6 +14275,92 @@ impl GameState {
         points
     }
 
+    fn ball_path_reference_speed_ips(&self, path: &BallPath) -> f64 {
+        let mut reference_speed_ips = path.initial_state.as_ball_state().speed().as_f64();
+        for segment in &path.segments {
+            reference_speed_ips =
+                reference_speed_ips.max(segment.start.as_ball_state().speed().as_f64());
+            reference_speed_ips =
+                reference_speed_ips.max(segment.end.as_ball_state().speed().as_f64());
+        }
+        reference_speed_ips
+    }
+
+    fn ball_path_segment_state_at(
+        &self,
+        segment: &BallPathSegment,
+        t: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> OnTableBallState {
+        if t.as_f64() >= segment.duration.as_f64() {
+            segment.end.clone()
+        } else {
+            advance_on_table_ball_without_event(&segment.start, t, ball, motion)
+        }
+    }
+
+    fn attenuated_color(color: Rgba<u8>, attenuation: f32) -> Rgba<u8> {
+        let alpha = ((color[3] as f32) * attenuation.clamp(0.0, 1.0))
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        Rgba([color[0], color[1], color[2], alpha])
+    }
+
+    fn add_heading_chevrons_for_ball_path_segment(
+        &mut self,
+        segment: &BallPathSegment,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        render: &BallPathRenderOptions,
+        style: &BallPathStyle,
+        segment_color: Rgba<u8>,
+        reference_speed_ips: f64,
+    ) {
+        if !render.heading_chevrons {
+            return;
+        }
+
+        let spacing = render.heading_chevron_spacing.as_f64();
+        if !spacing.is_finite() || spacing <= 0.0 {
+            return;
+        }
+
+        let duration = segment.duration.as_f64();
+        if !duration.is_finite() || duration <= 0.0 {
+            return;
+        }
+
+        let sample_count = ((duration / spacing).ceil() as usize).max(1);
+        for step in 1..=sample_count {
+            let t = Seconds::new(duration * step as f64 / (sample_count + 1) as f64);
+            let state = self.ball_path_segment_state_at(segment, t, ball, motion);
+            let ball_state = state.as_ball_state();
+            let current_speed_ips = ball_state.speed().as_f64();
+            if !current_speed_ips.is_finite() || current_speed_ips <= 1.0e-9 {
+                continue;
+            }
+
+            let Some(heading) = ball_state.velocity.angle_from_north() else {
+                continue;
+            };
+
+            let attenuation =
+                render.speed_attenuation_for_speed(reference_speed_ips, current_speed_ips);
+            let width_px = (render.width_px_for_speed(reference_speed_ips, current_speed_ips)
+                * 0.65)
+                .max(0.75);
+            let chevron_style = HeadingChevronStyle {
+                color: Self::attenuated_color(segment_color, attenuation),
+                width_px,
+                length_inches: render.heading_chevron_length.clone(),
+                layer: style.line.layer,
+            };
+            let tip = ball_state.projected_position(&self.table_spec);
+            self.add_heading_chevron_styled(&tip, heading, chevron_style);
+        }
+    }
+
     pub fn add_rendered_ball_path_styled(
         &mut self,
         path: &BallPath,
@@ -14270,7 +14377,7 @@ impl GameState {
             self.add_ghost_ball_styled(&start, ghost_style.clone());
         }
 
-        let initial_speed_ips = path.initial_state.as_ball_state().speed().as_f64();
+        let reference_speed_ips = self.ball_path_reference_speed_ips(path);
         let mut elapsed_before_segment = Seconds::zero();
         for (index, segment) in path.segments.iter().enumerate() {
             let projected_start = segment
@@ -14313,7 +14420,8 @@ impl GameState {
                     &points,
                     SmoothPolylineStyle {
                         color: segment_color,
-                        width_px: render.width_px_for_speed(initial_speed_ips, initial_speed_ips),
+                        width_px: render
+                            .width_px_for_speed(reference_speed_ips, reference_speed_ips),
                         layer: style.line.layer,
                     },
                 ),
@@ -14346,13 +14454,23 @@ impl GameState {
                             SmoothPolylineStyle {
                                 color: segment_color,
                                 width_px: render
-                                    .width_px_for_speed(initial_speed_ips, current_speed_ips),
+                                    .width_px_for_speed(reference_speed_ips, current_speed_ips),
                                 layer: style.line.layer,
                             },
                         );
                     }
                 }
             }
+
+            self.add_heading_chevrons_for_ball_path_segment(
+                segment,
+                ball,
+                motion,
+                render,
+                style,
+                segment_color,
+                reference_speed_ips,
+            );
 
             if style.event_markers.enabled && segment.event_marker_at_end {
                 self.add_event_marker_styled(&projected_end, style.event_markers.clone());
@@ -14519,6 +14637,15 @@ impl GameState {
                 },
                 Overlay::SmoothPolyline { points, style } => DiagramElement::SmoothPolyline {
                     points: points.clone(),
+                    style: style.clone(),
+                },
+                Overlay::HeadingChevron {
+                    tip,
+                    heading,
+                    style,
+                } => DiagramElement::HeadingChevron {
+                    tip: tip.clone(),
+                    heading: *heading,
                     style: style.clone(),
                 },
                 Overlay::GhostBall { center, style } => DiagramElement::GhostBall {

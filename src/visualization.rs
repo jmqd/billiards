@@ -143,6 +143,25 @@ impl EventMarkerStyle {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct HeadingChevronStyle {
+    pub color: Rgba<u8>,
+    pub width_px: f32,
+    pub length_inches: Inches,
+    pub layer: OverlayLayer,
+}
+
+impl HeadingChevronStyle {
+    pub fn new(color: Rgba<u8>) -> Self {
+        Self {
+            color,
+            width_px: 2.0,
+            length_inches: Inches::from_f64(0.45),
+            layer: OverlayLayer::AboveBalls,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct AimOverlayStyle {
     pub line: DashedLineStyle,
     pub ghost_ball: Option<GhostBallStyle>,
@@ -175,6 +194,9 @@ pub struct BallPathRenderOptions {
     pub max_time_step: crate::Seconds,
     pub width_px: f32,
     pub width_mode: BallPathWidthMode,
+    pub heading_chevrons: bool,
+    pub heading_chevron_spacing: crate::Seconds,
+    pub heading_chevron_length: Inches,
 }
 
 impl Default for BallPathRenderOptions {
@@ -183,6 +205,9 @@ impl Default for BallPathRenderOptions {
             max_time_step: crate::Seconds::new(0.02),
             width_px: 5.0,
             width_mode: BallPathWidthMode::Fixed,
+            heading_chevrons: true,
+            heading_chevron_spacing: crate::Seconds::new(0.16),
+            heading_chevron_length: Inches::from_f64(0.45),
         }
     }
 }
@@ -191,6 +216,29 @@ impl BallPathRenderOptions {
     pub fn with_width_mode(mut self, width_mode: BallPathWidthMode) -> Self {
         self.width_mode = width_mode;
         self
+    }
+
+    pub fn with_heading_chevrons(mut self, heading_chevrons: bool) -> Self {
+        self.heading_chevrons = heading_chevrons;
+        self
+    }
+
+    pub fn speed_attenuation_for_speed(
+        &self,
+        reference_speed_ips: f64,
+        current_speed_ips: f64,
+    ) -> f32 {
+        if !reference_speed_ips.is_finite() || reference_speed_ips <= f64::EPSILON {
+            return 1.0;
+        }
+
+        let current_speed_ips = if current_speed_ips.is_finite() {
+            current_speed_ips.max(0.0)
+        } else {
+            0.0
+        };
+        let speed_ratio = (current_speed_ips / reference_speed_ips).clamp(0.0, 1.0) as f32;
+        0.25 + 0.75 * speed_ratio
     }
 
     pub fn width_px_for_speed(&self, initial_speed_ips: f64, current_speed_ips: f64) -> f32 {
@@ -203,17 +251,9 @@ impl BallPathRenderOptions {
         match self.width_mode {
             BallPathWidthMode::Fixed => base_width_px,
             BallPathWidthMode::ScaleBySpeed => {
-                if !initial_speed_ips.is_finite() || initial_speed_ips <= f64::EPSILON {
-                    return base_width_px;
-                }
-
-                let current_speed_ips = if current_speed_ips.is_finite() {
-                    current_speed_ips.max(0.0)
-                } else {
-                    0.0
-                };
-                let speed_ratio = (current_speed_ips / initial_speed_ips).clamp(0.0, 1.0) as f32;
-                (base_width_px * (0.25 + 0.75 * speed_ratio)).max(1.0)
+                let speed_scale =
+                    self.speed_attenuation_for_speed(initial_speed_ips, current_speed_ips);
+                (base_width_px * speed_scale).max(1.0)
             }
         }
     }

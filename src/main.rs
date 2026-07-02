@@ -113,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trace_render = ScenarioTraceRenderOptions {
         path_render: BallPathRenderOptions {
             max_time_step: Seconds::new(args.trace_sample_step_seconds),
-            ..BallPathRenderOptions::default()
+            ..ScenarioTraceRenderOptions::default().path_render
         },
         start_ghost_balls: args.trace_start_ghosts,
         event_markers: args.trace_event_markers,

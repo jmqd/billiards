@@ -61,6 +61,21 @@ fn visible_pixel_count_in_row(image: &RgbaImage, y: u32) -> usize {
         .count()
 }
 
+fn svg_attr_f32(element: &str, attr: &str) -> f32 {
+    let prefix = format!("{attr}=\"");
+    let start = element
+        .find(&prefix)
+        .unwrap_or_else(|| panic!("missing SVG attribute {attr} in {element}"))
+        + prefix.len();
+    let end = element[start..]
+        .find('"')
+        .unwrap_or_else(|| panic!("unterminated SVG attribute {attr} in {element}"))
+        + start;
+    element[start..end]
+        .parse()
+        .unwrap_or_else(|error| panic!("invalid SVG attribute {attr} in {element}: {error}"))
+}
+
 fn cue_ball_at(x: &str, y: &str) -> GameState {
     GameState::with_balls(
         TableSpec::default(),
@@ -732,6 +747,8 @@ fn rendered_ball_paths_can_use_one_shared_renderer_for_fixed_and_speed_scaled_wi
             max_time_step: Seconds::new(0.02),
             width_px: 8.0,
             width_mode: BallPathWidthMode::Fixed,
+            heading_chevrons: false,
+            ..BallPathRenderOptions::default()
         },
         &style,
     );
@@ -746,6 +763,8 @@ fn rendered_ball_paths_can_use_one_shared_renderer_for_fixed_and_speed_scaled_wi
             max_time_step: Seconds::new(0.02),
             width_px: 8.0,
             width_mode: BallPathWidthMode::ScaleBySpeed,
+            heading_chevrons: false,
+            ..BallPathRenderOptions::default()
         },
         &style,
     );
@@ -768,5 +787,94 @@ fn rendered_ball_paths_can_use_one_shared_renderer_for_fixed_and_speed_scaled_wi
     assert!(
         fast_width > slow_width,
         "expected the faster early cue-ball path to render thicker than the slower late path; got fast row width {fast_width} and slow row width {slow_width}"
+    );
+}
+
+#[test]
+fn rendered_ball_paths_emit_speed_scaled_heading_chevrons_in_svg() {
+    let table_spec = TableSpec::default();
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let start = on_table(BallState::on_table(
+        inches2(
+            table_spec.diamond_to_inches(Diamond::two()).as_f64(),
+            table_spec.diamond_to_inches(Diamond::one()).as_f64(),
+        ),
+        Velocity2::new("0", "24"),
+        AngularVelocity3::zero(),
+    ));
+    let path = trace_ball_path_with_rails_on_table(
+        &start,
+        BallPathStop::UntilRest,
+        &ball_set,
+        &table_spec,
+        &motion,
+        RailModel::SpinAware,
+    );
+    let style = BallPathStyle::new(image::Rgba([255, 255, 255, 255])).without_endpoint_clipping();
+
+    let mut state = GameState::new(table_spec);
+    state.add_rendered_ball_path_styled(
+        &path,
+        &ball_set,
+        &motion,
+        &BallPathRenderOptions {
+            max_time_step: Seconds::new(0.02),
+            width_px: 8.0,
+            width_mode: BallPathWidthMode::ScaleBySpeed,
+            heading_chevrons: true,
+            heading_chevron_spacing: Seconds::new(0.08),
+            ..BallPathRenderOptions::default()
+        },
+        &style,
+    );
+
+    let svg = render_svg_with_options(
+        &state,
+        &DiagramRenderOptions {
+            scale_factor: 1,
+            background: DiagramBackground::Transparent,
+        },
+    );
+    let chevrons = svg
+        .lines()
+        .filter(|line| line.contains("heading-chevron"))
+        .collect::<Vec<_>>();
+    assert!(
+        chevrons.len() >= 3,
+        "expected multiple instantaneous heading chevrons, got {} in {svg}",
+        chevrons.len()
+    );
+    assert!(
+        chevrons
+            .iter()
+            .all(|line| line.contains("data-heading-deg")),
+        "heading chevrons should expose their table heading in SVG"
+    );
+
+    let min_width = chevrons
+        .iter()
+        .map(|line| svg_attr_f32(line, "stroke-width"))
+        .fold(f32::INFINITY, f32::min);
+    let max_width = chevrons
+        .iter()
+        .map(|line| svg_attr_f32(line, "stroke-width"))
+        .fold(0.0, f32::max);
+    assert!(
+        max_width > min_width,
+        "speed-scaled heading chevrons should narrow as the ball slows; got min {min_width} max {max_width}"
+    );
+
+    let min_opacity = chevrons
+        .iter()
+        .map(|line| svg_attr_f32(line, "stroke-opacity"))
+        .fold(f32::INFINITY, f32::min);
+    let max_opacity = chevrons
+        .iter()
+        .map(|line| svg_attr_f32(line, "stroke-opacity"))
+        .fold(0.0, f32::max);
+    assert!(
+        max_opacity > min_opacity,
+        "speed-scaled heading chevrons should fade as the ball slows; got min {min_opacity} max {max_opacity}"
     );
 }

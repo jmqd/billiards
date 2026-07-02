@@ -1,11 +1,11 @@
 use crate::visualization::{
-    DashedLineStyle, EventMarkerStyle, GhostBallStyle, LabelOverlayStyle, SmoothPolylineStyle,
+    DashedLineStyle, EventMarkerStyle, GhostBallStyle, HeadingChevronStyle, LabelOverlayStyle,
+    SmoothPolylineStyle,
 };
 use crate::{
-    assets, drawing, BallSpec, BallType, DiagramBackground, DiagramRenderOptions, OverlayLayer,
-    TableKind,
+    assets, drawing, Angle, BallSpec, BallType, DiagramBackground, DiagramRenderOptions, Inches,
+    OverlayLayer, Position, TableKind, TableSpec,
 };
-use crate::{Position, TableSpec};
 use bigdecimal::ToPrimitive;
 use image::codecs::png::PngEncoder;
 use image::imageops::{overlay, resize, FilterType};
@@ -174,6 +174,11 @@ pub enum DiagramElement {
         points: Vec<Position>,
         style: SmoothPolylineStyle,
     },
+    HeadingChevron {
+        tip: Position,
+        heading: Angle,
+        style: HeadingChevronStyle,
+    },
     GhostBall {
         center: Position,
         style: GhostBallStyle,
@@ -194,6 +199,7 @@ impl DiagramElement {
         match self {
             Self::DashedLine { style, .. } => style.layer.into(),
             Self::SmoothPolyline { style, .. } => style.layer.into(),
+            Self::HeadingChevron { style, .. } => style.layer.into(),
             Self::GhostBall { style, .. } => style.layer.into(),
             Self::CircleMarker { style, .. } => style.layer.into(),
             Self::TextLabel { style, .. } => style.layer.into(),
@@ -399,6 +405,15 @@ fn draw_raster_elements_for_layer(
             }
             DiagramElement::SmoothPolyline { points, style } => {
                 drawing::draw_smooth_polyline_mut(table, points, style.width_px, style.color);
+            }
+            DiagramElement::HeadingChevron {
+                tip,
+                heading,
+                style,
+            } => {
+                let points =
+                    heading_chevron_points(&scene.table_spec, tip, *heading, &style.length_inches);
+                drawing::draw_smooth_polyline_mut(table, &points, style.width_px, style.color);
             }
             DiagramElement::GhostBall { center, style } => {
                 drawing::draw_ghost_ball_mut(
@@ -1039,6 +1054,34 @@ fn push_svg_element_layer(svg: &mut String, scene: &DiagramScene, layer: Diagram
     svg.push_str("</g>\n");
 }
 
+fn angle_from_degrees(degrees: f64) -> Angle {
+    let radians = degrees.to_radians();
+    Angle::from_north(radians.sin(), radians.cos())
+}
+
+fn heading_chevron_points(
+    table_spec: &TableSpec,
+    tip: &Position,
+    heading: Angle,
+    length_inches: &Inches,
+) -> [Position; 3] {
+    let mut left = tip.translate_inches(
+        length_inches.clone(),
+        angle_from_degrees(heading.as_degrees() + 150.0),
+    );
+    let mut tip = tip.clone();
+    let mut right = tip.translate_inches(
+        length_inches.clone(),
+        angle_from_degrees(heading.as_degrees() - 150.0),
+    );
+
+    left.resolve_shifts(table_spec);
+    tip.resolve_shifts(table_spec);
+    right.resolve_shifts(table_spec);
+
+    [left, tip, right]
+}
+
 fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramElement) {
     match element {
         DiagramElement::DashedLine { start, end, style } => {
@@ -1074,6 +1117,31 @@ fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramEle
             svg.push_str(&format!(
                 "<polyline class=\"overlay smooth-polyline\" points=\"{}\" stroke=\"{}\" stroke-opacity=\"{:.3}\" stroke-width=\"{:.3}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/>\n",
                 points, stroke, opacity, style.width_px
+            ));
+        }
+        DiagramElement::HeadingChevron {
+            tip,
+            heading,
+            style,
+        } => {
+            let points =
+                heading_chevron_points(&scene.table_spec, tip, *heading, &style.length_inches);
+            let (stroke, opacity) = svg_color(style.color);
+            let points = points
+                .iter()
+                .map(|point| {
+                    let point = scene.viewport.position_to_scene_point(point);
+                    format!("{:.3},{:.3}", point.x, point.y)
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            svg.push_str(&format!(
+                "<polyline class=\"overlay heading-chevron\" points=\"{}\" stroke=\"{}\" stroke-opacity=\"{:.3}\" stroke-width=\"{:.3}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\" data-heading-deg=\"{:.3}\"/>\n",
+                points,
+                stroke,
+                opacity,
+                style.width_px,
+                heading.as_degrees()
             ));
         }
         DiagramElement::GhostBall { center, style } => {

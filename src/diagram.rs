@@ -285,7 +285,7 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}\n");
-        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket{fill:#030202;stroke:#24211f;stroke-width:1.5}.table-pocket-facing{stroke:#1b120e;stroke-width:5;stroke-linecap:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.98}\n");
+        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket{fill:#030202;stroke:#24211f;stroke-width:1.5}.table-pocket-facing{stroke:#1b120e;stroke-width:7;stroke-linecap:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.98}\n");
         svg.push_str("</style>\n");
         push_svg_table_defs(&mut svg);
 
@@ -669,13 +669,9 @@ fn push_svg_corner_pocket(
     let well_scale = CORNER_POCKET_WELL_IN / CORNER_POCKET_SHELF_IN;
     let well_x = corner_x + x_sign * shelf_x * well_scale;
     let well_y = corner_y + y_sign * shelf_y * well_scale;
-    let vertical_outer_x = corner_x + x_sign * shelf_x * 1.65;
-    let well_entry_y = corner_y + y_sign * shelf_y * 0.7;
-    let well_exit_x = corner_x + x_sign * shelf_x * 0.7;
-    let horizontal_outer_y = corner_y + y_sign * shelf_y * 1.65;
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket\" data-pocket=\"corner\" d=\"M {horizontal_x:.3} {horizontal_y:.3} C {jaw_x:.3} {horizontal_y:.3} {jaw_x:.3} {jaw_y:.3} {vertical_x:.3} {vertical_y:.3} C {vertical_outer_x:.3} {vertical_y:.3} {well_x:.3} {well_entry_y:.3} {well_x:.3} {well_y:.3} C {well_exit_x:.3} {well_y:.3} {horizontal_x:.3} {horizontal_outer_y:.3} {horizontal_x:.3} {horizontal_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket\" data-pocket=\"corner\" d=\"M {horizontal_x:.3} {horizontal_y:.3} C {jaw_x:.3} {horizontal_y:.3} {jaw_x:.3} {jaw_y:.3} {vertical_x:.3} {vertical_y:.3} C {well_x:.3} {vertical_y:.3} {well_x:.3} {well_y:.3} {horizontal_x:.3} {horizontal_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
         "<line class=\"table-pocket-facing\" x1=\"{horizontal_x:.3}\" y1=\"{horizontal_y:.3}\" x2=\"{jaw_x:.3}\" y2=\"{jaw_y:.3}\"/>\n"
@@ -707,7 +703,7 @@ fn push_svg_side_pocket(
     let rail_belly_x = rail_x + x_sign * cushion_x * 0.18;
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket\" data-pocket=\"side\" d=\"M {rail_x:.3} {top_y:.3} C {lip_x:.3} {top_y:.3} {throat_x:.3} {upper_belly_y:.3} {throat_x:.3} {upper_throat_y:.3} C {well_x:.3} {upper_throat_y:.3} {well_x:.3} {lower_throat_y:.3} {throat_x:.3} {lower_throat_y:.3} C {throat_x:.3} {lower_belly_y:.3} {lip_x:.3} {bottom_y:.3} {rail_x:.3} {bottom_y:.3} C {rail_belly_x:.3} {lower_belly_y:.3} {rail_belly_x:.3} {upper_belly_y:.3} {rail_x:.3} {top_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket\" data-pocket=\"side\" d=\"M {rail_x:.3} {top_y:.3} C {lip_x:.3} {top_y:.3} {throat_x:.3} {top_y:.3} {throat_x:.3} {upper_throat_y:.3} C {well_x:.3} {upper_belly_y:.3} {well_x:.3} {lower_belly_y:.3} {throat_x:.3} {lower_throat_y:.3} C {throat_x:.3} {bottom_y:.3} {lip_x:.3} {bottom_y:.3} {rail_x:.3} {bottom_y:.3} C {rail_belly_x:.3} {bottom_y:.3} {rail_belly_x:.3} {top_y:.3} {rail_x:.3} {top_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
         "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{top_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{upper_throat_y:.3}\"/>\n"

@@ -560,6 +560,7 @@ impl DslScenario {
         rail_profile: &RailCollisionProfile,
     ) -> Vec<ScenarioBallTrace> {
         let mut current_states = initial_states.to_vec();
+        let mut elapsed = Seconds::zero();
         let mut traces = self
             .game_state
             .balls()
@@ -573,6 +574,7 @@ impl DslScenario {
                     .clone(),
                 final_state: state.clone(),
                 segments: Vec::new(),
+                timeline_segments: Vec::new(),
             })
             .collect::<Vec<_>>();
 
@@ -586,6 +588,12 @@ impl DslScenario {
                     advance_motion_on_table(start, step_time, ball_set, motion).state,
                 )
                 .expect("shot trace sub-advance should preserve on-table invariants");
+                trace.timeline_segments.push(ScenarioBallTimelineSegment {
+                    start_time: elapsed,
+                    start: start.clone(),
+                    end: end.clone(),
+                    duration: step_time,
+                });
                 let event_marker_label = scenario_event_involves_ball(event, ball_index)
                     .then(|| format!("({})", event_index + 1));
                 push_visible_trace_segment(
@@ -609,6 +617,7 @@ impl DslScenario {
                 rail_model,
                 rail_profile,
             );
+            elapsed = Seconds::new(elapsed.as_f64() + step_time.as_f64());
         }
 
         for (trace, final_state) in traces.iter_mut().zip(&simulation.states) {
@@ -690,6 +699,18 @@ pub struct ScenarioShotTrace {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioPlaybackFrame {
+    pub time: Seconds,
+    pub balls: Vec<ScenarioPlaybackBall>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioPlaybackBall {
+    pub ball: BallType,
+    pub state: OnTableBallState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScenarioTraceRenderOptions {
     pub path_render: BallPathRenderOptions,
     pub start_ghost_balls: bool,
@@ -726,6 +747,7 @@ const SCENARIO_TRACE_TIME_DISPLAY_DECIMALS: usize = 6;
 // composite simultaneous event, so break-style cluster contacts can arrive as back-to-back entries
 // separated only by floating-point residue. Group those for human-facing trace lines.
 const SCENARIO_TRACE_SIMULTANEOUS_EVENT_EPSILON_SECONDS: f64 = 1e-9;
+const SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS: f64 = 1e-9;
 
 impl ScenarioShotTrace {
     pub fn event_lines(&self) -> Vec<String> {
@@ -755,6 +777,51 @@ impl ScenarioShotTrace {
         }
 
         lines
+    }
+
+    pub fn playback_frames(&self, max_time_step: Seconds) -> Vec<ScenarioPlaybackFrame> {
+        let max_time_step = max_time_step.as_f64();
+        assert!(
+            max_time_step.is_finite() && max_time_step > 0.0,
+            "playback max_time_step must be positive and finite"
+        );
+
+        let mut times = vec![0.0, self.simulation.elapsed.as_f64()];
+        times.extend(self.event_log.iter().map(|event| event.time.as_f64()));
+        for ball_trace in &self.ball_traces {
+            for segment in &ball_trace.timeline_segments {
+                let start = segment.start_time.as_f64();
+                let duration = segment.duration.as_f64();
+                times.push(start);
+                let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
+                for step in 1..=sample_count {
+                    times.push(start + duration * step as f64 / sample_count as f64);
+                }
+            }
+        }
+
+        times.retain(|time| time.is_finite() && *time >= 0.0);
+        times.sort_by(f64::total_cmp);
+        times.dedup_by(|a, b| (*a - *b).abs() <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS);
+
+        times
+            .into_iter()
+            .map(|time| ScenarioPlaybackFrame {
+                time: Seconds::new(time),
+                balls: self
+                    .ball_traces
+                    .iter()
+                    .filter_map(|ball_trace| {
+                        ball_trace
+                            .state_at_elapsed(Seconds::new(time), &self.ball_set, &self.motion)
+                            .map(|state| ScenarioPlaybackBall {
+                                ball: ball_trace.ball.clone(),
+                                state,
+                            })
+                    })
+                    .collect(),
+            })
+            .collect()
     }
 
     pub fn rendered_final_layout_with_traces(
@@ -950,6 +1017,15 @@ pub struct ScenarioBallTrace {
     pub initial_state: OnTableBallState,
     pub final_state: NBallSystemState,
     pub segments: Vec<BallPathSegment>,
+    pub timeline_segments: Vec<ScenarioBallTimelineSegment>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioBallTimelineSegment {
+    pub start_time: Seconds,
+    pub start: OnTableBallState,
+    pub end: OnTableBallState,
+    pub duration: Seconds,
 }
 
 impl ScenarioBallTrace {
@@ -967,6 +1043,58 @@ impl ScenarioBallTrace {
                 .map(|segment| segment.duration.as_f64())
                 .sum(),
         )
+    }
+
+    pub fn state_at_elapsed(
+        &self,
+        elapsed: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> Option<OnTableBallState> {
+        let target_time = elapsed.as_f64().max(0.0);
+        for segment in &self.timeline_segments {
+            let start_time = segment.start_time.as_f64();
+            let duration = segment.duration.as_f64();
+            let end_time = start_time + duration;
+            if target_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS < start_time {
+                return Some(segment.start.clone());
+            }
+            if target_time <= end_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+                let segment_elapsed = (target_time - start_time).clamp(0.0, duration);
+                if segment_elapsed <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+                    return Some(segment.start.clone());
+                }
+                if duration - segment_elapsed <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+                    return Some(segment.end.clone());
+                }
+                return Some(
+                    OnTableBallState::try_from(
+                        advance_motion_on_table(
+                            &segment.start,
+                            Seconds::new(segment_elapsed),
+                            ball,
+                            motion,
+                        )
+                        .state,
+                    )
+                    .expect("timeline sub-advance should preserve on-table invariants"),
+                );
+            }
+        }
+
+        match &self.final_state {
+            NBallSystemState::OnTable(state) => Some(state.clone()),
+            NBallSystemState::Pocketed {
+                state_at_capture, ..
+            } => (target_time
+                <= self
+                    .timeline_segments
+                    .last()
+                    .map(|segment| segment.start_time.as_f64() + segment.duration.as_f64())
+                    .unwrap_or(0.0)
+                    + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS)
+                .then(|| state_at_capture.clone()),
+        }
     }
 
     fn reference_speed_ips(&self) -> f64 {

@@ -253,6 +253,16 @@ Expected flavor:
 - one pocketed in center-right
 - cue stays on the table with a visible but bounded post-contact spin effect
 
+
+### `low_left_spin_throw_transfer.billiards`
+A full-contact low-left-English diagnostic: the cue is aimed perpendicular to the top cushion,
+with its starting x-position offset just enough that squirt still produces a square hit on the 1.
+
+Expected flavor:
+- cue -> one collision on a near-full hit
+- one travels mostly straight toward the top cushion, with spin-induced throw to the right
+- one carries a small amount of transferred right spin from the low-left cue-ball spin
+
 ### `long_cut_top_right_rail.billiards`
 A longer cut where the object ball runs up the right rail toward the top-right corner.
 

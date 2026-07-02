@@ -5,7 +5,7 @@ use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioShotTrace
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     human_tuned_preview_motion_config, BallType, CollisionModel, DiagramBackground,
-    DiagramRenderOptions, Pocket, Rail, RailModel, Seconds, TableKind,
+    DiagramRenderOptions, NBallSystemEvent, Pocket, Rail, RailModel, Seconds, TableKind,
 };
 
 fn trace_scenario(
@@ -267,6 +267,82 @@ fn side_pocket_examples_match_claimed_outcomes() {
     assert!(
         !has_pocket(&right_spin_stun, BallType::Cue, Pocket::CenterRight),
         "right-spin stun example should leave the cue ball on the table"
+    );
+}
+
+#[test]
+fn low_left_spin_throw_transfer_scenario_keeps_full_hit_throw_and_spin_signs() {
+    let (scenario, trace) = trace_scenario(
+        "examples/scenarios/low_left_spin_throw_transfer.billiards",
+        1,
+    );
+    assert!(has_collision(&trace, BallType::Cue, BallType::One));
+
+    let cue_index = scenario
+        .game_state
+        .balls()
+        .iter()
+        .position(|ball| ball.ty == BallType::Cue)
+        .expect("scenario should contain the cue ball");
+    let one_index = scenario
+        .game_state
+        .balls()
+        .iter()
+        .position(|ball| ball.ty == BallType::One)
+        .expect("scenario should contain the 1-ball");
+
+    let first_event = trace
+        .simulation
+        .events
+        .first()
+        .expect("scenario should start with a ball-ball collision");
+    let (cue_at_impact, one_at_impact) = match first_event {
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } if *first_ball_index == cue_index && *second_ball_index == one_index => {
+            (&collision.a_at_impact, &collision.b_at_impact)
+        }
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } if *first_ball_index == one_index && *second_ball_index == cue_index => {
+            (&collision.b_at_impact, &collision.a_at_impact)
+        }
+        other => panic!("expected cue -> one collision as first event, got {other:?}"),
+    };
+    let cue_at_impact = cue_at_impact.as_ball_state();
+    let one_at_impact = one_at_impact.as_ball_state();
+    let line_dx = one_at_impact.position.x().as_f64() - cue_at_impact.position.x().as_f64();
+    let line_dy = one_at_impact.position.y().as_f64() - cue_at_impact.position.y().as_f64();
+    assert!(
+        line_dx.abs() < 0.05,
+        "low-left setup should still arrive nearly full; got centerline dx {line_dx:.6} in"
+    );
+    assert!(
+        line_dy > 0.0,
+        "object ball should be contacted on a top-cushion-facing line"
+    );
+
+    let one_after = trace.simulation.states[one_index]
+        .as_on_table()
+        .expect("1-ball should remain on table after first contact")
+        .as_ball_state();
+    assert!(
+        one_after.velocity.y().as_f64() > 0.0,
+        "1-ball should travel toward the top cushion after the full hit"
+    );
+    assert!(
+        one_after.velocity.x().as_f64() > 0.0,
+        "low-left spin should throw the 1-ball to the striker's right; got vx {:.6}",
+        one_after.velocity.x().as_f64()
+    );
+    assert!(
+        one_after.angular_velocity.z().as_f64() > 0.0,
+        "low-left cue-ball spin should transfer a touch of opposite/right z-spin to the 1-ball; got wz {:.6}",
+        one_after.angular_velocity.z().as_f64()
     );
 }
 

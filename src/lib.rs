@@ -13803,6 +13803,7 @@ enum Overlay {
     CircleMarker {
         center: Position,
         style: EventMarkerStyle,
+        event_label: Option<String>,
     },
     TextLabel {
         anchor: Position,
@@ -14149,12 +14150,22 @@ impl GameState {
     }
 
     pub fn add_event_marker_styled(&mut self, position: &Position, style: EventMarkerStyle) {
+        self.add_event_marker_styled_with_label(position, style, None);
+    }
+
+    fn add_event_marker_styled_with_label(
+        &mut self,
+        position: &Position,
+        style: EventMarkerStyle,
+        event_label: Option<String>,
+    ) {
         let mut position = position.clone();
         position.resolve_shifts(&self.table_spec);
 
         self.lines_to_draw.push(Overlay::CircleMarker {
             center: position,
             style,
+            event_label,
         });
     }
 
@@ -14218,15 +14229,22 @@ impl GameState {
             );
             self.add_dotted_line_styled(&line_start, &line_end, segment_style);
 
-            if style.event_markers.enabled && segment.event_marker_at_end {
-                self.add_event_marker_styled(&projected_end, style.event_markers.clone());
-            }
-            if style.labels.enabled && segment.event_marker_at_end {
+            if segment.event_marker_at_end && (style.event_markers.enabled || style.labels.enabled)
+            {
                 let label = segment
                     .event_marker_label
                     .clone()
                     .unwrap_or_else(|| format!("({})", index + 1));
-                self.add_text_label_styled(&projected_end, label, style.labels.clone());
+                if style.event_markers.enabled {
+                    self.add_event_marker_styled_with_label(
+                        &projected_end,
+                        style.event_markers.clone(),
+                        Some(label.clone()),
+                    );
+                }
+                if style.labels.enabled {
+                    self.add_text_label_styled(&projected_end, label, style.labels.clone());
+                }
             }
 
             elapsed_before_segment =
@@ -14472,15 +14490,22 @@ impl GameState {
                 reference_speed_ips,
             );
 
-            if style.event_markers.enabled && segment.event_marker_at_end {
-                self.add_event_marker_styled(&projected_end, style.event_markers.clone());
-            }
-            if style.labels.enabled && segment.event_marker_at_end {
+            if segment.event_marker_at_end && (style.event_markers.enabled || style.labels.enabled)
+            {
                 let label = segment
                     .event_marker_label
                     .clone()
                     .unwrap_or_else(|| format!("({})", index + 1));
-                self.add_text_label_styled(&projected_end, label, style.labels.clone());
+                if style.event_markers.enabled {
+                    self.add_event_marker_styled_with_label(
+                        &projected_end,
+                        style.event_markers.clone(),
+                        Some(label.clone()),
+                    );
+                }
+                if style.labels.enabled {
+                    self.add_text_label_styled(&projected_end, label, style.labels.clone());
+                }
             }
 
             elapsed_before_segment =
@@ -14652,9 +14677,14 @@ impl GameState {
                     center: center.clone(),
                     style: style.clone(),
                 },
-                Overlay::CircleMarker { center, style } => DiagramElement::CircleMarker {
+                Overlay::CircleMarker {
+                    center,
+                    style,
+                    event_label,
+                } => DiagramElement::CircleMarker {
                     center: center.clone(),
                     style: style.clone(),
+                    event_label: event_label.clone(),
                 },
                 Overlay::TextLabel {
                     anchor,

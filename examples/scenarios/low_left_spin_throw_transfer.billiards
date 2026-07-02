@@ -1,0 +1,8 @@
+# Low-left spin-induced throw and spin-transfer diagnostic.
+# Cue starts slightly left so squirted low-left English still lands a near-full hit.
+# Expected: the 1 heads mostly straight into the top cushion, thrown slightly right, with transferred right spin.
+ball cue at (1.972, 3.0)
+ball one at (2.0, 4.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 8)
+shot(cue).heading(0deg).speed(medium-soft).tip(side: -0.35R, height: -0.35R).using(default)

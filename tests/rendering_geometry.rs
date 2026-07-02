@@ -326,6 +326,17 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     assert_eq!(svg.matches("class=\"table-pocket-rim\"").count(), 6);
     assert_eq!(svg.matches("class=\"table-pocket-lip\"").count(), 6);
     assert_eq!(svg.matches("class=\"table-pocket-facing\"").count(), 12);
+    assert_eq!(svg.matches("class=\"table-pocket-liner\"").count(), 4);
+    assert_eq!(
+        svg.matches("data-pocket-shape=\"diamond-bi-level-corner\"")
+            .count(),
+        4
+    );
+    assert_eq!(
+        svg.matches("data-pocket-shape=\"diamond-bi-level-side\"")
+            .count(),
+        2
+    );
     assert!(svg.contains("id=\"tournament-blue-cloth\""));
     assert!(svg.contains("id=\"rosewood-grain\""));
     assert!(svg.contains("class=\"table-cloth-texture\""));
@@ -375,12 +386,14 @@ fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     assert!(svg.contains("<path class=\"table-pocket\" data-pocket=\"side\""));
     assert!(svg.contains("<path class=\"table-pocket-rim\""));
     assert!(svg.contains("<path class=\"table-pocket-lip\""));
-    assert!(svg.contains(".table-pocket-facing{stroke:#16110f;stroke-width:5;"));
+    assert!(svg.contains("class=\"table-pocket-liner\""));
+    assert!(svg.contains("stroke-width:18"));
+    assert!(svg.contains("style=\"stroke-width:8\""));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
 }
 
 #[test]
-fn svg_trace_event_labels_are_parenthesized_to_match_event_log_markers() {
+fn svg_trace_event_markers_carry_event_labels_for_tooltips_without_visible_text() {
     let table_spec = TableSpec::default();
     let ball_set = BallSetPhysicsSpec::default();
     let motion = motion_config();
@@ -404,8 +417,7 @@ fn svg_trace_event_labels_are_parenthesized_to_match_event_log_markers() {
     state.add_dotted_ball_path_styled(
         &path,
         &BallPathStyle::new(image::Rgba([255, 255, 255, 255]))
-            .with_event_markers(EventMarkerStyle::enabled(image::Rgba([0, 0, 0, 255])))
-            .with_labels(LabelOverlayStyle::enabled(image::Rgba([0, 0, 0, 255]))),
+            .with_event_markers(EventMarkerStyle::enabled(image::Rgba([0, 0, 0, 255]))),
     );
 
     let svg = render_svg_with_options(
@@ -416,8 +428,11 @@ fn svg_trace_event_labels_are_parenthesized_to_match_event_log_markers() {
         },
     );
 
-    assert!(svg.contains(">(1)</text>"));
-    assert!(!svg.contains(">1</text>"));
+    assert!(svg.contains("class=\"overlay event-marker\""));
+    assert!(svg.contains("data-event-label=\"(1)\""));
+    assert!(svg.contains("<title>(1)</title>"));
+    assert!(!svg.contains(">(1)</text>"));
+    assert!(!svg.contains("<text class=\"overlay overlay-label\""));
 }
 
 #[test]

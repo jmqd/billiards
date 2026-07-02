@@ -269,6 +269,15 @@ Expected flavor:
 - one -> nine collision
 - nine pocketed in top-right
 
+### `seven_ball_force_follow_breakout.billiards`
+A hard force-follow cut: the 7 is pocketed in the top-right corner, then the cue ball
+drives into a frozen 8-9 cluster to open position on the 8.
+
+Expected flavor:
+- cue -> seven collision on a slightly off-angle cut
+- seven pocketed in top-right
+- cue follows into the frozen 8-9 cluster and leaves all remaining balls on the table
+
 ### `force_follow_scratch.billiards`
 A force-follow shot where the cue follows the object into the same side pocket.
 

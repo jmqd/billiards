@@ -52,6 +52,19 @@ fn has_pocket(trace: &ScenarioShotTrace, ball: BallType, pocket: Pocket) -> bool
     })
 }
 
+fn has_any_pocket(trace: &ScenarioShotTrace, ball: BallType) -> bool {
+    [
+        Pocket::TopRight,
+        Pocket::CenterRight,
+        Pocket::BottomRight,
+        Pocket::BottomLeft,
+        Pocket::CenterLeft,
+        Pocket::TopLeft,
+    ]
+    .into_iter()
+    .any(|pocket| has_pocket(trace, ball.clone(), pocket))
+}
+
 fn has_collision(trace: &ScenarioShotTrace, first: BallType, second: BallType) -> bool {
     trace.event_log.iter().any(|event| {
         matches!(
@@ -311,6 +324,34 @@ fn additional_pocket_billiards_examples_match_claimed_outcomes() {
     assert!(has_collision(&combo, BallType::Cue, BallType::One));
     assert!(has_collision(&combo, BallType::One, BallType::Nine));
     assert!(has_pocket(&combo, BallType::Nine, Pocket::TopRight));
+    let (_, seven_breakout) = trace_scenario(
+        "examples/scenarios/seven_ball_force_follow_breakout.billiards",
+        0,
+    );
+    assert!(has_collision(
+        &seven_breakout,
+        BallType::Cue,
+        BallType::Seven
+    ));
+    assert!(has_pocket(
+        &seven_breakout,
+        BallType::Seven,
+        Pocket::TopRight
+    ));
+    assert!(has_collision(
+        &seven_breakout,
+        BallType::Cue,
+        BallType::Eight
+    ));
+    assert!(has_collision(
+        &seven_breakout,
+        BallType::Eight,
+        BallType::Nine
+    ));
+    assert!(
+        !has_any_pocket(&seven_breakout, BallType::Cue),
+        "force-follow breakout should leave the cue ball on the table"
+    );
 }
 
 #[test]

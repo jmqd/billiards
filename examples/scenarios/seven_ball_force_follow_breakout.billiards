@@ -1,0 +1,11 @@
+# Seven-ball force-follow breakout.
+# Goal: pocket a slightly off-angle 7 in the top-right corner, then use extreme
+# follow to drive the cue ball into a frozen 8-9 cluster for position on the 8.
+table brunswick_gc4_9ft
+ball cue at (1.5, 3.9)
+ball seven at (2.7, 5.2)
+ball eight at (3.55, 4.75)
+ball nine at (3.730000000000, 4.75)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 32)
+shot(cue).heading(44.682deg).speed(typical-power-break).tip(side: 0.0R, height: 0.48R).using(default)

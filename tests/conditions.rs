@@ -51,6 +51,15 @@ fn named_conditions_presets_resolve_to_builtin_profiles() {
         PlayingConditions::from(PlayingConditionsPreset::FastClean),
         PlayingConditions::fast_clean()
     );
+    assert_eq!(
+        PlayingConditionsPreset::from_name("heated_carom"),
+        Some(PlayingConditionsPreset::HeatedCarom)
+    );
+    assert_eq!(
+        PlayingConditionsPreset::from_name("three-cushion"),
+        Some(PlayingConditionsPreset::HeatedCarom)
+    );
+    assert_eq!(PlayingConditionsPreset::HeatedCarom.name(), "heated_carom");
     assert_eq!(PlayingConditionsPreset::from_name("bogus"), None);
 }
 
@@ -102,6 +111,28 @@ fn humid_dirty_conditions_increase_motion_damping_and_deaden_contacts() {
     assert_close(
         scaled_rail.effective_contact_height_ratio.as_f64(),
         base_rail.effective_contact_height_ratio.as_f64(),
+    );
+}
+
+#[test]
+fn heated_carom_conditions_reduce_cloth_drag_and_liven_rails() {
+    let conditions = PlayingConditions::heated_carom();
+    let base_motion = human_tuned_preview_motion_config();
+    let scaled_motion = base_motion.applying_conditions(&conditions);
+    let base_rail = RailCollisionConfig::human_tuned();
+    let scaled_rail = base_rail.applying_conditions(&conditions);
+
+    assert!(sliding_accel(&scaled_motion) < sliding_accel(&base_motion));
+    assert!(spin_decay(&scaled_motion) < spin_decay(&base_motion));
+    assert!(rolling_decel(&scaled_motion) < rolling_decel(&base_motion));
+    assert!(scaled_rail.normal_restitution.as_f64() > base_rail.normal_restitution.as_f64());
+    assert!(
+        scaled_rail.tangential_friction_coefficient.as_f64()
+            < base_rail.tangential_friction_coefficient.as_f64()
+    );
+    assert!(
+        scaled_rail.impact_cloth_friction_coefficient.as_f64()
+            < base_rail.impact_cloth_friction_coefficient.as_f64()
     );
 }
 

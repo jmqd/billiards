@@ -1,9 +1,9 @@
 use bigdecimal::ToPrimitive;
 use billiards::{
     pocket_facing_angle_degrees_from_mouth_throat,
-    pocket_mouth_throat_difference_from_facing_angle_degrees, Angle, Inches, Pocket,
-    PocketShapeSpec, PocketType, Rail, RailAngleReference, RailTangentDirection, TableSpec,
-    CENTER_SPOT,
+    pocket_mouth_throat_difference_from_facing_angle_degrees, Angle, GameType, Inches, Pocket,
+    PocketShapeSpec, PocketType, Rail, RailAngleReference, RailTangentDirection, TableKind,
+    TableSpec, CAROM_BALL_RADIUS, CENTER_SPOT,
 };
 
 fn angle_degrees(angle: Angle) -> f64 {
@@ -73,6 +73,59 @@ fn given_a_brunswick_gc4_table_when_constructed_then_the_standard_lengths_and_po
             .expect("side width"),
         0.4,
     );
+}
+
+#[test]
+fn given_a_three_cushion_table_when_constructed_then_it_is_pocketless_and_uses_carom_scale() {
+    let table = TableSpec::three_cushion_carom_10ft();
+
+    assert_eq!(table.kind, TableKind::ThreeCushionCarom);
+    assert!(!table.has_pockets());
+    assert_eq!(table.default_game_type(), GameType::ThreeCushion);
+    assert_close(
+        table
+            .diamond_length
+            .magnitude
+            .to_f64()
+            .expect("diamond length"),
+        13.97638,
+    );
+    assert_close(
+        table.default_ball_spec().radius.as_f64(),
+        CAROM_BALL_RADIUS.as_f64(),
+    );
+    assert_close(
+        table.default_ball_set_physics_spec().radius.as_f64(),
+        CAROM_BALL_RADIUS.as_f64(),
+    );
+
+    for pocket in [
+        Pocket::TopRight,
+        Pocket::CenterRight,
+        Pocket::BottomRight,
+        Pocket::BottomLeft,
+        Pocket::CenterLeft,
+        Pocket::TopLeft,
+    ] {
+        assert_close(
+            table
+                .pocket_spec(pocket)
+                .width
+                .magnitude
+                .to_f64()
+                .expect("width"),
+            0.0,
+        );
+        assert_close(
+            table
+                .pocket_spec(pocket)
+                .depth
+                .magnitude
+                .to_f64()
+                .expect("depth"),
+            0.0,
+        );
+    }
 }
 
 #[test]

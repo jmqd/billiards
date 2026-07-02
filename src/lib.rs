@@ -55,6 +55,9 @@ lazy_static! {
     pub static ref TYPICAL_BALL_RADIUS: Inches = Inches {
         magnitude: BigDecimal::from_str("1.125").unwrap()
     };
+    pub static ref CAROM_BALL_RADIUS: Inches = Inches {
+        magnitude: BigDecimal::from_str("1.21063").unwrap()
+    };
     pub static ref CENTER_SPOT: Position = Position {
         x: Diamond::from("2"),
         y: Diamond::from("4"),
@@ -675,6 +678,20 @@ impl Default for BallSetPhysicsSpec {
     }
 }
 
+impl BallSetPhysicsSpec {
+    pub fn pool() -> Self {
+        Self {
+            radius: TYPICAL_BALL_RADIUS.clone(),
+        }
+    }
+
+    pub fn three_cushion_carom() -> Self {
+        Self {
+            radius: CAROM_BALL_RADIUS.clone(),
+        }
+    }
+}
+
 /// The currently supported ball-ball collision approximations.
 ///
 /// `Ideal` is the equal-mass, perfectly elastic limit described by the local references:
@@ -1014,6 +1031,7 @@ pub enum PlayingConditionsPreset {
     Neutral,
     HumidDirty,
     FastClean,
+    HeatedCarom,
 }
 
 impl PlayingConditionsPreset {
@@ -1022,6 +1040,9 @@ impl PlayingConditionsPreset {
             "neutral" => Some(Self::Neutral),
             "humid_dirty" | "humid-dirty" => Some(Self::HumidDirty),
             "fast_clean" | "fast-clean" => Some(Self::FastClean),
+            "heated_carom" | "heated-carom" | "three_cushion" | "three-cushion" => {
+                Some(Self::HeatedCarom)
+            }
             _ => None,
         }
     }
@@ -1031,6 +1052,7 @@ impl PlayingConditionsPreset {
             Self::Neutral => "neutral",
             Self::HumidDirty => "humid_dirty",
             Self::FastClean => "fast_clean",
+            Self::HeatedCarom => "heated_carom",
         }
     }
 
@@ -1039,6 +1061,7 @@ impl PlayingConditionsPreset {
             Self::Neutral => PlayingConditions::neutral(),
             Self::HumidDirty => PlayingConditions::humid_dirty(),
             Self::FastClean => PlayingConditions::fast_clean(),
+            Self::HeatedCarom => PlayingConditions::heated_carom(),
         }
     }
 }
@@ -1086,6 +1109,19 @@ impl PlayingConditions {
             rail_restitution_scale: Scale::from_f64(1.0),
             rail_cushion_friction_scale: Scale::from_f64(0.95),
             rail_impact_cloth_friction_scale: Scale::from_f64(0.95),
+        }
+    }
+
+    pub fn heated_carom() -> Self {
+        Self {
+            sliding_friction_scale: Scale::from_f64(0.82),
+            rolling_resistance_scale: Scale::from_f64(0.82),
+            spin_decay_scale: Scale::from_f64(0.86),
+            ball_ball_restitution_scale: Scale::from_f64(1.0),
+            ball_ball_friction_scale: Scale::from_f64(0.92),
+            rail_restitution_scale: Scale::from_f64(1.06),
+            rail_cushion_friction_scale: Scale::from_f64(0.88),
+            rail_impact_cloth_friction_scale: Scale::from_f64(0.82),
         }
     }
 }
@@ -7454,6 +7490,9 @@ pub fn compute_next_ball_jaw_impact_on_table(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<PredictedBallJawImpact> {
+    if !table.has_pockets() {
+        return None;
+    }
     let raw_state = RawOnTableBallState::from_on_table(state);
     let radius = ball.radius.as_f64();
     let phase = classify_motion_phase(state.as_ball_state(), ball, &config.phase);
@@ -7545,6 +7584,9 @@ pub fn compute_next_ball_pocket_capture_on_table(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<PredictedBallPocketCapture> {
+    if !table.has_pockets() {
+        return None;
+    }
     let raw_state = RawOnTableBallState::from_on_table(state);
     let radius = ball.radius.as_f64();
     let phase = classify_motion_phase(state.as_ball_state(), ball, &config.phase);
@@ -13207,9 +13249,16 @@ pub fn pocket_mouth_throat_difference_from_facing_angle_degrees(
     Inches::from_f64(2.0 * facing * theta.sin() / beta.sin())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TableKind {
+    Pool,
+    ThreeCushionCarom,
+}
+
 #[derive(Clone, Debug, PartialEq)]
-/// Physical specifications of a pool table.
+/// Physical specifications of a billiards table.
 pub struct TableSpec {
+    pub kind: TableKind,
     pub pockets: [PocketSpec; 6],
     pub cushion_diamond_buffer: Diamond,
     pub diamond_length: Inches,
@@ -13222,18 +13271,28 @@ impl Default for TableSpec {
 }
 
 #[derive(Clone, Debug)]
-/// Physical specifications of a pool ball.
+/// Physical specifications of a billiards ball.
 pub struct BallSpec {
     pub radius: Inches,
 }
 
+impl BallSpec {
+    pub fn pool() -> Self {
+        Self {
+            radius: TYPICAL_BALL_RADIUS.clone(),
+        }
+    }
+
+    pub fn three_cushion_carom() -> Self {
+        Self {
+            radius: CAROM_BALL_RADIUS.clone(),
+        }
+    }
+}
+
 impl Default for BallSpec {
     fn default() -> Self {
-        Self {
-            radius: Inches {
-                magnitude: BigDecimal::from_str("1.125").unwrap(),
-            },
-        }
+        Self::pool()
     }
 }
 
@@ -13244,6 +13303,7 @@ impl TableSpec {
             magnitude: BigDecimal::from_str("12.5").unwrap(),
         };
         Self {
+            kind: TableKind::Pool,
             diamond_length: diamond_length.clone(),
             cushion_diamond_buffer: Diamond {
                 magnitude: DIAMOND_SIGHT_NOSE_OFFSET.magnitude.clone()
@@ -13256,6 +13316,29 @@ impl TableSpec {
                 Self::brunswick_gc4_corner_pocket(diamond_length.clone()),
                 Self::brunswick_gc4_side_pocket(diamond_length.clone()),
                 Self::brunswick_gc4_corner_pocket(diamond_length),
+            ],
+        }
+    }
+
+    /// A pocketless 10ft three-cushion/carom table: 2.84m x 1.42m playing surface.
+    pub fn three_cushion_carom_10ft() -> Self {
+        let diamond_length = Inches {
+            magnitude: BigDecimal::from_str("13.97638").unwrap(),
+        };
+        Self {
+            kind: TableKind::ThreeCushionCarom,
+            diamond_length: diamond_length.clone(),
+            cushion_diamond_buffer: Diamond {
+                magnitude: DIAMOND_SIGHT_NOSE_OFFSET.magnitude.clone()
+                    / diamond_length.magnitude.clone(),
+            },
+            pockets: [
+                Self::disabled_corner_pocket(),
+                Self::disabled_side_pocket(),
+                Self::disabled_corner_pocket(),
+                Self::disabled_corner_pocket(),
+                Self::disabled_side_pocket(),
+                Self::disabled_corner_pocket(),
             ],
         }
     }
@@ -13288,12 +13371,55 @@ impl TableSpec {
         }
     }
 
+    fn disabled_corner_pocket() -> PocketSpec {
+        PocketSpec {
+            ty: PocketType::Corner,
+            depth: Diamond::zero(),
+            width: Diamond::zero(),
+            shape: PocketShapeSpec::point_noses(),
+        }
+    }
+
+    fn disabled_side_pocket() -> PocketSpec {
+        PocketSpec {
+            ty: PocketType::Side,
+            depth: Diamond::zero(),
+            width: Diamond::zero(),
+            shape: PocketShapeSpec::point_noses(),
+        }
+    }
+
     pub fn brunswick_gc4_corner_pocket_shape() -> PocketShapeSpec {
         PocketShapeSpec::rounded_noses(Inches::from_f64(0.125))
     }
 
     pub fn brunswick_gc4_side_pocket_shape() -> PocketShapeSpec {
         PocketShapeSpec::rounded_noses(Inches::from_f64(0.125))
+    }
+
+    pub fn has_pockets(&self) -> bool {
+        self.kind == TableKind::Pool
+    }
+
+    pub fn default_ball_spec(&self) -> BallSpec {
+        match self.kind {
+            TableKind::Pool => BallSpec::pool(),
+            TableKind::ThreeCushionCarom => BallSpec::three_cushion_carom(),
+        }
+    }
+
+    pub fn default_ball_set_physics_spec(&self) -> BallSetPhysicsSpec {
+        match self.kind {
+            TableKind::Pool => BallSetPhysicsSpec::pool(),
+            TableKind::ThreeCushionCarom => BallSetPhysicsSpec::three_cushion_carom(),
+        }
+    }
+
+    pub fn default_game_type(&self) -> GameType {
+        match self.kind {
+            TableKind::Pool => GameType::NineBall,
+            TableKind::ThreeCushionCarom => GameType::ThreeCushion,
+        }
     }
 
     pub fn pocket_spec(&self, pocket: Pocket) -> &PocketSpec {
@@ -13338,6 +13464,8 @@ pub enum BallType {
     Seven,
     Eight,
     Nine,
+    YellowCue,
+    Red,
     #[default]
     Cue,
 }
@@ -13474,7 +13602,7 @@ pub struct Kinematics {
     pub angular_velocity: [RadiansPerSecond; 3],
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 /// The type of game, e.g. Nineball, EightBall, OnePocket, etc.
 pub enum GameType {
     #[default]
@@ -13483,6 +13611,7 @@ pub enum GameType {
     TenBall,
     OnePocket,
     Banks,
+    ThreeCushion,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -13691,8 +13820,10 @@ pub struct GameState {
 
 impl GameState {
     pub fn new(table_spec: TableSpec) -> Self {
+        let ty = table_spec.default_game_type();
         Self {
             table_spec,
+            ty,
             ..Default::default()
         }
     }

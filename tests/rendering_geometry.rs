@@ -308,6 +308,9 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     assert_eq!(svg.matches("data-pocket=\"side\"").count(), 2);
     assert!(svg.contains("<polygon class=\"table-diamond\""));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
+    assert_eq!(svg.matches("class=\"table-pocket-rim\"").count(), 6);
+    assert_eq!(svg.matches("class=\"table-pocket-lip\"").count(), 6);
+    assert_eq!(svg.matches("class=\"table-pocket-facing\"").count(), 12);
     assert!(svg.contains("id=\"tournament-blue-cloth\""));
     assert!(svg.contains("id=\"rosewood-grain\""));
     assert!(svg.contains("class=\"table-cloth-texture\""));
@@ -350,13 +353,15 @@ fn svg_three_cushion_table_is_pocketless_with_carom_sights_and_balls() {
 }
 
 #[test]
-fn svg_table_uses_smooth_deep_pocket_backs_and_pronounced_facing_noses() {
+fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 
-    assert!(svg.contains("57.662 164.666 57.662 57.601 164.603 110.000 Z"));
-    assert!(svg.contains("24.200 920.896 24.200 1017.104"));
-    assert!(svg.contains("1053.800 920.896 1053.800 1017.104"));
-    assert!(svg.contains(".table-pocket-facing{stroke:#1b120e;stroke-width:7;"));
+    assert!(svg.contains("<path class=\"table-pocket\" data-pocket=\"corner\""));
+    assert!(svg.contains("<path class=\"table-pocket\" data-pocket=\"side\""));
+    assert!(svg.contains("<path class=\"table-pocket-rim\""));
+    assert!(svg.contains("<path class=\"table-pocket-lip\""));
+    assert!(svg.contains(".table-pocket-facing{stroke:#16110f;stroke-width:5;"));
+    assert!(!svg.contains("<circle class=\"table-pocket\""));
 }
 
 #[test]

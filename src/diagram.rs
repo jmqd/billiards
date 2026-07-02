@@ -286,7 +286,7 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}\n");
-        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket{fill:#030202;stroke:#24211f;stroke-width:1.5}.table-pocket-facing{stroke:#1b120e;stroke-width:7;stroke-linecap:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.98}\n");
+        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket{fill:#020202;stroke:#12100f;stroke-width:1.4}.table-pocket-rim{fill:none;stroke:#3a332e;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;opacity:.85}.table-pocket-facing{stroke:#16110f;stroke-width:5;stroke-linecap:round}.table-pocket-lip{stroke:#5b5149;stroke-width:1.4;stroke-linecap:round;opacity:.55}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.94}\n");
         svg.push_str(".carom-table .table-rail{fill:url(#carom-wood-rail)}.carom-table .table-cloth{fill:url(#heated-carom-cloth)}.carom-table .table-cloth-texture{opacity:.16}.carom-table .table-cushion{fill:url(#heated-carom-cushion)}.carom-table .table-cushion-nose{stroke:#88ecff;stroke-width:3.2}.carom-table .table-cushion-back{stroke:#064f69;stroke-width:3.2}.carom-table .table-rail-inner-shadow{stroke:#0b0705;stroke-width:12;opacity:.58}\n");
         svg.push_str("</style>\n");
         push_svg_table_defs(&mut svg);
@@ -473,8 +473,9 @@ fn push_svg_table(svg: &mut String, table_spec: &TableSpec, viewport: DiagramVie
 fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
     // WPA tournament dimensions used by Diamond-style 9 ft tables:
     // 100 x 50 in playing surface, sights 3 11/16 in from cushion nose,
-    // 4.5 in corner mouths, 5.0 in side mouths, and cut pockets instead of
-    // circular holes drawn on the playfield.
+    // 4.5 in corner mouths, 5.0 in side mouths. Diamond's current product
+    // photos show flush black leather/liner pockets cut into the rail cap, so
+    // SVG pockets are shaped wells and facings rather than circular holes.
     let w = viewport.width_px;
     let h = viewport.height_px;
     let left = viewport.playfield_left_px;
@@ -812,20 +813,40 @@ fn push_svg_corner_pocket(
     let horizontal_y = corner_y;
     let vertical_x = corner_x;
     let vertical_y = corner_y - y_sign * run_y;
-    let jaw_x = corner_x - x_sign * shelf_x;
-    let jaw_y = corner_y - y_sign * shelf_y;
     let well_scale = CORNER_POCKET_WELL_IN / CORNER_POCKET_SHELF_IN;
+    let crown_x = corner_x + x_sign * shelf_x * 0.55;
+    let crown_y = corner_y + y_sign * shelf_y * 0.55;
     let well_x = corner_x + x_sign * shelf_x * well_scale;
     let well_y = corner_y + y_sign * shelf_y * well_scale;
+    let top_lip_x = corner_x - x_sign * run_x * 0.42;
+    let top_lip_y = corner_y + y_sign * shelf_y * 0.44;
+    let side_lip_x = corner_x + x_sign * shelf_x * 0.44;
+    let side_lip_y = corner_y - y_sign * run_y * 0.42;
+    let top_handle_x = horizontal_x + x_sign * run_x * 0.16;
+    let top_handle_y = horizontal_y + y_sign * shelf_y * 0.08;
+    let side_handle_x = vertical_x + x_sign * shelf_x * 0.08;
+    let side_handle_y = vertical_y + y_sign * run_y * 0.16;
+    let mouth_control_x = corner_x - x_sign * run_x * 0.42;
+    let mouth_control_y = corner_y - y_sign * run_y * 0.42;
+    let facing_top_x = corner_x - x_sign * run_x * 0.54;
+    let facing_top_y = corner_y + y_sign * shelf_y * 0.32;
+    let facing_side_x = corner_x + x_sign * shelf_x * 0.32;
+    let facing_side_y = corner_y - y_sign * run_y * 0.54;
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket\" data-pocket=\"corner\" d=\"M {horizontal_x:.3} {horizontal_y:.3} C {jaw_x:.3} {horizontal_y:.3} {jaw_x:.3} {jaw_y:.3} {vertical_x:.3} {vertical_y:.3} C {well_x:.3} {vertical_y:.3} {well_x:.3} {well_y:.3} {horizontal_x:.3} {horizontal_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket\" data-pocket=\"corner\" d=\"M {horizontal_x:.3} {horizontal_y:.3} C {top_handle_x:.3} {top_handle_y:.3} {top_lip_x:.3} {top_lip_y:.3} {crown_x:.3} {crown_y:.3} C {well_x:.3} {crown_y:.3} {well_x:.3} {well_y:.3} {side_lip_x:.3} {side_lip_y:.3} C {side_handle_x:.3} {side_handle_y:.3} {vertical_x:.3} {vertical_y:.3} {vertical_x:.3} {vertical_y:.3} Q {mouth_control_x:.3} {mouth_control_y:.3} {horizontal_x:.3} {horizontal_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" x1=\"{horizontal_x:.3}\" y1=\"{horizontal_y:.3}\" x2=\"{jaw_x:.3}\" y2=\"{jaw_y:.3}\"/>\n"
+        "<path class=\"table-pocket-rim\" d=\"M {top_lip_x:.3} {top_lip_y:.3} C {crown_x:.3} {crown_y:.3} {well_x:.3} {crown_y:.3} {well_x:.3} {well_y:.3} C {well_x:.3} {well_y:.3} {side_lip_x:.3} {side_lip_y:.3} {side_lip_x:.3} {side_lip_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" x1=\"{vertical_x:.3}\" y1=\"{vertical_y:.3}\" x2=\"{jaw_x:.3}\" y2=\"{jaw_y:.3}\"/>\n"
+        "<path class=\"table-pocket-lip\" d=\"M {horizontal_x:.3} {horizontal_y:.3} Q {mouth_control_x:.3} {mouth_control_y:.3} {vertical_x:.3} {vertical_y:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" x1=\"{horizontal_x:.3}\" y1=\"{horizontal_y:.3}\" x2=\"{facing_top_x:.3}\" y2=\"{facing_top_y:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" x1=\"{vertical_x:.3}\" y1=\"{vertical_y:.3}\" x2=\"{facing_side_x:.3}\" y2=\"{facing_side_y:.3}\"/>\n"
     ));
 }
 
@@ -841,23 +862,35 @@ fn push_svg_side_pocket(
 ) {
     let top_y = center_y - mouth_y * 0.5;
     let bottom_y = center_y + mouth_y * 0.5;
-    let upper_throat_y = center_y - mouth_y * 0.38;
-    let lower_throat_y = center_y + mouth_y * 0.38;
-    let upper_belly_y = center_y - mouth_y * 0.56;
-    let lower_belly_y = center_y + mouth_y * 0.56;
+    let upper_throat_y = center_y - mouth_y * 0.34;
+    let lower_throat_y = center_y + mouth_y * 0.34;
+    let upper_shoulder_y = center_y - mouth_y * 0.44;
+    let lower_shoulder_y = center_y + mouth_y * 0.44;
+    let back_depth_x = well_depth_x.min(cushion_x + lip_depth_x * 0.45);
+    let throat_depth_x = (cushion_x + lip_depth_x * 0.05).min(back_depth_x * 0.90);
     let lip_x = rail_x + x_sign * lip_depth_x;
-    let throat_x = rail_x + x_sign * well_depth_x * 0.62;
-    let well_x = rail_x + x_sign * well_depth_x;
-    let rail_belly_x = rail_x + x_sign * cushion_x * 0.18;
+    let throat_x = rail_x + x_sign * throat_depth_x;
+    let well_x = rail_x + x_sign * back_depth_x;
+    let rail_scoop_x = rail_x + x_sign * cushion_x * 0.08;
+    let back_upper_y = center_y - mouth_y * 0.23;
+    let back_lower_y = center_y + mouth_y * 0.23;
+    let facing_upper_x = rail_x + x_sign * lip_depth_x * 0.82;
+    let facing_lower_x = rail_x + x_sign * lip_depth_x * 0.82;
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket\" data-pocket=\"side\" d=\"M {rail_x:.3} {top_y:.3} C {lip_x:.3} {top_y:.3} {throat_x:.3} {top_y:.3} {throat_x:.3} {upper_throat_y:.3} C {well_x:.3} {upper_belly_y:.3} {well_x:.3} {lower_belly_y:.3} {throat_x:.3} {lower_throat_y:.3} C {throat_x:.3} {bottom_y:.3} {lip_x:.3} {bottom_y:.3} {rail_x:.3} {bottom_y:.3} C {rail_belly_x:.3} {bottom_y:.3} {rail_belly_x:.3} {top_y:.3} {rail_x:.3} {top_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket\" data-pocket=\"side\" d=\"M {rail_x:.3} {top_y:.3} L {throat_x:.3} {upper_shoulder_y:.3} L {well_x:.3} {back_upper_y:.3} L {well_x:.3} {back_lower_y:.3} L {throat_x:.3} {lower_shoulder_y:.3} L {rail_x:.3} {bottom_y:.3} Q {rail_scoop_x:.3} {center_y:.3} {rail_x:.3} {top_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{top_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{upper_throat_y:.3}\"/>\n"
+        "<path class=\"table-pocket-rim\" d=\"M {lip_x:.3} {top_y:.3} L {throat_x:.3} {upper_shoulder_y:.3} L {well_x:.3} {back_upper_y:.3} L {well_x:.3} {back_lower_y:.3} L {throat_x:.3} {lower_shoulder_y:.3} L {lip_x:.3} {bottom_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{bottom_y:.3}\" x2=\"{lip_x:.3}\" y2=\"{lower_throat_y:.3}\"/>\n"
+        "<path class=\"table-pocket-lip\" d=\"M {rail_x:.3} {top_y:.3} Q {rail_scoop_x:.3} {center_y:.3} {rail_x:.3} {bottom_y:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{top_y:.3}\" x2=\"{facing_upper_x:.3}\" y2=\"{upper_throat_y:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" x1=\"{rail_x:.3}\" y1=\"{bottom_y:.3}\" x2=\"{facing_lower_x:.3}\" y2=\"{lower_throat_y:.3}\"/>\n"
     ));
 }
 

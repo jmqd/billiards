@@ -41,51 +41,13 @@ enum CommandName {
     ValidationSuite(ValidationSuiteOptions),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ValidationDiagramFormat {
-    Svg,
-    Png,
-    Both,
-}
-
-impl ValidationDiagramFormat {
-    fn parse(raw: &str) -> Result<Self, String> {
-        match raw {
-            "svg" => Ok(Self::Svg),
-            "png" => Ok(Self::Png),
-            "both" => Ok(Self::Both),
-            other => Err(format!(
-                "invalid --format `{other}`; expected svg, png, or both"
-            )),
-        }
-    }
-
-    fn writes_svg(self) -> bool {
-        matches!(self, Self::Svg | Self::Both)
-    }
-
-    fn writes_png(self) -> bool {
-        matches!(self, Self::Png | Self::Both)
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Svg => "SVG",
-            Self::Png => "PNG",
-            Self::Both => "SVG + PNG",
-        }
-    }
-}
-
 #[derive(Debug)]
 struct ValidationSuiteOptions {
     scenario_dir: PathBuf,
     output_dir: PathBuf,
-    scale_factor: u32,
     trace_sample_step_seconds: f64,
     max_events_override: Option<usize>,
     transparent_background: bool,
-    format: ValidationDiagramFormat,
     open: bool,
 }
 
@@ -94,11 +56,9 @@ impl Default for ValidationSuiteOptions {
         Self {
             scenario_dir: PathBuf::from("examples/scenarios"),
             output_dir: PathBuf::from("target/validation-suite"),
-            scale_factor: 1,
             trace_sample_step_seconds: 0.02,
             max_events_override: None,
             transparent_background: false,
-            format: ValidationDiagramFormat::Svg,
             open: false,
         }
     }
@@ -145,13 +105,6 @@ impl ValidationSuiteOptions {
                     options.output_dir =
                         PathBuf::from(value_after(raw_args, index, "--output-dir")?);
                 }
-                "--scale-factor" => {
-                    index += 1;
-                    options.scale_factor = value_after(raw_args, index, "--scale-factor")?
-                        .parse::<u32>()
-                        .map_err(|error| format!("invalid --scale-factor: {error}"))?
-                        .max(1);
-                }
                 "--trace-sample-step-seconds" => {
                     index += 1;
                     options.trace_sample_step_seconds =
@@ -175,11 +128,6 @@ impl ValidationSuiteOptions {
                             .parse::<usize>()
                             .map_err(|error| format!("invalid --max-events: {error}"))?,
                     );
-                }
-                "--format" => {
-                    index += 1;
-                    options.format =
-                        ValidationDiagramFormat::parse(value_after(raw_args, index, "--format")?)?;
                 }
                 "--transparent" => {
                     options.transparent_background = true;
@@ -270,8 +218,7 @@ struct ScenarioReport {
     name: String,
     source_path: PathBuf,
     image_file_name: String,
-    extra_file_names: Vec<String>,
-    inline_svg: Option<String>,
+    inline_svg: String,
     notes: Vec<String>,
     shot_line: Option<String>,
     speed_summary: Option<String>,
@@ -385,59 +332,31 @@ fn render_scenario(
         .and_then(OsStr::to_str)
         .ok_or_else(|| format!("invalid scenario file name {}", scenario_path.display()))?;
     let render_options = DiagramRenderOptions {
-        scale_factor: options.scale_factor,
+        scale_factor: 1,
         background: if options.transparent_background {
             DiagramBackground::Transparent
         } else {
             DiagramBackground::Table
         },
     };
-    let mut image_file_name = String::new();
-    let mut extra_file_names = Vec::new();
-    let mut inline_svg = None;
-
-    if options.format.writes_svg() {
-        let svg =
-            render_state.render_2d_diagram_with_options(DiagramOutputFormat::Svg, &render_options);
-        if svg.is_empty() {
-            return Err(format!(
-                "rendered empty SVG for {}",
-                scenario_path.display()
-            ));
-        }
-        let svg = String::from_utf8(svg).map_err(|error| {
-            format!(
-                "rendered invalid UTF-8 SVG for {}: {error}",
-                scenario_path.display()
-            )
-        })?;
-        let svg_file_name = format!("{stem}.svg");
-        let svg_path = options.output_dir.join(&svg_file_name);
-        fs::write(&svg_path, svg.as_bytes())
-            .map_err(|error| format!("failed to write {}: {error}", svg_path.display()))?;
-        image_file_name = svg_file_name;
-        inline_svg = Some(svg);
+    let svg =
+        render_state.render_2d_diagram_with_options(DiagramOutputFormat::Svg, &render_options);
+    if svg.is_empty() {
+        return Err(format!(
+            "rendered empty SVG for {}",
+            scenario_path.display()
+        ));
     }
-
-    if options.format.writes_png() {
-        let png =
-            render_state.render_2d_diagram_with_options(DiagramOutputFormat::Png, &render_options);
-        if png.is_empty() {
-            return Err(format!(
-                "rendered empty PNG for {}",
-                scenario_path.display()
-            ));
-        }
-        let png_file_name = format!("{stem}.png");
-        let png_path = options.output_dir.join(&png_file_name);
-        fs::write(&png_path, png)
-            .map_err(|error| format!("failed to write {}: {error}", png_path.display()))?;
-        if image_file_name.is_empty() {
-            image_file_name = png_file_name;
-        } else {
-            extra_file_names.push(png_file_name);
-        }
-    }
+    let svg = String::from_utf8(svg).map_err(|error| {
+        format!(
+            "rendered invalid UTF-8 SVG for {}: {error}",
+            scenario_path.display()
+        )
+    })?;
+    let svg_file_name = format!("{stem}.svg");
+    let svg_path = options.output_dir.join(&svg_file_name);
+    fs::write(&svg_path, svg.as_bytes())
+        .map_err(|error| format!("failed to write {}: {error}", svg_path.display()))?;
 
     let speed_summary = scenario
         .validate_shot_human_speed()
@@ -481,9 +400,8 @@ fn render_scenario(
     Ok(ScenarioReport {
         name: stem.replace('_', " "),
         source_path: scenario_path.to_path_buf(),
-        extra_file_names,
-        inline_svg,
-        image_file_name,
+        image_file_name: svg_file_name,
+        inline_svg: svg,
         notes: scenario_notes(&source),
         shot_line: source
             .lines()
@@ -656,11 +574,10 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
     html.push_str("</style>\n</head>\n<body>\n");
     html.push_str("<header>\n<h1>Billiards scenario validation suite</h1>\n");
     html.push_str(&format!(
-        "<p class=\"subtitle\">{} scenario diagram(s), generated from <code>{}</code> into <code>{}</code> as {}. Speeds are cue-ball launch estimates unless noted.</p>\n",
+        "<p class=\"subtitle\">{} scenario diagram(s), generated from <code>{}</code> into <code>{}</code> as inline SVG. Speeds are cue-ball launch estimates unless noted.</p>\n",
         reports.len(),
         escape_html(&options.scenario_dir.display().to_string()),
         escape_html(&options.output_dir.display().to_string()),
-        options.format.label()
     ));
     html.push_str("</header>\n<main>\n<nav class=\"toc\" aria-label=\"Scenario list\">\n");
     for report in reports {
@@ -712,33 +629,23 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
                 "<div><h3>Cue-tip placement</h3><p>The red dot is the shot tip contact in cue-ball-radius units. The black circle is the configured maximum clean cuing offset before a miscue.</p></div>\n</aside>\n",
             );
         }
-        if let Some(svg) = &report.inline_svg {
-            html.push_str("<figure class=\"svg-viewer\" data-viewer>\n");
-            html.push_str(
-                "<div class=\"viewer-controls\" aria-label=\"Diagram controls\">\n\
-                 <button type=\"button\" data-zoom=\"in\">Zoom in</button>\n\
-                 <button type=\"button\" data-zoom=\"out\">Zoom out</button>\n\
-                 <button type=\"button\" data-zoom=\"reset\">Reset</button>\n\
-                 <label><input type=\"checkbox\" data-layer-toggle=\"table\" checked>Table</label>\n\
-                 <label><input type=\"checkbox\" data-layer-toggle=\"overlays-below-balls\" checked>Below-ball overlays</label>\n\
-                 <label><input type=\"checkbox\" data-layer-toggle=\"balls\" checked>Balls</label>\n\
-                 <label><input type=\"checkbox\" data-layer-toggle=\"overlays-above-balls\" checked>Above-ball overlays</label>\n\
-                 </div>\n\
-                 <div class=\"svg-frame\">\n",
-            );
-            html.push_str(svg);
-            html.push_str("</div>\n");
-            push_download_links(&mut html, report);
-            html.push_str("</figure>\n");
-        } else {
-            html.push_str(&format!(
-                "<figure><img src=\"{}\" alt=\"{} scenario diagram\">",
-                escape_html(&report.image_file_name),
-                escape_html(&report.name)
-            ));
-            push_download_links(&mut html, report);
-            html.push_str("</figure>\n");
-        }
+        html.push_str("<figure class=\"svg-viewer\" data-viewer>\n");
+        html.push_str(
+            "<div class=\"viewer-controls\" aria-label=\"Diagram controls\">\n\
+             <button type=\"button\" data-zoom=\"in\">Zoom in</button>\n\
+             <button type=\"button\" data-zoom=\"out\">Zoom out</button>\n\
+             <button type=\"button\" data-zoom=\"reset\">Reset</button>\n\
+             <label><input type=\"checkbox\" data-layer-toggle=\"table\" checked>Table</label>\n\
+             <label><input type=\"checkbox\" data-layer-toggle=\"overlays-below-balls\" checked>Below-ball overlays</label>\n\
+             <label><input type=\"checkbox\" data-layer-toggle=\"balls\" checked>Balls</label>\n\
+             <label><input type=\"checkbox\" data-layer-toggle=\"overlays-above-balls\" checked>Above-ball overlays</label>\n\
+             </div>\n\
+             <div class=\"svg-frame\">\n",
+        );
+        html.push_str(&report.inline_svg);
+        html.push_str("</div>\n");
+        push_download_links(&mut html, report);
+        html.push_str("</figure>\n");
         push_event_log(&mut html, report);
         html.push_str("</section>\n");
     }
@@ -821,19 +728,12 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
 }
 
 fn push_download_links(html: &mut String, report: &ScenarioReport) {
-    html.push_str("<div class=\"downloads\">Downloads: ");
+    html.push_str("<div class=\"downloads\">Download: ");
     html.push_str(&format!(
         "<a href=\"{}\">{}</a>",
         escape_html(&report.image_file_name),
         escape_html(&report.image_file_name)
     ));
-    for file_name in &report.extra_file_names {
-        html.push_str(&format!(
-            " <a href=\"{}\">{}</a>",
-            escape_html(file_name),
-            escape_html(file_name)
-        ));
-    }
     html.push_str("</div>\n");
 }
 
@@ -905,7 +805,7 @@ fn print_usage() {
 }
 
 fn usage_text() -> &'static str {
-    "Usage:\n  cargo xtask validation-suite [options]\n\nOptions:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for diagrams and index.html [default: target/validation-suite]\n  --format <svg|png|both>            Diagram output format [default: svg]\n  --scale-factor <n>                 Positive integer render scale for PNG exports [default: 1]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.02]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n"
+    "Usage:\n  cargo xtask validation-suite [options]\n\nOptions:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for SVG diagrams and index.html [default: target/validation-suite]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.02]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n"
 }
 
 #[cfg(test)]
@@ -933,8 +833,7 @@ mod tests {
             name: "cue tip test".to_string(),
             source_path: PathBuf::from("examples/scenarios/cue_tip_test.billiards"),
             image_file_name: "cue_tip_test.svg".to_string(),
-            extra_file_names: Vec::new(),
-            inline_svg: None,
+            inline_svg: "<svg></svg>".to_string(),
             notes: Vec::new(),
             shot_line: None,
             speed_summary: None,
@@ -953,5 +852,15 @@ mod tests {
         assert!(html.contains("<svg class=\"cue-tip-diagram\""));
         assert!(html.contains("data-tip-side=\"0.250\""));
         assert!(html.contains("data-tip-height=\"-0.500\""));
+    }
+
+    #[test]
+    fn validation_suite_options_reject_removed_format_option() {
+        let args = ["--format".to_string(), "svg".to_string()];
+
+        let error = ValidationSuiteOptions::parse(&args).expect_err("format option is gone");
+
+        assert!(error.contains("unknown validation-suite option `--format`"));
+        assert!(!usage_text().contains("--format"));
     }
 }

@@ -3,8 +3,8 @@ use billiards::{
     diagram::DiagramOutputFormat,
     human_tuned_preview_motion_config,
     visualization::{BallPathRenderOptions, PathColorMode},
-    BallSetPhysicsSpec, CollisionModel, DiagramBackground, DiagramRenderOptions,
-    OnTableMotionConfig, RailModel, Seconds,
+    CollisionModel, DiagramBackground, DiagramRenderOptions, OnTableMotionConfig, RailModel,
+    Seconds,
 };
 use clap::{Parser, ValueEnum};
 use std::fs;
@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // does resolve aliases immediately, but if we add inches support in DSL later, this is good practice).
     scenario.game_state.resolve_positions();
 
-    let ball_set = BallSetPhysicsSpec::default();
+    let ball_set = scenario.ball_set_physics_spec();
     let motion = shot_preview_motion_config();
     let trace_render = ScenarioTraceRenderOptions {
         path_render: BallPathRenderOptions {

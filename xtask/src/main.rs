@@ -7,9 +7,9 @@ use std::process::Command;
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
-    diagram::DiagramOutputFormat, human_tuned_preview_motion_config, BallSetPhysicsSpec,
-    CollisionModel, DiagramBackground, DiagramRenderOptions, HumanShotSpeedBand, NBallSystemState,
-    RailModel, Seconds, ShotSpeedPreset,
+    diagram::DiagramOutputFormat, human_tuned_preview_motion_config, CollisionModel,
+    DiagramBackground, DiagramRenderOptions, HumanShotSpeedBand, NBallSystemState, RailModel,
+    Seconds, ShotSpeedPreset,
 };
 
 fn main() {
@@ -298,7 +298,7 @@ fn render_scenario(
         .map_err(|error| format!("failed to parse {}: {error}", scenario_path.display()))?;
     scenario.game_state.resolve_positions();
 
-    let ball_set = BallSetPhysicsSpec::default();
+    let ball_set = scenario.ball_set_physics_spec();
     let motion = human_tuned_preview_motion_config();
     let trace_render = ScenarioTraceRenderOptions {
         path_render: BallPathRenderOptions {

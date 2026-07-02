@@ -6,11 +6,11 @@ use billiards::dsl::{
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
     visualization::{BallPathRenderOptions, PathColorMode},
-    Angle, BallSetPhysicsSpec, BallType, CollisionModel, Diamond, HumanShotSpeedBand,
+    Angle, BallSetPhysicsSpec, BallType, CollisionModel, Diamond, GameType, HumanShotSpeedBand,
     InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
     NBallSystemState, OnTableMotionConfig, PlayingConditions, Pocket, RadiansPerSecondSq,
     RailCollisionProfile, RailModel, RollingResistanceModel, ShotSpeedPreset, SlidingFrictionModel,
-    SpinDecayModel, TYPICAL_BALL_RADIUS,
+    SpinDecayModel, TableKind, CAROM_BALL_RADIUS, TYPICAL_BALL_RADIUS,
 };
 use image::load_from_memory;
 
@@ -83,6 +83,37 @@ fn given_comments_blank_lines_aliases_and_frozen_balls_when_building_then_positi
     assert_close(nine.position.y.magnitude.to_f64().expect("nine y"), 7.93);
     assert_close(eight.position.x.magnitude.to_f64().expect("eight x"), 0.09);
     assert_close(eight.position.y.magnitude.to_f64().expect("eight y"), 6.0);
+}
+
+#[test]
+fn carom_table_dsl_builds_pocketless_table_game_and_carom_balls() {
+    let scenario = parse_dsl_to_scenario(
+        "table three_cushion_carom_10ft\n\
+         game three_cushion\n\
+         ball cue at (1.0, 1.0)\n\
+         ball yellow at (2.0, 4.0)\n\
+         ball red at (3.0, 7.0)\n",
+    )
+    .expect("expected carom DSL to build");
+
+    assert_eq!(
+        scenario.game_state.table_spec.kind,
+        TableKind::ThreeCushionCarom
+    );
+    assert!(!scenario.game_state.table_spec.has_pockets());
+    assert_eq!(scenario.game_state.ty, GameType::ThreeCushion);
+    assert_close(
+        scenario.ball_set_physics_spec().radius.as_f64(),
+        CAROM_BALL_RADIUS.as_f64(),
+    );
+
+    for ball_type in [BallType::Cue, BallType::YellowCue, BallType::Red] {
+        let ball = scenario
+            .game_state
+            .select_ball(ball_type)
+            .expect("carom ball placement");
+        assert_close(ball.spec.radius.as_f64(), CAROM_BALL_RADIUS.as_f64());
+    }
 }
 
 #[test]

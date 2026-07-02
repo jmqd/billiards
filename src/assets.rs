@@ -50,6 +50,8 @@ pub fn ball_img(ball: BallType) -> Vec<u8> {
         BallType::Seven => BALL_IMGS[7].to_vec(),
         BallType::Eight => BALL_IMGS[8].to_vec(),
         BallType::Nine => BALL_IMGS[9].to_vec(),
+        BallType::YellowCue => BALL_IMGS[1].to_vec(),
+        BallType::Red => BALL_IMGS[3].to_vec(),
     }
 }
 

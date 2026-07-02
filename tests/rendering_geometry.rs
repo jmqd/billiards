@@ -315,6 +315,41 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
 }
 
 #[test]
+fn svg_three_cushion_table_is_pocketless_with_carom_sights_and_balls() {
+    let table = TableSpec::three_cushion_carom_10ft();
+    let ball_spec = table.default_ball_spec();
+    let state = GameState::with_balls(
+        table,
+        [
+            Ball {
+                ty: BallType::Cue,
+                position: Position::new("1", "1"),
+                spec: ball_spec.clone(),
+            },
+            Ball {
+                ty: BallType::YellowCue,
+                position: Position::new("2", "4"),
+                spec: ball_spec.clone(),
+            },
+            Ball {
+                ty: BallType::Red,
+                position: Position::new("3", "7"),
+                spec: ball_spec,
+            },
+        ],
+    );
+    let svg = render_svg_with_options(&state, &DiagramRenderOptions::default());
+
+    assert!(svg.contains("class=\"carom-table\""));
+    assert_eq!(svg.matches("class=\"table-diamond\"").count(), 20);
+    assert_eq!(svg.matches("data-pocket=").count(), 0);
+    assert!(svg.contains("id=\"heated-carom-cloth\""));
+    assert!(svg.contains("id=\"carom-wood-rail\""));
+    assert!(svg.contains("class=\"ball ball-yellow\""));
+    assert!(svg.contains("class=\"ball ball-red\""));
+}
+
+#[test]
 fn svg_table_uses_smooth_deep_pocket_backs_and_pronounced_facing_noses() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 

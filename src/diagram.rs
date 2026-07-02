@@ -3,6 +3,7 @@ use crate::visualization::{
 };
 use crate::{
     assets, drawing, BallSpec, BallType, DiagramBackground, DiagramRenderOptions, OverlayLayer,
+    TableKind,
 };
 use crate::{Position, TableSpec};
 use bigdecimal::ToPrimitive;
@@ -286,6 +287,7 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}\n");
         svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket{fill:#030202;stroke:#24211f;stroke-width:1.5}.table-pocket-facing{stroke:#1b120e;stroke-width:7;stroke-linecap:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.98}\n");
+        svg.push_str(".carom-table .table-rail{fill:url(#carom-wood-rail)}.carom-table .table-cloth{fill:url(#heated-carom-cloth)}.carom-table .table-cloth-texture{opacity:.16}.carom-table .table-cushion{fill:url(#heated-carom-cushion)}.carom-table .table-cushion-nose{stroke:#88ecff;stroke-width:3.2}.carom-table .table-cushion-back{stroke:#064f69;stroke-width:3.2}.carom-table .table-rail-inner-shadow{stroke:#0b0705;stroke-width:12;opacity:.58}\n");
         svg.push_str("</style>\n");
         push_svg_table_defs(&mut svg);
 
@@ -295,7 +297,7 @@ impl DiagramBackend for SvgBackend {
             DiagramLayerId::Table.as_str()
         ));
         if scene.background == DiagramBackground::Table {
-            push_svg_table(&mut svg, scene.viewport);
+            push_svg_table(&mut svg, &scene.table_spec, scene.viewport);
         }
         svg.push_str("</g>\n");
 
@@ -345,6 +347,22 @@ fn push_svg_table_defs(svg: &mut String) {
 <path d="M48 -28C37 16 55 47 45 82C32 124 60 151 45 205" stroke="#1d0907" stroke-width="4" opacity=".38" fill="none"/>
 <path d="M8 0C16 40 4 63 10 96C16 127 3 150 11 180" stroke="#d0834d" stroke-width="1.5" opacity=".28" fill="none"/>
 </pattern>
+<linearGradient id="heated-carom-cloth" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#0aa7d0"/>
+<stop offset="55%" stop-color="#087da4"/>
+<stop offset="100%" stop-color="#075b7c"/>
+</linearGradient>
+<linearGradient id="heated-carom-cushion" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#34d7ef"/>
+<stop offset="50%" stop-color="#0e97bd"/>
+<stop offset="100%" stop-color="#046d8a"/>
+</linearGradient>
+<linearGradient id="carom-wood-rail" x1="0" y1="0" x2=".35" y2="1">
+<stop offset="0%" stop-color="#65311f"/>
+<stop offset="38%" stop-color="#3d1a11"/>
+<stop offset="68%" stop-color="#7b3e27"/>
+<stop offset="100%" stop-color="#24100c"/>
+</linearGradient>
 </defs>
 "##,
     );
@@ -443,7 +461,16 @@ fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage, tw: u32, th: u
     }
 }
 
-fn push_svg_table(svg: &mut String, viewport: DiagramViewport) {
+fn push_svg_table(svg: &mut String, table_spec: &TableSpec, viewport: DiagramViewport) {
+    match table_spec.kind {
+        TableKind::Pool => push_svg_pool_table(svg, viewport),
+        TableKind::ThreeCushionCarom => {
+            push_svg_three_cushion_carom_table(svg, table_spec, viewport)
+        }
+    }
+}
+
+fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
     // WPA tournament dimensions used by Diamond-style 9 ft tables:
     // 100 x 50 in playing surface, sights 3 11/16 in from cushion nose,
     // 4.5 in corner mouths, 5.0 in side mouths, and cut pockets instead of
@@ -587,6 +614,117 @@ fn push_svg_table(svg: &mut String, viewport: DiagramViewport) {
     push_svg_table_sights(svg, viewport);
 }
 
+fn push_svg_three_cushion_carom_table(
+    svg: &mut String,
+    table_spec: &TableSpec,
+    viewport: DiagramViewport,
+) {
+    let w = viewport.width_px;
+    let h = viewport.height_px;
+    let left = viewport.playfield_left_px;
+    let right = viewport.playfield_right_px;
+    let top = viewport.playfield_top_px;
+    let bottom = viewport.playfield_bottom_px;
+    let cloth_w = right - left;
+    let cloth_h = bottom - top;
+    let bottom_rail_h = h - bottom;
+    let right_rail_w = w - right;
+    let cushion_x = viewport.x_inches_for_table(table_spec, 2.25);
+    let cushion_y = viewport.y_inches_for_table(table_spec, 2.25);
+
+    svg.push_str("<g class=\"carom-table\">\n");
+    svg.push_str(&format!(
+        "<rect class=\"table-rail\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<clipPath id=\"carom-table-rail-clip\"><rect x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/></clipPath>\n"
+    ));
+    svg.push_str(&format!(
+        "<g clip-path=\"url(#carom-table-rail-clip)\"><rect class=\"table-rail-grain table-rail-grain-horizontal\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{top:.3}\"/><rect class=\"table-rail-grain table-rail-grain-horizontal\" x=\"0\" y=\"{bottom:.3}\" width=\"{w:.3}\" height=\"{bottom_rail_h:.3}\"/><rect class=\"table-rail-grain table-rail-grain-vertical\" x=\"0\" y=\"{top:.3}\" width=\"{left:.3}\" height=\"{cloth_h:.3}\"/><rect class=\"table-rail-grain table-rail-grain-vertical\" x=\"{right:.3}\" y=\"{top:.3}\" width=\"{right_rail_w:.3}\" height=\"{cloth_h:.3}\"/></g>\n"
+    ));
+    svg.push_str(&format!(
+        "<rect class=\"table-cloth\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<rect class=\"table-cloth-texture\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<rect class=\"table-rail-inner-shadow\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
+    ));
+
+    svg.push_str(&format!(
+        "<path class=\"table-cushion\" d=\"M {left:.3} {top:.3} L {right:.3} {top:.3} L {:.3} {:.3} L {:.3} {:.3} Z\"/>\n",
+        right + cushion_x,
+        top - cushion_y,
+        left - cushion_x,
+        top - cushion_y
+    ));
+    svg.push_str(&format!(
+        "<path class=\"table-cushion\" d=\"M {left:.3} {bottom:.3} L {right:.3} {bottom:.3} L {:.3} {:.3} L {:.3} {:.3} Z\"/>\n",
+        right + cushion_x,
+        bottom + cushion_y,
+        left - cushion_x,
+        bottom + cushion_y
+    ));
+    svg.push_str(&format!(
+        "<path class=\"table-cushion\" d=\"M {left:.3} {top:.3} L {left:.3} {bottom:.3} L {:.3} {:.3} L {:.3} {:.3} Z\"/>\n",
+        left - cushion_x,
+        bottom + cushion_y,
+        left - cushion_x,
+        top - cushion_y
+    ));
+    svg.push_str(&format!(
+        "<path class=\"table-cushion\" d=\"M {right:.3} {top:.3} L {right:.3} {bottom:.3} L {:.3} {:.3} L {:.3} {:.3} Z\"/>\n",
+        right + cushion_x,
+        bottom + cushion_y,
+        right + cushion_x,
+        top - cushion_y
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-nose\" x1=\"{left:.3}\" y1=\"{top:.3}\" x2=\"{right:.3}\" y2=\"{top:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-nose\" x1=\"{left:.3}\" y1=\"{bottom:.3}\" x2=\"{right:.3}\" y2=\"{bottom:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-nose\" x1=\"{left:.3}\" y1=\"{top:.3}\" x2=\"{left:.3}\" y2=\"{bottom:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-nose\" x1=\"{right:.3}\" y1=\"{top:.3}\" x2=\"{right:.3}\" y2=\"{bottom:.3}\"/>\n"
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-back\" x1=\"{:.3}\" y1=\"{:.3}\" x2=\"{:.3}\" y2=\"{:.3}\"/>\n",
+        left - cushion_x,
+        top - cushion_y,
+        right + cushion_x,
+        top - cushion_y
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-back\" x1=\"{:.3}\" y1=\"{:.3}\" x2=\"{:.3}\" y2=\"{:.3}\"/>\n",
+        left - cushion_x,
+        bottom + cushion_y,
+        right + cushion_x,
+        bottom + cushion_y
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-back\" x1=\"{:.3}\" y1=\"{:.3}\" x2=\"{:.3}\" y2=\"{:.3}\"/>\n",
+        left - cushion_x,
+        top - cushion_y,
+        left - cushion_x,
+        bottom + cushion_y
+    ));
+    svg.push_str(&format!(
+        "<line class=\"table-cushion-back\" x1=\"{:.3}\" y1=\"{:.3}\" x2=\"{:.3}\" y2=\"{:.3}\"/>\n",
+        right + cushion_x,
+        top - cushion_y,
+        right + cushion_x,
+        bottom + cushion_y
+    ));
+
+    push_svg_three_cushion_carom_sights(svg, table_spec, viewport);
+    svg.push_str("</g>\n");
+}
+
 impl DiagramViewport {
     fn x_inches(self, inches: f32) -> f32 {
         inches * (self.playfield_right_px - self.playfield_left_px) / PLAYFIELD_WIDTH_IN
@@ -594,6 +732,16 @@ impl DiagramViewport {
 
     fn y_inches(self, inches: f32) -> f32 {
         inches * (self.playfield_bottom_px - self.playfield_top_px) / PLAYFIELD_LENGTH_IN
+    }
+
+    fn x_inches_for_table(self, table_spec: &TableSpec, inches: f32) -> f32 {
+        let table_width_in = table_spec.diamond_length.as_f64() as f32 * TABLE_DIAMONDS_X;
+        inches * (self.playfield_right_px - self.playfield_left_px) / table_width_in
+    }
+
+    fn y_inches_for_table(self, table_spec: &TableSpec, inches: f32) -> f32 {
+        let table_length_in = table_spec.diamond_length.as_f64() as f32 * TABLE_DIAMONDS_Y;
+        inches * (self.playfield_bottom_px - self.playfield_top_px) / table_length_in
     }
 }
 
@@ -763,6 +911,61 @@ fn push_svg_table_sights(svg: &mut String, viewport: DiagramViewport) {
     }
 }
 
+fn push_svg_three_cushion_carom_sights(
+    svg: &mut String,
+    table_spec: &TableSpec,
+    viewport: DiagramViewport,
+) {
+    let left = viewport.playfield_left_px;
+    let right = viewport.playfield_right_px;
+    let top = viewport.playfield_top_px;
+    let bottom = viewport.playfield_bottom_px;
+    let cloth_w = right - left;
+    let cloth_h = bottom - top;
+    let sight_setback_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_SETBACK_IN);
+    let sight_setback_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_SETBACK_IN);
+    let sight_half_along_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_WIDTH_IN) * 0.5;
+    let sight_half_along_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_WIDTH_IN) * 0.5;
+    let sight_half_cross_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_HEIGHT_IN) * 0.5;
+    let sight_half_cross_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_HEIGHT_IN) * 0.5;
+
+    for fraction in [0.25, 0.5, 0.75] {
+        let x = left + fraction * cloth_w;
+        push_svg_horizontal_sight(
+            svg,
+            x,
+            top - sight_setback_y,
+            sight_half_along_x,
+            sight_half_cross_y,
+        );
+        push_svg_horizontal_sight(
+            svg,
+            x,
+            bottom + sight_setback_y,
+            sight_half_along_x,
+            sight_half_cross_y,
+        );
+    }
+
+    for fraction in [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875] {
+        let y = bottom - fraction * cloth_h;
+        push_svg_vertical_sight(
+            svg,
+            left - sight_setback_x,
+            y,
+            sight_half_along_y,
+            sight_half_cross_x,
+        );
+        push_svg_vertical_sight(
+            svg,
+            right + sight_setback_x,
+            y,
+            sight_half_along_y,
+            sight_half_cross_x,
+        );
+    }
+}
+
 fn push_svg_horizontal_sight(svg: &mut String, cx: f32, cy: f32, half_along: f32, half_cross: f32) {
     svg.push_str(&format!(
         "<polygon class=\"table-diamond\" points=\"{:.3},{:.3} {:.3},{:.3} {:.3},{:.3} {:.3},{:.3}\"/>\n",
@@ -842,9 +1045,8 @@ fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramEle
         }
         DiagramElement::GhostBall { center, style } => {
             let center = scene.viewport.position_to_scene_point(center);
-            let radius = scene
-                .viewport
-                .ball_radius_px(&scene.table_spec, &BallSpec::default());
+            let ball_spec = scene.table_spec.default_ball_spec();
+            let radius = scene.viewport.ball_radius_px(&scene.table_spec, &ball_spec);
             let (fill, fill_opacity) = svg_color(style.fill_color);
             let (stroke, stroke_opacity) = svg_color(style.outline_color);
             svg.push_str(&format!(
@@ -966,6 +1168,14 @@ fn ball_visual(ball_type: &BallType) -> BallVisual {
             fill: "#111111",
             class_name: "eight",
         },
+        BallType::YellowCue => BallVisual {
+            fill: "#f1c232",
+            class_name: "yellow",
+        },
+        BallType::Red => BallVisual {
+            fill: "#c82828",
+            class_name: "red",
+        },
     }
 }
 
@@ -981,6 +1191,7 @@ fn ball_label(ball_type: &BallType) -> Option<&'static str> {
         BallType::Seven => Some("7"),
         BallType::Eight => Some("8"),
         BallType::Nine => Some("9"),
+        BallType::YellowCue | BallType::Red => None,
     }
 }
 

@@ -16,9 +16,9 @@ use crate::{
         LabelOverlayStyle, PathColorMode,
     },
     Angle, Ball, BallBallCollisionConfig, BallPath, BallPathSegment, BallPathStop,
-    BallSetPhysicsSpec, BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig,
-    CueTipContact, Diamond, GameState, HumanShotSpeedValidation, Inches, InchesPerSecond,
-    MotionPhase, NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
+    BallSetPhysicsSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact,
+    Diamond, GameState, GameType, HumanShotSpeedValidation, Inches, InchesPerSecond, MotionPhase,
+    NBallSystemEvent, NBallSystemSimulation, NBallSystemState, OnTableBallState,
     OnTableMotionConfig, PlayingConditions, PlayingConditionsPreset, Pocket, PocketJaw, Position,
     Rail, RailCollisionConfig, RailCollisionProfile, RailModel, RestingOnTableBallState, Scale,
     Seconds, SharedBallBallContactResolution, Shot, ShotError, ShotSpeedPreset, TableSpec,
@@ -36,6 +36,7 @@ use winnow::token::take_while;
 #[derive(Debug, Clone, PartialEq)]
 pub struct DslDoc {
     pub table: Option<TableRef>,
+    pub game: Option<GameRef>,
     pub trace_max_events: Option<usize>,
     pub entries: Vec<DslEntry>,
 }
@@ -98,6 +99,10 @@ impl DslScenario {
         self.simulations
             .get(name)
             .ok_or_else(|| DslBuildError::UnknownSimulation(name.to_string()))
+    }
+
+    pub fn ball_set_physics_spec(&self) -> BallSetPhysicsSpec {
+        self.game_state.table_spec.default_ball_set_physics_spec()
     }
 
     pub fn preferred_simulation_name(&self) -> Option<&str> {
@@ -1187,6 +1192,8 @@ fn ball_type_name(ball: &BallType) -> &'static str {
         BallType::Seven => "seven",
         BallType::Eight => "eight",
         BallType::Nine => "nine",
+        BallType::YellowCue => "yellow",
+        BallType::Red => "red",
     }
 }
 
@@ -1228,6 +1235,8 @@ fn ball_trace_color(ball: &BallType) -> Rgba<u8> {
         BallType::Six => Rgba([34, 139, 34, 255]),
         BallType::Seven => Rgba([128, 0, 0, 255]),
         BallType::Eight => Rgba([32, 32, 32, 255]),
+        BallType::YellowCue => Rgba([246, 213, 79, 255]),
+        BallType::Red => Rgba([190, 24, 24, 255]),
     }
 }
 
@@ -1377,6 +1386,17 @@ enum BallPlacementKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TableRef {
     BrunswickGc4_9ft,
+    ThreeCushionCarom10ft,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameRef {
+    NineBall,
+    EightBall,
+    TenBall,
+    OnePocket,
+    Banks,
+    ThreeCushion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1391,6 +1411,8 @@ pub enum BallRef {
     Seven,
     Eight,
     Nine,
+    Yellow,
+    Red,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1724,11 +1746,15 @@ pub fn build_game_state(doc: &DslDoc) -> Result<GameState, DslBuildError> {
 }
 
 pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
-    let table_spec = match doc.table.unwrap_or(TableRef::BrunswickGc4_9ft) {
-        TableRef::BrunswickGc4_9ft => TableSpec::brunswick_gc4_9ft(),
-    };
-
+    let table_spec = doc
+        .table
+        .unwrap_or(TableRef::BrunswickGc4_9ft)
+        .to_table_spec();
+    let default_ball_spec = table_spec.default_ball_spec();
     let mut game_state = GameState::new(table_spec);
+    if let Some(game) = doc.game {
+        game_state.ty = game.to_game_type();
+    }
     let mut aliases = HashMap::new();
     let mut cue_strikes = HashMap::new();
     let mut ball_ball_defs = Vec::new();
@@ -1749,7 +1775,7 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
                     game_state.add_ball(Ball {
                         ty: ball.to_ball_type(),
                         position: pos,
-                        spec: BallSpec::default(),
+                        spec: default_ball_spec.clone(),
                     });
                 }
                 BallPlacement::Frozen { ball, rail, coord } => {
@@ -1761,6 +1787,7 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
                         diamond,
                         Ball {
                             ty: ball.to_ball_type(),
+                            spec: default_ball_spec.clone(),
                             ..Default::default()
                         },
                     );
@@ -2550,6 +2577,7 @@ fn parse_error(err: ParseError<'_>) -> DslParseError {
 fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
     let mut doc = DslDoc {
         table: None,
+        game: None,
         trace_max_events: None,
         entries: Vec::new(),
     };
@@ -2559,6 +2587,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
             || (),
             |(), entry| match entry {
                 DslStatement::Table(table) => doc.table = Some(table),
+                DslStatement::Game(game) => doc.game = Some(game),
                 DslStatement::TraceMaxEvents(max_events) => {
                     doc.trace_max_events = Some(max_events);
                 }
@@ -2583,6 +2612,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
 #[derive(Debug, Clone, PartialEq)]
 enum DslStatement {
     Table(TableRef),
+    Game(GameRef),
     TraceMaxEvents(usize),
     Alias(AliasDef),
     Ball(BallPlacement),
@@ -2601,6 +2631,7 @@ fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
         comment_line,
         blank_line,
         preceded(peek("table"), cut_err(table_stmt)),
+        preceded(peek("game"), cut_err(game_stmt)),
         preceded(peek("trace"), cut_err(trace_stmt)),
         preceded(peek("pos"), cut_err(alias_stmt)),
         preceded(peek("rail_response"), cut_err(rail_response_stmt)),
@@ -2632,6 +2663,13 @@ fn table_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     let _ = ws1.parse_next(input)?;
     let table = table_ref.parse_next(input)?;
     Ok(DslStatement::Table(table))
+}
+
+fn game_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
+    let _ = "game".parse_next(input)?;
+    let _ = ws1.parse_next(input)?;
+    let game = game_ref.parse_next(input)?;
+    Ok(DslStatement::Game(game))
 }
 
 fn trace_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
@@ -3272,7 +3310,29 @@ fn named_position<'a>(input: &mut Stream<'a>) -> ParseResult<'a, NamedPosition> 
 }
 
 fn table_ref<'a>(input: &mut Stream<'a>) -> ParseResult<'a, TableRef> {
-    alt(("brunswick_gc4_9ft".map(|_| TableRef::BrunswickGc4_9ft),)).parse_next(input)
+    alt((
+        "brunswick_gc4_9ft".map(|_| TableRef::BrunswickGc4_9ft),
+        "three_cushion_carom_10ft".map(|_| TableRef::ThreeCushionCarom10ft),
+        "three-cushion-carom-10ft".map(|_| TableRef::ThreeCushionCarom10ft),
+    ))
+    .parse_next(input)
+}
+
+fn game_ref<'a>(input: &mut Stream<'a>) -> ParseResult<'a, GameRef> {
+    alt((
+        "nine_ball".map(|_| GameRef::NineBall),
+        "nine-ball".map(|_| GameRef::NineBall),
+        "eight_ball".map(|_| GameRef::EightBall),
+        "eight-ball".map(|_| GameRef::EightBall),
+        "ten_ball".map(|_| GameRef::TenBall),
+        "ten-ball".map(|_| GameRef::TenBall),
+        "one_pocket".map(|_| GameRef::OnePocket),
+        "one-pocket".map(|_| GameRef::OnePocket),
+        "banks".map(|_| GameRef::Banks),
+        "three_cushion".map(|_| GameRef::ThreeCushion),
+        "three-cushion".map(|_| GameRef::ThreeCushion),
+    ))
+    .parse_next(input)
 }
 
 fn pocket_ref<'a>(input: &mut Stream<'a>) -> ParseResult<'a, Pocket> {
@@ -3299,6 +3359,8 @@ fn ball_ref<'a>(input: &mut Stream<'a>) -> ParseResult<'a, BallRef> {
         "seven".map(|_| BallRef::Seven),
         "eight".map(|_| BallRef::Eight),
         "nine".map(|_| BallRef::Nine),
+        "yellow".map(|_| BallRef::Yellow),
+        "red".map(|_| BallRef::Red),
     ))
     .parse_next(input)
 }
@@ -3343,6 +3405,8 @@ impl std::fmt::Display for BallRef {
             BallRef::Seven => write!(f, "seven"),
             BallRef::Eight => write!(f, "eight"),
             BallRef::Nine => write!(f, "nine"),
+            BallRef::Yellow => write!(f, "yellow"),
+            BallRef::Red => write!(f, "red"),
         }
     }
 }
@@ -3362,6 +3426,27 @@ impl NamedPosition {
     }
 }
 
+impl TableRef {
+    fn to_table_spec(self) -> TableSpec {
+        match self {
+            TableRef::BrunswickGc4_9ft => TableSpec::brunswick_gc4_9ft(),
+            TableRef::ThreeCushionCarom10ft => TableSpec::three_cushion_carom_10ft(),
+        }
+    }
+}
+
+impl GameRef {
+    fn to_game_type(self) -> GameType {
+        match self {
+            GameRef::NineBall => GameType::NineBall,
+            GameRef::EightBall => GameType::EightBall,
+            GameRef::TenBall => GameType::TenBall,
+            GameRef::OnePocket => GameType::OnePocket,
+            GameRef::Banks => GameType::Banks,
+            GameRef::ThreeCushion => GameType::ThreeCushion,
+        }
+    }
+}
 impl BallRef {
     fn to_ball_type(self) -> BallType {
         match self {
@@ -3375,6 +3460,8 @@ impl BallRef {
             BallRef::Seven => BallType::Seven,
             BallRef::Eight => BallType::Eight,
             BallRef::Nine => BallType::Nine,
+            BallRef::Yellow => BallType::YellowCue,
+            BallRef::Red => BallType::Red,
         }
     }
 }

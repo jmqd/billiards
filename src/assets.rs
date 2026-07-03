@@ -41,17 +41,15 @@ pub const TABLE_DIAGRAM: &[u8] = include_bytes!("assets/table_diagram_head_top.p
 pub fn ball_img(ball: BallType) -> Vec<u8> {
     match ball {
         BallType::Cue => BALL_IMGS[0].to_vec(),
-        BallType::One => BALL_IMGS[1].to_vec(),
+        BallType::One | BallType::YellowCue => BALL_IMGS[1].to_vec(),
         BallType::Two => BALL_IMGS[2].to_vec(),
-        BallType::Three => BALL_IMGS[3].to_vec(),
+        BallType::Three | BallType::Red => BALL_IMGS[3].to_vec(),
         BallType::Four => BALL_IMGS[4].to_vec(),
         BallType::Five => BALL_IMGS[5].to_vec(),
         BallType::Six => BALL_IMGS[6].to_vec(),
         BallType::Seven => BALL_IMGS[7].to_vec(),
         BallType::Eight => BALL_IMGS[8].to_vec(),
         BallType::Nine => BALL_IMGS[9].to_vec(),
-        BallType::YellowCue => BALL_IMGS[1].to_vec(),
-        BallType::Red => BALL_IMGS[3].to_vec(),
     }
 }
 

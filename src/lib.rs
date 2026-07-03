@@ -13331,8 +13331,7 @@ impl TableSpec {
             kind: TableKind::ThreeCushionCarom,
             diamond_length: diamond_length.clone(),
             cushion_diamond_buffer: Diamond {
-                magnitude: DIAMOND_SIGHT_NOSE_OFFSET.magnitude.clone()
-                    / diamond_length.magnitude.clone(),
+                magnitude: DIAMOND_SIGHT_NOSE_OFFSET.magnitude.clone() / diamond_length.magnitude,
             },
             pockets: [
                 Self::disabled_corner_pocket(),

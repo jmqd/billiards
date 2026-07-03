@@ -28,7 +28,7 @@ const DIAMOND_SIGHT_HEIGHT_IN: f32 = 0.62;
 const CORNER_POCKET_MOUTH_IN: f32 = 4.5;
 const SIDE_POCKET_MOUTH_IN: f32 = 5.0;
 const CORNER_POCKET_SHELF_IN: f32 = 1.75;
-const CORNER_POCKET_WELL_IN: f32 = 3.05;
+const CORNER_POCKET_WELL_IN: f32 = 4.55;
 const SIDE_POCKET_LIP_IN: f32 = 1.6;
 const SIDE_POCKET_WELL_IN: f32 = 5.0;
 const CUSHION_BEVEL_IN: f32 = 1.0;
@@ -207,9 +207,8 @@ impl DiagramElement {
             Self::SmoothPolyline { style, .. } => style.layer.into(),
             Self::HeadingChevron { style, .. } => style.layer.into(),
             Self::GhostBall { style, .. } => style.layer.into(),
-            Self::OriginMarker { style, .. } => style.layer.into(),
+            Self::OriginMarker { style, .. } | Self::TextLabel { style, .. } => style.layer.into(),
             Self::CircleMarker { style, .. } => style.layer.into(),
-            Self::TextLabel { style, .. } => style.layer.into(),
         }
     }
 }
@@ -299,7 +298,7 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}.origin-marker{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none}.event-marker[data-event-label]{cursor:help}\n");
-        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket{fill:#020202;stroke:#12100f;stroke-width:1.4}.table-pocket-rim{fill:none;stroke:#3a332e;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;opacity:.85}.table-pocket-facing{stroke:#16110f;stroke-width:5;stroke-linecap:round}.table-pocket-lip{stroke:#5b5149;stroke-width:1.4;stroke-linecap:round;opacity:.55}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.94}\n");
+        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket-well{fill:url(#pocket-well);stroke:#050403;stroke-width:1.4}.table-pocket-leather{fill:none;stroke:url(#pocket-leather);stroke-linecap:round;stroke-linejoin:round;opacity:.98}.table-pocket-leather-highlight{fill:none;stroke:#8d8377;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.30}.table-pocket-mouth-shadow{fill:none;stroke:#020202;stroke-width:4.5;stroke-linecap:round;opacity:.88}.table-pocket-facing{stroke:#050403;stroke-linecap:round;stroke-linejoin:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.94}\n");
         svg.push_str(".carom-table .table-rail{fill:url(#carom-wood-rail)}.carom-table .table-cloth{fill:url(#heated-carom-cloth)}.carom-table .table-cloth-texture{opacity:.16}.carom-table .table-cushion{fill:url(#heated-carom-cushion)}.carom-table .table-cushion-nose{stroke:#88ecff;stroke-width:3.2}.carom-table .table-cushion-back{stroke:#064f69;stroke-width:3.2}.carom-table .table-rail-inner-shadow{stroke:#0b0705;stroke-width:12;opacity:.58}\n");
         svg.push_str("</style>\n");
         push_svg_table_defs(&mut svg);
@@ -360,6 +359,17 @@ fn push_svg_table_defs(svg: &mut String) {
 <path d="M48 -28C37 16 55 47 45 82C32 124 60 151 45 205" stroke="#1d0907" stroke-width="4" opacity=".38" fill="none"/>
 <path d="M8 0C16 40 4 63 10 96C16 127 3 150 11 180" stroke="#d0834d" stroke-width="1.5" opacity=".28" fill="none"/>
 </pattern>
+<radialGradient id="pocket-well" cx="45%" cy="42%" r="75%">
+<stop offset="0%" stop-color="#0b0908"/>
+<stop offset="62%" stop-color="#020202"/>
+<stop offset="100%" stop-color="#000000"/>
+</radialGradient>
+<linearGradient id="pocket-leather" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#2a2521"/>
+<stop offset="42%" stop-color="#060504"/>
+<stop offset="72%" stop-color="#15120f"/>
+<stop offset="100%" stop-color="#030303"/>
+</linearGradient>
 <linearGradient id="heated-carom-cloth" x1="0" y1="0" x2="1" y2="1">
 <stop offset="0%" stop-color="#0aa7d0"/>
 <stop offset="55%" stop-color="#087da4"/>
@@ -854,46 +864,52 @@ fn push_svg_corner_pocket(
     let well_scale = CORNER_POCKET_WELL_IN / CORNER_POCKET_SHELF_IN;
     let well_x = shelf_x * well_scale;
     let well_y = shelf_y * well_scale;
+
+    let liner_stroke = (cushion_x.min(cushion_y) * 0.82).clamp(20.0, 32.0);
+    let facing_stroke = (cushion_x.min(cushion_y) * 0.32).clamp(7.0, 11.0);
+
     let point =
         |inside_x: f32, inside_y: f32| (corner_x - x_sign * inside_x, corner_y - y_sign * inside_y);
 
     let (mouth_top_x, mouth_top_y) = point(run_x, 0.0);
     let (mouth_side_x, mouth_side_y) = point(0.0, run_y);
-    let (top_cushion_back_x, top_cushion_back_y) = point(run_x - cushion_bevel_x, -cushion_y);
-    let (side_cushion_back_x, side_cushion_back_y) = point(-cushion_x, run_y - cushion_bevel_y);
-    let (upper_wall_x, upper_wall_y) = point(run_x * 0.50, -well_y * 0.02);
-    let (upper_back_x, upper_back_y) = point(well_x * 0.12, -well_y * 0.28);
-    let (back_top_x, back_top_y) = point(-well_x * 0.18, -well_y * 0.38);
-    let (back_crown_top_x, back_crown_top_y) = point(-well_x * 0.58, -well_y * 0.45);
-    let (back_crown_side_x, back_crown_side_y) = point(-well_x * 0.76, -well_y * 0.18);
-    let (back_side_x, back_side_y) = point(-well_x * 0.46, well_y * 0.08);
-    let (side_back_x, side_back_y) = point(-well_x * 0.28, well_y * 0.12);
-    let (side_wall_x, side_wall_y) = point(-well_x * 0.02, run_y * 0.50);
-    let (mouth_control_x, mouth_control_y) = point(run_x * 0.26, run_y * 0.26);
+
+    let (upper_ctl1_x, upper_ctl1_y) = point(run_x * 0.78, -well_y * 0.05);
+    let (upper_ctl2_x, upper_ctl2_y) = point(run_x * 0.15, -well_y * 0.92);
+    let (back_crown_x, back_crown_y) = point(-well_x * 0.58, -well_y * 0.58);
+    let (lower_ctl1_x, lower_ctl1_y) = point(-well_x * 0.92, run_y * 0.15);
+    let (lower_ctl2_x, lower_ctl2_y) = point(-well_x * 0.05, run_y * 0.78);
+    let (mouth_control_x, mouth_control_y) = point(run_x * 0.46, run_y * 0.46);
+
+    let back_curve = format!(
+        "M {mouth_top_x:.3} {mouth_top_y:.3} \
+         C {upper_ctl1_x:.3} {upper_ctl1_y:.3} {upper_ctl2_x:.3} {upper_ctl2_y:.3} {back_crown_x:.3} {back_crown_y:.3} \
+         C {lower_ctl1_x:.3} {lower_ctl1_y:.3} {lower_ctl2_x:.3} {lower_ctl2_y:.3} {mouth_side_x:.3} {mouth_side_y:.3}"
+    );
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket-facing-fill\" style=\"fill:#050403;stroke:none\" d=\"M {top_cushion_back_x:.3} {top_cushion_back_y:.3} L {mouth_top_x:.3} {mouth_top_y:.3} L {upper_wall_x:.3} {upper_wall_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket-well\" data-pocket=\"corner\" d=\"{back_curve} Q {mouth_control_x:.3} {mouth_control_y:.3} {mouth_top_x:.3} {mouth_top_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
-        "<path class=\"table-pocket-facing-fill\" style=\"fill:#050403;stroke:none\" d=\"M {side_cushion_back_x:.3} {side_cushion_back_y:.3} L {mouth_side_x:.3} {mouth_side_y:.3} L {side_wall_x:.3} {side_wall_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket-leather\" data-pocket=\"corner-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<path class=\"table-pocket-liner\" style=\"fill:none;stroke:#050403;stroke-width:18;stroke-linecap:round;stroke-linejoin:round;opacity:.98\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} C {upper_wall_x:.3} {upper_wall_y:.3} {upper_back_x:.3} {upper_back_y:.3} {back_top_x:.3} {back_top_y:.3} C {back_crown_top_x:.3} {back_crown_top_y:.3} {back_crown_side_x:.3} {back_crown_side_y:.3} {back_side_x:.3} {back_side_y:.3} C {side_back_x:.3} {side_back_y:.3} {side_wall_x:.3} {side_wall_y:.3} {mouth_side_x:.3} {mouth_side_y:.3}\"/>\n"
+        "<path class=\"table-pocket-leather-highlight\" d=\"{back_curve}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<path class=\"table-pocket\" data-pocket=\"corner\" data-pocket-shape=\"diamond-bi-level-corner\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} C {upper_wall_x:.3} {upper_wall_y:.3} {upper_back_x:.3} {upper_back_y:.3} {back_top_x:.3} {back_top_y:.3} C {back_crown_top_x:.3} {back_crown_top_y:.3} {back_crown_side_x:.3} {back_crown_side_y:.3} {back_side_x:.3} {back_side_y:.3} C {side_back_x:.3} {side_back_y:.3} {side_wall_x:.3} {side_wall_y:.3} {mouth_side_x:.3} {mouth_side_y:.3} Q {mouth_control_x:.3} {mouth_control_y:.3} {mouth_top_x:.3} {mouth_top_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket-mouth-shadow\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} Q {mouth_control_x:.3} {mouth_control_y:.3} {mouth_side_x:.3} {mouth_side_y:.3}\"/>\n"
+    ));
+
+    let (top_cushion_back_x, top_cushion_back_y) =
+        point(run_x - cushion_bevel_x * 0.75, -cushion_y * 0.72);
+    let (side_cushion_back_x, side_cushion_back_y) =
+        point(-cushion_x * 0.72, run_y - cushion_bevel_y * 0.75);
+
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{top_cushion_back_x:.3}\" y1=\"{top_cushion_back_y:.3}\" x2=\"{mouth_top_x:.3}\" y2=\"{mouth_top_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<path class=\"table-pocket-rim\" d=\"M {upper_wall_x:.3} {upper_wall_y:.3} C {upper_back_x:.3} {upper_back_y:.3} {back_top_x:.3} {back_top_y:.3} {back_top_x:.3} {back_top_y:.3} C {back_crown_top_x:.3} {back_crown_top_y:.3} {back_crown_side_x:.3} {back_crown_side_y:.3} {back_side_x:.3} {back_side_y:.3} C {side_back_x:.3} {side_back_y:.3} {side_wall_x:.3} {side_wall_y:.3} {side_wall_x:.3} {side_wall_y:.3}\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-lip\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} Q {mouth_control_x:.3} {mouth_control_y:.3} {mouth_side_x:.3} {mouth_side_y:.3}\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:0\" x1=\"{top_cushion_back_x:.3}\" y1=\"{top_cushion_back_y:.3}\" x2=\"{mouth_top_x:.3}\" y2=\"{mouth_top_y:.3}\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:0\" x1=\"{mouth_side_x:.3}\" y1=\"{mouth_side_y:.3}\" x2=\"{side_cushion_back_x:.3}\" y2=\"{side_cushion_back_y:.3}\"/>\n"
+        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{mouth_side_x:.3}\" y1=\"{mouth_side_y:.3}\" x2=\"{side_cushion_back_x:.3}\" y2=\"{side_cushion_back_y:.3}\"/>\n"
     ));
 }
 
@@ -907,37 +923,57 @@ fn push_svg_side_pocket(
     well_depth_x: f32,
     cushion_x: f32,
 ) {
-    let back_depth_x = well_depth_x.min(cushion_x + lip_depth_x * 0.85);
+    let back_depth_x = well_depth_x;
+
+    let liner_stroke = (cushion_x * 0.78).clamp(20.0, 32.0);
+    let facing_stroke = (cushion_x * 0.32).clamp(7.0, 11.0);
+
     let point = |depth_x: f32, offset_y: f32| (rail_x + x_sign * depth_x, center_y + offset_y);
 
     let (top_x, top_y) = point(0.0, -mouth_y * 0.5);
     let (bottom_x, bottom_y) = point(0.0, mouth_y * 0.5);
-    let (upper_nipple_x, upper_nipple_y) = point(cushion_x * 0.12, -mouth_y * 0.48);
-    let (upper_rim_x, upper_rim_y) = point(back_depth_x * 0.52, -mouth_y * 0.42);
-    let (upper_back_x, upper_back_y) = point(back_depth_x * 1.00, -mouth_y * 0.24);
-    let (back_crown_upper_x, back_crown_upper_y) = point(back_depth_x * 1.12, -mouth_y * 0.10);
-    let (back_crown_lower_x, back_crown_lower_y) = point(back_depth_x * 1.12, mouth_y * 0.10);
-    let (lower_back_x, lower_back_y) = point(back_depth_x * 1.00, mouth_y * 0.24);
-    let (lower_rim_x, lower_rim_y) = point(back_depth_x * 0.52, mouth_y * 0.42);
-    let (lower_nipple_x, lower_nipple_y) = point(cushion_x * 0.12, mouth_y * 0.48);
-    let (lip_control_x, lip_control_y) = point(cushion_x * 0.22, 0.0);
-    let (upper_facing_x, upper_facing_y) = point(back_depth_x * 0.42, -mouth_y * 0.37);
-    let (lower_facing_x, lower_facing_y) = point(back_depth_x * 0.42, mouth_y * 0.37);
+
+    let (upper_nipple_x, upper_nipple_y) = point(cushion_x * 0.10, -mouth_y * 0.50);
+    let (upper_ctl_x, upper_ctl_y) = point(back_depth_x * 0.45, -mouth_y * 0.54);
+    let (upper_back_x, upper_back_y) = point(back_depth_x * 0.98, -mouth_y * 0.30);
+
+    let (back_ctl_upper_x, back_ctl_upper_y) = point(back_depth_x * 1.13, -mouth_y * 0.16);
+    let (back_ctl_lower_x, back_ctl_lower_y) = point(back_depth_x * 1.13, mouth_y * 0.16);
+
+    let (lower_back_x, lower_back_y) = point(back_depth_x * 0.98, mouth_y * 0.30);
+    let (lower_ctl_x, lower_ctl_y) = point(back_depth_x * 0.45, mouth_y * 0.54);
+    let (lower_nipple_x, lower_nipple_y) = point(cushion_x * 0.10, mouth_y * 0.50);
+
+    let (lip_control_x, lip_control_y) = point(lip_depth_x * 0.35, 0.0);
+
+    let back_curve = format!(
+        "M {top_x:.3} {top_y:.3} \
+         C {upper_nipple_x:.3} {upper_nipple_y:.3} {upper_ctl_x:.3} {upper_ctl_y:.3} {upper_back_x:.3} {upper_back_y:.3} \
+         C {back_ctl_upper_x:.3} {back_ctl_upper_y:.3} {back_ctl_lower_x:.3} {back_ctl_lower_y:.3} {lower_back_x:.3} {lower_back_y:.3} \
+         C {lower_ctl_x:.3} {lower_ctl_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {bottom_x:.3} {bottom_y:.3}"
+    );
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket\" data-pocket=\"side\" data-pocket-shape=\"diamond-bi-level-side\" d=\"M {top_x:.3} {top_y:.3} C {upper_nipple_x:.3} {upper_nipple_y:.3} {upper_rim_x:.3} {upper_rim_y:.3} {upper_back_x:.3} {upper_back_y:.3} C {back_crown_upper_x:.3} {back_crown_upper_y:.3} {back_crown_lower_x:.3} {back_crown_lower_y:.3} {lower_back_x:.3} {lower_back_y:.3} C {lower_rim_x:.3} {lower_rim_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {bottom_x:.3} {bottom_y:.3} Q {lip_control_x:.3} {lip_control_y:.3} {top_x:.3} {top_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket-well\" data-pocket=\"side\" d=\"{back_curve} Q {lip_control_x:.3} {lip_control_y:.3} {top_x:.3} {top_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
-        "<path class=\"table-pocket-rim\" d=\"M {upper_nipple_x:.3} {upper_nipple_y:.3} C {upper_rim_x:.3} {upper_rim_y:.3} {upper_back_x:.3} {upper_back_y:.3} {upper_back_x:.3} {upper_back_y:.3} C {back_crown_upper_x:.3} {back_crown_upper_y:.3} {back_crown_lower_x:.3} {back_crown_lower_y:.3} {lower_back_x:.3} {lower_back_y:.3} C {lower_rim_x:.3} {lower_rim_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3}\"/>\n"
+        "<path class=\"table-pocket-leather\" data-pocket=\"side-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<path class=\"table-pocket-lip\" d=\"M {top_x:.3} {top_y:.3} Q {lip_control_x:.3} {lip_control_y:.3} {bottom_x:.3} {bottom_y:.3}\"/>\n"
+        "<path class=\"table-pocket-leather-highlight\" d=\"{back_curve}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:8\" x1=\"{top_x:.3}\" y1=\"{top_y:.3}\" x2=\"{upper_facing_x:.3}\" y2=\"{upper_facing_y:.3}\"/>\n"
+        "<path class=\"table-pocket-mouth-shadow\" d=\"M {top_x:.3} {top_y:.3} Q {lip_control_x:.3} {lip_control_y:.3} {bottom_x:.3} {bottom_y:.3}\"/>\n"
+    ));
+
+    let (upper_facing_x, upper_facing_y) = point(cushion_x * 0.78, -mouth_y * 0.34);
+    let (lower_facing_x, lower_facing_y) = point(cushion_x * 0.78, mouth_y * 0.34);
+
+    svg.push_str(&format!(
+        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{top_x:.3}\" y1=\"{top_y:.3}\" x2=\"{upper_facing_x:.3}\" y2=\"{upper_facing_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:8\" x1=\"{bottom_x:.3}\" y1=\"{bottom_y:.3}\" x2=\"{lower_facing_x:.3}\" y2=\"{lower_facing_y:.3}\"/>\n"
+        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{bottom_x:.3}\" y1=\"{bottom_y:.3}\" x2=\"{lower_facing_x:.3}\" y2=\"{lower_facing_y:.3}\"/>\n"
     ));
 }
 
@@ -1341,7 +1377,7 @@ fn ball_visual(ball_type: &BallType) -> BallVisual {
 
 fn ball_label(ball_type: &BallType) -> Option<&'static str> {
     match ball_type {
-        BallType::Cue => None,
+        BallType::Cue | BallType::YellowCue | BallType::Red => None,
         BallType::One => Some("1"),
         BallType::Two => Some("2"),
         BallType::Three => Some("3"),
@@ -1351,7 +1387,6 @@ fn ball_label(ball_type: &BallType) -> Option<&'static str> {
         BallType::Seven => Some("7"),
         BallType::Eight => Some("8"),
         BallType::Nine => Some("9"),
-        BallType::YellowCue | BallType::Red => None,
     }
 }
 

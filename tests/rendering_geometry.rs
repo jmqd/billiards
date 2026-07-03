@@ -323,22 +323,25 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     assert_eq!(svg.matches("data-pocket=\"side\"").count(), 2);
     assert!(svg.contains("<polygon class=\"table-diamond\""));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
-    assert_eq!(svg.matches("class=\"table-pocket-rim\"").count(), 6);
-    assert_eq!(svg.matches("class=\"table-pocket-lip\"").count(), 6);
+    assert_eq!(svg.matches("class=\"table-pocket-well\"").count(), 6);
+    assert_eq!(svg.matches("class=\"table-pocket-leather\"").count(), 6);
+    assert_eq!(
+        svg.matches("class=\"table-pocket-leather-highlight\"")
+            .count(),
+        6
+    );
+    assert_eq!(
+        svg.matches("class=\"table-pocket-mouth-shadow\"").count(),
+        6
+    );
     assert_eq!(svg.matches("class=\"table-pocket-facing\"").count(), 12);
-    assert_eq!(svg.matches("class=\"table-pocket-liner\"").count(), 4);
-    assert_eq!(
-        svg.matches("data-pocket-shape=\"diamond-bi-level-corner\"")
-            .count(),
-        4
-    );
-    assert_eq!(
-        svg.matches("data-pocket-shape=\"diamond-bi-level-side\"")
-            .count(),
-        2
-    );
+    assert_eq!(svg.matches("data-pocket=\"corner-liner\"").count(), 4);
+    assert_eq!(svg.matches("data-pocket=\"side-liner\"").count(), 2);
+    assert!(!svg.contains("stroke-width:0"));
     assert!(svg.contains("id=\"tournament-blue-cloth\""));
     assert!(svg.contains("id=\"rosewood-grain\""));
+    assert!(svg.contains("id=\"pocket-well\""));
+    assert!(svg.contains("id=\"pocket-leather\""));
     assert!(svg.contains("class=\"table-cloth-texture\""));
     assert!(svg.contains("class=\"table-cushion-nose\""));
 }
@@ -382,13 +385,14 @@ fn svg_three_cushion_table_is_pocketless_with_carom_sights_and_balls() {
 fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 
-    assert!(svg.contains("<path class=\"table-pocket\" data-pocket=\"corner\""));
-    assert!(svg.contains("<path class=\"table-pocket\" data-pocket=\"side\""));
-    assert!(svg.contains("<path class=\"table-pocket-rim\""));
-    assert!(svg.contains("<path class=\"table-pocket-lip\""));
-    assert!(svg.contains("class=\"table-pocket-liner\""));
-    assert!(svg.contains("stroke-width:18"));
-    assert!(svg.contains("style=\"stroke-width:8\""));
+    assert!(svg.contains("<path class=\"table-pocket-well\" data-pocket=\"corner\""));
+    assert!(svg.contains("<path class=\"table-pocket-well\" data-pocket=\"side\""));
+    assert!(svg.contains("<path class=\"table-pocket-leather\" data-pocket=\"corner-liner\""));
+    assert!(svg.contains("<path class=\"table-pocket-leather\" data-pocket=\"side-liner\""));
+    assert!(svg.contains("<path class=\"table-pocket-leather-highlight\""));
+    assert!(svg.contains("<path class=\"table-pocket-mouth-shadow\""));
+    assert!(svg.contains("style=\"stroke-width:"));
+    assert!(!svg.contains("stroke-width:0"));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
 }
 

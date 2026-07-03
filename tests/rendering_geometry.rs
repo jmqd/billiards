@@ -336,20 +336,38 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     );
     assert_eq!(svg.matches("class=\"table-pocket-shelf\"").count(), 6);
     assert_eq!(
+        svg.matches("class=\"table-pocket-shelf-texture\"").count(),
+        6
+    );
+    assert_eq!(
         svg.matches("class=\"table-pocket-shelf-shadow\"").count(),
         0
     );
     assert_eq!(svg.matches("class=\"table-pocket-facing\"").count(), 12);
     assert_eq!(svg.matches("data-pocket=\"corner-liner\"").count(), 4);
     assert_eq!(svg.matches("data-pocket=\"side-liner\"").count(), 2);
+    let first_cushion = svg
+        .find("<path class=\"table-cushion\"")
+        .expect("table cushion should render");
+    let first_shelf = svg
+        .find("<path class=\"table-pocket-shelf\"")
+        .expect("pocket shelf should render");
+    let first_facing = svg
+        .find("<line class=\"table-pocket-facing\"")
+        .expect("pocket facing should render");
+    assert!(first_cushion < first_shelf);
+    assert!(first_shelf < first_facing);
     assert!(!svg.contains("stroke-width:0"));
-    assert!(svg.contains("id=\"tournament-blue-cloth\""));
+    assert!(svg.contains("id=\"tournament-blue-cloth\" gradientUnits=\"userSpaceOnUse\""));
     assert!(svg.contains("id=\"rosewood-grain\""));
     assert!(svg.contains("id=\"pocket-well\""));
     assert!(svg.contains("id=\"pocket-leather\""));
-    assert!(svg.contains(
-        ".table-pocket-shelf{fill:url(#tournament-blue-cloth);stroke:url(#tournament-blue-cloth)"
-    ));
+    assert!(
+        svg.contains(".table-pocket-shelf{fill:url(#tournament-blue-cloth);stroke:none;opacity:1}")
+    );
+    assert!(
+        svg.contains(".table-pocket-shelf-texture{fill:url(#cloth-weave);stroke:none;opacity:.20")
+    );
     assert!(svg.contains("class=\"table-cloth-texture\""));
     assert!(svg.contains("class=\"table-cushion-nose\""));
 }
@@ -402,11 +420,11 @@ fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\""));
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\""));
     assert!(svg.contains(
-        "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" style=\"stroke-width:14\" d=\"M 164.603 110.000 Q "
+        "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" d=\"M 164.603 110.000 Q "
     ));
     assert!(svg.contains("110.000 164.666 Q 127.473 127.493 164.603 110.000 Z"));
     assert!(svg.contains(
-        "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" style=\"stroke-width:14\" d=\"M 110.000 926.050 Q 104.509 969.000 110.000 1011.950 Q 116.103 969.000 110.000 926.050 Z"
+        "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" d=\"M 110.000 926.050 Q 104.509 969.000 110.000 1011.950 Q 116.103 969.000 110.000 926.050 Z"
     ));
     assert!(!svg.contains("<path class=\"table-pocket-shelf-shadow\""));
     assert!(!svg.contains("<circle class=\"table-pocket\""));

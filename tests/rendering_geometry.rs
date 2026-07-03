@@ -376,7 +376,7 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     assert!(svg.contains("data-spin-kind=\"english\""));
     assert!(svg.contains("data-spin-kind=\"stun\""));
     assert!(svg.contains("data-spin-rps=\"240.000\""));
-    assert!(svg.contains("data-spin-angle-deg=\"-90.000\""));
+    assert!(svg.contains("data-spin-angle-deg=\"90.000\""));
     assert!(svg.contains("data-spin-roll-ratio=\"1.000\""));
     assert!(svg.contains("class=\"ball-spin-vector-halo\""));
     assert!(svg.contains("class=\"ball-spin-vector\""));

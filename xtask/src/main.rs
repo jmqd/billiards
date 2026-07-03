@@ -1557,7 +1557,7 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
         const rollAlignment = speed > spinStun && rollSpeed > spinStun
           ? Math.max(-1, Math.min(1, (vx * rollVx + vy * rollVy) / (speed * rollSpeed)))
           : 0;
-        const angle = rollSpeed > spinStun ? Math.atan2(-rollVy, rollVx) * 180 / Math.PI : 0;
+        const angle = rollSpeed > spinStun ? Math.atan2(rollVy, rollVx) * 180 / Math.PI : 0;
         const rollingSlipLimit = Math.max(speed * 0.12, 0.75);
         const isRolling = speed > spinStun && planar > spinStun && rollSlip <= rollingSlipLimit;
         const hasProminentSide = Math.abs(wz) > Math.max(planar, rollingTarget) * 0.25;

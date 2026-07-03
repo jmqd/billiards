@@ -1650,9 +1650,9 @@ fn spin_glyph_metrics(
             0.0
         };
     let spin_vector_x = roll_vx;
-    let screen_spin_vector_y = -roll_vy;
-    let angle_degrees = if spin_vector_x.hypot(screen_spin_vector_y) > SPIN_GLYPH_STUN_RPS {
-        screen_spin_vector_y.atan2(spin_vector_x).to_degrees()
+    let spin_vector_y = roll_vy;
+    let angle_degrees = if spin_vector_x.hypot(spin_vector_y) > SPIN_GLYPH_STUN_RPS {
+        spin_vector_y.atan2(spin_vector_x).to_degrees()
     } else {
         0.0
     };

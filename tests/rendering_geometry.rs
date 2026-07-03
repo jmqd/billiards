@@ -347,7 +347,9 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     assert!(svg.contains("id=\"rosewood-grain\""));
     assert!(svg.contains("id=\"pocket-well\""));
     assert!(svg.contains("id=\"pocket-leather\""));
-    assert!(svg.contains(".table-pocket-shelf{fill:url(#tournament-blue-cloth);stroke:none"));
+    assert!(svg.contains(
+        ".table-pocket-shelf{fill:url(#tournament-blue-cloth);stroke:url(#tournament-blue-cloth)"
+    ));
     assert!(svg.contains("class=\"table-cloth-texture\""));
     assert!(svg.contains("class=\"table-cushion-nose\""));
 }

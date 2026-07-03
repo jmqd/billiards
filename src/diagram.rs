@@ -298,7 +298,7 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}.origin-marker{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none}.event-marker[data-event-label]{cursor:help}\n");
-        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket-well{fill:url(#pocket-well);stroke:none}.table-pocket-leather{fill:none;stroke:url(#pocket-leather);stroke-linecap:round;stroke-linejoin:round;opacity:.98}.table-pocket-leather-highlight{fill:none;stroke:#8d8377;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.30}.table-pocket-shelf{fill:url(#tournament-blue-cloth);stroke:none;opacity:.98}.table-pocket-facing{stroke:#050403;stroke-linecap:round;stroke-linejoin:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.94}\n");
+        svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}.table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}.table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}.table-pocket-well{fill:url(#pocket-well);stroke:none}.table-pocket-leather{fill:none;stroke:url(#pocket-leather);stroke-linecap:round;stroke-linejoin:round;opacity:.98}.table-pocket-leather-highlight{fill:none;stroke:#8d8377;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.30}.table-pocket-shelf{fill:url(#tournament-blue-cloth);stroke:url(#tournament-blue-cloth);stroke-width:6;stroke-linecap:round;stroke-linejoin:round;opacity:.98}.table-pocket-facing{stroke:#050403;stroke-linecap:round;stroke-linejoin:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.94}\n");
         svg.push_str(".carom-table .table-rail{fill:url(#carom-wood-rail)}.carom-table .table-cloth{fill:url(#heated-carom-cloth)}.carom-table .table-cloth-texture{opacity:.16}.carom-table .table-cushion{fill:url(#heated-carom-cushion)}.carom-table .table-cushion-nose{stroke:#88ecff;stroke-width:3.2}.carom-table .table-cushion-back{stroke:#064f69;stroke-width:3.2}.carom-table .table-rail-inner-shadow{stroke:#0b0705;stroke-width:12;opacity:.58}\n");
         svg.push_str("</style>\n");
         push_svg_table_defs(&mut svg);
@@ -617,48 +617,55 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
         cushion_bevel_y,
     );
 
-    for (corner_x, corner_y, x_sign, y_sign) in [
+    let corner_pockets = [
         (left, top, -1.0, -1.0),
         (right, top, 1.0, -1.0),
         (left, bottom, -1.0, 1.0),
         (right, bottom, 1.0, 1.0),
-    ] {
-        push_svg_corner_pocket(
+    ];
+
+    for layer in [PocketLayer::Well, PocketLayer::Shelf, PocketLayer::Liner] {
+        for (corner_x, corner_y, x_sign, y_sign) in corner_pockets {
+            push_svg_corner_pocket(
+                svg,
+                corner_x,
+                corner_y,
+                x_sign,
+                y_sign,
+                corner_run_x,
+                corner_run_y,
+                corner_shelf_x,
+                corner_shelf_y,
+                cushion_x,
+                cushion_y,
+                cushion_bevel_x,
+                cushion_bevel_y,
+                layer,
+            );
+        }
+        push_svg_side_pocket(
             svg,
-            corner_x,
-            corner_y,
-            x_sign,
-            y_sign,
-            corner_run_x,
-            corner_run_y,
-            corner_shelf_x,
-            corner_shelf_y,
+            left,
+            center_y,
+            -1.0,
+            side_mouth_y,
+            side_lip_x,
+            side_well_x,
             cushion_x,
-            cushion_y,
-            cushion_bevel_x,
-            cushion_bevel_y,
+            layer,
+        );
+        push_svg_side_pocket(
+            svg,
+            right,
+            center_y,
+            1.0,
+            side_mouth_y,
+            side_lip_x,
+            side_well_x,
+            cushion_x,
+            layer,
         );
     }
-    push_svg_side_pocket(
-        svg,
-        left,
-        center_y,
-        -1.0,
-        side_mouth_y,
-        side_lip_x,
-        side_well_x,
-        cushion_x,
-    );
-    push_svg_side_pocket(
-        svg,
-        right,
-        center_y,
-        1.0,
-        side_mouth_y,
-        side_lip_x,
-        side_well_x,
-        cushion_x,
-    );
 
     push_svg_table_sights(svg, viewport);
 }
@@ -846,6 +853,13 @@ fn push_svg_vertical_cushion(
     ));
 }
 
+#[derive(Clone, Copy)]
+enum PocketLayer {
+    Well,
+    Shelf,
+    Liner,
+}
+
 fn push_svg_corner_pocket(
     svg: &mut String,
     corner_x: f32,
@@ -860,6 +874,7 @@ fn push_svg_corner_pocket(
     cushion_y: f32,
     cushion_bevel_x: f32,
     cushion_bevel_y: f32,
+    layer: PocketLayer,
 ) {
     let well_scale = CORNER_POCKET_WELL_IN / CORNER_POCKET_SHELF_IN;
     let well_x = shelf_x * well_scale;
@@ -896,32 +911,40 @@ fn push_svg_corner_pocket(
          C {lower_ctl1_x:.3} {lower_ctl1_y:.3} {lower_ctl2_x:.3} {lower_ctl2_y:.3} {side_liner_end_x:.3} {side_liner_end_y:.3}"
     );
 
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-well\" data-pocket=\"corner\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} L {top_liner_end_x:.3} {top_liner_end_y:.3} C {upper_ctl1_x:.3} {upper_ctl1_y:.3} {upper_ctl2_x:.3} {upper_ctl2_y:.3} {back_crown_x:.3} {back_crown_y:.3} C {lower_ctl1_x:.3} {lower_ctl1_y:.3} {lower_ctl2_x:.3} {lower_ctl2_y:.3} {side_liner_end_x:.3} {side_liner_end_y:.3} L {mouth_side_x:.3} {mouth_side_y:.3} Z\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-leather\" data-pocket=\"corner-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-leather-highlight\" d=\"{back_curve}\"/>\n"
-    ));
+    match layer {
+        PocketLayer::Well => {
+            svg.push_str(&format!(
+                "<path class=\"table-pocket-well\" data-pocket=\"corner\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} L {top_liner_end_x:.3} {top_liner_end_y:.3} C {upper_ctl1_x:.3} {upper_ctl1_y:.3} {upper_ctl2_x:.3} {upper_ctl2_y:.3} {back_crown_x:.3} {back_crown_y:.3} C {lower_ctl1_x:.3} {lower_ctl1_y:.3} {lower_ctl2_x:.3} {lower_ctl2_y:.3} {side_liner_end_x:.3} {side_liner_end_y:.3} L {mouth_side_x:.3} {mouth_side_y:.3} Z\"/>\n"
+            ));
+        }
+        PocketLayer::Shelf => {
+            let (shelf_front_control_x, shelf_front_control_y) = point(run_x * 0.32, run_y * 0.32);
+            let (shelf_back_control_x, shelf_back_control_y) = point(run_x * 0.06, run_y * 0.06);
+            svg.push_str(&format!(
+                "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} Q {shelf_front_control_x:.3} {shelf_front_control_y:.3} {mouth_side_x:.3} {mouth_side_y:.3} Q {shelf_back_control_x:.3} {shelf_back_control_y:.3} {mouth_top_x:.3} {mouth_top_y:.3} Z\"/>\n"
+            ));
+        }
+        PocketLayer::Liner => {
+            svg.push_str(&format!(
+                "<path class=\"table-pocket-leather\" data-pocket=\"corner-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
+            ));
+            svg.push_str(&format!(
+                "<path class=\"table-pocket-leather-highlight\" d=\"{back_curve}\"/>\n"
+            ));
 
-    let (shelf_front_control_x, shelf_front_control_y) = point(run_x * 0.32, run_y * 0.32);
-    let (shelf_back_control_x, shelf_back_control_y) = point(run_x * 0.06, run_y * 0.06);
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} Q {shelf_front_control_x:.3} {shelf_front_control_y:.3} {mouth_side_x:.3} {mouth_side_y:.3} Q {shelf_back_control_x:.3} {shelf_back_control_y:.3} {mouth_top_x:.3} {mouth_top_y:.3} Z\"/>\n"
-    ));
+            let (top_facing_back_x, top_facing_back_y) =
+                point(run_x - cushion_bevel_x * 0.75, -cushion_y);
+            let (side_facing_back_x, side_facing_back_y) =
+                point(-cushion_x, run_y - cushion_bevel_y * 0.75);
 
-    let (top_facing_back_x, top_facing_back_y) = point(run_x - cushion_bevel_x * 0.75, -cushion_y);
-    let (side_facing_back_x, side_facing_back_y) =
-        point(-cushion_x, run_y - cushion_bevel_y * 0.75);
-
-    svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{top_facing_back_x:.3}\" y1=\"{top_facing_back_y:.3}\" x2=\"{top_liner_end_x:.3}\" y2=\"{top_liner_end_y:.3}\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{side_liner_end_x:.3}\" y1=\"{side_liner_end_y:.3}\" x2=\"{side_facing_back_x:.3}\" y2=\"{side_facing_back_y:.3}\"/>\n"
-    ));
+            svg.push_str(&format!(
+                "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{top_facing_back_x:.3}\" y1=\"{top_facing_back_y:.3}\" x2=\"{top_liner_end_x:.3}\" y2=\"{top_liner_end_y:.3}\"/>\n"
+            ));
+            svg.push_str(&format!(
+                "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{side_liner_end_x:.3}\" y1=\"{side_liner_end_y:.3}\" x2=\"{side_facing_back_x:.3}\" y2=\"{side_facing_back_y:.3}\"/>\n"
+            ));
+        }
+    }
 }
 
 fn push_svg_side_pocket(
@@ -933,6 +956,7 @@ fn push_svg_side_pocket(
     lip_depth_x: f32,
     well_depth_x: f32,
     cushion_x: f32,
+    layer: PocketLayer,
 ) {
     let liner_stroke = (cushion_x * 0.78).clamp(20.0, 32.0);
     let facing_stroke = (cushion_x * 0.32).clamp(7.0, 11.0);
@@ -969,32 +993,39 @@ fn push_svg_side_pocket(
          C {lower_ctl_x:.3} {lower_ctl_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {lower_liner_end_x:.3} {lower_liner_end_y:.3}"
     );
 
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-well\" data-pocket=\"side\" d=\"M {top_x:.3} {top_y:.3} L {upper_liner_end_x:.3} {upper_liner_end_y:.3} C {upper_nipple_x:.3} {upper_nipple_y:.3} {upper_ctl_x:.3} {upper_ctl_y:.3} {upper_back_x:.3} {upper_back_y:.3} C {back_ctl_upper_x:.3} {back_ctl_upper_y:.3} {back_ctl_lower_x:.3} {back_ctl_lower_y:.3} {lower_back_x:.3} {lower_back_y:.3} C {lower_ctl_x:.3} {lower_ctl_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {lower_liner_end_x:.3} {lower_liner_end_y:.3} L {bottom_x:.3} {bottom_y:.3} Z\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-leather\" data-pocket=\"side-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-leather-highlight\" d=\"{back_curve}\"/>\n"
-    ));
+    match layer {
+        PocketLayer::Well => {
+            svg.push_str(&format!(
+                "<path class=\"table-pocket-well\" data-pocket=\"side\" d=\"M {top_x:.3} {top_y:.3} L {upper_liner_end_x:.3} {upper_liner_end_y:.3} C {upper_nipple_x:.3} {upper_nipple_y:.3} {upper_ctl_x:.3} {upper_ctl_y:.3} {upper_back_x:.3} {upper_back_y:.3} C {back_ctl_upper_x:.3} {back_ctl_upper_y:.3} {back_ctl_lower_x:.3} {back_ctl_lower_y:.3} {lower_back_x:.3} {lower_back_y:.3} C {lower_ctl_x:.3} {lower_ctl_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {lower_liner_end_x:.3} {lower_liner_end_y:.3} L {bottom_x:.3} {bottom_y:.3} Z\"/>\n"
+            ));
+        }
+        PocketLayer::Shelf => {
+            let (shelf_front_control_x, shelf_front_control_y) =
+                point(-(liner_stroke * 0.24).max(lip_depth_x * 0.20), 0.0);
+            let (shelf_back_control_x, shelf_back_control_y) = point(lip_depth_x * 0.20, 0.0);
+            svg.push_str(&format!(
+                "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" d=\"M {top_x:.3} {top_y:.3} Q {shelf_front_control_x:.3} {shelf_front_control_y:.3} {bottom_x:.3} {bottom_y:.3} Q {shelf_back_control_x:.3} {shelf_back_control_y:.3} {top_x:.3} {top_y:.3} Z\"/>\n"
+            ));
+        }
+        PocketLayer::Liner => {
+            svg.push_str(&format!(
+                "<path class=\"table-pocket-leather\" data-pocket=\"side-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
+            ));
+            svg.push_str(&format!(
+                "<path class=\"table-pocket-leather-highlight\" d=\"{back_curve}\"/>\n"
+            ));
 
-    let (shelf_front_control_x, shelf_front_control_y) =
-        point(-(liner_stroke * 0.24).max(lip_depth_x * 0.20), 0.0);
-    let (shelf_back_control_x, shelf_back_control_y) = point(lip_depth_x * 0.20, 0.0);
-    svg.push_str(&format!(
-        "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" d=\"M {top_x:.3} {top_y:.3} Q {shelf_front_control_x:.3} {shelf_front_control_y:.3} {bottom_x:.3} {bottom_y:.3} Q {shelf_back_control_x:.3} {shelf_back_control_y:.3} {top_x:.3} {top_y:.3} Z\"/>\n"
-    ));
+            let (upper_facing_x, upper_facing_y) = point(cushion_x, -mouth_y * 0.34);
+            let (lower_facing_x, lower_facing_y) = point(cushion_x, mouth_y * 0.34);
 
-    let (upper_facing_x, upper_facing_y) = point(cushion_x, -mouth_y * 0.34);
-    let (lower_facing_x, lower_facing_y) = point(cushion_x, mouth_y * 0.34);
-
-    svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{upper_liner_end_x:.3}\" y1=\"{upper_liner_end_y:.3}\" x2=\"{upper_facing_x:.3}\" y2=\"{upper_facing_y:.3}\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{lower_liner_end_x:.3}\" y1=\"{lower_liner_end_y:.3}\" x2=\"{lower_facing_x:.3}\" y2=\"{lower_facing_y:.3}\"/>\n"
-    ));
+            svg.push_str(&format!(
+                "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{upper_liner_end_x:.3}\" y1=\"{upper_liner_end_y:.3}\" x2=\"{upper_facing_x:.3}\" y2=\"{upper_facing_y:.3}\"/>\n"
+            ));
+            svg.push_str(&format!(
+                "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{lower_liner_end_x:.3}\" y1=\"{lower_liner_end_y:.3}\" x2=\"{lower_facing_x:.3}\" y2=\"{lower_facing_y:.3}\"/>\n"
+            ));
+        }
+    }
 }
 
 fn push_svg_table_sights(svg: &mut String, viewport: DiagramViewport) {

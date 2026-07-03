@@ -315,6 +315,85 @@ fn svg_backend_emits_layered_scalable_markup_for_a_ball_layout() {
 }
 
 #[test]
+fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
+    let table_spec = TableSpec::default();
+    let ball_spec = BallSpec::default();
+    let radius = ball_spec.radius.as_f64();
+    let rolling = on_table(BallState::on_table(
+        inches2(18.0, 30.0),
+        Velocity2::new("0", "24"),
+        AngularVelocity3::new(-24.0 / radius, 0.0, 0.0),
+    ));
+    let draw = on_table(BallState::on_table(
+        inches2(24.0, 36.0),
+        Velocity2::new("0", "24"),
+        AngularVelocity3::new(24.0 / radius, 0.0, 0.0),
+    ));
+    let follow = on_table(BallState::on_table(
+        inches2(30.0, 42.0),
+        Velocity2::new("0", "24"),
+        AngularVelocity3::new(-48.0 / radius, 0.0, 0.0),
+    ));
+    let english = on_table(BallState::on_table(
+        inches2(36.0, 48.0),
+        Velocity2::zero(),
+        AngularVelocity3::new(0.0, 0.0, 240.0),
+    ));
+    let stun = on_table(BallState::on_table(
+        inches2(42.0, 54.0),
+        Velocity2::zero(),
+        AngularVelocity3::zero(),
+    ));
+    let states = [&rolling, &draw, &follow, &english, &stun];
+    let balls = states.iter().enumerate().map(|(index, state)| Ball {
+        ty: match index {
+            0 => BallType::Cue,
+            1 => BallType::One,
+            2 => BallType::Two,
+            3 => BallType::Three,
+            _ => BallType::Four,
+        },
+        position: state.as_ball_state().projected_position(&table_spec),
+        spec: ball_spec.clone(),
+    });
+    let mut game = GameState::with_balls(table_spec.clone(), balls);
+    for state in states {
+        game.add_spin_glyph_for_on_table_state(state, &ball_spec);
+    }
+
+    let svg = render_svg_with_options(
+        &game,
+        &DiagramRenderOptions {
+            background: DiagramBackground::Transparent,
+            ..DiagramRenderOptions::default()
+        },
+    );
+
+    assert_eq!(svg.matches("class=\"overlay ball-spin-glyph\"").count(), 5);
+    assert!(svg.contains("data-spin-kind=\"rolling\""));
+    assert!(svg.contains("data-spin-kind=\"draw\""));
+    assert!(svg.contains("data-spin-kind=\"follow\""));
+    assert!(svg.contains("data-spin-kind=\"english\""));
+    assert!(svg.contains("data-spin-kind=\"stun\""));
+    assert!(svg.contains("data-spin-rps=\"240.000\""));
+    assert!(svg.contains("data-spin-angle-deg=\"-90.000\""));
+    assert!(svg.contains("data-spin-roll-ratio=\"1.000\""));
+    assert!(svg.contains("class=\"ball-spin-vector-halo\""));
+    assert!(svg.contains("class=\"ball-spin-vector\""));
+    assert!(svg.contains("class=\"ball-spin-z-halo\""));
+    assert!(svg.contains("class=\"ball-spin-z\""));
+    assert!(svg.contains("class=\"ball-spin-stun-x-mark\""));
+    assert!(!svg.contains("class=\"ball-spin-dot\""));
+    assert!(svg.contains("#2da44e"));
+    assert!(svg.contains("#8b5cf6"));
+    assert!(svg.contains("#fb851e"));
+    assert!(svg.contains("#096bd8"));
+    assert!(svg.contains("role=\"img\" aria-label=\"spin:"));
+    assert!(svg.contains("#7f858c"));
+    assert!(svg.contains("omega="));
+}
+
+#[test]
 fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 

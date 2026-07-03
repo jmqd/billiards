@@ -1,16 +1,18 @@
 use std::hint::black_box;
 use std::time::Duration;
 
-use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario};
+use billiards::diagram::DiagramOutputFormat;
+use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario, ScenarioTraceRenderOptions};
+use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_transition_on_table, simulate_two_on_table_balls, strike_resting_ball_on_table,
     trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, BallPathStop, BallSetPhysicsSpec,
-    BallState, CollisionModel, CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond,
-    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
-    OnTableMotionConfig, RadiansPerSecondSq, RestingOnTableBallState, RollingResistanceModel,
-    Scale, Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    BallState, CollisionModel, CueStrikeConfig, CueTipContact, DiagramBackground,
+    DiagramRenderOptions, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
+    RestingOnTableBallState, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
+    SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
@@ -304,9 +306,57 @@ fn bench_end_to_end_throughput(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_rendering_throughput(c: &mut Criterion) {
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let scenario =
+        parse_dsl_to_scenario(TWO_BALL_LAYOUT_DSL).expect("benchmark scenario should parse");
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("benchmark scenario should simulate")
+        .expect("benchmark scenario should contain a shot");
+    let trace_options = ScenarioTraceRenderOptions {
+        path_render: BallPathRenderOptions {
+            max_time_step: Seconds::new(0.005),
+            ..ScenarioTraceRenderOptions::default().path_render
+        },
+        start_ghost_balls: true,
+        event_markers: true,
+        labels: false,
+        spin_glyphs: true,
+        path_color_mode: PathColorMode::MotionPhase,
+    };
+    let render_options = DiagramRenderOptions {
+        scale_factor: 1,
+        background: DiagramBackground::Table,
+    };
+
+    c.bench_function("throughput_rendering/trace_final_layout_svg", |b| {
+        b.iter(|| {
+            let rendered = trace.rendered_final_layout_with_trace_options(
+                black_box(&scenario),
+                black_box(&trace_options),
+            );
+            black_box(rendered.render_2d_diagram_with_options(
+                DiagramOutputFormat::Svg,
+                black_box(&render_options),
+            ));
+        });
+    });
+
+    c.bench_function("throughput_rendering/trace_playback_frames_2_5ms", |b| {
+        b.iter(|| black_box(trace.playback_frames(black_box(Seconds::new(0.0025)))));
+    });
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_parse_throughput, bench_function_throughput, bench_end_to_end_throughput
+    targets = bench_parse_throughput, bench_function_throughput, bench_end_to_end_throughput, bench_rendering_throughput
 );
 criterion_main!(benches);

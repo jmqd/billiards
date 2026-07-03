@@ -30,9 +30,9 @@ cargo xtask validation-suite --open
 ```
 
 The gallery writes fresh SVG diagrams plus `target/validation-suite/index.html`. The gallery embeds
-each SVG inline with table/overlay layer toggles, zoom/pan controls, scenario comments, DSL shot line,
-simulation summary, event log, cue-ball launch speed in mph, and the nearest human-facing shot-speed
-label.
+each SVG inline with table/overlay layer toggles, zoom/pan controls, 2.5 ms playback frames for
+smoother 1/16x slow motion, scenario comments, DSL shot line, simulation summary, event log,
+cue-ball launch speed in mph, and the nearest human-facing shot-speed label.
 
 ## Included scenarios
 
@@ -255,12 +255,12 @@ Expected flavor:
 
 
 ### `low_left_spin_throw_transfer.billiards`
-A full-contact low-left-English diagnostic: the cue is aimed perpendicular to the top cushion,
-with its starting x-position offset just enough that squirt still produces a square hit on the 1.
+A low-left-English diagnostic: the cue and 1-ball start vertically aligned,
+with the shot aimed perpendicular to the top cushion.
 
 Expected flavor:
-- cue -> one collision on a near-full hit
-- one travels mostly straight toward the top cushion, with spin-induced throw to the right
+- cue -> one collision after side-tip squirt offsets the impact from a center-ball hit
+- one travels mostly toward the top cushion with a small leftward cut
 - one carries a small amount of transferred right spin from the low-left cue-ball spin
 
 ### `long_cut_top_right_rail.billiards`

@@ -1,10 +1,11 @@
 use crate::visualization::{
     DashedLineStyle, EventMarkerStyle, GhostBallStyle, HeadingChevronStyle, LabelOverlayStyle,
-    SmoothPolylineStyle,
+    SmoothPolylineStyle, SpinGlyphStyle,
 };
+use crate::{assets, drawing};
 use crate::{
-    assets, drawing, Angle, BallSpec, BallType, DiagramBackground, DiagramRenderOptions, Inches,
-    OverlayLayer, Position, TableKind, TableSpec,
+    Angle, AngularVelocity3, BallSpec, BallType, DiagramBackground, DiagramRenderOptions, Inches,
+    OverlayLayer, Position, TableKind, TableSpec, Velocity2,
 };
 use bigdecimal::ToPrimitive;
 use image::codecs::png::PngEncoder;
@@ -198,6 +199,13 @@ pub enum DiagramElement {
         text: String,
         style: LabelOverlayStyle,
     },
+    SpinGlyph {
+        center: Position,
+        angular_velocity: AngularVelocity3,
+        linear_velocity: Velocity2,
+        ball_radius: Inches,
+        style: SpinGlyphStyle,
+    },
 }
 
 impl DiagramElement {
@@ -209,6 +217,7 @@ impl DiagramElement {
             Self::GhostBall { style, .. } => style.layer.into(),
             Self::OriginMarker { style, .. } | Self::TextLabel { style, .. } => style.layer.into(),
             Self::CircleMarker { style, .. } => style.layer.into(),
+            Self::SpinGlyph { style, .. } => style.layer.into(),
         }
     }
 }
@@ -297,6 +306,7 @@ impl DiagramBackend for SvgBackend {
         svg.push_str("<style>\n");
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
+        svg.push_str(".ball-spin-glyph{pointer-events:none}.ball-spin-backplate{fill:#fffaf1;fill-opacity:.98;stroke:#111;stroke-opacity:.9}.ball-spin-vector,.ball-spin-vector-halo,.ball-spin-z,.ball-spin-z-halo,.ball-spin-stun-x-halo,.ball-spin-stun-x-mark{fill:none;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}.ball-spin-vector-halo,.ball-spin-z-halo,.ball-spin-stun-x-halo{stroke:#fffaf1;stroke-opacity:1}.ball-spin-arrowhead,.ball-spin-z-head{stroke:#fffaf1;stroke-linejoin:round;vector-effect:non-scaling-stroke}.ball-spin-stun-x-mark{stroke:#7f858c;stroke-opacity:.98}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}.origin-marker{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none}.event-marker[data-event-label]{cursor:help}\n");
         svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}");
         svg.push_str(".table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}");
@@ -483,6 +493,7 @@ fn draw_raster_elements_for_layer(
                     style.color,
                 );
             }
+            DiagramElement::SpinGlyph { .. } => {}
         }
     }
 }
@@ -1399,7 +1410,325 @@ fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramEle
                 escape_xml(text)
             ));
         }
+        DiagramElement::SpinGlyph {
+            center,
+            angular_velocity,
+            linear_velocity,
+            ball_radius,
+            style,
+        } => {
+            push_svg_spin_glyph(
+                svg,
+                scene,
+                center,
+                angular_velocity,
+                linear_velocity,
+                ball_radius,
+                style,
+            );
+        }
     }
+}
+
+struct SpinGlyphMetrics {
+    vx: f64,
+    vy: f64,
+    wx: f64,
+    wy: f64,
+    wz: f64,
+    planar_rps: f64,
+    total_rps: f64,
+    roll_ratio: f64,
+    roll_alignment: f64,
+    roll_slip_ips: f64,
+    angle_degrees: f64,
+    kind: &'static str,
+    planar_color: String,
+    z_color: String,
+}
+
+fn push_svg_spin_glyph(
+    svg: &mut String,
+    scene: &DiagramScene,
+    center: &Position,
+    angular_velocity: &AngularVelocity3,
+    linear_velocity: &Velocity2,
+    ball_radius: &Inches,
+    style: &SpinGlyphStyle,
+) {
+    let center = scene.viewport.position_to_scene_point(center);
+    let radius = scene.viewport.ball_radius_px(
+        &scene.table_spec,
+        &BallSpec {
+            radius: ball_radius.clone(),
+        },
+    );
+    let glyph_radius = (radius * style.glyph_radius_fraction).clamp(8.5, 13.0);
+    let badge_offset = radius * 0.72;
+    let stroke_width = (radius * 0.135).clamp(2.4, 4.0);
+    let metrics = spin_glyph_metrics(angular_velocity, linear_velocity, ball_radius);
+    let title = escape_xml(&format!(
+        "spin: v=({:.1}, {:.1}) ips; omega=({:.1}, {:.1}, {:.1}) rad/s; roll slip={:.1} ips; roll ratio={:.2}; side={:.1} rad/s",
+        metrics.vx,
+        metrics.vy,
+        metrics.wx,
+        metrics.wy,
+        metrics.wz,
+        metrics.roll_slip_ips,
+        metrics.roll_ratio,
+        metrics.wz
+    ));
+    svg.push_str(&format!(
+        "<g class=\"overlay ball-spin-glyph\" transform=\"translate({:.3} {:.3})\" role=\"img\" aria-label=\"{}\" data-spin-kind=\"{}\" data-spin-angle-deg=\"{:.3}\" data-spin-rps=\"{:.3}\" data-spin-planar-rps=\"{:.3}\" data-spin-z-rps=\"{:.3}\" data-spin-roll-ratio=\"{:.3}\" data-spin-roll-alignment=\"{:.3}\" data-spin-slip-ips=\"{:.3}\" data-spin-vx=\"{:.3}\" data-spin-vy=\"{:.3}\" data-spin-wx=\"{:.3}\" data-spin-wy=\"{:.3}\" data-spin-wz=\"{:.3}\"><title>{}</title>\n",
+        center.x + badge_offset,
+        center.y - badge_offset,
+        title,
+        metrics.kind,
+        metrics.angle_degrees,
+        metrics.total_rps,
+        metrics.planar_rps,
+        metrics.wz,
+        metrics.roll_ratio,
+        metrics.roll_alignment,
+        metrics.roll_slip_ips,
+        metrics.vx,
+        metrics.vy,
+        metrics.wx,
+        metrics.wy,
+        metrics.wz,
+        title
+    ));
+    svg.push_str(&format!(
+        "<circle class=\"ball-spin-backplate\" r=\"{:.3}\" stroke-width=\"{:.3}\"/>\n",
+        glyph_radius,
+        stroke_width * 0.75
+    ));
+
+    if metrics.total_rps <= SPIN_GLYPH_STUN_RPS {
+        let arm = glyph_radius * 0.48;
+        svg.push_str(&format!(
+            "<path class=\"ball-spin-stun-x-halo\" d=\"M {:.3} {:.3} L {:.3} {:.3} M {:.3} {:.3} L {:.3} {:.3}\" stroke-width=\"{:.3}\"/>\n",
+            -arm,
+            -arm,
+            arm,
+            arm,
+            arm,
+            -arm,
+            -arm,
+            arm,
+            stroke_width * 2.7
+        ));
+        svg.push_str(&format!(
+            "<path class=\"ball-spin-stun-x-mark\" d=\"M {:.3} {:.3} L {:.3} {:.3} M {:.3} {:.3} L {:.3} {:.3}\" stroke-width=\"{:.3}\"/>\n",
+            -arm,
+            -arm,
+            arm,
+            arm,
+            arm,
+            -arm,
+            -arm,
+            arm,
+            stroke_width * 1.35
+        ));
+    } else {
+        if metrics.planar_rps > SPIN_GLYPH_STUN_RPS {
+            svg.push_str(&format!(
+                "<g transform=\"rotate({:.3})\">\n",
+                metrics.angle_degrees
+            ));
+            let tail = -glyph_radius * 0.70;
+            let tip = glyph_radius * 0.74;
+            let head = glyph_radius * 0.36;
+            let base = tip - head;
+            svg.push_str(&format!(
+                "<path class=\"ball-spin-vector-halo\" d=\"M {:.3} 0 L {:.3} 0\" stroke-width=\"{:.3}\"/>\n",
+                tail,
+                base,
+                stroke_width * 2.65
+            ));
+            svg.push_str(&format!(
+                "<path class=\"ball-spin-vector\" d=\"M {:.3} 0 L {:.3} 0\" stroke=\"{}\" stroke-opacity=\".98\" stroke-width=\"{:.3}\"/>\n",
+                tail,
+                base,
+                metrics.planar_color,
+                stroke_width * 1.28
+            ));
+            svg.push_str(&format!(
+                "<path class=\"ball-spin-arrowhead\" d=\"M {:.3} 0 L {:.3} {:.3} L {:.3} {:.3} Z\" fill=\"{}\" fill-opacity=\".98\" stroke-width=\"{:.3}\"/>\n",
+                tip,
+                base,
+                -head * 0.70,
+                base,
+                head * 0.70,
+                metrics.planar_color,
+                stroke_width * 0.55
+            ));
+            svg.push_str("</g>\n");
+        }
+        if metrics.wz.abs() > SPIN_GLYPH_STUN_RPS {
+            let arc = glyph_radius * 0.82;
+            let z_opacity = (metrics.wz.abs() / metrics.total_rps).clamp(0.66, 1.0);
+            let z_direction = if metrics.wz >= 0.0 { 1.0 } else { -1.0 };
+            let head = glyph_radius * 0.30;
+            svg.push_str(&format!("<g transform=\"scale({:.1} 1)\">\n", z_direction));
+            svg.push_str(&format!(
+                "<path class=\"ball-spin-z-halo\" d=\"M {:.3} {:.3} A {:.3} {:.3} 0 1 1 {:.3} {:.3}\" stroke-width=\"{:.3}\"/>\n",
+                -arc,
+                -arc * 0.42,
+                arc,
+                arc,
+                arc,
+                arc * 0.42,
+                stroke_width * 2.25
+            ));
+            svg.push_str(&format!(
+                "<path class=\"ball-spin-z\" d=\"M {:.3} {:.3} A {:.3} {:.3} 0 1 1 {:.3} {:.3}\" stroke=\"{}\" stroke-opacity=\"{:.3}\" stroke-width=\"{:.3}\"/>\n",
+                -arc,
+                -arc * 0.42,
+                arc,
+                arc,
+                arc,
+                arc * 0.42,
+                metrics.z_color,
+                z_opacity,
+                stroke_width * 1.18
+            ));
+            svg.push_str(&format!(
+                "<path class=\"ball-spin-z-head\" d=\"M {:.3} {:.3} L {:.3} {:.3} L {:.3} {:.3} Z\" fill=\"{}\" fill-opacity=\"{:.3}\" stroke-width=\"{:.3}\"/>\n",
+                arc,
+                arc * 0.42,
+                arc - head * 0.72,
+                arc * 0.42 - head * 0.78,
+                arc - head * 0.12,
+                arc * 0.42 + head * 0.90,
+                metrics.z_color,
+                z_opacity,
+                stroke_width * 0.55
+            ));
+            svg.push_str("</g>\n");
+        }
+    }
+    svg.push_str("</g>\n");
+}
+
+const SPIN_GLYPH_STUN_RPS: f64 = 1e-6;
+const SPIN_GLYPH_GREY: [u8; 3] = [0x7f, 0x85, 0x8c];
+const SPIN_GLYPH_GREEN: [u8; 3] = [0x2d, 0xa4, 0x4e];
+const SPIN_GLYPH_BLUE: [u8; 3] = [0x09, 0x6b, 0xd8];
+const SPIN_GLYPH_ORANGE: [u8; 3] = [0xfb, 0x85, 0x1e];
+const SPIN_GLYPH_AMBER: [u8; 3] = [0xbf, 0x87, 0x00];
+const SPIN_GLYPH_VIOLET: [u8; 3] = [0x8b, 0x5c, 0xf6];
+
+fn spin_glyph_metrics(
+    angular_velocity: &AngularVelocity3,
+    linear_velocity: &Velocity2,
+    ball_radius: &Inches,
+) -> SpinGlyphMetrics {
+    let vx = finite_or_zero(linear_velocity.x().as_f64());
+    let vy = finite_or_zero(linear_velocity.y().as_f64());
+    let wx = finite_or_zero(angular_velocity.x().as_f64());
+    let wy = finite_or_zero(angular_velocity.y().as_f64());
+    let wz = finite_or_zero(angular_velocity.z().as_f64());
+    let planar_rps = wx.hypot(wy);
+    let total_rps = planar_rps.hypot(wz);
+    let linear_speed_ips = vx.hypot(vy);
+    let radius_inches = finite_or_zero(ball_radius.as_f64()).max(SPIN_GLYPH_STUN_RPS);
+    let rolling_target_rps = (linear_speed_ips / radius_inches).max(0.0);
+    let roll_ratio = if rolling_target_rps > SPIN_GLYPH_STUN_RPS {
+        planar_rps / rolling_target_rps
+    } else {
+        0.0
+    };
+    let roll_vx = radius_inches * wy;
+    let roll_vy = -radius_inches * wx;
+    let roll_speed_ips = roll_vx.hypot(roll_vy);
+    let roll_slip_ips = (vx - roll_vx).hypot(vy - roll_vy);
+    let roll_alignment =
+        if linear_speed_ips > SPIN_GLYPH_STUN_RPS && roll_speed_ips > SPIN_GLYPH_STUN_RPS {
+            ((vx * roll_vx + vy * roll_vy) / (linear_speed_ips * roll_speed_ips)).clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+    let spin_vector_x = roll_vx;
+    let screen_spin_vector_y = -roll_vy;
+    let angle_degrees = if spin_vector_x.hypot(screen_spin_vector_y) > SPIN_GLYPH_STUN_RPS {
+        screen_spin_vector_y.atan2(spin_vector_x).to_degrees()
+    } else {
+        0.0
+    };
+    let rolling_slip_limit = (linear_speed_ips * 0.12).max(0.75);
+    let is_rolling = linear_speed_ips > SPIN_GLYPH_STUN_RPS
+        && planar_rps > SPIN_GLYPH_STUN_RPS
+        && roll_slip_ips <= rolling_slip_limit;
+    let has_prominent_side_spin = wz.abs() > planar_rps.max(rolling_target_rps) * 0.25;
+    let kind = if total_rps <= SPIN_GLYPH_STUN_RPS {
+        "stun"
+    } else if is_rolling && has_prominent_side_spin {
+        "rolling-english"
+    } else if is_rolling {
+        "rolling"
+    } else if roll_alignment <= -0.5 {
+        "draw"
+    } else if roll_alignment >= 0.5 && roll_ratio > 1.15 {
+        "follow"
+    } else if wz.abs() >= planar_rps {
+        "english"
+    } else {
+        "spin"
+    };
+    let planar_color = match kind {
+        "stun" | "english" => svg_rgb(SPIN_GLYPH_GREY),
+        "rolling" | "rolling-english" => svg_rgb(SPIN_GLYPH_GREEN),
+        "draw" => svg_rgb(SPIN_GLYPH_ORANGE),
+        "follow" => svg_rgb(SPIN_GLYPH_BLUE),
+        _ => {
+            let reference = rolling_target_rps.max(120.0);
+            let t = (planar_rps / reference).clamp(0.0, 1.0);
+            svg_rgb(interpolate_rgb(SPIN_GLYPH_GREY, SPIN_GLYPH_AMBER, t))
+        }
+    };
+    let z_color = svg_rgb(SPIN_GLYPH_VIOLET);
+
+    SpinGlyphMetrics {
+        vx,
+        vy,
+        wx,
+        wy,
+        wz,
+        planar_rps,
+        total_rps,
+        roll_ratio,
+        roll_alignment,
+        roll_slip_ips,
+        angle_degrees,
+        kind,
+        planar_color,
+        z_color,
+    }
+}
+
+fn finite_or_zero(value: f64) -> f64 {
+    if value.is_finite() {
+        value
+    } else {
+        0.0
+    }
+}
+fn interpolate_rgb(start: [u8; 3], end: [u8; 3], t: f64) -> [u8; 3] {
+    let t = t.clamp(0.0, 1.0);
+    [
+        interpolate_channel(start[0], end[0], t),
+        interpolate_channel(start[1], end[1], t),
+        interpolate_channel(start[2], end[2], t),
+    ]
+}
+
+fn interpolate_channel(start: u8, end: u8, t: f64) -> u8 {
+    (start as f64 + (end as f64 - start as f64) * t).round() as u8
+}
+
+fn svg_rgb(color: [u8; 3]) -> String {
+    format!("#{:02x}{:02x}{:02x}", color[0], color[1], color[2])
 }
 
 fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {

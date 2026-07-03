@@ -306,7 +306,7 @@ fn side_pocket_examples_match_claimed_outcomes() {
 }
 
 #[test]
-fn low_left_spin_throw_transfer_scenario_keeps_full_hit_throw_and_spin_signs() {
+fn low_left_spin_throw_transfer_scenario_uses_vertical_setup_and_tracks_squirted_contact() {
     let (scenario, trace) = trace_scenario(
         "examples/scenarios/low_left_spin_throw_transfer.billiards",
         1,
@@ -325,6 +325,17 @@ fn low_left_spin_throw_transfer_scenario_keeps_full_hit_throw_and_spin_signs() {
         .iter()
         .position(|ball| ball.ty == BallType::One)
         .expect("scenario should contain the 1-ball");
+
+    let cue_start = &scenario.game_state.balls()[cue_index].position;
+    let one_start = &scenario.game_state.balls()[one_index].position;
+    assert_eq!(
+        cue_start.x, one_start.x,
+        "low-left setup should place cue and 1-ball on the same vertical line"
+    );
+    assert!(
+        one_start.y > cue_start.y,
+        "1-ball should start directly above the cue ball toward the top cushion"
+    );
 
     let first_event = trace
         .simulation
@@ -353,8 +364,8 @@ fn low_left_spin_throw_transfer_scenario_keeps_full_hit_throw_and_spin_signs() {
     let line_dx = one_at_impact.position.x().as_f64() - cue_at_impact.position.x().as_f64();
     let line_dy = one_at_impact.position.y().as_f64() - cue_at_impact.position.y().as_f64();
     assert!(
-        line_dx.abs() < 0.05,
-        "low-left setup should still arrive nearly full; got centerline dx {line_dx:.6} in"
+        (-0.6..-0.2).contains(&line_dx),
+        "low-left side-tip squirt should offset impact left of center; got centerline dx {line_dx:.6} in"
     );
     assert!(
         line_dy > 0.0,
@@ -365,14 +376,19 @@ fn low_left_spin_throw_transfer_scenario_keeps_full_hit_throw_and_spin_signs() {
         .as_on_table()
         .expect("1-ball should remain on table after first contact")
         .as_ball_state();
+    let one_vx = one_after.velocity.x().as_f64();
+    let one_vy = one_after.velocity.y().as_f64();
     assert!(
-        one_after.velocity.y().as_f64() > 0.0,
-        "1-ball should travel toward the top cushion after the full hit"
+        one_vy > 0.0,
+        "1-ball should travel toward the top cushion after contact"
     );
     assert!(
-        one_after.velocity.x().as_f64() > 0.0,
-        "low-left spin should throw the 1-ball to the striker's right; got vx {:.6}",
-        one_after.velocity.x().as_f64()
+        one_vy > one_vx.abs() * 4.0,
+        "1-ball should still travel mostly toward the top cushion; got vx {one_vx:.6}, vy {one_vy:.6}"
+    );
+    assert!(
+        one_vx < 0.0,
+        "low-left side-tip squirt should cut the 1-ball left; got vx {one_vx:.6}"
     );
     assert!(
         one_after.angular_velocity.z().as_f64() > 0.0,
@@ -573,6 +589,7 @@ fn professional_manual_check_diagrams_parse_simulate_and_render_with_debug_overl
                 start_ghost_balls: true,
                 event_markers: true,
                 labels: true,
+                spin_glyphs: true,
                 path_color_mode: PathColorMode::MotionPhase,
             },
         );

@@ -1,15 +1,23 @@
 use std::env;
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
+use std::thread;
 
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
-use billiards::visualization::{BallPathRenderOptions, PathColorMode};
+use billiards::visualization::{
+    BallPathRenderOptions, PathColorMode, DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS,
+};
 use billiards::{
     diagram::{DiagramOutputFormat, DiagramViewport},
     human_tuned_preview_motion_config, BallType, CollisionModel, DiagramBackground,
-    DiagramRenderOptions, HumanShotSpeedBand, NBallSystemState, RailModel, Seconds,
+    DiagramRenderOptions, GameState, HumanShotSpeedBand, NBallSystemState, RailModel, Seconds,
     ShotSpeedPreset, TableSpec,
 };
 
@@ -28,6 +36,7 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         CommandName::ValidationSuite(options) => run_validation_suite(&options),
+        CommandName::BaseSvg(options) => run_base_svg(&options),
     }
 }
 
@@ -40,6 +49,7 @@ struct Args {
 enum CommandName {
     Help,
     ValidationSuite(ValidationSuiteOptions),
+    BaseSvg(BaseSvgOptions),
 }
 
 #[derive(Debug)]
@@ -52,12 +62,27 @@ struct ValidationSuiteOptions {
     open: bool,
 }
 
+#[derive(Debug)]
+struct BaseSvgOptions {
+    output_path: PathBuf,
+    transparent_background: bool,
+}
+
+impl Default for BaseSvgOptions {
+    fn default() -> Self {
+        Self {
+            output_path: PathBuf::from("target/base-pocket-table.svg"),
+            transparent_background: false,
+        }
+    }
+}
+
 impl Default for ValidationSuiteOptions {
     fn default() -> Self {
         Self {
             scenario_dir: PathBuf::from("examples/scenarios"),
             output_dir: PathBuf::from("target/validation-suite"),
-            trace_sample_step_seconds: 0.02,
+            trace_sample_step_seconds: DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS,
             max_events_override: None,
             transparent_background: false,
             open: false,
@@ -81,6 +106,9 @@ impl Args {
                 command: CommandName::ValidationSuite(ValidationSuiteOptions::parse(
                     &raw_args[1..],
                 )?),
+            }),
+            "base-svg" | "base-table-svg" => Ok(Self {
+                command: CommandName::BaseSvg(BaseSvgOptions::parse(&raw_args[1..])?),
             }),
             other => Err(format!(
                 "unknown xtask command `{other}`\n\n{}",
@@ -149,10 +177,129 @@ impl ValidationSuiteOptions {
     }
 }
 
+impl BaseSvgOptions {
+    fn parse(raw_args: &[String]) -> Result<Self, String> {
+        let mut options = Self::default();
+        let mut index = 0;
+        while index < raw_args.len() {
+            match raw_args[index].as_str() {
+                "--output" => {
+                    index += 1;
+                    options.output_path = PathBuf::from(value_after(raw_args, index, "--output")?);
+                }
+                "--transparent" => {
+                    options.transparent_background = true;
+                }
+                "--help" | "-h" => {
+                    print_usage();
+                    std::process::exit(0);
+                }
+                other => return Err(format!("unknown base-svg option `{other}`")),
+            }
+            index += 1;
+        }
+
+        Ok(options)
+    }
+}
+
 fn value_after<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str, String> {
     args.get(index)
         .map(String::as_str)
         .ok_or_else(|| format!("{name} requires a value"))
+}
+
+fn run_base_svg(options: &BaseSvgOptions) -> Result<(), String> {
+    if let Some(parent) = options
+        .output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!("failed to create output dir {}: {error}", parent.display())
+        })?;
+    }
+
+    let render_options = DiagramRenderOptions {
+        scale_factor: 1,
+        background: if options.transparent_background {
+            DiagramBackground::Transparent
+        } else {
+            DiagramBackground::Table
+        },
+    };
+    let svg = GameState::default()
+        .render_2d_diagram_with_options(DiagramOutputFormat::Svg, &render_options);
+    if svg.is_empty() {
+        return Err("rendered empty base pocket table SVG".to_string());
+    }
+
+    fs::write(&options.output_path, &svg)
+        .map_err(|error| format!("failed to write {}: {error}", options.output_path.display()))?;
+    println!(
+        "Generated base pocket table SVG: {}",
+        options.output_path.display()
+    );
+    Ok(())
+}
+
+const VALIDATION_SUITE_MAX_PARALLELISM: usize = 8;
+
+fn validation_suite_worker_count(scenario_count: usize) -> usize {
+    if scenario_count == 0 {
+        return 0;
+    }
+
+    thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .min(VALIDATION_SUITE_MAX_PARALLELISM)
+        .min(scenario_count)
+}
+
+fn render_scenarios(
+    scenarios: &[PathBuf],
+    options: &ValidationSuiteOptions,
+) -> Result<Vec<ScenarioReport>, String> {
+    let worker_count = validation_suite_worker_count(scenarios.len());
+    if worker_count <= 1 {
+        return scenarios
+            .iter()
+            .map(|scenario_path| render_scenario(scenario_path, options))
+            .collect();
+    }
+
+    let next_index = AtomicUsize::new(0);
+    let reports = Mutex::new((0..scenarios.len()).map(|_| None).collect::<Vec<_>>());
+
+    thread::scope(|scope| {
+        for _ in 0..worker_count {
+            scope.spawn(|| loop {
+                let index = next_index.fetch_add(1, Ordering::Relaxed);
+                if index >= scenarios.len() {
+                    break;
+                }
+
+                let report = render_scenario(&scenarios[index], options);
+                reports.lock().expect("reports mutex poisoned")[index] = Some(report);
+            });
+        }
+    });
+
+    reports
+        .into_inner()
+        .expect("reports mutex poisoned")
+        .into_iter()
+        .enumerate()
+        .map(|(index, report)| {
+            report.unwrap_or_else(|| {
+                Err(format!(
+                    "scenario {} was not rendered",
+                    scenarios[index].display()
+                ))
+            })
+        })
+        .collect()
 }
 
 fn run_validation_suite(options: &ValidationSuiteOptions) -> Result<(), String> {
@@ -171,10 +318,7 @@ fn run_validation_suite(options: &ValidationSuiteOptions) -> Result<(), String> 
         )
     })?;
 
-    let mut reports = Vec::with_capacity(scenarios.len());
-    for scenario_path in scenarios {
-        reports.push(render_scenario(&scenario_path, options)?);
-    }
+    let reports = render_scenarios(&scenarios, options)?;
 
     let index_path = options.output_dir.join("index.html");
     fs::write(&index_path, render_html(&reports, options)).map_err(|error| {
@@ -272,6 +416,7 @@ struct ScenarioPlaybackBallVisual {
     fill: &'static str,
     label: Option<&'static str>,
     radius: f32,
+    radius_inches: f64,
 }
 
 #[derive(Debug)]
@@ -285,7 +430,11 @@ struct ScenarioPlaybackBallReport {
     id: String,
     x: f32,
     y: f32,
-    speed_ips: f64,
+    vx_ips: f64,
+    vy_ips: f64,
+    wx_rps: f64,
+    wy_rps: f64,
+    wz_rps: f64,
 }
 
 fn render_scenario(
@@ -308,6 +457,7 @@ fn render_scenario(
         start_ghost_balls: true,
         event_markers: true,
         labels: false,
+        spin_glyphs: true,
         path_color_mode: PathColorMode::MotionPhase,
     };
 
@@ -599,6 +749,7 @@ fn scenario_playback_report(
                 fill: playback_ball_fill(&ball_trace.ball),
                 label: playback_ball_label(&ball_trace.ball),
                 radius: ball_radius,
+                radius_inches: ball_spec.radius.as_f64(),
             })
             .collect(),
         frames: frames
@@ -616,7 +767,11 @@ fn scenario_playback_report(
                             id: playback_ball_id(&ball.ball),
                             x: center.x,
                             y: center.y,
-                            speed_ips: state.speed().as_f64(),
+                            vx_ips: state.velocity.x().as_f64(),
+                            vy_ips: state.velocity.y().as_f64(),
+                            wx_rps: state.angular_velocity.x().as_f64(),
+                            wy_rps: state.angular_velocity.y().as_f64(),
+                            wz_rps: state.angular_velocity.z().as_f64(),
                         }
                     })
                     .collect(),
@@ -673,86 +828,94 @@ fn playback_ball_label(ball_type: &BallType) -> Option<&'static str> {
 }
 
 fn playback_json(playback: &ScenarioPlaybackReport) -> String {
-    let events = playback
-        .events
-        .iter()
-        .map(|event| {
-            format!(
-                "{{\"label\":{},\"time\":{:.6},\"summary\":{}}}",
-                json_string(&event.label),
-                event.time,
-                json_string(&event.summary)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let balls = playback
-        .balls
-        .iter()
-        .map(|ball| {
-            let label = ball.label.map_or_else(|| "null".to_string(), json_string);
-            format!(
-                "{{\"id\":{},\"fill\":{},\"label\":{},\"radius\":{:.3}}}",
-                json_string(&ball.id),
-                json_string(ball.fill),
-                label,
-                ball.radius
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let frames = playback
-        .frames
-        .iter()
-        .map(|frame| {
-            let balls = frame
-                .balls
-                .iter()
-                .map(|ball| {
-                    format!(
-                        "{{\"id\":{},\"x\":{:.3},\"y\":{:.3},\"speed\":{:.6}}}",
-                        json_string(&ball.id),
-                        ball.x,
-                        ball.y,
-                        ball.speed_ips
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("{{\"time\":{:.6},\"balls\":[{}]}}", frame.time, balls)
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-
-    format!(
-        "{{\"duration\":{:.6},\"events\":[{}],\"balls\":[{}],\"frames\":[{}]}}",
-        playback.duration, events, balls, frames
+    let mut json = String::new();
+    write!(
+        &mut json,
+        "{{\"duration\":{:.6},\"events\":[",
+        playback.duration
     )
+    .expect("writing JSON to string should not fail");
+
+    for (index, event) in playback.events.iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        json.push('[');
+        push_json_string(&mut json, &event.label);
+        write!(&mut json, ",{:.6},", event.time).expect("writing JSON to string should not fail");
+        push_json_string(&mut json, &event.summary);
+        json.push(']');
+    }
+
+    json.push_str("],\"balls\":[");
+    for (index, ball) in playback.balls.iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        json.push('[');
+        push_json_string(&mut json, &ball.id);
+        json.push(',');
+        push_json_string(&mut json, ball.fill);
+        json.push(',');
+        if let Some(label) = ball.label {
+            push_json_string(&mut json, label);
+        } else {
+            json.push_str("null");
+        }
+        write!(&mut json, ",{:.3},{:.6}]", ball.radius, ball.radius_inches)
+            .expect("writing JSON to string should not fail");
+    }
+
+    json.push_str("],\"frames\":[");
+    for (frame_index, frame) in playback.frames.iter().enumerate() {
+        if frame_index > 0 {
+            json.push(',');
+        }
+        write!(&mut json, "[{:.6},[", frame.time).expect("writing JSON to string should not fail");
+        for (ball_index, ball) in frame.balls.iter().enumerate() {
+            if ball_index > 0 {
+                json.push(',');
+            }
+            json.push('[');
+            push_json_string(&mut json, &ball.id);
+            write!(
+                &mut json,
+                ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6}]",
+                ball.x, ball.y, ball.vx_ips, ball.vy_ips, ball.wx_rps, ball.wy_rps, ball.wz_rps
+            )
+            .expect("writing JSON to string should not fail");
+        }
+        json.push_str("]]");
+    }
+
+    json.push_str("]}");
+    json
 }
 
-fn json_string(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len() + 2);
-    escaped.push('"');
+fn push_json_string(out: &mut String, value: &str) {
+    out.push('"');
     for ch in value.chars() {
         match ch {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            '\u{08}' => escaped.push_str("\\b"),
-            '\u{0C}' => escaped.push_str("\\f"),
-            '<' => escaped.push_str("\\u003c"),
-            '>' => escaped.push_str("\\u003e"),
-            '&' => escaped.push_str("\\u0026"),
-            '\u{2028}' => escaped.push_str("\\u2028"),
-            '\u{2029}' => escaped.push_str("\\u2029"),
-            ch if ch.is_control() => escaped.push_str(&format!("\\u{:04x}", ch as u32)),
-            ch => escaped.push(ch),
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0C}' => out.push_str("\\f"),
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            ch if ch.is_control() => {
+                write!(out, "\\u{:04x}", ch as u32)
+                    .expect("writing JSON to string should not fail");
+            }
+            ch => out.push(ch),
         }
     }
-    escaped.push('"');
-    escaped
+    out.push('"');
 }
 
 fn render_cue_tip_diagram_svg(
@@ -996,6 +1159,9 @@ img{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:2px;bac
 .playback-time{min-width:9rem;color:var(--ink);font-variant-numeric:tabular-nums}
 .playback-event{flex:1 1 18rem;min-width:min(100%,18rem);color:var(--ink);overflow-wrap:anywhere}
 .playback-event[data-event-state="hit"]{color:var(--accent);font-weight:700}
+.playback-speed-control{display:inline-flex;align-items:center;gap:.35rem;color:var(--ink);white-space:nowrap}
+.playback-speed-control input[type="range"]{flex:0 1 7rem;min-width:6rem}
+.playback-speed-value{min-width:3.2rem;font-variant-numeric:tabular-nums}
 .playback-help{margin:0;color:var(--muted);font-size:.84rem;line-height:1.35}
 .playback-balls{pointer-events:none}
 .playback-ball-label{font-family:ui-sans-serif,system-ui,sans-serif;font-size:10px;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none}
@@ -1124,11 +1290,12 @@ a:hover,a:focus-visible{color:#501212}
                  <button type=\"button\" data-playback-play>Play</button>\n\
                  <button type=\"button\" data-playback-step=\"1\">Step forward</button>\n\
                  <button type=\"button\" data-playback-next-event>Next event</button>\n\
+                 <label class=\"playback-speed-control\">Speed <input type=\"range\" data-playback-speed min=\"0.0625\" max=\"1\" value=\"1\" step=\"0.0625\" aria-label=\"Playback speed\"><span class=\"playback-speed-value\" data-playback-speed-label>1x</span></label>\n\
                  <input type=\"range\" data-playback-slider min=\"0\" max=\"{}\" value=\"{}\" step=\"1\" aria-label=\"Trace frame\">\n\
                  <span class=\"playback-time\" data-playback-time>t=0.000s</span>\n\
                  <span class=\"playback-event\" data-playback-event>No events</span>\n\
                  </div>\n\
-                 <p class=\"playback-help\">Scrub the physics frames in either direction, or play to the next logged event. Balls are sampled by the Rust physics solver; black ticks show instantaneous travel direction and fade with speed.</p>\n\
+                 <p class=\"playback-help\">Scrub the physics frames in either direction, set playback speed from 1x down to 1/16x for slow motion, or play to the next logged event. The default 2.5 ms physics frames update at about 25 frame changes per second at 1/16x. Balls are sampled by the Rust physics solver; black ticks show instantaneous travel direction. Spin badges use green arrows for natural roll, blue for follow, orange for draw, amber for skid, purple arcs for side spin, and a gray X for no spin.</p>\n\
                  </div>\n",
                 playback_json(playback),
                 max_frame,
@@ -1193,13 +1360,52 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
   if (playbackPanel) {
     const playbackDataElement = playbackPanel.querySelector('[data-playback-data]');
     const slider = playbackPanel.querySelector('[data-playback-slider]');
+    const speedSlider = playbackPanel.querySelector('[data-playback-speed]');
+    const speedLabel = playbackPanel.querySelector('[data-playback-speed-label]');
     const timeLabel = playbackPanel.querySelector('[data-playback-time]');
     const eventTicker = playbackPanel.querySelector('[data-playback-event]');
     const playButton = playbackPanel.querySelector('[data-playback-play]');
     const nextEventButton = playbackPanel.querySelector('[data-playback-next-event]');
     let playback = null;
+    const normalizePlayback = (data) => {
+      const normalizeEvent = (event) => Array.isArray(event)
+        ? { label: String(event[0] ?? ''), time: Number(event[1]), summary: String(event[2] ?? '') }
+        : { label: String(event?.label ?? ''), time: Number(event?.time), summary: String(event?.summary ?? '') };
+      const normalizeVisual = (ball) => Array.isArray(ball)
+        ? { id: String(ball[0] ?? ''), fill: String(ball[1] ?? ''), label: ball[2] == null ? null : String(ball[2]), radius: Number(ball[3]), radiusInches: Number(ball[4]) }
+        : ball;
+      const normalizeFrameBall = (ball) => {
+        if (!Array.isArray(ball)) return ball;
+        if (ball.length >= 10) {
+          return { id: String(ball[0] ?? ''), x: Number(ball[1]), y: Number(ball[2]), speed: Number(ball[3]), vx: Number(ball[4]), vy: Number(ball[5]), wx: Number(ball[6]), wy: Number(ball[7]), wz: Number(ball[8]), rollingTarget: Number(ball[9]) };
+        }
+        const vx = Number(ball[3]);
+        const vy = Number(ball[4]);
+        return { id: String(ball[0] ?? ''), x: Number(ball[1]), y: Number(ball[2]), speed: Math.hypot(vx, vy), vx, vy, wx: Number(ball[5]), wy: Number(ball[6]), wz: Number(ball[7]) };
+      };
+      const normalizeFrame = (frame) => Array.isArray(frame)
+        ? { time: Number(frame[0]), balls: Array.isArray(frame[1]) ? frame[1].map(normalizeFrameBall) : [] }
+        : { ...frame, time: Number(frame?.time), balls: Array.isArray(frame?.balls) ? frame.balls.map(normalizeFrameBall) : [] };
+      const balls = Array.isArray(data?.balls) ? data.balls.map(normalizeVisual) : [];
+      const visualById = new Map(balls.map((ball) => [ball.id, ball]));
+      const frames = Array.isArray(data?.frames) ? data.frames.map(normalizeFrame) : [];
+      frames.forEach((frame) => {
+        frame.balls.forEach((ball) => {
+          const visual = visualById.get(ball.id);
+          if (visual && !Number.isFinite(Number(ball.ballRadiusInches))) {
+            ball.ballRadiusInches = visual.radiusInches;
+          }
+        });
+      });
+      return {
+        duration: Number(data?.duration) || 0,
+        events: Array.isArray(data?.events) ? data.events.map(normalizeEvent) : [],
+        balls,
+        frames,
+      };
+    };
     try {
-      playback = JSON.parse(playbackDataElement?.textContent ?? '');
+      playback = normalizePlayback(JSON.parse(playbackDataElement?.textContent ?? ''));
     } catch (_) {
       playback = null;
     }
@@ -1211,6 +1417,9 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
         const ballToggle = viewer.querySelector('[data-layer-toggle="balls"]');
         if (ballToggle) ballToggle.checked = false;
       }
+      svg.querySelectorAll('.diagram-layer .ball-spin-glyph').forEach((glyph) => {
+        glyph.style.display = 'none';
+      });
       const playbackLayer = document.createElementNS(ns, 'g');
       playbackLayer.setAttribute('class', 'playback-layer');
       playbackLayer.setAttribute('data-layer', 'playback-balls');
@@ -1235,6 +1444,22 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
       const clampFrame = (value) => Math.max(0, Math.min(playback.frames.length - 1, Number(value) || 0));
       const frameTime = (frameIndex) => Number(playback.frames[clampFrame(frameIndex)]?.time) || 0;
       const formatPlaybackTime = (time) => (Number(time) || 0).toFixed(3);
+      const minPlaybackSpeed = 1 / 16;
+      const maxPlaybackSpeed = 1;
+      const playbackSpeed = () => {
+        const raw = Number(speedSlider?.value);
+        if (!Number.isFinite(raw)) return maxPlaybackSpeed;
+        return Math.max(minPlaybackSpeed, Math.min(maxPlaybackSpeed, raw));
+      };
+      const formatPlaybackSpeed = (speed) => {
+        const inverse = Math.round(1 / speed);
+        if (Math.abs(speed - 1) <= 1e-9) return '1x';
+        if (inverse > 1 && Math.abs(speed - 1 / inverse) <= 1e-6) return `1/${inverse}x`;
+        return `${speed.toFixed(2)}x`;
+      };
+      const updateSpeedLabel = () => {
+        if (speedLabel) speedLabel.textContent = formatPlaybackSpeed(playbackSpeed());
+      };
       const nextEventAfter = (time) => events.find((event) => event.time > time + eventHitWindow);
       const updateEventTicker = (time) => {
         eventRows.forEach((row) => row.classList.remove('event-current'));
@@ -1293,6 +1518,174 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
         circle.setAttribute('stroke-width', strokeWidth);
         playbackLayer.appendChild(circle);
       };
+      const spinStun = 1e-6;
+      const spinGrey = [0x7f, 0x85, 0x8c];
+      const spinGreen = [0x2d, 0xa4, 0x4e];
+      const spinBlue = [0x09, 0x6b, 0xd8];
+      const spinOrange = [0xfb, 0x85, 0x1e];
+      const spinAmber = [0xbf, 0x87, 0x00];
+      const spinViolet = [0x8b, 0x5c, 0xf6];
+      const finiteNumber = (value) => {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : 0;
+      };
+      const hexColor = (color) => `#${color.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
+      const mixColor = (start, end, t) => start.map((channel, index) => channel + (end[index] - channel) * Math.max(0, Math.min(1, t)));
+      const svgNode = (parent, name, attrs = {}) => {
+        const element = document.createElementNS(ns, name);
+        Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, String(value)));
+        parent.appendChild(element);
+        return element;
+      };
+      const spinMetrics = (ball) => {
+        const vx = finiteNumber(ball.vx);
+        const vy = finiteNumber(ball.vy);
+        const wx = finiteNumber(ball.wx);
+        const wy = finiteNumber(ball.wy);
+        const wz = finiteNumber(ball.wz);
+        const planar = Math.hypot(wx, wy);
+        const total = Math.hypot(planar, wz);
+        const speed = Math.hypot(vx, vy);
+        const radiusInches = Math.max(spinStun, finiteNumber(ball.ballRadiusInches) || 1.125);
+        const suppliedRollingTarget = Math.max(0, finiteNumber(ball.rollingTarget));
+        const rollingTarget = suppliedRollingTarget > spinStun ? suppliedRollingTarget : speed / radiusInches;
+        const rollRatio = rollingTarget > spinStun ? planar / rollingTarget : 0;
+        const rollVx = radiusInches * wy;
+        const rollVy = -radiusInches * wx;
+        const rollSpeed = Math.hypot(rollVx, rollVy);
+        const rollSlip = Math.hypot(vx - rollVx, vy - rollVy);
+        const rollAlignment = speed > spinStun && rollSpeed > spinStun
+          ? Math.max(-1, Math.min(1, (vx * rollVx + vy * rollVy) / (speed * rollSpeed)))
+          : 0;
+        const angle = rollSpeed > spinStun ? Math.atan2(-rollVy, rollVx) * 180 / Math.PI : 0;
+        const rollingSlipLimit = Math.max(speed * 0.12, 0.75);
+        const isRolling = speed > spinStun && planar > spinStun && rollSlip <= rollingSlipLimit;
+        const hasProminentSide = Math.abs(wz) > Math.max(planar, rollingTarget) * 0.25;
+        let kind = 'stun';
+        if (total > spinStun && isRolling && hasProminentSide) {
+          kind = 'rolling-english';
+        } else if (total > spinStun && isRolling) {
+          kind = 'rolling';
+        } else if (total > spinStun && rollAlignment <= -0.5) {
+          kind = 'draw';
+        } else if (total > spinStun && rollAlignment >= 0.5 && rollRatio > 1.15) {
+          kind = 'follow';
+        } else if (total > spinStun && Math.abs(wz) >= planar) {
+          kind = 'english';
+        } else if (total > spinStun) {
+          kind = 'spin';
+        }
+        const planarColor = kind === 'stun' || kind === 'english'
+          ? hexColor(spinGrey)
+          : kind === 'rolling' || kind === 'rolling-english'
+            ? hexColor(spinGreen)
+            : kind === 'draw'
+              ? hexColor(spinOrange)
+              : kind === 'follow'
+                ? hexColor(spinBlue)
+                : hexColor(mixColor(spinGrey, spinAmber, planar / Math.max(rollingTarget, 120)));
+        const zColor = hexColor(spinViolet);
+        return { vx, vy, wx, wy, wz, planar, total, rollingTarget, rollRatio, rollAlignment, rollSlip, angle, kind, planarColor, zColor };
+      };
+      const appendSpinGlyph = (ball, radius) => {
+        const metrics = spinMetrics(ball);
+        const glyphRadius = Math.max(8.5, Math.min(13.0, radius * 0.58));
+        const badgeOffset = radius * 0.72;
+        const strokeWidth = Math.max(2.4, Math.min(4.0, radius * 0.135));
+        const titleText = `spin: v=(${metrics.vx.toFixed(1)}, ${metrics.vy.toFixed(1)}) ips; omega=(${metrics.wx.toFixed(1)}, ${metrics.wy.toFixed(1)}, ${metrics.wz.toFixed(1)}) rad/s; roll slip=${metrics.rollSlip.toFixed(1)} ips; roll ratio=${metrics.rollRatio.toFixed(2)}; side=${metrics.wz.toFixed(1)} rad/s`;
+        const group = svgNode(playbackLayer, 'g', {
+          class: 'playback-spin-glyph ball-spin-glyph',
+          role: 'img',
+          'aria-label': titleText,
+          transform: `translate(${(finiteNumber(ball.x) + badgeOffset).toFixed(3)} ${(finiteNumber(ball.y) - badgeOffset).toFixed(3)})`,
+          'data-spin-kind': metrics.kind,
+          'data-spin-angle-deg': metrics.angle.toFixed(3),
+          'data-spin-rps': metrics.total.toFixed(3),
+          'data-spin-planar-rps': metrics.planar.toFixed(3),
+          'data-spin-z-rps': metrics.wz.toFixed(3),
+          'data-spin-roll-ratio': metrics.rollRatio.toFixed(3),
+          'data-spin-roll-alignment': metrics.rollAlignment.toFixed(3),
+          'data-spin-slip-ips': metrics.rollSlip.toFixed(3),
+          'data-spin-vx': metrics.vx.toFixed(3),
+          'data-spin-vy': metrics.vy.toFixed(3),
+          'data-spin-wx': metrics.wx.toFixed(3),
+          'data-spin-wy': metrics.wy.toFixed(3),
+          'data-spin-wz': metrics.wz.toFixed(3),
+        });
+        const title = svgNode(group, 'title');
+        title.textContent = titleText;
+        svgNode(group, 'circle', {
+          class: 'ball-spin-backplate',
+          r: glyphRadius.toFixed(3),
+          'stroke-width': (strokeWidth * 0.75).toFixed(3),
+        });
+        if (metrics.total <= spinStun) {
+          const arm = glyphRadius * 0.48;
+          const xPath = `M ${(-arm).toFixed(3)} ${(-arm).toFixed(3)} L ${arm.toFixed(3)} ${arm.toFixed(3)} M ${arm.toFixed(3)} ${(-arm).toFixed(3)} L ${(-arm).toFixed(3)} ${arm.toFixed(3)}`;
+          svgNode(group, 'path', {
+            class: 'ball-spin-stun-x-halo',
+            d: xPath,
+            'stroke-width': (strokeWidth * 2.7).toFixed(3),
+          });
+          svgNode(group, 'path', {
+            class: 'ball-spin-stun-x-mark',
+            d: xPath,
+            'stroke-width': (strokeWidth * 1.35).toFixed(3),
+          });
+          return;
+        }
+        const rotor = svgNode(group, 'g', { transform: `rotate(${metrics.angle.toFixed(3)})` });
+        if (metrics.planar > spinStun) {
+          const tail = -glyphRadius * 0.70;
+          const tip = glyphRadius * 0.74;
+          const head = glyphRadius * 0.36;
+          const base = tip - head;
+          svgNode(rotor, 'path', {
+            class: 'ball-spin-vector-halo',
+            d: `M ${tail.toFixed(3)} 0 L ${base.toFixed(3)} 0`,
+            'stroke-width': (strokeWidth * 2.65).toFixed(3),
+          });
+          svgNode(rotor, 'path', {
+            class: 'ball-spin-vector',
+            d: `M ${tail.toFixed(3)} 0 L ${base.toFixed(3)} 0`,
+            stroke: metrics.planarColor,
+            'stroke-opacity': '.98',
+            'stroke-width': (strokeWidth * 1.28).toFixed(3),
+          });
+          svgNode(rotor, 'path', {
+            class: 'ball-spin-arrowhead',
+            d: `M ${tip.toFixed(3)} 0 L ${base.toFixed(3)} ${(-head * 0.70).toFixed(3)} L ${base.toFixed(3)} ${(head * 0.70).toFixed(3)} Z`,
+            fill: metrics.planarColor,
+            'fill-opacity': '.98',
+            'stroke-width': (strokeWidth * 0.55).toFixed(3),
+          });
+        }
+        if (Math.abs(metrics.wz) > spinStun) {
+          const arc = glyphRadius * 0.82;
+          const zOpacity = Math.max(0.66, Math.min(1, Math.abs(metrics.wz) / metrics.total));
+          const zGroup = svgNode(group, 'g', { transform: `scale(${metrics.wz >= 0 ? '1.0' : '-1.0'} 1)` });
+          svgNode(zGroup, 'path', {
+            class: 'ball-spin-z-halo',
+            d: `M ${(-arc).toFixed(3)} ${(-arc * 0.42).toFixed(3)} A ${arc.toFixed(3)} ${arc.toFixed(3)} 0 1 1 ${arc.toFixed(3)} ${(arc * 0.42).toFixed(3)}`,
+            'stroke-width': (strokeWidth * 2.25).toFixed(3),
+          });
+          svgNode(zGroup, 'path', {
+            class: 'ball-spin-z',
+            d: `M ${(-arc).toFixed(3)} ${(-arc * 0.42).toFixed(3)} A ${arc.toFixed(3)} ${arc.toFixed(3)} 0 1 1 ${arc.toFixed(3)} ${(arc * 0.42).toFixed(3)}`,
+            stroke: metrics.zColor,
+            'stroke-opacity': zOpacity.toFixed(3),
+            'stroke-width': (strokeWidth * 1.18).toFixed(3),
+          });
+          const head = glyphRadius * 0.30;
+          svgNode(zGroup, 'path', {
+            class: 'ball-spin-z-head',
+            d: `M ${arc.toFixed(3)} ${(arc * 0.42).toFixed(3)} L ${(arc - head * 0.72).toFixed(3)} ${(arc * 0.42 - head * 0.78).toFixed(3)} L ${(arc - head * 0.12).toFixed(3)} ${(arc * 0.42 + head * 0.90).toFixed(3)} Z`,
+            fill: metrics.zColor,
+            'fill-opacity': zOpacity.toFixed(3),
+            'stroke-width': (strokeWidth * 0.55).toFixed(3),
+          });
+        }
+      };
       const paintPlayback = (frameIndex) => {
         const index = clampFrame(frameIndex);
         const frame = playback.frames[index];
@@ -1332,6 +1725,7 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
             label.textContent = visual.label;
             playbackLayer.appendChild(label);
           }
+          appendSpinGlyph(ball, radius);
         }
         slider.value = String(index);
         if (timeLabel) timeLabel.textContent = `t=${formatPlaybackTime(time)}s`;
@@ -1381,7 +1775,7 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
         if (!playing) return;
         const duration = Math.max(0, Number(playback.duration) || 0);
         const targetTime = playTargetTime === null ? duration : playTargetTime;
-        const elapsed = (now - playStartedAt) / 1000;
+        const elapsed = ((now - playStartedAt) / 1000) * playbackSpeed();
         const time = playStartTime + elapsed;
         if (duration > 0 && time >= targetTime - eventHitWindow) {
           paintPlayback(nearestFrameForTime(targetTime));
@@ -1395,6 +1789,15 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
         stopPlayback();
         paintPlayback(slider.value);
       });
+      if (speedSlider) {
+        speedSlider.addEventListener('input', () => {
+          updateSpeedLabel();
+          if (playing) {
+            playStartTime = frameTime(slider.value);
+            playStartedAt = performance.now();
+          }
+        });
+      }
       viewer.querySelectorAll('[data-playback-step]').forEach((button) => {
         button.addEventListener('click', () => {
           stopPlayback();
@@ -1423,6 +1826,7 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
           startPlayback(startIndex);
         });
       }
+      updateSpeedLabel();
       paintPlayback(playback.frames.length - 1);
     }
   }
@@ -1548,7 +1952,7 @@ fn print_usage() {
 }
 
 fn usage_text() -> &'static str {
-    "Usage:\n  cargo xtask validation-suite [options]\n\nOptions:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for SVG diagrams and index.html [default: target/validation-suite]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.02]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n"
+    "Usage:\n  cargo xtask validation-suite [options]\n  cargo xtask base-svg [options]\n\nValidation suite options:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for SVG diagrams and index.html [default: target/validation-suite]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.0025]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n\nBase SVG options:\n  --output <path>                    Output SVG path [default: target/base-pocket-table.svg]\n  --transparent                      Render the base table with transparent background metadata\n"
 }
 
 #[cfg(test)]
@@ -1646,6 +2050,7 @@ mod tests {
                     fill: "#f8f4e8",
                     label: Some("C"),
                     radius: 10.0,
+                    radius_inches: 1.0,
                 }],
                 frames: vec![
                     ScenarioPlaybackFrameReport {
@@ -1654,7 +2059,11 @@ mod tests {
                             id: "cue".to_string(),
                             x: 10.0,
                             y: 20.0,
-                            speed_ips: 5.0,
+                            vx_ips: 5.0,
+                            vy_ips: 0.0,
+                            wx_rps: 3.0,
+                            wy_rps: 4.0,
+                            wz_rps: 5.0,
                         }],
                     },
                     ScenarioPlaybackFrameReport {
@@ -1663,7 +2072,11 @@ mod tests {
                             id: "cue".to_string(),
                             x: 20.0,
                             y: 20.0,
-                            speed_ips: 0.0,
+                            vx_ips: 0.0,
+                            vy_ips: 0.0,
+                            wx_rps: 0.0,
+                            wy_rps: 0.0,
+                            wz_rps: 0.0,
                         }],
                     },
                 ],
@@ -1680,12 +2093,36 @@ mod tests {
         let html = render_html(&[report], &ValidationSuiteOptions::default());
 
         assert!(html.contains("data-playback-next-event"));
+        assert!(html.contains("data-playback-speed"));
+        assert!(html.contains("min=\"0.0625\" max=\"1\" value=\"1\""));
+        assert!(html.contains("data-playback-speed-label>1x"));
+        assert!(html.contains("down to 1/16x for slow motion"));
+        assert!(html.contains("default 2.5 ms physics frames"));
+        assert!(html.contains("playbackSpeed()"));
+        assert!(html.contains("Spin badges use green arrows for natural roll"));
         assert!(html.contains("data-playback-event"));
         assert!(html.contains("play to the next logged event"));
-        assert!(html.contains("\"events\":[{\"label\":\"(1)\",\"time\":0.125000,\"summary\":\"cue -\\u003e one collision\"}]"));
+        assert!(html.contains("\"events\":[[\"(1)\",0.125000,\"cue -\\u003e one collision\"]]"));
         assert!(html.contains("data-event-time=\"0.125000\""));
         assert!(html.contains("nextEventAfter"));
+        assert!(
+            html.contains("[\"cue\",10.000,20.000,5.000000,0.000000,3.000000,4.000000,5.000000]")
+        );
+        assert!(html.contains("appendSpinGlyph"));
+        assert!(html.contains("playback-spin-glyph"));
         assert!(html.contains("event-current"));
+    }
+
+    #[test]
+    fn validation_suite_defaults_use_smooth_slow_motion_sampling() {
+        let options = ValidationSuiteOptions::default();
+
+        assert_eq!(
+            options.trace_sample_step_seconds,
+            DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS
+        );
+        assert_eq!(options.trace_sample_step_seconds, 0.0025);
+        assert!(usage_text().contains("[default: 0.0025]"));
     }
 
     #[test]
@@ -1696,5 +2133,36 @@ mod tests {
 
         assert!(error.contains("unknown validation-suite option `--format`"));
         assert!(!usage_text().contains("--format"));
+    }
+
+    #[test]
+    fn base_svg_options_parse_output_and_transparent() {
+        let args = [
+            "--output".to_string(),
+            "target/custom-base.svg".to_string(),
+            "--transparent".to_string(),
+        ];
+
+        let options = BaseSvgOptions::parse(&args).expect("base-svg options should parse");
+
+        assert_eq!(options.output_path, PathBuf::from("target/custom-base.svg"));
+        assert!(options.transparent_background);
+    }
+
+    #[test]
+    fn base_svg_options_reject_unknown_option() {
+        let args = ["--format".to_string(), "svg".to_string()];
+
+        let error = BaseSvgOptions::parse(&args).expect_err("format option is not supported");
+
+        assert!(error.contains("unknown base-svg option `--format`"));
+    }
+
+    #[test]
+    fn usage_lists_base_svg_command() {
+        let usage = usage_text();
+
+        assert!(usage.contains("cargo xtask base-svg [options]"));
+        assert!(usage.contains("target/base-pocket-table.svg"));
     }
 }

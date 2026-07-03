@@ -162,6 +162,21 @@ impl HeadingChevronStyle {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct SpinGlyphStyle {
+    pub layer: OverlayLayer,
+    pub glyph_radius_fraction: f32,
+}
+
+impl Default for SpinGlyphStyle {
+    fn default() -> Self {
+        Self {
+            layer: OverlayLayer::AboveBalls,
+            glyph_radius_fraction: 0.58,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct AimOverlayStyle {
     pub line: DashedLineStyle,
     pub ghost_ball: Option<GhostBallStyle>,
@@ -189,6 +204,8 @@ pub enum BallPathWidthMode {
     ScaleBySpeed,
 }
 
+pub const DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS: f64 = 0.0025;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BallPathRenderOptions {
     pub max_time_step: crate::Seconds,
@@ -202,7 +219,7 @@ pub struct BallPathRenderOptions {
 impl Default for BallPathRenderOptions {
     fn default() -> Self {
         Self {
-            max_time_step: crate::Seconds::new(0.02),
+            max_time_step: crate::Seconds::new(DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS),
             width_px: 5.0,
             width_mode: BallPathWidthMode::Fixed,
             heading_chevrons: true,

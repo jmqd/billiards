@@ -2,7 +2,9 @@ use billiards::dsl::{parse_dsl_to_scenario, ScenarioTraceRenderOptions};
 use billiards::{
     diagram::DiagramOutputFormat,
     human_tuned_preview_motion_config,
-    visualization::{BallPathRenderOptions, PathColorMode},
+    visualization::{
+        BallPathRenderOptions, PathColorMode, DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS,
+    },
     CollisionModel, DiagramBackground, DiagramRenderOptions, OnTableMotionConfig, RailModel,
     Seconds,
 };
@@ -73,12 +75,16 @@ struct Args {
     #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
     trace_labels: bool,
 
+    /// Render compact angular-velocity glyphs on traced balls.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    trace_spin_glyphs: bool,
+
     /// Render traced paths with solid, fade-by-time, or motion-phase coloring.
     #[arg(long, value_enum, default_value_t = TraceColorModeArg::Solid)]
     trace_color_mode: TraceColorModeArg,
 
     /// Maximum trace sampling step in seconds for smooth path rendering.
-    #[arg(long, default_value_t = 0.02)]
+    #[arg(long, default_value_t = DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS)]
     trace_sample_step_seconds: f64,
 
     /// Maximum simulation events to include in the rendered trace; use 0 for scenario/default behavior.
@@ -118,6 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         start_ghost_balls: args.trace_start_ghosts,
         event_markers: args.trace_event_markers,
         labels: args.trace_labels,
+        spin_glyphs: args.trace_spin_glyphs,
         path_color_mode: args.trace_color_mode.into(),
     };
     let effective_trace_max_events = if args.trace_max_events == 0 {

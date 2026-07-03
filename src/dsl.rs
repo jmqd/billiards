@@ -727,6 +727,7 @@ pub struct ScenarioTraceRenderOptions {
     pub start_ghost_balls: bool,
     pub event_markers: bool,
     pub labels: bool,
+    pub spin_glyphs: bool,
     pub path_color_mode: PathColorMode,
 }
 
@@ -738,6 +739,7 @@ impl Default for ScenarioTraceRenderOptions {
             start_ghost_balls: false,
             event_markers: false,
             labels: false,
+            spin_glyphs: false,
             path_color_mode: PathColorMode::Solid,
         }
     }
@@ -748,6 +750,7 @@ impl ScenarioTraceRenderOptions {
         Self {
             start_ghost_balls: true,
             event_markers: true,
+            spin_glyphs: true,
             ..Self::default()
         }
     }
@@ -858,6 +861,19 @@ impl ScenarioShotTrace {
         options: &ScenarioTraceRenderOptions,
     ) -> GameState {
         let mut game_state = scenario.game_state_for_system_states(&self.simulation.states);
+        if options.spin_glyphs {
+            for (ball, state) in scenario
+                .game_state
+                .balls()
+                .iter()
+                .zip(self.simulation.states.iter())
+            {
+                if let NBallSystemState::OnTable(on_table) = state {
+                    game_state.add_spin_glyph_for_on_table_state(on_table, &ball.spec);
+                }
+            }
+        }
+
         for ball_trace in &self.ball_traces {
             let trace_color = ball_trace_color(&ball_trace.ball);
             let mut path_style = crate::visualization::BallPathStyle::new(trace_color)

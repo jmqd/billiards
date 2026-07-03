@@ -11,6 +11,7 @@ use crate::diagram::{
 use crate::visualization::{
     AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
     EventMarkerStyle, GhostBallStyle, HeadingChevronStyle, LabelOverlayStyle, SmoothPolylineStyle,
+    SpinGlyphStyle,
 };
 use core::fmt;
 use image::Rgba;
@@ -13816,6 +13817,13 @@ enum Overlay {
         text: String,
         style: LabelOverlayStyle,
     },
+    SpinGlyph {
+        center: Position,
+        angular_velocity: AngularVelocity3,
+        linear_velocity: Velocity2,
+        ball_radius: Inches,
+        style: SpinGlyphStyle,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -14203,6 +14211,30 @@ impl GameState {
         self.lines_to_draw.push(Overlay::TextLabel {
             anchor,
             text: text.into(),
+            style,
+        });
+    }
+
+    pub fn add_spin_glyph_for_on_table_state(
+        &mut self,
+        state: &OnTableBallState,
+        ball_spec: &BallSpec,
+    ) {
+        self.add_spin_glyph_for_on_table_state_styled(state, ball_spec, SpinGlyphStyle::default());
+    }
+    pub fn add_spin_glyph_for_on_table_state_styled(
+        &mut self,
+        state: &OnTableBallState,
+        ball_spec: &BallSpec,
+        style: SpinGlyphStyle,
+    ) {
+        let state = state.as_ball_state();
+        let center = state.projected_position(&self.table_spec);
+        self.lines_to_draw.push(Overlay::SpinGlyph {
+            center,
+            angular_velocity: state.angular_velocity.clone(),
+            linear_velocity: state.velocity.clone(),
+            ball_radius: ball_spec.radius.clone(),
             style,
         });
     }
@@ -14731,6 +14763,19 @@ impl GameState {
                 } => DiagramElement::TextLabel {
                     anchor: anchor.clone(),
                     text: text.clone(),
+                    style: style.clone(),
+                },
+                Overlay::SpinGlyph {
+                    center,
+                    angular_velocity,
+                    linear_velocity,
+                    ball_radius,
+                    style,
+                } => DiagramElement::SpinGlyph {
+                    center: center.clone(),
+                    angular_velocity: angular_velocity.clone(),
+                    linear_velocity: linear_velocity.clone(),
+                    ball_radius: ball_radius.clone(),
                     style: style.clone(),
                 },
             })

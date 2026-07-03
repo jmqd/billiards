@@ -332,12 +332,12 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     );
     assert_eq!(
         svg.matches("class=\"table-pocket-mouth-shadow\"").count(),
-        6
+        0
     );
     assert_eq!(svg.matches("class=\"table-pocket-shelf\"").count(), 6);
     assert_eq!(
         svg.matches("class=\"table-pocket-shelf-shadow\"").count(),
-        6
+        0
     );
     assert_eq!(svg.matches("class=\"table-pocket-facing\"").count(), 12);
     assert_eq!(svg.matches("data-pocket=\"corner-liner\"").count(), 4);
@@ -347,7 +347,7 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     assert!(svg.contains("id=\"rosewood-grain\""));
     assert!(svg.contains("id=\"pocket-well\""));
     assert!(svg.contains("id=\"pocket-leather\""));
-    assert!(svg.contains("class=\"table-pocket-shelf\""));
+    assert!(svg.contains(".table-pocket-shelf{fill:url(#tournament-blue-cloth);stroke:none"));
     assert!(svg.contains("class=\"table-cloth-texture\""));
     assert!(svg.contains("class=\"table-cushion-nose\""));
 }
@@ -396,12 +396,10 @@ fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     assert!(svg.contains("<path class=\"table-pocket-leather\" data-pocket=\"corner-liner\""));
     assert!(svg.contains("<path class=\"table-pocket-leather\" data-pocket=\"side-liner\""));
     assert!(svg.contains("<path class=\"table-pocket-leather-highlight\""));
-    assert!(svg.contains("<path class=\"table-pocket-mouth-shadow\""));
-    assert!(svg.contains("style=\"stroke-width:"));
-    assert!(!svg.contains("stroke-width:0"));
+    assert!(!svg.contains("<path class=\"table-pocket-mouth-shadow\""));
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\""));
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\""));
-    assert!(svg.contains("<path class=\"table-pocket-shelf-shadow\""));
+    assert!(!svg.contains("<path class=\"table-pocket-shelf-shadow\""));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
 }
 

@@ -125,6 +125,10 @@ fn heated_carom_conditions_reduce_cloth_drag_and_liven_rails() {
     assert!(sliding_accel(&scaled_motion) < sliding_accel(&base_motion));
     assert!(spin_decay(&scaled_motion) < spin_decay(&base_motion));
     assert!(rolling_decel(&scaled_motion) < rolling_decel(&base_motion));
+    assert_close(
+        rolling_decel(&scaled_motion),
+        rolling_decel(&base_motion) * 0.75,
+    );
     assert!(scaled_rail.normal_restitution.as_f64() > base_rail.normal_restitution.as_f64());
     assert!(
         scaled_rail.tangential_friction_coefficient.as_f64()

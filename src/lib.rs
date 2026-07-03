@@ -1115,7 +1115,7 @@ impl PlayingConditions {
     pub fn heated_carom() -> Self {
         Self {
             sliding_friction_scale: Scale::from_f64(0.82),
-            rolling_resistance_scale: Scale::from_f64(0.82),
+            rolling_resistance_scale: Scale::from_f64(0.75),
             spin_decay_scale: Scale::from_f64(0.86),
             ball_ball_restitution_scale: Scale::from_f64(1.0),
             ball_ball_friction_scale: Scale::from_f64(0.92),

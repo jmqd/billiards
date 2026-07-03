@@ -401,6 +401,13 @@ fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     assert!(!svg.contains("<path class=\"table-pocket-mouth-shadow\""));
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\""));
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\""));
+    assert!(svg.contains(
+        "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" style=\"stroke-width:14\" d=\"M 164.603 110.000 Q "
+    ));
+    assert!(svg.contains("110.000 164.666 Q 127.473 127.493 164.603 110.000 Z"));
+    assert!(svg.contains(
+        "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" style=\"stroke-width:14\" d=\"M 110.000 926.050 Q 104.509 969.000 110.000 1011.950 Q 116.103 969.000 110.000 926.050 Z"
+    ));
     assert!(!svg.contains("<path class=\"table-pocket-shelf-shadow\""));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
 }

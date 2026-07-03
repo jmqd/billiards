@@ -624,7 +624,7 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
         (right, bottom, 1.0, 1.0),
     ];
 
-    for layer in [PocketLayer::Well, PocketLayer::Shelf, PocketLayer::Liner] {
+    for layer in [PocketLayer::Well, PocketLayer::Liner, PocketLayer::Shelf] {
         for (corner_x, corner_y, x_sign, y_sign) in corner_pockets {
             push_svg_corner_pocket(
                 svg,
@@ -918,10 +918,11 @@ fn push_svg_corner_pocket(
             ));
         }
         PocketLayer::Shelf => {
-            let (shelf_front_control_x, shelf_front_control_y) = point(run_x * 0.32, run_y * 0.32);
-            let (shelf_back_control_x, shelf_back_control_y) = point(run_x * 0.06, run_y * 0.06);
+            let (shelf_outer_control_x, shelf_outer_control_y) =
+                point(-cushion_x * 0.16, -cushion_y * 0.16);
+            let (shelf_inner_control_x, shelf_inner_control_y) = point(run_x * 0.32, run_y * 0.32);
             svg.push_str(&format!(
-                "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} Q {shelf_front_control_x:.3} {shelf_front_control_y:.3} {mouth_side_x:.3} {mouth_side_y:.3} Q {shelf_back_control_x:.3} {shelf_back_control_y:.3} {mouth_top_x:.3} {mouth_top_y:.3} Z\"/>\n"
+                "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" style=\"stroke-width:14\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} Q {shelf_outer_control_x:.3} {shelf_outer_control_y:.3} {mouth_side_x:.3} {mouth_side_y:.3} Q {shelf_inner_control_x:.3} {shelf_inner_control_y:.3} {mouth_top_x:.3} {mouth_top_y:.3} Z\"/>\n"
             ));
         }
         PocketLayer::Liner => {
@@ -1000,11 +1001,11 @@ fn push_svg_side_pocket(
             ));
         }
         PocketLayer::Shelf => {
-            let (shelf_front_control_x, shelf_front_control_y) =
+            let (shelf_outer_control_x, shelf_outer_control_y) = point(lip_depth_x * 0.20, 0.0);
+            let (shelf_inner_control_x, shelf_inner_control_y) =
                 point(-(liner_stroke * 0.24).max(lip_depth_x * 0.20), 0.0);
-            let (shelf_back_control_x, shelf_back_control_y) = point(lip_depth_x * 0.20, 0.0);
             svg.push_str(&format!(
-                "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" d=\"M {top_x:.3} {top_y:.3} Q {shelf_front_control_x:.3} {shelf_front_control_y:.3} {bottom_x:.3} {bottom_y:.3} Q {shelf_back_control_x:.3} {shelf_back_control_y:.3} {top_x:.3} {top_y:.3} Z\"/>\n"
+                "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" style=\"stroke-width:14\" d=\"M {top_x:.3} {top_y:.3} Q {shelf_outer_control_x:.3} {shelf_outer_control_y:.3} {bottom_x:.3} {bottom_y:.3} Q {shelf_inner_control_x:.3} {shelf_inner_control_y:.3} {top_x:.3} {top_y:.3} Z\"/>\n"
             ));
         }
         PocketLayer::Liner => {

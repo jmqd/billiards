@@ -867,6 +867,9 @@ fn push_svg_corner_pocket(
 
     let liner_stroke = (cushion_x.min(cushion_y) * 0.82).clamp(20.0, 32.0);
     let facing_stroke = (cushion_x.min(cushion_y) * 0.32).clamp(7.0, 11.0);
+    let liner_clearance = liner_stroke * 0.5;
+    // Offset the well/liner centerline outward so its stroke edge stops at the
+    // blue-cushion/brown-rail seam instead of spilling onto the bed.
 
     let point =
         |inside_x: f32, inside_y: f32| (corner_x - x_sign * inside_x, corner_y - y_sign * inside_y);
@@ -874,21 +877,34 @@ fn push_svg_corner_pocket(
     let (mouth_top_x, mouth_top_y) = point(run_x, 0.0);
     let (mouth_side_x, mouth_side_y) = point(0.0, run_y);
 
-    let (upper_ctl1_x, upper_ctl1_y) = point(run_x * 0.78, -well_y * 0.05);
-    let (upper_ctl2_x, upper_ctl2_y) = point(run_x * 0.15, -well_y * 0.92);
-    let (back_crown_x, back_crown_y) = point(-well_x * 0.58, -well_y * 0.58);
-    let (lower_ctl1_x, lower_ctl1_y) = point(-well_x * 0.92, run_y * 0.15);
-    let (lower_ctl2_x, lower_ctl2_y) = point(-well_x * 0.05, run_y * 0.78);
+    let (top_cushion_back_x, top_cushion_back_y) = point(
+        run_x - cushion_bevel_x * 0.75,
+        -(cushion_y + liner_clearance),
+    );
+    let (side_cushion_back_x, side_cushion_back_y) = point(
+        -(cushion_x + liner_clearance),
+        run_y - cushion_bevel_y * 0.75,
+    );
+    let (corner_seam_x, corner_seam_y) = point(
+        -(cushion_x + liner_clearance),
+        -(cushion_y + liner_clearance),
+    );
+
+    let (upper_ctl1_x, upper_ctl1_y) = point(run_x * 0.72, -(cushion_y + liner_clearance));
+    let (upper_ctl2_x, upper_ctl2_y) = point(run_x * 0.08, -well_y * 0.98);
+    let (back_crown_x, back_crown_y) = point(-well_x * 0.72, -well_y * 0.72);
+    let (lower_ctl1_x, lower_ctl1_y) = point(-well_x * 0.98, run_y * 0.08);
+    let (lower_ctl2_x, lower_ctl2_y) = point(-(cushion_x + liner_clearance), run_y * 0.72);
     let (mouth_control_x, mouth_control_y) = point(run_x * 0.46, run_y * 0.46);
 
     let back_curve = format!(
-        "M {mouth_top_x:.3} {mouth_top_y:.3} \
+        "M {top_cushion_back_x:.3} {top_cushion_back_y:.3} \
          C {upper_ctl1_x:.3} {upper_ctl1_y:.3} {upper_ctl2_x:.3} {upper_ctl2_y:.3} {back_crown_x:.3} {back_crown_y:.3} \
-         C {lower_ctl1_x:.3} {lower_ctl1_y:.3} {lower_ctl2_x:.3} {lower_ctl2_y:.3} {mouth_side_x:.3} {mouth_side_y:.3}"
+         C {lower_ctl1_x:.3} {lower_ctl1_y:.3} {lower_ctl2_x:.3} {lower_ctl2_y:.3} {side_cushion_back_x:.3} {side_cushion_back_y:.3}"
     );
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket-well\" data-pocket=\"corner\" d=\"{back_curve} Q {mouth_control_x:.3} {mouth_control_y:.3} {mouth_top_x:.3} {mouth_top_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket-well\" data-pocket=\"corner\" d=\"{back_curve} L {corner_seam_x:.3} {corner_seam_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
         "<path class=\"table-pocket-leather\" data-pocket=\"corner-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
@@ -900,16 +916,15 @@ fn push_svg_corner_pocket(
         "<path class=\"table-pocket-mouth-shadow\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} Q {mouth_control_x:.3} {mouth_control_y:.3} {mouth_side_x:.3} {mouth_side_y:.3}\"/>\n"
     ));
 
-    let (top_cushion_back_x, top_cushion_back_y) =
-        point(run_x - cushion_bevel_x * 0.75, -cushion_y * 0.72);
-    let (side_cushion_back_x, side_cushion_back_y) =
-        point(-cushion_x * 0.72, run_y - cushion_bevel_y * 0.75);
+    let (top_facing_back_x, top_facing_back_y) = point(run_x - cushion_bevel_x * 0.75, -cushion_y);
+    let (side_facing_back_x, side_facing_back_y) =
+        point(-cushion_x, run_y - cushion_bevel_y * 0.75);
 
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{top_cushion_back_x:.3}\" y1=\"{top_cushion_back_y:.3}\" x2=\"{mouth_top_x:.3}\" y2=\"{mouth_top_y:.3}\"/>\n"
+        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{top_facing_back_x:.3}\" y1=\"{top_facing_back_y:.3}\" x2=\"{mouth_top_x:.3}\" y2=\"{mouth_top_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{mouth_side_x:.3}\" y1=\"{mouth_side_y:.3}\" x2=\"{side_cushion_back_x:.3}\" y2=\"{side_cushion_back_y:.3}\"/>\n"
+        "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{mouth_side_x:.3}\" y1=\"{mouth_side_y:.3}\" x2=\"{side_facing_back_x:.3}\" y2=\"{side_facing_back_y:.3}\"/>\n"
     ));
 }
 
@@ -923,38 +938,48 @@ fn push_svg_side_pocket(
     well_depth_x: f32,
     cushion_x: f32,
 ) {
-    let back_depth_x = well_depth_x;
-
     let liner_stroke = (cushion_x * 0.78).clamp(20.0, 32.0);
     let facing_stroke = (cushion_x * 0.32).clamp(7.0, 11.0);
+    let liner_depth_x = cushion_x + liner_stroke * 0.5;
+    // Start the liner one half-stroke outside the cushion seam, so the visible
+    // U shape ends at the wood/cushion boundary.
+    let back_depth_x = (well_depth_x - liner_depth_x).max(0.0);
 
     let point = |depth_x: f32, offset_y: f32| (rail_x + x_sign * depth_x, center_y + offset_y);
 
     let (top_x, top_y) = point(0.0, -mouth_y * 0.5);
     let (bottom_x, bottom_y) = point(0.0, mouth_y * 0.5);
 
-    let (upper_nipple_x, upper_nipple_y) = point(cushion_x * 0.10, -mouth_y * 0.50);
-    let (upper_ctl_x, upper_ctl_y) = point(back_depth_x * 0.45, -mouth_y * 0.54);
-    let (upper_back_x, upper_back_y) = point(back_depth_x * 0.98, -mouth_y * 0.30);
+    let (upper_seam_x, upper_seam_y) = point(liner_depth_x, -mouth_y * 0.5);
+    let (lower_seam_x, lower_seam_y) = point(liner_depth_x, mouth_y * 0.5);
 
-    let (back_ctl_upper_x, back_ctl_upper_y) = point(back_depth_x * 1.13, -mouth_y * 0.16);
-    let (back_ctl_lower_x, back_ctl_lower_y) = point(back_depth_x * 1.13, mouth_y * 0.16);
+    let (upper_nipple_x, upper_nipple_y) =
+        point(liner_depth_x + back_depth_x * 0.08, -mouth_y * 0.50);
+    let (upper_ctl_x, upper_ctl_y) = point(liner_depth_x + back_depth_x * 0.45, -mouth_y * 0.54);
+    let (upper_back_x, upper_back_y) = point(liner_depth_x + back_depth_x * 0.98, -mouth_y * 0.30);
 
-    let (lower_back_x, lower_back_y) = point(back_depth_x * 0.98, mouth_y * 0.30);
-    let (lower_ctl_x, lower_ctl_y) = point(back_depth_x * 0.45, mouth_y * 0.54);
-    let (lower_nipple_x, lower_nipple_y) = point(cushion_x * 0.10, mouth_y * 0.50);
+    let (back_ctl_upper_x, back_ctl_upper_y) =
+        point(liner_depth_x + back_depth_x * 1.13, -mouth_y * 0.16);
+    let (back_ctl_lower_x, back_ctl_lower_y) =
+        point(liner_depth_x + back_depth_x * 1.13, mouth_y * 0.16);
+
+    let (lower_back_x, lower_back_y) = point(liner_depth_x + back_depth_x * 0.98, mouth_y * 0.30);
+    let (lower_ctl_x, lower_ctl_y) = point(liner_depth_x + back_depth_x * 0.45, mouth_y * 0.54);
+    let (lower_nipple_x, lower_nipple_y) =
+        point(liner_depth_x + back_depth_x * 0.08, mouth_y * 0.50);
 
     let (lip_control_x, lip_control_y) = point(lip_depth_x * 0.35, 0.0);
+    let (seam_control_x, seam_control_y) = point(liner_depth_x, 0.0);
 
     let back_curve = format!(
-        "M {top_x:.3} {top_y:.3} \
+        "M {upper_seam_x:.3} {upper_seam_y:.3} \
          C {upper_nipple_x:.3} {upper_nipple_y:.3} {upper_ctl_x:.3} {upper_ctl_y:.3} {upper_back_x:.3} {upper_back_y:.3} \
          C {back_ctl_upper_x:.3} {back_ctl_upper_y:.3} {back_ctl_lower_x:.3} {back_ctl_lower_y:.3} {lower_back_x:.3} {lower_back_y:.3} \
-         C {lower_ctl_x:.3} {lower_ctl_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {bottom_x:.3} {bottom_y:.3}"
+         C {lower_ctl_x:.3} {lower_ctl_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {lower_seam_x:.3} {lower_seam_y:.3}"
     );
 
     svg.push_str(&format!(
-        "<path class=\"table-pocket-well\" data-pocket=\"side\" d=\"{back_curve} Q {lip_control_x:.3} {lip_control_y:.3} {top_x:.3} {top_y:.3} Z\"/>\n"
+        "<path class=\"table-pocket-well\" data-pocket=\"side\" d=\"{back_curve} Q {seam_control_x:.3} {seam_control_y:.3} {upper_seam_x:.3} {upper_seam_y:.3} Z\"/>\n"
     ));
     svg.push_str(&format!(
         "<path class=\"table-pocket-leather\" data-pocket=\"side-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
@@ -966,8 +991,8 @@ fn push_svg_side_pocket(
         "<path class=\"table-pocket-mouth-shadow\" d=\"M {top_x:.3} {top_y:.3} Q {lip_control_x:.3} {lip_control_y:.3} {bottom_x:.3} {bottom_y:.3}\"/>\n"
     ));
 
-    let (upper_facing_x, upper_facing_y) = point(cushion_x * 0.78, -mouth_y * 0.34);
-    let (lower_facing_x, lower_facing_y) = point(cushion_x * 0.78, mouth_y * 0.34);
+    let (upper_facing_x, upper_facing_y) = point(cushion_x, -mouth_y * 0.34);
+    let (lower_facing_x, lower_facing_y) = point(cushion_x, mouth_y * 0.34);
 
     svg.push_str(&format!(
         "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{top_x:.3}\" y1=\"{top_y:.3}\" x2=\"{upper_facing_x:.3}\" y2=\"{upper_facing_y:.3}\"/>\n"

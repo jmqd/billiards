@@ -393,6 +393,10 @@ fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     assert!(svg.contains("<path class=\"table-pocket-mouth-shadow\""));
     assert!(svg.contains("style=\"stroke-width:"));
     assert!(!svg.contains("stroke-width:0"));
+    assert!(!svg.contains(
+        "<path class=\"table-pocket-well\" data-pocket=\"corner\" d=\"M 164.603 110.000"
+    ));
+    assert!(!svg.contains("<path class=\"table-pocket-well\" data-pocket=\"side\" d=\"M 110.000"));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
 }
 

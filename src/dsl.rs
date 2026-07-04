@@ -27,13 +27,17 @@ use crate::{
     BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
     CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
+
 use image::Rgba;
+
 use winnow::ascii::{float, line_ending, till_line_ending};
 use winnow::combinator::{alt, cut_err, delimited, eof, opt, peek, preceded, repeat, terminated};
 use winnow::error::{ErrMode, InputError};
 use winnow::prelude::*;
 use winnow::stream::{LocatingSlice, Location};
 use winnow::token::take_while;
+
+const DEFAULT_JUMP_CUE_ELEVATION_DEGREES: f64 = 45.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DslDoc {
@@ -3386,6 +3390,7 @@ fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
         preceded(peek("speed"), cut_err(shot_speed_method)),
         preceded(peek("tip"), cut_err(shot_tip_method)),
         preceded(peek("elevation"), cut_err(shot_elevation_method)),
+        preceded(peek("jump"), cut_err(shot_jump_method)),
         preceded(peek("using"), cut_err(shot_using_method)),
     ))
     .parse_next(input)
@@ -3514,6 +3519,14 @@ fn shot_tip_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr
 fn shot_elevation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
     let _ = "elevation".parse_next(input)?;
     let value = delimited('(', delimited(hws0, degrees_literal, hws0), ')').parse_next(input)?;
+    Ok(ShotMethodExpr::ElevationDegrees(value))
+}
+
+fn shot_jump_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+    let _ = "jump".parse_next(input)?;
+    let value = delimited('(', delimited(hws0, opt(degrees_literal), hws0), ')')
+        .parse_next(input)?
+        .unwrap_or(DEFAULT_JUMP_CUE_ELEVATION_DEGREES);
     Ok(ShotMethodExpr::ElevationDegrees(value))
 }
 

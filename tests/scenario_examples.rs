@@ -147,6 +147,121 @@ fn elevated_side_spin_examples_expose_height_and_z_spin_for_gallery_playback() {
 }
 
 #[test]
+fn jump_examples_expose_airborne_clearance_before_landing() {
+    for (scenario_path, expected_elevation_degrees) in [
+        (
+            "examples/scenarios/jump_over_full_ball_showcase.billiards",
+            45.0,
+        ),
+        (
+            "examples/scenarios/long_jump_over_blocker_showcase.billiards",
+            32.0,
+        ),
+    ] {
+        let (scenario, trace) = trace_scenario(scenario_path, 8);
+        let table = &scenario.game_state.table_spec;
+        let shot = scenario
+            .shot
+            .as_ref()
+            .expect("jump scenario should contain a shot");
+        assert!(
+            (shot.shot.cue_elevation().as_degrees() - expected_elevation_degrees).abs() < 1e-9,
+            "{scenario_path}: jump alias should set the requested cue elevation"
+        );
+
+        let obstacle_ball = scenario
+            .game_state
+            .select_ball(BallType::One)
+            .expect("jump obstacle should be placed");
+        let obstacle_x = table
+            .diamond_to_inches(obstacle_ball.position.x.clone())
+            .as_f64();
+        let obstacle_y = table
+            .diamond_to_inches(obstacle_ball.position.y.clone())
+            .as_f64();
+        let target_ball = scenario
+            .game_state
+            .select_ball(BallType::Two)
+            .expect("jump target should be placed");
+        let target_x = table
+            .diamond_to_inches(target_ball.position.x.clone())
+            .as_f64();
+        let target_y = table
+            .diamond_to_inches(target_ball.position.y.clone())
+            .as_f64();
+        let table_bounce_time = trace
+            .event_log
+            .iter()
+            .filter_map(|event| match &event.kind {
+                ScenarioShotTraceEventKind::BallTableBounce { ball } if *ball == BallType::Cue => {
+                    Some(event.time)
+                }
+                _ => None,
+            })
+            .next()
+            .expect("jump showcase should log a cue-ball table bounce");
+        let first_target_contact_time = trace
+            .event_log
+            .iter()
+            .filter_map(|event| match &event.kind {
+                ScenarioShotTraceEventKind::BallBallCollision {
+                    first_ball,
+                    second_ball,
+                } if (*first_ball == BallType::Cue && *second_ball == BallType::Two)
+                    || (*first_ball == BallType::Two && *second_ball == BallType::Cue) =>
+                {
+                    Some(event.time)
+                }
+                _ => None,
+            })
+            .next()
+            .expect("jump showcase should hit the post-landing target ball");
+        assert!(
+            first_target_contact_time > table_bounce_time,
+            "{scenario_path}: target contact should happen after the landing bounce"
+        );
+
+        let frames = trace.playback_frames(Seconds::new(0.005));
+        let nearest_obstacle_state = frames
+            .iter()
+            .flat_map(|frame| &frame.balls)
+            .filter(|ball| ball.ball == BallType::Cue)
+            .min_by(|a, b| {
+                let a_dx = a.state.position.x().as_f64() - obstacle_x;
+                let a_dy = a.state.position.y().as_f64() - obstacle_y;
+                let b_dx = b.state.position.x().as_f64() - obstacle_x;
+                let b_dy = b.state.position.y().as_f64() - obstacle_y;
+                a_dx.hypot(a_dy).total_cmp(&b_dx.hypot(b_dy))
+            })
+            .expect("cue-ball playback states should exist near obstacle");
+        assert!(
+            nearest_obstacle_state.state.height.as_f64() > 2.25,
+            "{scenario_path}: cue ball should clear a full-ball obstacle; height {:.3}in",
+            nearest_obstacle_state.state.height.as_f64()
+        );
+
+        let target_contact_cue = frames
+            .into_iter()
+            .find(|frame| (frame.time.as_f64() - first_target_contact_time.as_f64()).abs() < 1e-9)
+            .and_then(|frame| {
+                frame
+                    .balls
+                    .into_iter()
+                    .find(|ball| ball.ball == BallType::Cue)
+            })
+            .expect("cue-ball playback should include target-contact frame");
+        let target_contact_dx = target_contact_cue.state.position.x().as_f64() - target_x;
+        let target_contact_dy = target_contact_cue.state.position.y().as_f64() - target_y;
+        assert!(
+            target_contact_dx.hypot(target_contact_dy) <= 2.35,
+            "{scenario_path}: cue-ball contact frame should be tangent to the target after landing"
+        );
+        assert_eq!(target_contact_cue.state.height.as_f64(), 0.0);
+        assert_eq!(target_contact_cue.state.vertical_velocity.as_f64(), 0.0);
+    }
+}
+
+#[test]
 fn svg_trace_marks_original_cue_ball_origin_without_restoring_event_numbers() {
     let (scenario, trace) = trace_scenario(
         "examples/scenarios/bank_reference_track_one_rail.billiards",

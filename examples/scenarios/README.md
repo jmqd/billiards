@@ -111,6 +111,18 @@ Expected flavor:
 - cue -> yellow first
 - cue rail sequence starts bottom, right, top before scoring on red
 
+### `jump_over_full_ball_showcase.billiards`
+Expected flavor:
+- cue uses `.jump()` as the default 45-degree jump-shot alias
+- cue clears the blocking 1 before landing
+- cue contacts the 2 after the first table bounce
+
+### `long_jump_over_blocker_showcase.billiards`
+Expected flavor:
+- cue uses `.jump(32deg)` for a lower, longer jump arc
+- cue clears a farther blocking 1 than the 45-degree default example
+- cue contacts the 2 only after the table-bounce event
+
 ### Named high-speed / rail-first scoring examples
 
 These expand the legal set with named carom routes: hako-dama / box-ball (`箱球`), teketeke/ticky,

@@ -1218,7 +1218,7 @@ fn playback_frames_omit_pocketed_balls_after_their_capture_time() {
 }
 
 #[test]
-fn parses_elevated_cue_method_and_rejects_jump_masse_aliases() {
+fn parses_elevated_cue_method_and_jump_alias() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at center\n\
          cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
@@ -1231,13 +1231,45 @@ fn parses_elevated_cue_method_and_rejects_jump_masse_aliases() {
         .expect("scenario should contain a shot");
     assert_close(shot.shot.cue_elevation().as_degrees(), 15.0);
 
-    for unsupported_method in ["jump()", "masse(30deg)"] {
-        assert_parse_error(&format!(
-            "ball cue at center\n\
-             cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
-             shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).{unsupported_method}.using(default)\n"
-        ));
-    }
+    let default_jump = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.0R).jump().using(default)\n",
+    )
+    .expect("jump alias DSL should build");
+    assert_close(
+        default_jump
+            .shot
+            .as_ref()
+            .expect("scenario should contain a shot")
+            .shot
+            .cue_elevation()
+            .as_degrees(),
+        45.0,
+    );
+
+    let tuned_jump = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.0R).jump(32deg).using(default)\n",
+    )
+    .expect("parameterized jump alias DSL should build");
+    assert_close(
+        tuned_jump
+            .shot
+            .as_ref()
+            .expect("scenario should contain a shot")
+            .shot
+            .cue_elevation()
+            .as_degrees(),
+        32.0,
+    );
+
+    assert_parse_error(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).masse(30deg).using(default)\n",
+    );
 }
 
 #[test]

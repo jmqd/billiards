@@ -7,9 +7,9 @@ use billiards::dsl::{
 };
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
-    human_tuned_preview_motion_config, BallType, CollisionModel, DiagramBackground,
-    DiagramRenderOptions, NBallSystemEvent, Pocket, Rail, RailModel, Seconds, TableKind,
-    TYPICAL_BALL_RADIUS,
+    advance_motion_on_table, human_tuned_preview_motion_config, BallType, CollisionModel,
+    DiagramBackground, DiagramRenderOptions, NBallSystemEvent, OnTableBallState, Pocket, Rail,
+    RailModel, Seconds, TableKind, TYPICAL_BALL_RADIUS,
 };
 
 fn trace_scenario(
@@ -56,7 +56,8 @@ fn elevated_side_spin_examples_expose_height_and_z_spin_for_gallery_playback() {
             -1.0,
         ),
     ] {
-        let (_, trace) = trace_scenario(scenario_path, 18);
+        let (scenario, trace) = trace_scenario(scenario_path, 18);
+        let ball_set = scenario.ball_set_physics_spec();
         assert!(
             trace.event_log.iter().any(|event| {
                 matches!(
@@ -93,6 +94,54 @@ fn elevated_side_spin_examples_expose_height_and_z_spin_for_gallery_playback() {
             strongest_z.signum(),
             expected_z_sign,
             "{scenario_path}: z-spin sign should match the side tip offset"
+        );
+
+        let cue_trace = trace
+            .ball_traces
+            .iter()
+            .find(|ball_trace| ball_trace.ball == BallType::Cue)
+            .expect("cue-ball trace should exist");
+        let curved_segment = cue_trace
+            .timeline_segments
+            .iter()
+            .find(|segment| {
+                let state = &segment.start;
+                state.speed().as_f64() > 1.0
+                    && state.height.as_f64() == 0.0
+                    && state.vertical_velocity.as_f64() == 0.0
+                    && expected_z_sign * state.angular_velocity.z().as_f64() > 1.0
+            })
+            .expect("elevated side-spin cue should have a sliding post-landing segment");
+        let segment_start = OnTableBallState::try_from(curved_segment.start.clone())
+            .expect("post-landing curve segment should start on the table");
+        let start = segment_start.as_ball_state();
+        let start_speed = start.speed().as_f64();
+        let sample_dt = Seconds::new(0.03_f64.min(curved_segment.duration.as_f64() * 0.5));
+        let sampled = advance_motion_on_table(
+            &segment_start,
+            sample_dt,
+            &ball_set,
+            &human_tuned_preview_motion_config(),
+        )
+        .state;
+        let elapsed = sample_dt.as_f64();
+        let linear_x = start.position.x().as_f64() + start.velocity.x().as_f64() * elapsed;
+        let linear_y = start.position.y().as_f64() + start.velocity.y().as_f64() * elapsed;
+        let right_x = start.velocity.y().as_f64() / start_speed;
+        let right_y = -start.velocity.x().as_f64() / start_speed;
+        let lateral_curve = (sampled.position.x().as_f64() - linear_x) * right_x
+            + (sampled.position.y().as_f64() - linear_y) * right_y;
+        let forward_spin = (start.angular_velocity.x().as_f64() * start.velocity.x().as_f64()
+            + start.angular_velocity.y().as_f64() * start.velocity.y().as_f64())
+            / start_speed;
+
+        assert!(
+            expected_z_sign * forward_spin > 1.0,
+            "{scenario_path}: elevated side spin should seed a same-sign massé spin component"
+        );
+        assert!(
+            expected_z_sign * lateral_curve > 1e-5,
+            "{scenario_path}: post-landing playback sample should bend sideways; got {lateral_curve:.6}"
         );
     }
 }

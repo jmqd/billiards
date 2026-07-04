@@ -1,9 +1,10 @@
 use billiards::{
-    cue_endmass_ratio_from_squirt, cue_natural_pivot_length,
+    advance_motion_on_table, cue_endmass_ratio_from_squirt, cue_natural_pivot_length,
     cue_squirt_angle_degrees_from_endmass_ratio, cue_tip_offset_for_pivot_angle,
+    human_tuned_preview_motion_config, settle_airborne_ball_on_next_table_contact,
     strike_resting_ball, strike_resting_ball_on_table, Angle, BallSetPhysicsSpec, BallState,
     CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond, MotionPhase,
-    RestingOnTableBallState, Scale, Shot, ShotError, TYPICAL_BALL_RADIUS,
+    RestingOnTableBallState, Scale, Seconds, Shot, ShotError, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -110,6 +111,50 @@ fn elevated_center_ball_shot_leaves_table_with_ballistic_vertical_velocity() {
         struck.motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Airborne
     );
+}
+
+#[test]
+fn elevated_side_english_seeds_masse_spin_and_bends_after_landing() {
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = human_tuned_preview_motion_config();
+    let dt = Seconds::new(0.03);
+
+    for (side_offset, expected_sign) in [(0.45, 1.0), (-0.45, -1.0)] {
+        let shot = Shot::new(
+            Angle::from_north(0.0, 1.0),
+            InchesPerSecond::new("70"),
+            CueTipContact::new(Scale::from_f64(side_offset), Scale::zero())
+                .expect("tip offset should validate"),
+        )
+        .expect("shot should validate")
+        .with_cue_elevation(angle_degrees(30.0))
+        .expect("elevation should validate");
+
+        let airborne = strike_resting_ball(&resting_ball(), &shot, &cue_config(), &ball_set)
+            .expect("elevated side-spin strike should succeed");
+        let contact = settle_airborne_ball_on_next_table_contact(&airborne)
+            .expect("airborne shot should land back on the table");
+        let landed = contact.state_after_contact;
+        let landed_state = landed.as_ball_state();
+        let advanced = advance_motion_on_table(&landed, dt, &ball_set, &motion).state;
+        let elapsed = dt.as_f64();
+        let linear_x =
+            landed_state.position.x().as_f64() + landed_state.velocity.x().as_f64() * elapsed;
+        let curve_offset = advanced.position.x().as_f64() - linear_x;
+
+        assert!(
+            expected_sign * landed_state.angular_velocity.y().as_f64() > 0.0,
+            "side offset {side_offset} should seed massé spin about the shot direction"
+        );
+        assert!(
+            expected_sign * landed_state.angular_velocity.z().as_f64() > 0.0,
+            "side offset {side_offset} should retain matching vertical-axis spin"
+        );
+        assert!(
+            expected_sign * curve_offset > 1e-5,
+            "side offset {side_offset} should bend sideways after landing; got offset {curve_offset}"
+        );
+    }
 }
 
 #[test]

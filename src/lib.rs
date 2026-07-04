@@ -3725,6 +3725,7 @@ fn compute_post_strike_planar_state(
     shot: &Shot,
     cue: &CueStrikeConfig,
     ball_set: &BallSetPhysicsSpec,
+    post_strike_speed: InchesPerSecond,
     planar_speed: InchesPerSecond,
 ) -> PostStrikePlanarState {
     let launch_heading_degrees = (shot.heading.as_degrees()
@@ -3732,7 +3733,7 @@ fn compute_post_strike_planar_state(
     .rem_euclid(360.0);
     let launch_heading_radians = launch_heading_degrees.to_radians();
     let velocity = Velocity2::from_polar(
-        planar_speed.clone(),
+        planar_speed,
         Angle::from_north(launch_heading_radians.sin(), launch_heading_radians.cos()),
     );
 
@@ -3741,12 +3742,16 @@ fn compute_post_strike_planar_state(
     let shot_y = heading_radians.cos();
     let shot_right_x = shot_y;
     let shot_right_y = -shot_x;
-    let spin_scale = 2.5 * planar_speed.as_f64() / ball_set.radius.as_f64();
+    let elevation_radians = shot.cue_elevation.as_degrees().to_radians();
+    let spin_scale = 2.5 * post_strike_speed.as_f64() / ball_set.radius.as_f64();
+    let effective_side_offset = cue_effective_side_spin_offset(&shot.tip_contact, cue);
     let local_angular_right = -spin_scale * shot.tip_contact.height_offset.as_f64();
+    let local_angular_forward = spin_scale * effective_side_offset * elevation_radians.sin();
+    let local_angular_vertical = spin_scale * effective_side_offset * elevation_radians.cos();
     let angular_velocity = AngularVelocity3::new(
-        shot_right_x * local_angular_right,
-        shot_right_y * local_angular_right,
-        spin_scale * cue_effective_side_spin_offset(&shot.tip_contact, cue),
+        shot_right_x * local_angular_right + shot_x * local_angular_forward,
+        shot_right_y * local_angular_right + shot_y * local_angular_forward,
+        local_angular_vertical,
     );
 
     PostStrikePlanarState {
@@ -3799,10 +3804,10 @@ pub fn validate_shot_human_speed(
 /// Strike a resting on-table ball with a cue shot.
 ///
 /// Level strokes return the same on-table post-impact state as the historical model. Elevated
-/// strokes split the launch into a table-plane velocity and an upward vertical velocity caused by
-/// the immediate cue/ball/table compression rebound. This is intentionally a first-order jump-shot
-/// model: airborne flight is ballistic, the cloth does not slow the ball while it is in the air,
-/// and the existing on-table rolling/sliding model resumes after the next table contact.
+/// strokes split the launch into table-plane velocity and cue/ball/table rebound. Off-center
+/// elevated strokes also seed the TP A.19 massé spin component about the shot direction, so the
+/// existing TP A.4 cloth-contact solver bends the cue ball sideways after it is on the cloth and
+/// sliding. Airborne flight remains ballistic until the next table contact.
 pub fn strike_resting_ball(
     ball: &RestingOnTableBallState,
     shot: &Shot,
@@ -3817,7 +3822,13 @@ pub fn strike_resting_ball(
     ));
     let vertical_rebound_speed =
         post_strike_speed * elevation_radians.sin() * CUE_ELEVATION_TABLE_REBOUND_COEFFICIENT;
-    let planar = compute_post_strike_planar_state(shot, cue, ball_set, planar_speed);
+    let planar = compute_post_strike_planar_state(
+        shot,
+        cue,
+        ball_set,
+        InchesPerSecond::new(Inches::from_f64(post_strike_speed)),
+        planar_speed,
+    );
     let position = ball.as_ball_state().position.clone();
 
     if vertical_rebound_speed
@@ -11398,19 +11409,20 @@ fn estimate_rolling_side_spin_curve_on_table(
 
 /// Estimate the later cue-ball curve driven by residual side spin after contact.
 ///
-/// The current public shot model is horizontal-cue / on-table only, so cue-elevation-driven swerve
-/// and masse launch are not represented. This helper separates two smaller effects from the local
-/// references:
+/// This is distinct from cue-elevation-driven massé/swerve. Elevated cue strikes seed the
+/// horizontal massé spin component in `strike_resting_ball`, and the core on-table TP A.4 sliding
+/// integrator advances that curved path directly once the ball is on the cloth.
+///
+/// This helper keeps the smaller TP B.2 rolling "ball turn" estimate separate:
 ///
 /// - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`
-///   states that `ωz` does not affect the sliding contact-point velocity in the reduced on-table
-///   post-impact trajectory derivation, so there is no separate side-spin curve while the cue ball
-///   is sliding.
+///   states that pure `ωz` does not affect the sliding contact-point velocity in the reduced
+///   on-table post-impact trajectory derivation.
 /// - `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf` predicts a very
-///   small rolling "ball turn" from residual side spin, rolling resistance, and spin-down torque.
+///   small rolling turn from residual side spin, rolling resistance, and spin-down torque.
 ///
-/// The estimate intentionally reports analysis data only. The core event scheduler still advances
-/// rolling motion with its existing straight-line analytic model.
+/// The TP B.2 estimate reports analysis data only; rolling motion itself still uses the existing
+/// straight-line analytic model.
 pub fn estimate_post_contact_cue_ball_curve_on_table(
     state: &OnTableBallState,
     ball: &BallSetPhysicsSpec,

@@ -1082,6 +1082,155 @@ fn push_event_log(html: &mut String, report: &ScenarioReport) {
     html.push_str("</ol></details>\n");
 }
 
+fn filter_token(input: &str) -> String {
+    let mut token = String::with_capacity(input.len());
+    let mut pending_dash = false;
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if pending_dash && !token.is_empty() {
+                token.push('-');
+            }
+            token.push(ch.to_ascii_lowercase());
+            pending_dash = false;
+        } else {
+            pending_dash = true;
+        }
+    }
+    token
+}
+
+fn normalized_search_text(input: &str) -> String {
+    let mut text = String::with_capacity(input.len());
+    let mut pending_space = false;
+    for ch in input.chars() {
+        if ch.is_whitespace() {
+            pending_space = true;
+        } else {
+            if pending_space && !text.is_empty() {
+                text.push(' ');
+            }
+            for lowercase in ch.to_lowercase() {
+                text.push(lowercase);
+            }
+            pending_space = false;
+        }
+    }
+    text
+}
+
+fn scenario_filter_text(report: &ScenarioReport) -> String {
+    let mut text = String::new();
+    text.push_str(&report.name);
+    text.push(' ');
+    text.push_str(&report.image_file_name);
+    for note in &report.notes {
+        text.push(' ');
+        text.push_str(note);
+    }
+    for row in &report.info_rows {
+        text.push(' ');
+        text.push_str(&row.label);
+        text.push(' ');
+        text.push_str(&row.value);
+    }
+    for event in &report.events {
+        text.push(' ');
+        text.push_str(&event.label);
+        text.push(' ');
+        text.push_str(&event.time);
+        text.push(' ');
+        text.push_str(&event.summary);
+        text.push(' ');
+        text.push_str(&event.payload);
+    }
+    normalized_search_text(&text)
+}
+
+fn scenario_speed_band_token(report: &ScenarioReport) -> String {
+    report
+        .info_rows
+        .iter()
+        .find(|row| row.label == "Cue-ball launch")
+        .and_then(|row| row.value.rsplit_once('·').map(|(_, band)| band))
+        .map(str::trim)
+        .and_then(|band| band.strip_suffix(" band").or(Some(band)))
+        .map(filter_token)
+        .filter(|token| !token.is_empty())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn scenario_event_bucket(report: &ScenarioReport) -> &'static str {
+    match report.events.len() {
+        0 => "none",
+        1 => "single",
+        _ => "multi",
+    }
+}
+
+fn scenario_playback_bucket(report: &ScenarioReport) -> &'static str {
+    if report.playback.is_some() {
+        "with-playback"
+    } else {
+        "no-playback"
+    }
+}
+
+fn push_gallery_controls(html: &mut String, report_count: usize) {
+    html.push_str(
+        "<section class=\"gallery-controls\" aria-label=\"Gallery controls\">\n\
+         <div class=\"control-grid\">\n\
+         <label>Search scenarios<input type=\"search\" data-scenario-filter-search placeholder=\"name, source, note, event\" autocomplete=\"off\"></label>\n\
+         <label>Speed band<select data-scenario-filter-speed>\n\
+         <option value=\"\">All speed bands</option>\n\
+         <option value=\"touch\">Touch</option>\n\
+         <option value=\"slow\">Slow</option>\n\
+         <option value=\"medium-soft\">Medium-soft</option>\n\
+         <option value=\"medium\">Medium</option>\n\
+         <option value=\"medium-fast\">Medium-fast</option>\n\
+         <option value=\"fast\">Fast</option>\n\
+         <option value=\"power\">Power</option>\n\
+         <option value=\"typical-power-break\">Typical power break</option>\n\
+         <option value=\"exceptional-power-break\">Exceptional power break</option>\n\
+         <option value=\"beyond-exceptional-power-break\">Beyond exceptional power break</option>\n\
+         <option value=\"none\">No speed band</option>\n\
+         </select></label>\n\
+         <label>Events<select data-scenario-filter-events>\n\
+         <option value=\"\">All event counts</option>\n\
+         <option value=\"any\">Has events</option>\n\
+         <option value=\"none\">No events</option>\n\
+         <option value=\"single\">One event</option>\n\
+         <option value=\"multi\">Multiple events</option>\n\
+         </select></label>\n\
+         <label>Playback<select data-scenario-filter-playback>\n\
+         <option value=\"\">All playback states</option>\n\
+         <option value=\"with-playback\">With playback</option>\n\
+         <option value=\"no-playback\">No playback</option>\n\
+         </select></label>\n\
+         <label>Table detail<select data-global-table-detail>\n\
+         <option value=\"full\">Full material</option>\n\
+         <option value=\"flat\">Flat colors</option>\n\
+         <option value=\"cloth\">Cloth only</option>\n\
+         <option value=\"rail\">Rails and pockets only</option>\n\
+         </select></label>\n\
+         <button type=\"button\" data-scenario-filter-reset>Reset filters</button>\n\
+         </div>\n",
+    );
+    html.push_str(&format!(
+        "<p class=\"scenario-filter-count\" data-scenario-filter-count>Showing {report_count} of {report_count} scenarios</p>\n"
+    ));
+    html.push_str("</section>\n");
+}
+
+fn table_detail_select_html() -> &'static str {
+    "<label>Table detail<select data-table-detail>\
+     <option value=\"global\" selected>Page setting</option>\
+     <option value=\"full\">Full material</option>\
+     <option value=\"flat\">Flat colors</option>\
+     <option value=\"cloth\">Cloth only</option>\
+     <option value=\"rail\">Rails and pockets only</option>\
+     </select></label>"
+}
+
 fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> String {
     let mut html = String::new();
     html.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
@@ -1188,6 +1337,15 @@ pre code{background:transparent;padding:0}
 .power-meter-label-redline{fill:#ffd0d0}
 a{color:var(--accent)}
 a:hover,a:focus-visible{color:#501212}
+.gallery-controls{margin:0 0 1rem;padding:.75rem .85rem;background:var(--panel);border:1px solid var(--rule);border-radius:3px;box-shadow:0 2px 12px var(--shadow)}
+.control-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.55rem;align-items:end}
+.gallery-controls label{display:grid;gap:.2rem;color:var(--muted);font:700 .74rem/1.25 ui-sans-serif,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.055em}
+.gallery-controls input,.gallery-controls select,.gallery-controls button,.viewer-controls select{width:100%;min-height:2rem;background:var(--paper-warm);color:var(--ink);border:1px solid var(--rule-strong);border-radius:3px;padding:.25rem .45rem;font:400 .9rem/1.2 ui-sans-serif,system-ui,sans-serif;text-transform:none;letter-spacing:0}
+.gallery-controls button{cursor:pointer;font-weight:700}
+.gallery-controls button:hover,.gallery-controls button:focus-visible,.gallery-controls input:focus-visible,.gallery-controls select:focus-visible,.viewer-controls select:focus-visible{border-color:var(--accent);outline:none}
+.scenario-filter-count{margin:.55rem 0 0;color:var(--muted);font:.9rem/1.35 ui-sans-serif,system-ui,sans-serif}
+.scenario-filter-count[data-filtered="true"]{color:var(--accent);font-weight:700}
+.card[hidden],.toc a[hidden]{display:none!important}
 @media (max-width:720px){header{padding:.95rem .85rem}main{padding:.75rem}.toc{gap:.35rem}.card{border-radius:2px}.card h2{padding:.75rem}.card-overview{grid-template-columns:1fr;padding:.65rem}.info-row{grid-template-columns:1fr;gap:.12rem}.info-row dd{text-align:left}figure{padding:.65rem}.viewer-controls{align-items:stretch}.viewer-controls button,.viewer-controls label{flex:1 1 auto;justify-content:center}.tooltip::after{left:auto;right:0;transform:translate(0,.25rem)}.tooltip::before{left:50%}.tooltip:hover::after,.tooltip:focus-visible::after{transform:translate(0,0)}}
 "#);
     html.push_str("</style>\n</head>\n<body>\n");
@@ -1204,20 +1362,33 @@ a:hover,a:focus-visible{color:#501212}
         "Inline SVG report. Speed fields are cue-ball launch estimates unless an individual scenario says otherwise.",
     );
     html.push_str("</p>\n");
-    html.push_str("</header>\n<main>\n<nav class=\"toc\" aria-label=\"Scenario list\">\n");
+    html.push_str("</header>\n<main>\n");
+    push_gallery_controls(&mut html, reports.len());
+    html.push_str("<nav class=\"toc\" aria-label=\"Scenario list\">\n");
     for report in reports {
+        let anchor = anchor_id(&report.name);
         html.push_str(&format!(
-            "<a href=\"#{}\">{}</a>\n",
-            escape_html(&anchor_id(&report.name)),
+            "<a data-scenario-toc-link href=\"#{}\">{}</a>\n",
+            escape_html(&anchor),
             escape_html(&report.name)
         ));
     }
     html.push_str("</nav>\n");
 
     for report in reports {
+        let anchor = anchor_id(&report.name);
+        let search_text = scenario_filter_text(report);
+        let speed_band = scenario_speed_band_token(report);
+        let event_bucket = scenario_event_bucket(report);
+        let playback_bucket = scenario_playback_bucket(report);
         html.push_str(&format!(
-            "<section class=\"card\" id=\"{}\">\n<h2>{}</h2>\n",
-            escape_html(&anchor_id(&report.name)),
+            "<section class=\"card\" id=\"{}\" data-scenario-card data-scenario-search=\"{}\" data-scenario-speed-band=\"{}\" data-scenario-events=\"{}\" data-scenario-event-count=\"{}\" data-scenario-playback=\"{}\">\n<h2>{}</h2>\n",
+            escape_html(&anchor),
+            escape_html(&search_text),
+            escape_html(&speed_band),
+            event_bucket,
+            report.events.len(),
+            playback_bucket,
             escape_html(&report.name)
         ));
         let has_visuals = report.cue_tip_diagram_svg.is_some() || report.power_meter_svg.is_some();
@@ -1274,8 +1445,11 @@ a:hover,a:focus-visible{color:#501212}
              <label><input type=\"checkbox\" data-layer-toggle=\"table\" checked>Table</label>\n\
              <label><input type=\"checkbox\" data-layer-toggle=\"overlays-below-balls\" checked>Below-ball overlays</label>\n\
              <label><input type=\"checkbox\" data-layer-toggle=\"balls\" checked>Balls</label>\n\
-             <label><input type=\"checkbox\" data-layer-toggle=\"overlays-above-balls\" checked>Above-ball overlays</label>\n\
-             </div>\n\
+             <label><input type=\"checkbox\" data-layer-toggle=\"overlays-above-balls\" checked>Above-ball overlays</label>\n",
+        );
+        html.push_str(table_detail_select_html());
+        html.push_str(
+            "\n</div>\n\
              <div class=\"svg-frame\">\n",
         );
         html.push_str(&report.inline_svg);
@@ -1310,6 +1484,87 @@ a:hover,a:focus-visible{color:#501212}
 
     html.push_str(
         r#"<script>
+const tableDetailGroups = {
+  cloth: '.table-cloth, .table-cloth-texture',
+  clothTexture: '.table-cloth-texture',
+  rail: '.table-rail, .table-rail-grain, .table-rail-grain-horizontal, .table-rail-grain-vertical, .table-rail-inner-shadow',
+  railTexture: '.table-rail-grain, .table-rail-grain-horizontal, .table-rail-grain-vertical, .table-rail-inner-shadow',
+  cushions: '.table-cushion, .table-cushion-nose, .table-cushion-back',
+  pockets: '.table-pocket-well, .table-pocket-leather, .table-pocket-leather-highlight, .table-pocket-shelf, .table-pocket-shelf-texture, .table-pocket-facing',
+  pocketTexture: '.table-pocket-shelf-texture',
+  diamonds: '.table-diamond',
+};
+const tableDetailAllSelector = Array.from(new Set(Object.values(tableDetailGroups).join(',').split(',').map((selector) => selector.trim()))).join(',');
+const setTableDetailVisible = (svg, selector, visible) => {
+  svg.querySelectorAll(selector).forEach((element) => {
+    element.style.display = visible ? '' : 'none';
+  });
+};
+const applyTableDetailMode = (svg, mode) => {
+  if (!svg) return;
+  const resolvedMode = ['full', 'flat', 'cloth', 'rail'].includes(mode) ? mode : 'full';
+  svg.dataset.tableDetail = resolvedMode;
+  setTableDetailVisible(svg, tableDetailAllSelector, true);
+  if (resolvedMode === 'flat') {
+    setTableDetailVisible(svg, `${tableDetailGroups.clothTexture}, ${tableDetailGroups.railTexture}, ${tableDetailGroups.pocketTexture}`, false);
+  } else if (resolvedMode === 'cloth') {
+    setTableDetailVisible(svg, `${tableDetailGroups.rail}, ${tableDetailGroups.cushions}, ${tableDetailGroups.pockets}, ${tableDetailGroups.diamonds}`, false);
+  } else if (resolvedMode === 'rail') {
+    setTableDetailVisible(svg, tableDetailGroups.cloth, false);
+  }
+};
+const globalTableDetail = document.querySelector('[data-global-table-detail]');
+const tableDetailModeForViewer = (viewer) => {
+  const local = viewer.querySelector('[data-table-detail]')?.value;
+  return local && local !== 'global' ? local : (globalTableDetail?.value ?? 'full');
+};
+const applyTableDetailToViewer = (viewer) => applyTableDetailMode(viewer.querySelector('svg'), tableDetailModeForViewer(viewer));
+const scenarioCards = Array.from(document.querySelectorAll('[data-scenario-card]'));
+const scenarioTocLinks = new Map(Array.from(document.querySelectorAll('[data-scenario-toc-link]')).map((link) => [link.getAttribute('href'), link]));
+const scenarioSearchInput = document.querySelector('[data-scenario-filter-search]');
+const scenarioSpeedFilter = document.querySelector('[data-scenario-filter-speed]');
+const scenarioEventFilter = document.querySelector('[data-scenario-filter-events]');
+const scenarioPlaybackFilter = document.querySelector('[data-scenario-filter-playback]');
+const scenarioFilterCount = document.querySelector('[data-scenario-filter-count]');
+const normalizeScenarioSearch = (value) => String(value ?? '').trim().toLowerCase();
+const applyScenarioFilters = () => {
+  const query = normalizeScenarioSearch(scenarioSearchInput?.value);
+  const speed = scenarioSpeedFilter?.value ?? '';
+  const events = scenarioEventFilter?.value ?? '';
+  const playback = scenarioPlaybackFilter?.value ?? '';
+  let visibleCount = 0;
+  scenarioCards.forEach((card) => {
+    const eventCount = Number(card.dataset.scenarioEventCount ?? '0');
+    const eventsMatch = !events
+      || (events === 'any' ? eventCount > 0 : card.dataset.scenarioEvents === events);
+    const visible = (!query || (card.dataset.scenarioSearch ?? '').includes(query))
+      && (!speed || card.dataset.scenarioSpeedBand === speed)
+      && eventsMatch
+      && (!playback || card.dataset.scenarioPlayback === playback);
+    card.hidden = !visible;
+    scenarioTocLinks.get(`#${card.id}`)?.toggleAttribute('hidden', !visible);
+    if (visible) visibleCount += 1;
+  });
+  if (scenarioFilterCount) {
+    scenarioFilterCount.textContent = `Showing ${visibleCount} of ${scenarioCards.length} scenarios`;
+    scenarioFilterCount.dataset.filtered = String(visibleCount !== scenarioCards.length);
+  }
+};
+scenarioSearchInput?.addEventListener('input', applyScenarioFilters);
+scenarioSpeedFilter?.addEventListener('change', applyScenarioFilters);
+scenarioEventFilter?.addEventListener('change', applyScenarioFilters);
+scenarioPlaybackFilter?.addEventListener('change', applyScenarioFilters);
+document.querySelector('[data-scenario-filter-reset]')?.addEventListener('click', () => {
+  if (scenarioSearchInput) scenarioSearchInput.value = '';
+  if (scenarioSpeedFilter) scenarioSpeedFilter.value = '';
+  if (scenarioEventFilter) scenarioEventFilter.value = '';
+  if (scenarioPlaybackFilter) scenarioPlaybackFilter.value = '';
+  applyScenarioFilters();
+});
+globalTableDetail?.addEventListener('change', () => {
+  document.querySelectorAll('[data-viewer]').forEach(applyTableDetailToViewer);
+});
+applyScenarioFilters();
 document.querySelectorAll('[data-viewer]').forEach((viewer) => {
   const svg = viewer.querySelector('svg');
   if (!svg || !svg.viewBox || !svg.viewBox.baseVal) return;
@@ -1332,6 +1587,11 @@ document.querySelectorAll('[data-viewer]').forEach((viewer) => {
       if (action === 'reset') { box = { x: base.x, y: base.y, width: base.width, height: base.height }; apply(); }
     });
   });
+  const tableDetailSelect = viewer.querySelector('[data-table-detail]');
+  if (tableDetailSelect) {
+    tableDetailSelect.addEventListener('change', () => applyTableDetailToViewer(viewer));
+  }
+  applyTableDetailToViewer(viewer);
   viewer.querySelectorAll('[data-layer-toggle]').forEach((input) => {
     input.addEventListener('change', () => {
       svg.querySelectorAll(`[data-layer="${input.dataset.layerToggle}"]`).forEach((layer) => {
@@ -2025,6 +2285,29 @@ mod tests {
         assert!(html.contains("<dt>Heading</dt><dd>90.00°</dd>"));
         assert!(html.contains("<svg class=\"cue-tip-diagram\""));
         assert!(html.contains("<svg class=\"power-meter\""));
+        assert!(html.contains("class=\"gallery-controls\""));
+        assert!(html.contains("data-scenario-filter-search"));
+        assert!(html.contains("data-scenario-filter-speed"));
+        assert!(html.contains("data-scenario-filter-events"));
+        assert!(html.contains("data-scenario-filter-playback"));
+        assert!(html.contains("data-global-table-detail"));
+        assert!(html.contains("data-scenario-toc-link"));
+        assert!(html.contains("data-scenario-card"));
+        assert!(html.contains("data-scenario-search=\"cue tip test cue_tip_test.svg source examples/scenarios/cue_tip_test.billiards"));
+        assert!(html.contains("data-scenario-speed-band=\"medium\""));
+        assert!(html.contains("data-scenario-events=\"none\""));
+        assert!(html.contains("data-scenario-event-count=\"0\""));
+        assert!(html.contains("data-scenario-playback=\"no-playback\""));
+        assert!(html.contains("Showing 1 of 1 scenarios"));
+        assert!(html.contains("data-table-detail"));
+        assert!(html.contains("Page setting"));
+        assert!(html.contains("Full material"));
+        assert!(html.contains("Flat colors"));
+        assert!(html.contains("Cloth only"));
+        assert!(html.contains("Rails and pockets only"));
+        assert!(html.contains("applyScenarioFilters"));
+        assert!(html.contains("tableDetailGroups"));
+        assert!(html.contains("applyTableDetailMode"));
     }
 
     #[test]

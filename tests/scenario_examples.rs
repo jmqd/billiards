@@ -45,6 +45,59 @@ fn trace_scenario(
 }
 
 #[test]
+fn elevated_side_spin_examples_expose_height_and_z_spin_for_gallery_playback() {
+    for (scenario_path, expected_z_sign) in [
+        (
+            "examples/scenarios/elevated_right_english_swerve_showcase.billiards",
+            1.0,
+        ),
+        (
+            "examples/scenarios/elevated_left_english_masse_showcase.billiards",
+            -1.0,
+        ),
+    ] {
+        let (_, trace) = trace_scenario(scenario_path, 18);
+        assert!(
+            trace.event_log.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    ScenarioShotTraceEventKind::BallTableBounce { ball }
+                        if *ball == BallType::Cue
+                )
+            }),
+            "{scenario_path}: elevated side-spin showcase should log a cue-ball table bounce"
+        );
+
+        let frames = trace.playback_frames(Seconds::new(0.02));
+        let cue_states = frames
+            .iter()
+            .flat_map(|frame| &frame.balls)
+            .filter(|ball| ball.ball == BallType::Cue)
+            .map(|ball| &ball.state)
+            .collect::<Vec<_>>();
+        assert!(
+            cue_states.iter().any(|state| state.height.as_f64() > 0.01),
+            "{scenario_path}: playback should include airborne cue-ball height"
+        );
+
+        let strongest_z = cue_states
+            .iter()
+            .map(|state| state.angular_velocity.z().as_f64())
+            .max_by(|a, b| a.abs().total_cmp(&b.abs()))
+            .expect("cue-ball playback states should exist");
+        assert!(
+            strongest_z.abs() > 1.0,
+            "{scenario_path}: playback should preserve visible z-spin, got {strongest_z:.3} rad/s"
+        );
+        assert_eq!(
+            strongest_z.signum(),
+            expected_z_sign,
+            "{scenario_path}: z-spin sign should match the side tip offset"
+        );
+    }
+}
+
+#[test]
 fn svg_trace_marks_original_cue_ball_origin_without_restoring_event_numbers() {
     let (scenario, trace) = trace_scenario(
         "examples/scenarios/bank_reference_track_one_rail.billiards",

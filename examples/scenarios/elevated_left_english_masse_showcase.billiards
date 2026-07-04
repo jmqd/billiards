@@ -1,0 +1,7 @@
+# Elevated left-English masse-style diagnostic.
+# Goal: steep cue-only elevated side-spin path that makes negative z-spin, airborne height, and post-bounce spin decay visible in playback.
+table brunswick_gc4_9ft
+ball cue at (3.05, 6.40)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+trace(max_events: 18)
+shot(cue).heading(204deg).speed(96ips).tip(side: -0.46R, height: -0.12R).elevation(34deg).using(default)

@@ -36,6 +36,24 @@ cue-ball launch speed in mph, and the nearest human-facing shot-speed label.
 
 ## Included scenarios
 
+### Elevated side-spin / z-spin diagnostics
+
+These cue-only examples use `.elevation(...)` plus near-miscue side tip offsets so the gallery
+playback exposes airborne height, table bounces, and `ωz` spin glyphs without a scoring outcome
+muddying the visual check.
+
+### `elevated_right_english_swerve_showcase.billiards`
+Expected flavor:
+- positive/right `ωz` from a high-right elevated hit
+- cue ball leaves the table, lands, then continues with visible side-spin glyphs
+- swerve-style visual diagnostic rather than a pocketing route
+
+### `elevated_left_english_masse_showcase.billiards`
+Expected flavor:
+- negative/left `ωz` from a steeper low-left elevated hit
+- cue ball leaves the table and returns with a visible table-bounce event
+- masse-style visual diagnostic for spin/height playback
+
 ### Three-cushion / carom examples
 
 These scenarios use `table three_cushion_carom_10ft`, `game three_cushion`, the carom ball names

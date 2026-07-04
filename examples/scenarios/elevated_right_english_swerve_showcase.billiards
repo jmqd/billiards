@@ -1,0 +1,7 @@
+# Elevated right-English swerve-style diagnostic.
+# Goal: cue-only elevated side-spin path that makes positive z-spin, airborne height, and table bounce visible in playback.
+table brunswick_gc4_9ft
+ball cue at (1.20, 1.35)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+trace(max_events: 18)
+shot(cue).heading(18deg).speed(118ips).tip(side: 0.46R, height: 0.12R).elevation(24deg).using(default)

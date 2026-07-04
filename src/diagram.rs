@@ -597,7 +597,7 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
         (right, bottom, 1.0, 1.0),
     ];
 
-    for layer in [PocketLayer::Well, PocketLayer::Shelf] {
+    for layer in [PocketLayer::Well, PocketLayer::Liner] {
         for (corner_x, corner_y, x_sign, y_sign) in corner_pockets {
             push_svg_corner_pocket(
                 svg,
@@ -695,7 +695,7 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
         cushion_bevel_y,
     );
 
-    for layer in [PocketLayer::Liner, PocketLayer::Facing] {
+    for layer in [PocketLayer::Shelf, PocketLayer::Facing] {
         for (corner_x, corner_y, x_sign, y_sign) in corner_pockets {
             push_svg_corner_pocket(
                 svg,
@@ -990,21 +990,18 @@ fn push_svg_corner_pocket(
             ));
         }
         PocketLayer::Shelf => {
-            // Draw a full bed-side patch instead of a narrow crescent:
-            // it bleeds into the cloth and rail-side pocket cutout, then the
-            // later cushion/liner layers mask the rail side.  That removes the
-            // tiny anti-aliased black seam where the shelf meets the table bed.
-            let shelf_bed_overlap = 1.10;
+            // Let the shelf tuck slightly under the table-bed edge so the
+            // black well cannot peek through as a crescent between cloth areas.
+            let shelf_bed_overlap = 1.05;
             let (shelf_top_x, shelf_top_y) = point(run_x * shelf_bed_overlap, 0.0);
             let (shelf_side_x, shelf_side_y) = point(0.0, run_y * shelf_bed_overlap);
             let (shelf_outer_control_x, shelf_outer_control_y) =
                 point(-cushion_x * 0.16, -cushion_y * 0.16);
-            let (shelf_corner_x, shelf_corner_y) = point(0.0, 0.0);
+            let (shelf_inner_control_x, shelf_inner_control_y) = point(run_x * 0.46, run_y * 0.46);
             let shelf_path = format!(
                 "M {shelf_top_x:.3} {shelf_top_y:.3} \
                  Q {shelf_outer_control_x:.3} {shelf_outer_control_y:.3} {shelf_side_x:.3} {shelf_side_y:.3} \
-                 L {shelf_corner_x:.3} {shelf_corner_y:.3} \
-                 L {shelf_top_x:.3} {shelf_top_y:.3} Z"
+                 Q {shelf_inner_control_x:.3} {shelf_inner_control_y:.3} {shelf_top_x:.3} {shelf_top_y:.3} Z"
             );
             svg.push_str(&format!(
                 "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" d=\"{shelf_path}\"/>\n"

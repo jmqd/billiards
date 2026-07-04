@@ -429,25 +429,17 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     assert_eq!(svg.matches("class=\"table-pocket-facing\"").count(), 12);
     assert_eq!(svg.matches("data-pocket=\"corner-liner\"").count(), 4);
     assert_eq!(svg.matches("data-pocket=\"side-liner\"").count(), 2);
-    let first_well = svg
-        .find("<path class=\"table-pocket-well\"")
-        .expect("pocket well should render");
-    let first_shelf = svg
-        .find("<path class=\"table-pocket-shelf\"")
-        .expect("pocket shelf should render");
     let first_cushion = svg
         .find("<path class=\"table-cushion\"")
         .expect("table cushion should render");
-    let first_liner = svg
-        .find("<path class=\"table-pocket-leather\"")
-        .expect("pocket liner should render");
+    let first_shelf = svg
+        .find("<path class=\"table-pocket-shelf\"")
+        .expect("pocket shelf should render");
     let first_facing = svg
         .find("<line class=\"table-pocket-facing\"")
         .expect("pocket facing should render");
-    assert!(first_well < first_shelf);
-    assert!(first_shelf < first_cushion);
-    assert!(first_cushion < first_liner);
-    assert!(first_liner < first_facing);
+    assert!(first_cushion < first_shelf);
+    assert!(first_shelf < first_facing);
     assert!(!svg.contains("stroke-width:0"));
     assert!(svg.contains("id=\"tournament-blue-cloth\" gradientUnits=\"userSpaceOnUse\""));
     assert!(svg.contains("id=\"rosewood-grain\""));
@@ -511,9 +503,9 @@ fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\""));
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\""));
     assert!(svg.contains(
-        "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" d=\"M 170.063 110.000 Q "
+        "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" d=\"M 167.333 110.000 Q "
     ));
-    assert!(svg.contains("104.783 104.777 110.000 170.133 L 110.000 110.000 L 170.063 110.000 Z"));
+    assert!(svg.contains("110.000 167.400 Q 135.117 135.147 167.333 110.000 Z"));
     assert!(svg.contains(
         "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" d=\"M 110.000 926.050 Q 104.509 969.000 110.000 1011.950 Q 116.103 969.000 110.000 926.050 Z"
     ));

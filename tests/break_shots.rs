@@ -10,6 +10,7 @@ use billiards::{
 fn position_xy(state: &NBallSystemState) -> (f64, f64) {
     let state = match state {
         NBallSystemState::OnTable(on_table) => on_table.as_ball_state(),
+        NBallSystemState::Airborne(airborne) => airborne,
         NBallSystemState::Pocketed {
             state_at_capture, ..
         } => state_at_capture.as_ball_state(),
@@ -109,10 +110,7 @@ fn nine_ball_break_examples_open_the_rack_after_shared_contact() {
         let initial_states = scenario
             .initial_shot_system_states_on_table(&ball_set)
             .expect("initial shot states should build")
-            .expect("scenario should contain a shot")
-            .into_iter()
-            .map(NBallSystemState::from)
-            .collect::<Vec<_>>();
+            .expect("scenario should contain a shot");
         let mut states = initial_states.clone();
         let mut events = Vec::new();
 
@@ -173,10 +171,7 @@ fn nine_ball_break_default_traces_reach_rails_and_table_spread() {
         let initial_states = scenario
             .initial_shot_system_states_on_table(&ball_set)
             .expect("initial shot states should build")
-            .expect("scenario should contain a shot")
-            .into_iter()
-            .map(NBallSystemState::from)
-            .collect::<Vec<_>>();
+            .expect("scenario should contain a shot");
 
         let trace = scenario
             .simulate_shot_trace_with_physics_on_table_until_event_limit(

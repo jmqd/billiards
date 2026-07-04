@@ -1,5 +1,5 @@
-# Double-rail / snake score: cue checks with strong opposite side and returns to the first cushion as the third cue rail.
-# Goal: high-speed bottom/top/bottom rail pattern; only two physical cushions produce the three-cushion count before red.
+# Stun-thick long-rail check score: cue hits a near-rail yellow almost full, then checks back around the corner.
+# Iteration B: slightly less check side; the third long rail arrives later before scoring.
 table three_cushion_carom_10ft
 game three_cushion
 ball cue at (2.721, 6.737)
@@ -15,6 +15,6 @@ simulation(default)
   .rail_model(spin_aware)
   .rails(carom)
   .conditions(heated_carom)
-  .max_events(36)
-trace(max_events: 36)
-shot(cue).heading(165.042deg).speed(216ips).tip(side: -0.21R, height: 0.02R).using(default)
+  .max_events(44)
+trace(max_events: 44)
+shot(cue).heading(164.567deg).speed(245ips).tip(side: -0.245R, height: 0.00R).using(default)

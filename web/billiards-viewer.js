@@ -223,11 +223,13 @@
         const normalizeFrameBall = (ball) => {
           if (!Array.isArray(ball)) return ball;
           if (ball.length >= 10) {
-            return { id: String(ball[0] ?? ''), x: Number(ball[1]), y: Number(ball[2]), speed: Number(ball[3]), vx: Number(ball[4]), vy: Number(ball[5]), wx: Number(ball[6]), wy: Number(ball[7]), wz: Number(ball[8]), rollingTarget: Number(ball[9]) };
+            const vx = Number(ball[4]);
+            const vy = Number(ball[5]);
+            return { id: String(ball[0] ?? ''), x: Number(ball[1]), y: Number(ball[2]), heightInches: Number(ball[3]), vx, vy, vz: Number(ball[6]), wx: Number(ball[7]), wy: Number(ball[8]), wz: Number(ball[9]), speed: Math.hypot(vx, vy) };
           }
           const vx = Number(ball[3]);
           const vy = Number(ball[4]);
-          return { id: String(ball[0] ?? ''), x: Number(ball[1]), y: Number(ball[2]), speed: Math.hypot(vx, vy), vx, vy, wx: Number(ball[5]), wy: Number(ball[6]), wz: Number(ball[7]) };
+          return { id: String(ball[0] ?? ''), x: Number(ball[1]), y: Number(ball[2]), heightInches: 0, vz: 0, speed: Math.hypot(vx, vy), vx, vy, wx: Number(ball[5]), wy: Number(ball[6]), wz: Number(ball[7]) };
         };
         const normalizeFrame = (frame) => Array.isArray(frame)
           ? { time: Number(frame[0]), balls: Array.isArray(frame[1]) ? frame[1].map(normalizeFrameBall) : [] }
@@ -562,17 +564,22 @@
           for (const ball of frame.balls ?? []) {
             const visual = visuals.get(ball.id) ?? {};
             const radius = Number(visual.radius) || 12;
-            appendCircle('playback-ball-shadow', ball.x + radius * 0.12, ball.y + radius * 0.18, radius * 1.02, '#000', 0.25);
-            appendCircle('playback-ball', ball.x, ball.y, radius, visual.fill || '#ffffff', 1, '#111', '1.25');
+            const radiusInches = Math.max(spinStun, Number(visual.radiusInches) || Number(ball.ballRadiusInches) || 1.125);
+            const liftPx = Math.max(0, finiteNumber(ball.heightInches)) * radius / radiusInches;
+            const displayX = finiteNumber(ball.x);
+            const displayY = finiteNumber(ball.y) - liftPx;
+            const liftRatio = Math.max(0, Math.min(1.6, liftPx / Math.max(radius, 1)));
+            appendCircle('playback-ball-shadow', displayX + radius * (0.12 + 0.11 * liftRatio), finiteNumber(ball.y) + radius * (0.18 + 0.10 * liftRatio), radius * (1.02 + 0.22 * liftRatio), '#000', Math.max(0.08, 0.25 - 0.08 * liftRatio));
+            appendCircle('playback-ball', displayX, displayY, radius, visual.fill || '#ffffff', 1, '#111', '1.25');
             const heading = headingForBall(index, ball);
             const speed = Math.max(0, Number(ball.speed) || 0);
             if (heading && speed > 0.05) {
               const lineLength = radius * (1.18 + Math.min(speed, 160) / 220);
               const halfLength = lineLength / 2;
-              const x1 = ball.x - heading.dx * halfLength;
-              const y1 = ball.y - heading.dy * halfLength;
-              const x2 = ball.x + heading.dx * halfLength;
-              const y2 = ball.y + heading.dy * halfLength;
+              const x1 = displayX - heading.dx * halfLength;
+              const y1 = displayY - heading.dy * halfLength;
+              const x2 = displayX + heading.dx * halfLength;
+              const y2 = displayY + heading.dy * halfLength;
               const width = Math.max(0.5, Math.min(4.8, 0.5 + speed / 55));
               const opacity = Math.max(0.18, Math.min(1, speed / 80));
               const line = document.createElementNS(ns, 'line');
@@ -588,12 +595,12 @@
             if (visual.label) {
               const label = document.createElementNS(ns, 'text');
               label.setAttribute('class', 'playback-ball-label');
-              label.setAttribute('x', Number(ball.x).toFixed(3));
-              label.setAttribute('y', Number(ball.y).toFixed(3));
+              label.setAttribute('x', displayX.toFixed(3));
+              label.setAttribute('y', displayY.toFixed(3));
               label.textContent = visual.label;
               playbackLayer.appendChild(label);
             }
-            appendSpinGlyph(ball, radius);
+            appendSpinGlyph({ ...ball, x: displayX, y: displayY }, radius);
           }
           slider.value = String(index);
           if (timeLabel) timeLabel.textContent = `t=${formatPlaybackTime(time)}s`;

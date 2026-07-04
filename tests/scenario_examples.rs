@@ -9,6 +9,7 @@ use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     human_tuned_preview_motion_config, BallType, CollisionModel, DiagramBackground,
     DiagramRenderOptions, NBallSystemEvent, Pocket, Rail, RailModel, Seconds, TableKind,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn trace_scenario(
@@ -306,12 +307,26 @@ fn side_pocket_examples_match_claimed_outcomes() {
 }
 
 #[test]
-fn low_left_spin_throw_transfer_scenario_uses_vertical_setup_and_tracks_squirted_contact() {
+fn low_left_spin_throw_transfer_scenario_uses_full_face_vertical_impact_and_tracks_transfer() {
     let (scenario, trace) = trace_scenario(
         "examples/scenarios/low_left_spin_throw_transfer.billiards",
         1,
     );
     assert!(has_collision(&trace, BallType::Cue, BallType::One));
+
+    let shot = scenario
+        .shot
+        .as_ref()
+        .expect("scenario should contain a shot");
+    assert!(
+        shot.shot.heading().as_degrees().abs() < 1e-12,
+        "low-left transfer diagnostic should aim due north/up; got {:.12}deg",
+        shot.shot.heading().as_degrees()
+    );
+    assert!(
+        shot.cue_strike.cue_ball_to_endmass_ratio().as_f64() >= 1.0e8,
+        "low-left transfer diagnostic should use a near-zero-deflection cue so side-tip squirt cannot fake a cut"
+    );
 
     let cue_index = scenario
         .game_state
@@ -363,13 +378,29 @@ fn low_left_spin_throw_transfer_scenario_uses_vertical_setup_and_tracks_squirted
     let one_at_impact = one_at_impact.as_ball_state();
     let line_dx = one_at_impact.position.x().as_f64() - cue_at_impact.position.x().as_f64();
     let line_dy = one_at_impact.position.y().as_f64() - cue_at_impact.position.y().as_f64();
+    let ball_diameter = 2.0 * TYPICAL_BALL_RADIUS.as_f64();
     assert!(
-        (-0.6..-0.2).contains(&line_dx),
-        "low-left side-tip squirt should offset impact left of center; got centerline dx {line_dx:.6} in"
+        line_dx.abs() < 1e-6,
+        "full-face hit should put cue and 1-ball centers on the same x at impact; got centerline dx {line_dx:.12} in"
     );
     assert!(
-        line_dy > 0.0,
-        "object ball should be contacted on a top-cushion-facing line"
+        (line_dy - ball_diameter).abs() < 1e-9,
+        "full-face hit should occur at exactly one ball diameter; got centerline dy {line_dy:.12} in"
+    );
+    let impact_bearing_degrees = line_dx.atan2(line_dy).to_degrees();
+    assert!(
+        impact_bearing_degrees.abs() < 1e-6,
+        "full-face hit should have a directly-up line-of-centers bearing; got {impact_bearing_degrees:.12}deg"
+    );
+    let cue_bearing_degrees = cue_at_impact
+        .velocity
+        .angle_from_north()
+        .expect("cue ball should still be moving at impact")
+        .as_degrees();
+    let cue_bearing_error = cue_bearing_degrees.min(360.0 - cue_bearing_degrees);
+    assert!(
+        cue_bearing_error < 1e-6,
+        "cue ball should arrive with a directly-up bearing; got {cue_bearing_degrees:.12}deg"
     );
 
     let one_after = trace.simulation.states[one_index]
@@ -383,12 +414,8 @@ fn low_left_spin_throw_transfer_scenario_uses_vertical_setup_and_tracks_squirted
         "1-ball should travel toward the top cushion after contact"
     );
     assert!(
-        one_vy > one_vx.abs() * 4.0,
-        "1-ball should still travel mostly toward the top cushion; got vx {one_vx:.6}, vy {one_vy:.6}"
-    );
-    assert!(
-        one_vx < 0.0,
-        "low-left side-tip squirt should cut the 1-ball left; got vx {one_vx:.6}"
+        one_vy > one_vx.abs() * 50.0,
+        "1-ball should travel almost straight toward the top cushion after a full-face hit; got vx {one_vx:.6}, vy {one_vy:.6}"
     );
     assert!(
         one_after.angular_velocity.z().as_f64() > 0.0,
@@ -615,6 +642,11 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
         "examples/scenarios/three_cushion_bottom_right_top_score.billiards",
         "examples/scenarios/three_cushion_teketeke_corner_score.billiards",
         "examples/scenarios/three_cushion_double_rail_return_score.billiards",
+        "examples/scenarios/three_cushion_double_rail_top_return_score.billiards",
+        "examples/scenarios/three_cushion_double_rail_side_mirror_score.billiards",
+        "examples/scenarios/three_cushion_stun_check_long_rail_fast_score.billiards",
+        "examples/scenarios/three_cushion_stun_check_long_rail_hold_score.billiards",
+        "examples/scenarios/three_cushion_stun_check_long_rail_nip_score.billiards",
         "examples/scenarios/three_cushion_three_rails_first_score.billiards",
         "examples/scenarios/three_cushion_hako_dama_long_box_behind_score.billiards",
         "examples/scenarios/three_cushion_hako_dama_short_side_check_score.billiards",
@@ -685,6 +717,26 @@ fn three_cushion_score_examples_make_legal_three_cushion_sequence() {
             [Rail::Bottom, Rail::Top, Rail::Bottom],
         ),
         (
+            "examples/scenarios/three_cushion_double_rail_top_return_score.billiards",
+            [Rail::Top, Rail::Bottom, Rail::Top],
+        ),
+        (
+            "examples/scenarios/three_cushion_double_rail_side_mirror_score.billiards",
+            [Rail::Bottom, Rail::Top, Rail::Bottom],
+        ),
+        (
+            "examples/scenarios/three_cushion_stun_check_long_rail_fast_score.billiards",
+            [Rail::Bottom, Rail::Top, Rail::Bottom],
+        ),
+        (
+            "examples/scenarios/three_cushion_stun_check_long_rail_hold_score.billiards",
+            [Rail::Bottom, Rail::Top, Rail::Bottom],
+        ),
+        (
+            "examples/scenarios/three_cushion_stun_check_long_rail_nip_score.billiards",
+            [Rail::Bottom, Rail::Top, Rail::Bottom],
+        ),
+        (
             "examples/scenarios/three_cushion_three_rails_first_score.billiards",
             [Rail::Left, Rail::Right, Rail::Left],
         ),
@@ -697,12 +749,31 @@ fn three_cushion_score_examples_make_legal_three_cushion_sequence() {
             [Rail::Left, Rail::Bottom, Rail::Right],
         ),
     ] {
-        let (_, trace) = trace_scenario(scenario_path, 24);
+        let (scenario, trace) = trace_scenario(scenario_path, 24);
         let rails = legal_three_cushion_rail_sequence(&trace)
             .unwrap_or_else(|| panic!("{scenario_path}: expected legal three-cushion score"));
         assert!(
             rails.starts_with(&expected_rails),
             "{scenario_path}: expected cue rail sequence to start with {expected_rails:?}, got {rails:?}"
         );
+        if scenario_path.contains("double_rail") || scenario_path.contains("stun_check") {
+            assert_eq!(
+                expected_rails[0], expected_rails[2],
+                "{scenario_path}: double-rail examples must count the first cushion again as the third rail"
+            );
+            let side_offset = scenario
+                .shot
+                .as_ref()
+                .expect("double-rail scenario should include a shot")
+                .shot
+                .tip_contact()
+                .side_offset()
+                .as_f64()
+                .abs();
+            assert!(
+                side_offset >= 0.20,
+                "{scenario_path}: double-rail return needs strong check side, got {side_offset:.3}R"
+            );
+        }
     }
 }

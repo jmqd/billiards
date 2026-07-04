@@ -1123,7 +1123,7 @@ impl PlayingConditions {
     pub fn heated_carom() -> Self {
         Self {
             sliding_friction_scale: Scale::from_f64(0.82),
-            rolling_resistance_scale: Scale::from_f64(0.75),
+            rolling_resistance_scale: Scale::from_f64(0.72),
             spin_decay_scale: Scale::from_f64(0.86),
             ball_ball_restitution_scale: Scale::from_f64(1.0),
             ball_ball_friction_scale: Scale::from_f64(0.92),
@@ -1609,15 +1609,12 @@ enum NBallPocketAwareSystemEventSource {
     BallRailImpact {
         ball_index: usize,
     },
+    BallTableBounce {
+        ball_index: usize,
+    },
     MotionTransition {
         ball_index: usize,
     },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct NBallPocketAwareSystemEventCandidate {
-    source: NBallPocketAwareSystemEventSource,
-    event: NBallSystemEvent,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1638,6 +1635,10 @@ enum NBallPocketAwareSystemEventCandidateRef<'a> {
     BallRailImpact {
         ball_index: usize,
         impact: &'a PredictedBallRailImpact,
+    },
+    BallTableBounce {
+        ball_index: usize,
+        contact: &'a AirborneTableContact,
     },
     MotionTransition {
         ball_index: usize,
@@ -1665,6 +1666,9 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
             Self::BallRailImpact { ball_index, .. } => {
                 NBallPocketAwareSystemEventSource::BallRailImpact { ball_index }
             }
+            Self::BallTableBounce { ball_index, .. } => {
+                NBallPocketAwareSystemEventSource::BallTableBounce { ball_index }
+            }
             Self::MotionTransition { ball_index, .. } => {
                 NBallPocketAwareSystemEventSource::MotionTransition { ball_index }
             }
@@ -1677,6 +1681,7 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
             Self::BallJawImpact { impact, .. } => impact.time_until_impact.as_f64(),
             Self::BallPocketCapture { capture, .. } => capture.time_until_capture.as_f64(),
             Self::BallRailImpact { impact, .. } => impact.time_until_impact.as_f64(),
+            Self::BallTableBounce { contact, .. } => contact.time_until_contact.as_f64(),
             Self::MotionTransition { transition, .. } => transition.time_until_transition.as_f64(),
         }
     }
@@ -1706,6 +1711,13 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
             Self::BallRailImpact { ball_index, impact } => NBallSystemEvent::BallRailImpact {
                 ball_index,
                 impact: impact.clone(),
+            },
+            Self::BallTableBounce {
+                ball_index,
+                contact,
+            } => NBallSystemEvent::BallTableBounce {
+                ball_index,
+                contact: contact.clone(),
             },
             Self::MotionTransition {
                 ball_index,
@@ -1781,6 +1793,7 @@ struct PocketAwareEventCache {
     jaw_impacts: Vec<Option<PredictedBallJawImpact>>,
     pocket_captures: Vec<Option<PredictedBallPocketCapture>>,
     rail_impacts: Vec<Option<PredictedBallRailImpact>>,
+    table_bounces: Vec<Option<AirborneTableContact>>,
     transitions: Vec<Option<NextTransition>>,
 }
 
@@ -1797,6 +1810,7 @@ impl PocketAwareEventCache {
             jaw_impacts: vec![None; states.len()],
             pocket_captures: vec![None; states.len()],
             rail_impacts: vec![None; states.len()],
+            table_bounces: vec![None; states.len()],
             transitions: vec![None; states.len()],
         };
         for ball_index in 0..states.len() {
@@ -1813,14 +1827,31 @@ impl PocketAwareEventCache {
         table: &TableSpec,
         config: &OnTableMotionConfig,
     ) {
-        let Some(state) = states[ball_index].as_on_table() else {
-            self.jaw_impacts[ball_index] = None;
-            self.pocket_captures[ball_index] = None;
-            self.rail_impacts[ball_index] = None;
-            self.transitions[ball_index] = None;
-            self.ball_ball
-                .retain(|&(first, second), _| first != ball_index && second != ball_index);
-            return;
+        let state = match &states[ball_index] {
+            NBallSystemState::OnTable(state) => {
+                self.table_bounces[ball_index] = None;
+                state
+            }
+            NBallSystemState::Airborne(state) => {
+                self.jaw_impacts[ball_index] = None;
+                self.pocket_captures[ball_index] = None;
+                self.rail_impacts[ball_index] = None;
+                self.table_bounces[ball_index] = settle_airborne_ball_on_next_table_contact(state);
+                self.transitions[ball_index] = None;
+                self.ball_ball
+                    .retain(|&(first, second), _| first != ball_index && second != ball_index);
+                return;
+            }
+            NBallSystemState::Pocketed { .. } => {
+                self.jaw_impacts[ball_index] = None;
+                self.pocket_captures[ball_index] = None;
+                self.rail_impacts[ball_index] = None;
+                self.table_bounces[ball_index] = None;
+                self.transitions[ball_index] = None;
+                self.ball_ball
+                    .retain(|&(first, second), _| first != ball_index && second != ball_index);
+                return;
+            }
         };
 
         self.jaw_impacts[ball_index] =
@@ -1920,6 +1951,22 @@ impl PocketAwareEventCache {
             };
             let candidate =
                 NBallPocketAwareSystemEventCandidateRef::BallRailImpact { ball_index, impact };
+            earliest_time = earliest_time.min(candidate.time_seconds());
+            if best.is_none_or(|current| {
+                earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
+            }) {
+                best = Some(candidate);
+            }
+        }
+
+        for (ball_index, contact) in self.table_bounces.iter().enumerate() {
+            let Some(contact) = contact else {
+                continue;
+            };
+            let candidate = NBallPocketAwareSystemEventCandidateRef::BallTableBounce {
+                ball_index,
+                contact,
+            };
             earliest_time = earliest_time.min(candidate.time_seconds());
             if best.is_none_or(|current| {
                 earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
@@ -2032,11 +2079,13 @@ pub struct NBallOnTableSimulation {
 
 /// A ball state inside the richer indexed N-ball system simulation.
 ///
-/// The current pocket-aware system simulation starts from on-table states and can remove balls into
-/// a terminal pocketed state. Airborne / leaves-table handling is intentionally deferred.
+/// The system can mix on-table balls, ballistic airborne balls, and terminal pocketed balls. Airborne
+/// balls are advanced under gravity until their next table contact, then normalized back into the
+/// on-table solver.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NBallSystemState {
     OnTable(OnTableBallState),
+    Airborne(BallState),
     Pocketed {
         pocket: Pocket,
         state_at_capture: OnTableBallState,
@@ -2049,11 +2098,33 @@ impl From<OnTableBallState> for NBallSystemState {
     }
 }
 
+impl From<BallState> for NBallSystemState {
+    fn from(state: BallState) -> Self {
+        match OnTableBallState::try_new_with_thresholds(
+            state.clone(),
+            &MotionPhaseThresholds::default(),
+        ) {
+            Ok(on_table) => Self::OnTable(on_table),
+            Err(_) => Self::Airborne(state),
+        }
+    }
+}
+
 impl NBallSystemState {
     pub fn as_on_table(&self) -> Option<&OnTableBallState> {
         match self {
             NBallSystemState::OnTable(state) => Some(state),
-            NBallSystemState::Pocketed { .. } => None,
+            NBallSystemState::Airborne(_) | NBallSystemState::Pocketed { .. } => None,
+        }
+    }
+
+    pub fn as_ball_state(&self) -> &BallState {
+        match self {
+            NBallSystemState::OnTable(state) => state.as_ball_state(),
+            NBallSystemState::Airborne(state) => state,
+            NBallSystemState::Pocketed {
+                state_at_capture, ..
+            } => state_at_capture.as_ball_state(),
         }
     }
 }
@@ -2084,6 +2155,10 @@ pub enum NBallSystemEvent {
         ball_index: usize,
         impact: PredictedBallRailImpact,
     },
+    BallTableBounce {
+        ball_index: usize,
+        contact: AirborneTableContact,
+    },
     MotionTransition {
         ball_index: usize,
         transition: NextTransition,
@@ -2100,6 +2175,7 @@ impl NBallSystemEvent {
             NBallSystemEvent::BallJawImpact { impact, .. } => impact.time_until_impact,
             NBallSystemEvent::BallPocketCapture { capture, .. } => capture.time_until_capture,
             NBallSystemEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
+            NBallSystemEvent::BallTableBounce { contact, .. } => contact.time_until_contact,
             NBallSystemEvent::MotionTransition { transition, .. } => {
                 transition.time_until_transition
             }
@@ -2113,6 +2189,7 @@ impl NBallSystemEvent {
             NBallSystemEvent::BallJawImpact { ball_index, .. }
             | NBallSystemEvent::BallPocketCapture { ball_index, .. }
             | NBallSystemEvent::BallRailImpact { ball_index, .. }
+            | NBallSystemEvent::BallTableBounce { ball_index, .. }
             | NBallSystemEvent::MotionTransition { ball_index, .. } => Some(*ball_index),
         }
     }
@@ -2804,6 +2881,9 @@ pub enum ShotError {
     NegativeCueSpeed {
         cue_speed: InchesPerSecond,
     },
+    CueElevationOutOfRange {
+        cue_elevation: Angle,
+    },
     NonPositiveCueMassRatio {
         cue_mass_ratio: Scale,
     },
@@ -2824,6 +2904,10 @@ pub enum ShotError {
         tip_contact: CueTipContact,
         cue_mass_ratio: Scale,
         collision_energy_loss: Scale,
+    },
+    ElevatedShotLeavesTable {
+        cue_elevation: Angle,
+        vertical_velocity: InchesPerSecond,
     },
 }
 
@@ -2897,14 +2981,15 @@ impl CueTipContact {
 
 /// A fully specified cue shot intent for striking a resting cue ball.
 ///
-/// This is a pure input description: the absolute shot heading, the cue speed at impact, and the
-/// validated cue-tip contact point on the ball. Later strike-model helpers will map this input to
-/// an immediate post-strike ball state.
+/// This is a pure input description: the absolute shot heading, the cue speed at impact, the
+/// validated cue-tip contact point on the ball, and the cue-stick elevation. A zero elevation is a
+/// level stroke and is the default used by all existing callers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shot {
     heading: Angle,
     cue_speed: InchesPerSecond,
     tip_contact: CueTipContact,
+    cue_elevation: Angle,
 }
 
 impl Shot {
@@ -2921,6 +3006,7 @@ impl Shot {
             heading,
             cue_speed,
             tip_contact,
+            cue_elevation: Angle::from_north(0.0, 1.0),
         })
     }
 
@@ -2941,6 +3027,12 @@ impl Shot {
         Self::new(heading, cue_speed, tip_contact)
     }
 
+    pub fn with_cue_elevation(mut self, cue_elevation: Angle) -> Result<Self, ShotError> {
+        validate_cue_elevation(cue_elevation)?;
+        self.cue_elevation = cue_elevation;
+        Ok(self)
+    }
+
     pub fn heading(&self) -> Angle {
         self.heading
     }
@@ -2951,6 +3043,10 @@ impl Shot {
 
     pub fn tip_contact(&self) -> &CueTipContact {
         &self.tip_contact
+    }
+
+    pub fn cue_elevation(&self) -> Angle {
+        self.cue_elevation
     }
 
     pub fn human_speed_validation(
@@ -3608,6 +3704,57 @@ fn cue_effective_side_spin_offset(tip_contact: &CueTipContact, cue: &CueStrikeCo
     side_offset.signum() * effective_offset.max(0.0)
 }
 
+const MAX_CUE_ELEVATION_DEGREES: f64 = 85.0;
+const CUE_ELEVATION_TABLE_REBOUND_COEFFICIENT: f64 = 0.58;
+
+fn validate_cue_elevation(cue_elevation: Angle) -> Result<(), ShotError> {
+    if !(0.0..=MAX_CUE_ELEVATION_DEGREES).contains(&cue_elevation.as_degrees()) {
+        return Err(ShotError::CueElevationOutOfRange { cue_elevation });
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PostStrikePlanarState {
+    velocity: Velocity2,
+    angular_velocity: AngularVelocity3,
+}
+
+fn compute_post_strike_planar_state(
+    shot: &Shot,
+    cue: &CueStrikeConfig,
+    ball_set: &BallSetPhysicsSpec,
+    planar_speed: InchesPerSecond,
+) -> PostStrikePlanarState {
+    let launch_heading_degrees = (shot.heading.as_degrees()
+        + cue_squirt_angle_degrees(&shot.tip_contact, cue))
+    .rem_euclid(360.0);
+    let launch_heading_radians = launch_heading_degrees.to_radians();
+    let velocity = Velocity2::from_polar(
+        planar_speed.clone(),
+        Angle::from_north(launch_heading_radians.sin(), launch_heading_radians.cos()),
+    );
+
+    let heading_radians = shot.heading.as_degrees().to_radians();
+    let shot_x = heading_radians.sin();
+    let shot_y = heading_radians.cos();
+    let shot_right_x = shot_y;
+    let shot_right_y = -shot_x;
+    let spin_scale = 2.5 * planar_speed.as_f64() / ball_set.radius.as_f64();
+    let local_angular_right = -spin_scale * shot.tip_contact.height_offset.as_f64();
+    let angular_velocity = AngularVelocity3::new(
+        shot_right_x * local_angular_right,
+        shot_right_y * local_angular_right,
+        spin_scale * cue_effective_side_spin_offset(&shot.tip_contact, cue),
+    );
+
+    PostStrikePlanarState {
+        velocity,
+        angular_velocity,
+    }
+}
+
 /// Convert a desired immediate cue-ball launch speed into the cue-stick speed required by the
 /// current cue-strike transfer model.
 ///
@@ -3649,56 +3796,141 @@ pub fn validate_shot_human_speed(
     })
 }
 
-/// Strike a resting on-table ball with a first-pass horizontal cue shot.
+/// Strike a resting on-table ball with a cue shot.
 ///
-/// This models the instantaneous cue→ball transfer only; it returns the immediate post-strike
-/// on-table state that should then be fed into the existing motion / event simulation. The current
-/// implementation follows the horizontal cue-ball collision model in
-/// `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.2:
-///
-/// - cue movement is a translation in the shot heading,
-/// - the ball starts from rest,
-/// - cue-tip offset is specified by `CueTipContact` in cue-local ball-radius units, and
-/// - only the automatic cue-ball separation regime is supported.
-///
-/// This first pass intentionally excludes cue elevation, jump / masse launch, swerve, and detailed
-/// tip-size / miscue probability refinements. It does, however, include a horizontal squirt angle
-/// from TP A.31 / TP B.1, the TP B.7 effective side-spin offset correction, and a first-pass hard
-/// miscue limit on cue-tip offset via `CueStrikeConfig`.
+/// Level strokes return the same on-table post-impact state as the historical model. Elevated
+/// strokes split the launch into a table-plane velocity and an upward vertical velocity caused by
+/// the immediate cue/ball/table compression rebound. This is intentionally a first-order jump-shot
+/// model: airborne flight is ballistic, the cloth does not slow the ball while it is in the air,
+/// and the existing on-table rolling/sliding model resumes after the next table contact.
+pub fn strike_resting_ball(
+    ball: &RestingOnTableBallState,
+    shot: &Shot,
+    cue: &CueStrikeConfig,
+    ball_set: &BallSetPhysicsSpec,
+) -> Result<BallState, ShotError> {
+    validate_cue_elevation(shot.cue_elevation)?;
+    let post_strike_speed = compute_post_strike_speed(shot, cue)?.as_f64();
+    let elevation_radians = shot.cue_elevation.as_degrees().to_radians();
+    let planar_speed = InchesPerSecond::new(Inches::from_f64(
+        post_strike_speed * elevation_radians.cos(),
+    ));
+    let vertical_rebound_speed =
+        post_strike_speed * elevation_radians.sin() * CUE_ELEVATION_TABLE_REBOUND_COEFFICIENT;
+    let planar = compute_post_strike_planar_state(shot, cue, ball_set, planar_speed);
+    let position = ball.as_ball_state().position.clone();
+
+    if vertical_rebound_speed
+        <= MotionPhaseThresholds::default()
+            .airborne_vertical_speed
+            .as_f64()
+    {
+        return Ok(BallState::on_table(
+            position,
+            planar.velocity,
+            planar.angular_velocity,
+        ));
+    }
+
+    Ok(BallState::airborne(
+        position,
+        Inches::zero(),
+        planar.velocity,
+        Inches::from_f64(vertical_rebound_speed),
+        planar.angular_velocity,
+    ))
+}
+
+/// Strike a resting on-table ball and require the immediate result to remain in the on-table solver
+/// domain.
 pub fn strike_resting_ball_on_table(
     ball: &RestingOnTableBallState,
     shot: &Shot,
     cue: &CueStrikeConfig,
     ball_set: &BallSetPhysicsSpec,
 ) -> Result<OnTableBallState, ShotError> {
-    let post_strike_speed = compute_post_strike_speed(shot, cue)?.as_f64();
-    let launch_heading_degrees = (shot.heading.as_degrees()
-        + cue_squirt_angle_degrees(&shot.tip_contact, cue))
-    .rem_euclid(360.0);
-    let launch_heading_radians = launch_heading_degrees.to_radians();
-    let velocity = Velocity2::from_polar(
-        InchesPerSecond::new(Inches::from_f64(post_strike_speed)),
-        Angle::from_north(launch_heading_radians.sin(), launch_heading_radians.cos()),
-    );
+    let state = strike_resting_ball(ball, shot, cue, ball_set)?;
+    OnTableBallState::try_new_with_thresholds(state, &MotionPhaseThresholds::default()).map_err(
+        |error| match error {
+            OnTableStateError::VerticalVelocityPresent {
+                vertical_velocity, ..
+            } => ShotError::ElevatedShotLeavesTable {
+                cue_elevation: shot.cue_elevation,
+                vertical_velocity,
+            },
+            OnTableStateError::HeightAboveTablePlane { .. } => ShotError::ElevatedShotLeavesTable {
+                cue_elevation: shot.cue_elevation,
+                vertical_velocity: InchesPerSecond::zero(),
+            },
+        },
+    )
+}
 
-    let heading_radians = shot.heading.as_degrees().to_radians();
-    let shot_x = heading_radians.sin();
-    let shot_y = heading_radians.cos();
-    let shot_right_x = shot_y;
-    let shot_right_y = -shot_x;
-    let spin_scale = 2.5 * post_strike_speed / ball_set.radius.as_f64();
-    let local_angular_right = -spin_scale * shot.tip_contact.height_offset.as_f64();
-    let angular_velocity = AngularVelocity3::new(
-        shot_right_x * local_angular_right,
-        shot_right_y * local_angular_right,
-        spin_scale * cue_effective_side_spin_offset(&shot.tip_contact, cue),
-    );
+/// Advance an airborne ball under constant gravity without applying cloth friction.
+pub fn advance_airborne_ball(state: &BallState, dt: Seconds) -> BallState {
+    assert!(dt.as_f64() >= 0.0, "advance duration must be non-negative");
 
-    Ok(build_on_table_ball_state(
-        ball.as_ball_state().position.clone(),
-        velocity,
-        angular_velocity,
+    let t = dt.as_f64();
+    let new_position = Inches2::new(
+        Inches::from_f64(state.position.x().as_f64() + state.velocity.x().as_f64() * t),
+        Inches::from_f64(state.position.y().as_f64() + state.velocity.y().as_f64() * t),
+    );
+    let height = state.height.as_f64() + state.vertical_velocity.as_f64() * t
+        - 0.5 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * t * t;
+    let vertical_velocity =
+        state.vertical_velocity.as_f64() - STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * t;
+
+    BallState::airborne(
+        new_position,
+        Inches::from_f64(height.max(0.0)),
+        state.velocity.clone(),
+        Inches::from_f64(vertical_velocity),
+        state.angular_velocity.clone(),
+    )
+}
+
+/// Return the next positive time at which a ballistic airborne state reaches the table plane.
+pub fn time_until_airborne_ball_reaches_table(state: &BallState) -> Option<Seconds> {
+    let height = state.height.as_f64();
+    let vertical_velocity = state.vertical_velocity.as_f64();
+    let discriminant = vertical_velocity * vertical_velocity
+        + 2.0 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * height;
+
+    if discriminant < 0.0 {
+        return None;
+    }
+
+    let time =
+        (vertical_velocity + discriminant.sqrt()) / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED;
+    Some(Seconds::new(time.max(0.0)))
+}
+
+/// A ballistic airborne segment ending at the next table contact.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AirborneTableContact {
+    pub time_until_contact: Seconds,
+    pub state_at_contact: BallState,
+    pub state_after_contact: OnTableBallState,
+}
+
+/// Advance an airborne ball to its next table contact and resume the on-table solver domain.
+pub fn settle_airborne_ball_on_next_table_contact(
+    state: &BallState,
+) -> Option<AirborneTableContact> {
+    let time_until_contact = time_until_airborne_ball_reaches_table(state)?;
+    let state_at_contact = advance_airborne_ball(state, time_until_contact);
+    let state_after_contact = OnTableBallState::try_new(BallState::on_table(
+        state_at_contact.position.clone(),
+        state_at_contact.velocity.clone(),
+        state_at_contact.angular_velocity.clone(),
     ))
+    .expect("landing state should be normalized back onto the table plane");
+
+    Some(AirborneTableContact {
+        time_until_contact,
+        state_at_contact,
+        state_after_contact,
+    })
 }
 
 /// Return the planar table projection of a `BallState` in table-space coordinates.
@@ -7930,85 +8162,6 @@ fn select_earliest_n_ball_event_candidate(
         .map(|candidate| candidate.event)
 }
 
-fn shared_ball_ball_contact_from_pocket_candidates(
-    candidates: &[NBallPocketAwareSystemEventCandidate],
-) -> Option<NBallSystemEvent> {
-    let earliest_time = candidates
-        .iter()
-        .map(|candidate| candidate.event.time().as_f64())
-        .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
-    let earliest_ball_ball_time = candidates
-        .iter()
-        .filter_map(|candidate| match &candidate.event {
-            NBallSystemEvent::BallBallCollision { collision, .. } => {
-                Some(collision.time_until_impact.as_f64())
-            }
-            _ => None,
-        })
-        .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
-    if earliest_ball_ball_time - earliest_time > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
-        return None;
-    }
-
-    let mut ball_ball_pairs = candidates
-        .iter()
-        .filter_map(|candidate| match &candidate.event {
-            NBallSystemEvent::BallBallCollision {
-                first_ball_index,
-                second_ball_index,
-                ..
-            } if (candidate.event.time().as_f64() - earliest_ball_ball_time).abs()
-                <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS =>
-            {
-                Some((*first_ball_index, *second_ball_index))
-            }
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    ball_ball_pairs.sort_unstable();
-
-    if ball_ball_pairs.len() < 2 {
-        return None;
-    }
-
-    let mut ball_indices = ball_ball_pairs
-        .iter()
-        .flat_map(|(first, second)| [*first, *second])
-        .collect::<Vec<_>>();
-    ball_indices.sort_unstable();
-    ball_indices.dedup();
-
-    if ball_indices.len() == 2 * ball_ball_pairs.len() {
-        return None;
-    }
-
-    Some(NBallSystemEvent::SharedBallBallContact {
-        time_until_contact: Seconds::new(earliest_ball_ball_time),
-        ball_indices,
-        ball_ball_pairs,
-        resolution: shared_ball_ball_contact_resolution(),
-    })
-}
-
-fn select_earliest_n_ball_pocket_aware_event_candidate(
-    candidates: Vec<NBallPocketAwareSystemEventCandidate>,
-) -> Option<NBallSystemEvent> {
-    if let Some(shared_contact) = shared_ball_ball_contact_from_pocket_candidates(&candidates) {
-        return Some(shared_contact);
-    }
-
-    candidates
-        .into_iter()
-        .reduce(|current, candidate| {
-            if earlier_n_ball_pocket_aware_event_candidate(&candidate, &current) {
-                candidate
-            } else {
-                current
-            }
-        })
-        .map(|candidate| candidate.event)
-}
-
 fn select_earliest_n_ball_event_from_states(
     states: &[&OnTableBallState],
     ball: &BallSetPhysicsSpec,
@@ -9878,6 +10031,9 @@ fn advance_n_ball_system_without_event(
             NBallSystemState::OnTable(on_table) => NBallSystemState::OnTable(
                 advance_on_table_ball_without_event(on_table, dt, ball, motion),
             ),
+            NBallSystemState::Airborne(airborne) => {
+                NBallSystemState::Airborne(advance_airborne_ball(airborne, dt))
+            }
             NBallSystemState::Pocketed {
                 pocket,
                 state_at_capture,
@@ -9894,164 +10050,19 @@ fn advance_n_ball_system_without_event(
 // so the scheduler does not pocket a ball that is effectively already entering the jaw collision.
 const NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS: f64 = 0.005;
 
-fn prefer_explicit_jaw_over_nearby_capture(
-    candidate: &NBallPocketAwareSystemEventCandidate,
-    current: &NBallPocketAwareSystemEventCandidate,
-) -> Option<bool> {
-    match (&candidate.event, &current.event) {
-        (
-            NBallSystemEvent::BallJawImpact {
-                ball_index: candidate_ball,
-                impact,
-            },
-            NBallSystemEvent::BallPocketCapture {
-                ball_index: current_ball,
-                capture,
-            },
-        ) if candidate_ball == current_ball
-            && impact.pocket == capture.pocket
-            && (impact.time_until_impact.as_f64() - capture.time_until_capture.as_f64()).abs()
-                <= NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS =>
-        {
-            Some(true)
-        }
-        (
-            NBallSystemEvent::BallPocketCapture {
-                ball_index: candidate_ball,
-                capture,
-            },
-            NBallSystemEvent::BallJawImpact {
-                ball_index: current_ball,
-                impact,
-            },
-        ) if candidate_ball == current_ball
-            && impact.pocket == capture.pocket
-            && (impact.time_until_impact.as_f64() - capture.time_until_capture.as_f64()).abs()
-                <= NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS =>
-        {
-            Some(false)
-        }
-        _ => None,
-    }
-}
-
-fn earlier_n_ball_pocket_aware_event_candidate(
-    candidate: &NBallPocketAwareSystemEventCandidate,
-    current: &NBallPocketAwareSystemEventCandidate,
-) -> bool {
-    if let Some(prefer_candidate) = prefer_explicit_jaw_over_nearby_capture(candidate, current) {
-        return prefer_candidate;
-    }
-
-    let candidate_time = candidate.event.time().as_f64();
-    let current_time = current.event.time().as_f64();
-
-    candidate_time < current_time
-        || ((candidate_time - current_time).abs() <= 1e-12 && candidate.source < current.source)
-}
-
 /// Compute the earliest supported future event for the richer indexed N-ball system while also
-/// considering rail impacts and pocket captures against the current table geometry.
+/// considering rail impacts, pocket captures, and ballistic table-contact events against the
+/// current table geometry.
 ///
-/// Pocketed balls are inert and excluded from future prediction. Airborne / leaves-table handling
-/// remains intentionally unsupported in this first-pass system layer.
+/// Pocketed balls are inert and excluded from future prediction. Airborne balls do not collide
+/// with balls, rails, jaws, or pockets until their next table contact re-enters the on-table solver.
 pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
     states: &[NBallSystemState],
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<NBallSystemEvent> {
-    let pair_capacity = states.len().saturating_mul(states.len().saturating_sub(1)) / 2;
-    let mut candidates = Vec::with_capacity(pair_capacity + states.len() * 4);
-
-    for first_ball_index in 0..states.len() {
-        let Some(first_state) = states[first_ball_index].as_on_table() else {
-            continue;
-        };
-
-        for (second_ball_index, second_system_state) in
-            states.iter().enumerate().skip(first_ball_index + 1)
-        {
-            let Some(second_state) = second_system_state.as_on_table() else {
-                continue;
-            };
-            let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
-                first_state,
-                second_state,
-                ball,
-                config,
-            ) else {
-                continue;
-            };
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::BallBallCollision {
-                    first_ball_index,
-                    second_ball_index,
-                },
-                event: NBallSystemEvent::BallBallCollision {
-                    first_ball_index,
-                    second_ball_index,
-                    collision,
-                },
-            });
-        }
-
-        if let Some(impact) =
-            compute_next_ball_jaw_impact_on_table(first_state, ball, table, config)
-        {
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::BallJawImpact {
-                    ball_index: first_ball_index,
-                },
-                event: NBallSystemEvent::BallJawImpact {
-                    ball_index: first_ball_index,
-                    impact,
-                },
-            });
-        }
-
-        if let Some(capture) =
-            compute_next_ball_pocket_capture_on_table(first_state, ball, table, config)
-        {
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::BallPocketCapture {
-                    ball_index: first_ball_index,
-                },
-                event: NBallSystemEvent::BallPocketCapture {
-                    ball_index: first_ball_index,
-                    capture,
-                },
-            });
-        }
-
-        if let Some(impact) =
-            compute_next_ball_rail_impact_on_table(first_state, ball, table, config)
-        {
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::BallRailImpact {
-                    ball_index: first_ball_index,
-                },
-                event: NBallSystemEvent::BallRailImpact {
-                    ball_index: first_ball_index,
-                    impact,
-                },
-            });
-        }
-
-        if let Some(transition) = compute_next_transition_on_table(first_state, ball, config) {
-            candidates.push(NBallPocketAwareSystemEventCandidate {
-                source: NBallPocketAwareSystemEventSource::MotionTransition {
-                    ball_index: first_ball_index,
-                },
-                event: NBallSystemEvent::MotionTransition {
-                    ball_index: first_ball_index,
-                    transition,
-                },
-            });
-        }
-    }
-
-    select_earliest_n_ball_pocket_aware_event_candidate(candidates)
+    PocketAwareEventCache::build(states, ball, table, config).next_event()
 }
 
 /// Advance the richer indexed N-ball system to a supplied event and resolve that event.
@@ -10183,6 +10194,13 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
                 pocket: capture.pocket,
                 state_at_capture: capture.state_at_capture.clone(),
             };
+        }
+        NBallSystemEvent::BallTableBounce {
+            ball_index,
+            contact,
+        } => {
+            states_after[*ball_index] =
+                NBallSystemState::OnTable(contact.state_after_contact.clone());
         }
         NBallSystemEvent::BallRailImpact { ball_index, impact } => {
             states_after[*ball_index] =

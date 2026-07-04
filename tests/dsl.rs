@@ -542,10 +542,7 @@ fn shot_scenarios_can_use_named_ball_ball_configs_defined_in_dsl() {
     let initial = scenario
         .initial_shot_system_states_on_table(&BallSetPhysicsSpec::default())
         .expect("expected initial shot states to build")
-        .expect("scenario should contain a shot")
-        .into_iter()
-        .map(NBallSystemState::from)
-        .collect::<Vec<_>>();
+        .expect("scenario should contain a shot");
     let ideal = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
         &initial,
         &BallSetPhysicsSpec::default(),
@@ -1140,20 +1137,18 @@ fn playback_frames_snap_to_logged_event_times_and_sample_between_them() {
         );
     }
 
-    let initial_cue = trace
+    let initial_cue = &trace
         .ball_traces
         .iter()
         .find(|ball_trace| ball_trace.ball == BallType::Cue)
         .expect("cue trace")
-        .initial_state
-        .as_ball_state();
-    let moved_cue = frames
+        .initial_state;
+    let moved_cue = &frames
         .iter()
         .find(|frame| frame.time.as_f64() > 0.0)
         .and_then(|frame| frame.balls.iter().find(|ball| ball.ball == BallType::Cue))
         .expect("sampled cue after shot starts")
-        .state
-        .as_ball_state();
+        .state;
     assert!(
         (moved_cue.position.x().as_f64() - initial_cue.position.x().as_f64()).abs() > 1e-9
             || (moved_cue.position.y().as_f64() - initial_cue.position.y().as_f64()).abs() > 1e-9,
@@ -1188,13 +1183,13 @@ fn playback_frames_omit_pocketed_balls_after_their_capture_time() {
         event_log: Vec::new(),
         ball_traces: vec![ScenarioBallTrace {
             ball: BallType::Cue,
-            initial_state: initial_state.clone(),
+            initial_state: initial_state.clone().into(),
             final_state,
             segments: Vec::new(),
             timeline_segments: vec![ScenarioBallTimelineSegment {
                 start_time: Seconds::zero(),
-                start: initial_state,
-                end: captured_state,
+                start: initial_state.into(),
+                end: captured_state.into(),
                 duration: Seconds::new(1.0),
             }],
         }],
@@ -1223,8 +1218,20 @@ fn playback_frames_omit_pocketed_balls_after_their_capture_time() {
 }
 
 #[test]
-fn rejects_elevated_cue_and_airborne_shot_methods_until_the_engine_models_them() {
-    for unsupported_method in ["elevation(15deg)", "jump()", "masse(30deg)"] {
+fn parses_elevated_cue_method_and_rejects_jump_masse_aliases() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).elevation(15deg).using(default)\n",
+    )
+    .expect("elevated shot DSL should build");
+    let shot = scenario
+        .shot
+        .as_ref()
+        .expect("scenario should contain a shot");
+    assert_close(shot.shot.cue_elevation().as_degrees(), 15.0);
+
+    for unsupported_method in ["jump()", "masse(30deg)"] {
         assert_parse_error(&format!(
             "ball cue at center\n\
              cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\

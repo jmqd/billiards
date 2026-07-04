@@ -9,7 +9,8 @@ use billiards::{
     MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent, NBallSystemEvent,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJawGeometry,
     PocketShapeSpec, RadiansPerSecondSq, Rail, RollingResistanceModel, SlidingFrictionModel,
-    SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT, TYPICAL_BALL_RADIUS,
+    SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -168,6 +169,52 @@ fn assert_pocket_aware_matches_rail_aware(states: &[OnTableBallState], label: &s
         unwrap_on_table_states(&pocket_aware.states),
         rail_aware.states,
         "{label}: pocket-aware live states should match rail-aware states when pockets are irrelevant"
+    );
+}
+
+#[test]
+fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let upward_speed_ips = 10.0;
+    let states = vec![
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0, 20.0),
+            Inches::zero(),
+            Velocity2::zero(),
+            Inches::from_f64(upward_speed_ips),
+            AngularVelocity3::zero(),
+        )),
+        NBallSystemState::OnTable(on_table(BallState::resting_at(inches2(40.0, 40.0)))),
+    ];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states, &ball, &table, &motion,
+    );
+
+    let Some(NBallSystemEvent::BallTableBounce {
+        ball_index,
+        contact,
+    }) = event
+    else {
+        panic!("expected airborne table-contact event, got {event:?}");
+    };
+
+    assert_eq!(ball_index, 0);
+    assert_close(
+        contact.time_until_contact.as_f64(),
+        2.0 * upward_speed_ips / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
+    );
+    assert_close(contact.state_at_contact.height.as_f64(), 0.0);
+    assert!(contact.state_at_contact.vertical_velocity.as_f64() < 0.0);
+    assert_close(
+        contact
+            .state_after_contact
+            .as_ball_state()
+            .vertical_velocity
+            .as_f64(),
+        0.0,
     );
 }
 

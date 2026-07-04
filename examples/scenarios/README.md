@@ -107,7 +107,39 @@ Expected flavor:
 ### `three_cushion_double_rail_return_score.billiards`
 Expected flavor:
 - cue -> yellow first
-- cue rail sequence starts bottom, top, bottom, returning to the first cushion before scoring
+- very strong opposite side checks the cue ball back to its first cushion
+- rail sequence starts bottom, top, bottom before scoring on red
+- the third counted rail is a repeat of the first physical cushion, not a third distinct cushion
+
+### `three_cushion_double_rail_top_return_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- vertical mirror of the double-rail return
+- rail sequence starts top, bottom, top before scoring on red
+
+### `three_cushion_double_rail_side_mirror_score.billiards`
+Expected flavor:
+- cue -> yellow first
+- side mirror of the double-rail return
+- rail sequence starts bottom, top, bottom from the opposite side
+
+### `three_cushion_stun_check_long_rail_fast_score.billiards`
+Expected flavor:
+- cue -> yellow first with a stun-thick hit near the long rail
+- strong opposite/check side sends the cue bottom, top, bottom before scoring on red
+- fastest of the three stun-check variants
+
+### `three_cushion_stun_check_long_rail_hold_score.billiards`
+Expected flavor:
+- cue -> yellow first with the same near-rail full-hit family
+- slightly reduced check side holds the long-rail return longer
+- rail sequence starts bottom, top, bottom before scoring on red
+
+### `three_cushion_stun_check_long_rail_nip_score.billiards`
+Expected flavor:
+- cue -> yellow first with a slight below-center stun nip
+- lower launch speed still checks back to the original long rail
+- rail sequence starts bottom, top, bottom before scoring on red
 
 ### `three_cushion_three_rails_first_score.billiards`
 Expected flavor:
@@ -256,11 +288,12 @@ Expected flavor:
 
 ### `low_left_spin_throw_transfer.billiards`
 A low-left-English diagnostic: the cue and 1-ball start vertically aligned,
-with the shot aimed perpendicular to the top cushion.
+with a zero-deflection cue configuration so the due-north shot arrives as a
+100% full-face hit perpendicular to the top cushion.
 
 Expected flavor:
-- cue -> one collision after side-tip squirt offsets the impact from a center-ball hit
-- one travels mostly toward the top cushion with a small leftward cut
+- cue -> one collision on a square, vertical line of centers
+- one travels almost straight toward the top cushion; any small lateral motion is spin-induced throw, not setup cut
 - one carries a small amount of transferred right spin from the low-left cue-ball spin
 
 ### `long_cut_top_right_rail.billiards`

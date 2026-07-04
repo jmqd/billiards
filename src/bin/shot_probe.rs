@@ -768,6 +768,12 @@ fn final_state_label(state: &NBallSystemState) -> String {
             on_table.as_ball_state().position.x().as_f64(),
             on_table.as_ball_state().position.y().as_f64()
         ),
+        NBallSystemState::Airborne(airborne) => format!(
+            "airborne@({:.2},{:.2},h={:.2})",
+            airborne.position.x().as_f64(),
+            airborne.position.y().as_f64(),
+            airborne.height.as_f64()
+        ),
         NBallSystemState::Pocketed { pocket, .. } => format!("pocketed:{}", pocket_name(*pocket)),
     }
 }

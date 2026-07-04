@@ -430,8 +430,10 @@ struct ScenarioPlaybackBallReport {
     id: String,
     x: f32,
     y: f32,
+    height_inches: f64,
     vx_ips: f64,
     vy_ips: f64,
+    vz_ips: f64,
     wx_rps: f64,
     wy_rps: f64,
     wz_rps: f64,
@@ -760,15 +762,17 @@ fn scenario_playback_report(
                     .balls
                     .into_iter()
                     .map(|ball| {
-                        let state = ball.state.as_ball_state();
+                        let state = &ball.state;
                         let center =
                             viewport.position_to_scene_point(&state.projected_position(table_spec));
                         ScenarioPlaybackBallReport {
                             id: playback_ball_id(&ball.ball),
                             x: center.x,
                             y: center.y,
+                            height_inches: state.height.as_f64(),
                             vx_ips: state.velocity.x().as_f64(),
                             vy_ips: state.velocity.y().as_f64(),
+                            vz_ips: state.vertical_velocity.as_f64(),
                             wx_rps: state.angular_velocity.x().as_f64(),
                             wy_rps: state.angular_velocity.y().as_f64(),
                             wz_rps: state.angular_velocity.z().as_f64(),
@@ -880,8 +884,16 @@ fn playback_json(playback: &ScenarioPlaybackReport) -> String {
             push_json_string(&mut json, &ball.id);
             write!(
                 &mut json,
-                ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6}]",
-                ball.x, ball.y, ball.vx_ips, ball.vy_ips, ball.wx_rps, ball.wy_rps, ball.wz_rps
+                ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}]",
+                ball.x,
+                ball.y,
+                ball.height_inches,
+                ball.vx_ips,
+                ball.vy_ips,
+                ball.vz_ips,
+                ball.wx_rps,
+                ball.wy_rps,
+                ball.wz_rps
             )
             .expect("writing JSON to string should not fail");
         }
@@ -1707,8 +1719,10 @@ mod tests {
                             id: "cue".to_string(),
                             x: 10.0,
                             y: 20.0,
+                            height_inches: 0.0,
                             vx_ips: 5.0,
                             vy_ips: 0.0,
+                            vz_ips: 0.0,
                             wx_rps: 3.0,
                             wy_rps: 4.0,
                             wz_rps: 5.0,
@@ -1720,8 +1734,10 @@ mod tests {
                             id: "cue".to_string(),
                             x: 20.0,
                             y: 20.0,
+                            height_inches: 0.0,
                             vx_ips: 0.0,
                             vy_ips: 0.0,
+                            vz_ips: 0.0,
                             wx_rps: 0.0,
                             wy_rps: 0.0,
                             wz_rps: 0.0,
@@ -1765,9 +1781,9 @@ mod tests {
         assert!(html.contains("\"events\":[[\"(1)\",0.125000,\"cue -\\u003e one collision\"]]"));
         assert!(html.contains("data-event-time=\"0.125000\""));
         assert!(html.contains("nextEventAfter"));
-        assert!(
-            html.contains("[\"cue\",10.000,20.000,5.000000,0.000000,3.000000,4.000000,5.000000]")
-        );
+        assert!(html.contains(
+            "[\"cue\",10.000,20.000,0.000000,5.000000,0.000000,0.000000,3.000000,4.000000,5.000000]"
+        ));
         assert!(html.contains("appendSpinGlyph"));
         assert!(html.contains("playback-spin-glyph"));
         assert!(html.contains("setTracePathsVisible"));

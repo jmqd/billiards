@@ -224,17 +224,19 @@ fn push_playback_json(
             if ball_index > 0 {
                 json.push(',');
             }
-            let state = ball.state.as_ball_state();
+            let state = &ball.state;
             let center = viewport.position_to_scene_point(&state.projected_position(table_spec));
             json.push('[');
             push_json_string(json, playback_ball_id(&ball.ball));
             write!(
                 json,
-                ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6}]",
+                ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}]",
                 center.x,
                 center.y,
+                state.height.as_f64(),
                 state.velocity.x().as_f64(),
                 state.velocity.y().as_f64(),
+                state.vertical_velocity.as_f64(),
                 state.angular_velocity.x().as_f64(),
                 state.angular_velocity.y().as_f64(),
                 state.angular_velocity.z().as_f64()

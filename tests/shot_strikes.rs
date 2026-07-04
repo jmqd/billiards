@@ -1,9 +1,9 @@
 use billiards::{
     cue_endmass_ratio_from_squirt, cue_natural_pivot_length,
     cue_squirt_angle_degrees_from_endmass_ratio, cue_tip_offset_for_pivot_angle,
-    strike_resting_ball_on_table, Angle, BallSetPhysicsSpec, BallState, CueStrikeConfig,
-    CueTipContact, Inches, Inches2, InchesPerSecond, MotionPhase, RestingOnTableBallState, Scale,
-    Shot, ShotError, TYPICAL_BALL_RADIUS,
+    strike_resting_ball, strike_resting_ball_on_table, Angle, BallSetPhysicsSpec, BallState,
+    CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond, MotionPhase,
+    RestingOnTableBallState, Scale, Shot, ShotError, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -20,6 +20,11 @@ fn assert_close_with_tolerance(actual: f64, expected: f64, tolerance: f64) {
         delta <= tolerance,
         "expected {expected} +/- {tolerance}, got {actual} (delta {delta})"
     );
+}
+
+fn angle_degrees(degrees: f64) -> Angle {
+    let radians = degrees.to_radians();
+    Angle::from_north(radians.sin(), radians.cos())
 }
 
 fn resting_ball() -> RestingOnTableBallState {
@@ -76,6 +81,57 @@ fn a_center_ball_shot_seeds_forward_speed_without_spin() {
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Sliding
     );
+}
+
+#[test]
+fn elevated_center_ball_shot_leaves_table_with_ballistic_vertical_velocity() {
+    let shot = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::center(),
+    )
+    .expect("shot should validate")
+    .with_cue_elevation(angle_degrees(20.0))
+    .expect("elevation should validate");
+
+    let struck = strike_resting_ball(
+        &resting_ball(),
+        &shot,
+        &cue_config(),
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("elevated strike should succeed");
+
+    assert_close(struck.height.as_f64(), 0.0);
+    assert!(struck.velocity.y().as_f64() > 0.0);
+    assert!(struck.velocity.y().as_f64() < 10.0);
+    assert!(struck.vertical_velocity.as_f64() > 0.0);
+    assert_eq!(
+        struck.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Airborne
+    );
+}
+
+#[test]
+fn on_table_strike_wrapper_rejects_elevated_shots_that_leave_table() {
+    let shot = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::center(),
+    )
+    .expect("shot should validate")
+    .with_cue_elevation(angle_degrees(20.0))
+    .expect("elevation should validate");
+
+    let error = strike_resting_ball_on_table(
+        &resting_ball(),
+        &shot,
+        &cue_config(),
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect_err("on-table wrapper should reject airborne strike results");
+
+    assert!(matches!(error, ShotError::ElevatedShotLeavesTable { .. }));
 }
 
 #[test]

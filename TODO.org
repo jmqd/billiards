@@ -1,5 +1,17 @@
 #+title: Todo
 
+* TODO Source and integrate foley for rendered animations
+  Source permissively licensed or original audio assets for bumper hits, pocketing events,
+  cue strikes, rolling beds, ball-ball collisions, and multi-ball breakouts. Add the
+  assets to the animation playback path so generated scenarios can trigger event-timed
+  foley alongside visual playback.
+
+* TODO Model off-level-plane cue strikes and z-spin
+  Add physics, DSL/scenario controls, and visualization support for elevated-cue shots:
+  jump shots, masse, semi-masse, and related off-center vertical-axis effects. Represent
+  z-spin explicitly enough for simulation, trace rendering, and animation playback to
+  distinguish it from ordinary in-plane side/top/bottom spin.
+
 * TODO Add a winnow-based DSL for constructing states, e.g.
 
 #+BEGIN_CODE

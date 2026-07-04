@@ -1,10 +1,10 @@
 # Legal three-cushion scoring shot: cue contacts yellow, then left/bottom/right cushions, then red.
-# Goal: down-table scoring route with a clearly separated third-cushion contact before the red.
+# Goal: vertical mirror of the compact left/top/right plus-English scoring path.
 table three_cushion_carom_10ft
 game three_cushion
-ball cue at (1.253, 6.306)
-ball yellow at (1.118, 2.756)
-ball red at (2.673, 5.053)
+ball cue at (3.354, 4.691)
+ball yellow at (2.491, 2.162)
+ball red at (2.762, 4.112)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
 ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
 rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
@@ -17,4 +17,4 @@ simulation(default)
   .conditions(heated_carom)
   .max_events(24)
 trace(max_events: 24)
-shot(cue).heading(183.351deg).speed(168ips).tip(side: -0.22R, height: 0.02R).using(default)
+shot(cue).heading(198.859deg).speed(108ips).tip(side: -0.39R, height: 0.11R).using(default)

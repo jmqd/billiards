@@ -127,7 +127,7 @@ fn heated_carom_conditions_reduce_cloth_drag_and_liven_rails() {
     assert!(rolling_decel(&scaled_motion) < rolling_decel(&base_motion));
     assert_close(
         rolling_decel(&scaled_motion),
-        rolling_decel(&base_motion) * 0.75,
+        rolling_decel(&base_motion) * 0.72,
     );
     assert!(scaled_rail.normal_restitution.as_f64() > base_rail.normal_restitution.as_f64());
     assert!(

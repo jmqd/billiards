@@ -296,12 +296,14 @@ impl DiagramBackend for SvgBackend {
 
     fn render(scene: &DiagramScene, _options: &DiagramRenderOptions) -> Self::Output {
         let mut svg = String::new();
+        let unrotated_width_px = scene.viewport.width_px;
+        let unrotated_height_px = scene.viewport.height_px;
         svg.push_str(&format!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {:.0} {:.0}\" width=\"{:.0}\" height=\"{:.0}\" role=\"img\" aria-label=\"Billiards diagram\" preserveAspectRatio=\"xMidYMid meet\">\n",
-            scene.viewport.width_px,
-            scene.viewport.height_px,
-            scene.viewport.width_px,
-            scene.viewport.height_px
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {:.0} {:.0}\" width=\"{:.0}\" height=\"{:.0}\" role=\"img\" aria-label=\"Billiards diagram\" preserveAspectRatio=\"xMidYMid meet\" data-orientation=\"clockwise\">\n",
+            unrotated_height_px,
+            unrotated_width_px,
+            unrotated_height_px,
+            unrotated_width_px
         ));
         svg.push_str("<style>\n");
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
@@ -317,6 +319,10 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".carom-table .table-rail{fill:url(#carom-wood-rail)}.carom-table .table-cloth{fill:url(#heated-carom-cloth)}.carom-table .table-cloth-texture{opacity:.16}.carom-table .table-cushion{fill:url(#heated-carom-cushion)}.carom-table .table-cushion-nose{stroke:#88ecff;stroke-width:3.2}.carom-table .table-cushion-back{stroke:#064f69;stroke-width:3.2}.carom-table .table-rail-inner-shadow{stroke:#0b0705;stroke-width:12;opacity:.58}\n");
         svg.push_str("</style>\n");
         push_svg_table_defs(&mut svg, scene.viewport);
+        svg.push_str(&format!(
+            "<g class=\"diagram-orientation\" transform=\"translate({:.0} 0) rotate(90)\">\n",
+            unrotated_height_px
+        ));
 
         svg.push_str(&format!(
             "<g class=\"diagram-layer\" id=\"layer-{}\" data-layer=\"{}\">\n",
@@ -332,6 +338,7 @@ impl DiagramBackend for SvgBackend {
         push_svg_balls(&mut svg, scene);
         push_svg_element_layer(&mut svg, scene, DiagramLayerId::OverlaysAboveBalls);
 
+        svg.push_str("</g>\n");
         svg.push_str("</svg>\n");
         svg
     }

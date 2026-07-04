@@ -2,3 +2,4 @@
 channel = "1.91"
 profile = "default"
 components = ["rust-analyzer", "llvm-tools-preview"]
+targets = ["wasm32-unknown-unknown"]

@@ -2,7 +2,14 @@ mod assets;
 pub mod diagram;
 mod drawing;
 pub mod dsl;
+pub mod svg_generator;
 pub mod visualization;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
+pub use crate::svg_generator::{
+    render_svg_from_dsl, render_svg_from_dsl_with_options, SvgGeneratorOptions,
+};
 
 use crate::diagram::{
     render_scene_to_bytes, DiagramBall, DiagramElement, DiagramOutputFormat, DiagramScene,

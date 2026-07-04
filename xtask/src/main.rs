@@ -942,7 +942,6 @@ fn render_cue_tip_diagram_svg(
         r##"<svg class="cue-tip-diagram" data-tip-side="{side_offset:.3}" data-tip-height="{height_offset:.3}" data-miscue-limit="{miscue_offset_limit:.3}" data-cue-ball-speed-mph="{cue_ball_launch_speed_mph:.3}" data-tip-marker-r="{marker_radius:.3}" data-tip-x="{tip_x:.3}" data-tip-y="{tip_y:.3}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 184" role="img" aria-label="Cue ball tip contact: side {side_offset:+.2} ball radii, height {height_offset:+.2} ball radii, {limit_status} the {miscue_offset_limit:.2} ball-radius miscue limit; red marker radius scales with {cue_ball_launch_speed_mph:.2} mph cue-ball launch speed">
 <ellipse class="cue-ball-shadow" cx="94" cy="165" rx="62" ry="16" fill="#000000" opacity=".35"/>
 <circle class="cue-ball-body" cx="{ball_center:.0}" cy="{ball_center:.0}" r="{ball_radius:.0}" fill="#e9e0c9" stroke="#fff9e9" stroke-width="1.5"/>
-<circle class="cue-ball-shade" cx="116" cy="118" r="48" fill="#000000" opacity=".10"/>
 <circle class="cue-ball-highlight" cx="64" cy="50" r="38" fill="#ffffff" opacity=".24"/>
 <ellipse class="cue-ball-glare" cx="61" cy="43" rx="20" ry="12" fill="#ffffff" opacity=".72" transform="rotate(-25 61 43)"/>
 <path d="M39 121C53 145 81 158 113 150" fill="none" stroke="#ffffff" stroke-opacity=".28" stroke-width="6" stroke-linecap="round"/>
@@ -967,59 +966,102 @@ fn render_power_meter_svg(
     cue_ball_launch_speed_mph: f64,
     speed_band: HumanShotSpeedBand,
 ) -> String {
+    const MIN_MPH: f64 = 0.0;
+    const GREEN_END_MPH: f64 = 20.0;
+    const YELLOW_END_MPH: f64 = 30.0;
+    const MAX_MPH: f64 = 35.0;
+
     let cx = 110.0;
     let cy = 106.0;
     let radius = 80.0;
-    let normal_end_angle = power_meter_angle_for_mph(30.0);
-    let max_angle = power_meter_angle_for_mph(35.0);
     let needle_angle = power_meter_angle_for_mph(cue_ball_launch_speed_mph);
-    let normal_arc = svg_arc_path(
+    let track_arc = svg_arc_path(
         cx,
         cy,
         radius,
-        power_meter_angle_for_mph(0.0),
-        normal_end_angle,
+        power_meter_angle_for_mph(MIN_MPH),
+        power_meter_angle_for_mph(MAX_MPH),
     );
-    let redline_arc = svg_arc_path(cx, cy, radius, normal_end_angle, max_angle);
-    let track_arc = svg_arc_path(cx, cy, radius, power_meter_angle_for_mph(0.0), max_angle);
-    let (needle_x, needle_y) = polar_point(cx, cy, radius - 12.0, needle_angle);
-    let mut ticks = String::new();
+    let (needle_x, needle_y) = polar_point(cx, cy, radius - 6.0, needle_angle);
 
-    for tick_mph in [0.0, 10.0, 20.0, 30.0, 35.0] {
-        let angle = power_meter_angle_for_mph(tick_mph);
-        let (outer_x, outer_y) = polar_point(cx, cy, radius + 4.0, angle);
-        let (inner_x, inner_y) = polar_point(cx, cy, radius - 9.0, angle);
-        let tick_label = match tick_mph as i32 {
-            0 => Some("0"),
-            30 => Some("30"),
-            35 => Some("35"),
-            _ => None,
-        };
-        ticks.push_str(&format!(
-            r##"<line class="power-meter-tick" x1="{outer_x:.3}" y1="{outer_y:.3}" x2="{inner_x:.3}" y2="{inner_y:.3}" stroke="#d5e4d0" stroke-width="2" stroke-linecap="round"/>
+    let mut zone_arcs = String::new();
+    for (class, zone, start_mph, end_mph, stroke) in [
+        (
+            "power-meter-zone power-meter-zone-green",
+            "green",
+            MIN_MPH,
+            GREEN_END_MPH,
+            "#5fd35f",
+        ),
+        (
+            "power-meter-zone power-meter-zone-yellow",
+            "yellow",
+            GREEN_END_MPH,
+            YELLOW_END_MPH,
+            "#f3c742",
+        ),
+        (
+            "power-meter-zone power-meter-zone-red power-meter-redline",
+            "red",
+            YELLOW_END_MPH,
+            MAX_MPH,
+            "#e04747",
+        ),
+    ] {
+        let arc = svg_arc_path(
+            cx,
+            cy,
+            radius,
+            power_meter_angle_for_mph(start_mph),
+            power_meter_angle_for_mph(end_mph),
+        );
+        zone_arcs.push_str(&format!(
+            r##"<path class="{class}" data-zone="{zone}" data-zone-start-mph="{start_mph:.3}" data-zone-end-mph="{end_mph:.3}" d="{arc}" fill="none" stroke="{stroke}" stroke-width="14" stroke-linecap="butt"/>
 "##
         ));
-        if let Some(tick_label) = tick_label {
-            let (label_x, label_y) = polar_point(cx, cy, radius - 28.0, angle);
-            let label_class = if tick_mph >= 30.0 {
-                "power-meter-label power-meter-label-redline"
+    }
+
+    let mut ticks = String::new();
+    for tick_mph in [0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0] {
+        let angle = power_meter_angle_for_mph(tick_mph);
+        let major_tick = matches!(tick_mph as i32, 0 | 10 | 20 | 30 | 35);
+        let (outer_x, outer_y) = polar_point(cx, cy, radius + 5.0, angle);
+        let (inner_x, inner_y) =
+            polar_point(cx, cy, radius - if major_tick { 14.0 } else { 8.0 }, angle);
+        let tick_class = if major_tick {
+            "power-meter-tick power-meter-tick-major"
+        } else {
+            "power-meter-tick"
+        };
+        let tick_width = if major_tick { 2.75 } else { 1.75 };
+        ticks.push_str(&format!(
+            r##"<line class="{tick_class}" data-tick-mph="{tick_mph:.3}" x1="{outer_x:.3}" y1="{outer_y:.3}" x2="{inner_x:.3}" y2="{inner_y:.3}" stroke="#101410" stroke-opacity=".68" stroke-width="{tick_width:.2}" stroke-linecap="round"/>
+"##
+        ));
+
+        if major_tick {
+            let (label_x, label_y) = polar_point(cx, cy, radius - 31.0, angle);
+            let label_zone = if tick_mph >= YELLOW_END_MPH {
+                "red"
+            } else if tick_mph >= GREEN_END_MPH {
+                "yellow"
             } else {
-                "power-meter-label"
+                "green"
             };
             ticks.push_str(&format!(
-                r##"<text class="{label_class}" x="{label_x:.3}" y="{label_y:.3}" fill="#d5e4d0" font-size="10" font-family="Inter,system-ui,sans-serif" text-anchor="middle" dominant-baseline="middle">{tick_label}</text>
+                r##"<circle class="power-meter-label-backplate power-meter-label-backplate-{label_zone}" cx="{label_x:.3}" cy="{label_y:.3}" r="10.5" fill="#fffaf1" fill-opacity=".96" stroke="#101410" stroke-opacity=".35" stroke-width=".8"/>
+<text class="power-meter-label power-meter-label-{label_zone}" x="{label_x:.3}" y="{label_y:.3}" fill="#111111" stroke="#fffaf1" stroke-width="2.25" paint-order="stroke fill" font-size="12" font-weight="800" font-family="Inter,system-ui,sans-serif" text-anchor="middle" dominant-baseline="middle">{tick_mph:.0}</text>
 "##
             ));
         }
     }
 
     format!(
-        r##"<svg class="power-meter" data-cue-ball-speed-mph="{cue_ball_launch_speed_mph:.3}" data-speed-band="{speed_band:?}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 154" role="img" aria-label="Power level: cue-ball launch speed {cue_ball_launch_speed_mph:.2} miles per hour, {speed_band_label} band. Gauge spans 0 to 35 miles per hour with a red-line zone from 30 to 35.">
-<path class="power-meter-track" d="{track_arc}" fill="none" stroke="#304030" stroke-width="14" stroke-linecap="round"/>
-<path class="power-meter-normal" d="{normal_arc}" fill="none" stroke="#78d66b" stroke-width="14" stroke-linecap="round"/>
-<path class="power-meter-redline" d="{redline_arc}" fill="none" stroke="#e04747" stroke-width="14" stroke-linecap="round"/>
-{ticks}<line class="power-meter-needle" x1="{cx:.0}" y1="{cy:.0}" x2="{needle_x:.3}" y2="{needle_y:.3}" stroke="#f7fff2" stroke-width="4" stroke-linecap="round"/>
-<circle class="power-meter-hub" cx="{cx:.0}" cy="{cy:.0}" r="8" fill="#f7fff2" stroke="#101410" stroke-width="3"/>
+        r##"<svg class="power-meter" data-cue-ball-speed-mph="{cue_ball_launch_speed_mph:.3}" data-speed-band="{speed_band:?}" data-speedometer-scale="green-yellow-red" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 160" role="img" aria-label="Power level: cue-ball launch speed {cue_ball_launch_speed_mph:.2} miles per hour, {speed_band_label} band. Gauge increases monotonically from green 0 to 20 miles per hour, yellow 20 to 30 miles per hour, and red 30 to 35 miles per hour.">
+<path class="power-meter-track" d="{track_arc}" fill="none" stroke="#304030" stroke-width="18" stroke-linecap="round"/>
+{zone_arcs}{ticks}<line class="power-meter-needle-halo" x1="{cx:.0}" y1="{cy:.0}" x2="{needle_x:.3}" y2="{needle_y:.3}" stroke="#fffaf1" stroke-width="10" stroke-linecap="round"/>
+<line class="power-meter-needle" x1="{cx:.0}" y1="{cy:.0}" x2="{needle_x:.3}" y2="{needle_y:.3}" stroke="#050505" stroke-width="7" stroke-linecap="round"/>
+<circle class="power-meter-hub" cx="{cx:.0}" cy="{cy:.0}" r="10" fill="#050505" stroke="#fffaf1" stroke-width="3.5"/>
 </svg>
 "##,
         speed_band_label = speed_band_label(speed_band)
@@ -1237,117 +1279,7 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     html.push_str("<title>Billiards scenario validation suite</title>\n");
     html.push_str("<style>\n");
-    html.push_str(r#":root{
-  color-scheme:light;
-  --paper:#f8f5ed;
-  --paper-warm:#fffaf2;
-  --panel:#fffefd;
-  --panel-tint:#fbf6eb;
-  --ink:#1d1914;
-  --muted:#6f6557;
-  --faint:#8a8070;
-  --rule:#d8d0c0;
-  --rule-strong:#b9aa8f;
-  --accent:#7b1f1f;
-  --accent-2:#164c78;
-  --code:#f5efe2;
-  --shadow:rgba(70,52,33,.12);
-  font-family:Georgia,"Times New Roman",serif;
-  line-height:1.55;
-  font-variant-numeric:tabular-nums;
-}
-*{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);font-size:16px}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 0,rgba(255,255,255,.7),transparent 22rem),linear-gradient(90deg,rgba(120,90,40,.035),transparent 12%,transparent 88%,rgba(120,90,40,.035));z-index:-1}
-header{max-width:min(100%,1240px);margin:0 auto;padding:1.45rem 1.25rem 1rem;border-bottom:1px solid var(--rule)}
-h1{margin:.1rem 0 .35rem;font-size:clamp(1.6rem,3vw,2.35rem);font-weight:400;letter-spacing:-.035em;line-height:1.05}
-.subtitle{color:var(--muted);margin:0;overflow-wrap:anywhere}
-main{width:min(100%,1240px);margin:0 auto;padding:1.25rem}
-.toc{display:flex;flex-wrap:wrap;gap:.38rem;margin:1rem 0 1.35rem}
-.toc a{color:var(--accent);background:var(--paper-warm);border:1px solid var(--rule);border-radius:3px;padding:.2rem .48rem;text-decoration:none;font-size:.9rem;overflow-wrap:anywhere;box-shadow:0 1px 0 rgba(255,255,255,.8) inset}
-.toc a:hover,.toc a:focus-visible{border-color:var(--accent);background:#fff4df;outline:none}
-.card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;margin:0 0 1.35rem;overflow:visible;box-shadow:0 2px 14px var(--shadow)}
-.card h2{margin:0;padding:.8rem 1rem .65rem;border-bottom:1px solid var(--rule);font-size:1.35rem;font-weight:400;letter-spacing:-.018em;overflow-wrap:anywhere}
-.card-overview{display:grid;grid-template-columns:minmax(12rem,16rem) minmax(0,1fr);gap:.9rem;padding:1rem;align-items:start}
-.card-overview-full{grid-template-columns:minmax(0,1fr)}
-.visual-stack{display:grid;gap:.65rem;min-width:0}
-.visual-panel{min-width:0;background:var(--panel-tint);border:1px solid var(--rule);border-radius:3px;padding:.65rem;color:var(--ink)}
-.visual-panel svg{display:block;width:100%;height:auto;max-width:15rem;margin:0 auto}
-.visual-caption{display:flex;align-items:center;justify-content:center;gap:.35rem;margin:.55rem 0 0;font-size:.88rem;line-height:1.25;color:var(--muted)}
-.visual-caption strong{color:var(--ink);font-size:.9rem;font-variant:small-caps;font-weight:600;letter-spacing:.035em}
-.tooltip{position:relative;display:inline-flex;align-items:center;justify-content:center;vertical-align:baseline;color:var(--accent);cursor:help;text-decoration:none;border-bottom:1px dotted currentColor;outline-offset:3px}
-.tooltip-mark{display:inline-flex;align-items:center;justify-content:center;min-width:1.15em;height:1.15em;border:1px solid var(--rule-strong);border-radius:50%;background:#fff7d7;color:var(--accent);font-family:ui-sans-serif,system-ui,sans-serif;font-size:.75em;font-weight:700;line-height:1}
-.tooltip::after{content:attr(data-tooltip);position:absolute;left:50%;bottom:calc(100% + .55rem);transform:translate(-50%,.25rem);z-index:20;width:min(24rem,80vw);padding:.65rem .75rem;background:#fffdf7;border:1px solid var(--rule-strong);box-shadow:0 8px 24px rgba(72,52,28,.18);color:var(--ink);font:400 .88rem/1.35 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;text-align:left;white-space:normal;opacity:0;pointer-events:none;transition:opacity .12s ease,transform .12s ease}
-.tooltip::before{content:"";position:absolute;left:50%;bottom:calc(100% + .28rem);z-index:21;width:.55rem;height:.55rem;background:#fffdf7;border-left:1px solid var(--rule-strong);border-bottom:1px solid var(--rule-strong);transform:translate(-50%,.25rem) rotate(-45deg);opacity:0;pointer-events:none;transition:opacity .12s ease,transform .12s ease}
-.tooltip:hover::after,.tooltip:focus-visible::after,.tooltip:hover::before,.tooltip:focus-visible::before{opacity:1;transform:translate(-50%,0)}
-.info-panel{min-width:0;background:var(--panel-tint);border:1px solid var(--rule);border-radius:3px;padding:.65rem .85rem;color:var(--ink)}
-.info-table{display:grid;margin:0;gap:0}
-.info-row{display:grid;grid-template-columns:minmax(7.5rem,.34fr) minmax(0,1fr);gap:.8rem;padding:.34rem 0;border-bottom:1px solid var(--rule);align-items:start}
-.info-row:first-child{padding-top:0}
-.info-row:last-child{padding-bottom:0;border-bottom:0}
-.info-row dt{color:var(--faint);font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-family:ui-sans-serif,system-ui,sans-serif}
-.info-row dd{margin:0;color:var(--ink);text-align:right;overflow-wrap:anywhere}
-.scenario-context{margin:.65rem 0 0;padding:.55rem 0 0;border-top:1px solid var(--rule)}
-.scenario-context summary{font-size:.82rem}
-figure{min-width:0;margin:0;background:#f3ead8;padding:1rem;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
-img{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:2px;background:#fdfbf6}
-.svg-viewer{display:grid;gap:.7rem;min-width:0}
-.viewer-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;color:var(--muted);font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif}
-.viewer-controls button{background:var(--paper-warm);color:var(--ink);border:1px solid var(--rule-strong);border-radius:3px;padding:.25rem .5rem;cursor:pointer}
-.viewer-controls button:hover,.viewer-controls button:focus-visible{border-color:var(--accent);outline:none}
-.viewer-controls label{display:inline-flex;align-items:center;gap:.25rem;background:var(--paper-warm);border:1px solid var(--rule);border-radius:3px;padding:.22rem .5rem;max-width:100%;overflow-wrap:anywhere}
-.svg-frame{overflow:hidden;border-radius:2px;background:#fdfbf6;touch-action:none;min-width:0;border:1px solid var(--rule)}
-.svg-frame svg{display:block;max-width:100%;width:auto;height:auto;margin:0 auto;cursor:grab}
-.svg-frame .event-marker[data-event-label]{cursor:help}
-.svg-frame svg.dragging{cursor:grabbing}
-.playback-panel{display:grid;gap:.55rem;background:var(--paper-warm);border:1px solid var(--rule);border-radius:3px;padding:.6rem;color:var(--muted);font-family:ui-sans-serif,system-ui,sans-serif;font-size:.9rem}
-.playback-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem}
-.playback-controls button{background:var(--panel);color:var(--ink);border:1px solid var(--rule-strong);border-radius:3px;padding:.25rem .55rem;cursor:pointer}
-.playback-controls button:hover,.playback-controls button:focus-visible{border-color:var(--accent);outline:none}
-.playback-controls input[type="range"]{flex:1 1 16rem;accent-color:var(--accent)}
-.playback-time{min-width:9rem;color:var(--ink);font-variant-numeric:tabular-nums}
-.playback-event{flex:1 1 18rem;min-width:min(100%,18rem);color:var(--ink);overflow-wrap:anywhere}
-.playback-event[data-event-state="hit"]{color:var(--accent);font-weight:700}
-.playback-speed-control{display:inline-flex;align-items:center;gap:.35rem;color:var(--ink);white-space:nowrap}
-.playback-speed-control input[type="range"]{flex:0 1 7rem;min-width:6rem}
-.playback-speed-value{min-width:3.2rem;font-variant-numeric:tabular-nums}
-.playback-help{margin:0;color:var(--muted);font-size:.84rem;line-height:1.35}
-.playback-balls{pointer-events:none}
-.playback-ball-label{font-family:ui-sans-serif,system-ui,sans-serif;font-size:10px;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none}
-.playback-heading{stroke:#111;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
-.downloads{display:flex;flex-wrap:wrap;gap:.5rem;margin:.55rem 0 0;font-size:.9rem;color:var(--muted)}
-.downloads a{overflow-wrap:anywhere}
-details{padding:.85rem 1rem 1rem;min-width:0}
-summary{cursor:pointer;color:var(--accent);font-weight:600}
-pre{white-space:pre-wrap;overflow:auto;max-height:28rem;background:var(--code);border:1px solid var(--rule);border-radius:3px;padding:.85rem;color:var(--ink);overflow-wrap:anywhere}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;background:rgba(122,31,31,.06);border-radius:2px;padding:0 .12em}
-pre code{background:transparent;padding:0}
-.notes{margin:.25rem 0 0;padding-left:1.1rem;overflow-wrap:anywhere}
-.notes li{margin:.16rem 0}
-.event-log{padding-top:1rem}
-.event-list{list-style:none;margin:.75rem 0 0;padding:0;display:grid;gap:.65rem}
-.event-list li{min-width:0;background:#fffaf1;border:1px solid var(--rule);border-radius:3px;padding:.65rem;display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:.35rem .6rem;align-items:start}
-.event-list li.event-current{border-color:var(--accent);box-shadow:inset .22rem 0 0 var(--accent)}
-.event-badge{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;color:#fffaf1;background:var(--accent);border-radius:999px;padding:.05rem .45rem;cursor:help}
-.event-time{color:var(--muted);white-space:nowrap}
-.event-summary{min-width:0;overflow-wrap:anywhere}
-.event-payload{grid-column:1 / -1;margin:.2rem 0 0;max-height:9rem;font-size:.82rem}
-.cue-tip-marker{filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
-.power-meter-needle,.power-meter-hub{filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
-.power-meter-label-redline{fill:#ffd0d0}
-a{color:var(--accent)}
-a:hover,a:focus-visible{color:#501212}
-.gallery-controls{margin:0 0 1rem;padding:.75rem .85rem;background:var(--panel);border:1px solid var(--rule);border-radius:3px;box-shadow:0 2px 12px var(--shadow)}
-.control-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.55rem;align-items:end}
-.gallery-controls label{display:grid;gap:.2rem;color:var(--muted);font:700 .74rem/1.25 ui-sans-serif,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.055em}
-.gallery-controls input,.gallery-controls select,.gallery-controls button,.viewer-controls select{width:100%;min-height:2rem;background:var(--paper-warm);color:var(--ink);border:1px solid var(--rule-strong);border-radius:3px;padding:.25rem .45rem;font:400 .9rem/1.2 ui-sans-serif,system-ui,sans-serif;text-transform:none;letter-spacing:0}
-.gallery-controls button{cursor:pointer;font-weight:700}
-.gallery-controls button:hover,.gallery-controls button:focus-visible,.gallery-controls input:focus-visible,.gallery-controls select:focus-visible,.viewer-controls select:focus-visible{border-color:var(--accent);outline:none}
-.scenario-filter-count{margin:.55rem 0 0;color:var(--muted);font:.9rem/1.35 ui-sans-serif,system-ui,sans-serif}
-.scenario-filter-count[data-filtered="true"]{color:var(--accent);font-weight:700}
-.card[hidden],.toc a[hidden]{display:none!important}
-@media (max-width:720px){header{padding:.95rem .85rem}main{padding:.75rem}.toc{gap:.35rem}.card{border-radius:2px}.card h2{padding:.75rem}.card-overview{grid-template-columns:1fr;padding:.65rem}.info-row{grid-template-columns:1fr;gap:.12rem}.info-row dd{text-align:left}figure{padding:.65rem}.viewer-controls{align-items:stretch}.viewer-controls button,.viewer-controls label{flex:1 1 auto;justify-content:center}.tooltip::after{left:auto;right:0;transform:translate(0,.25rem)}.tooltip::before{left:50%}.tooltip:hover::after,.tooltip:focus-visible::after{transform:translate(0,0)}}
-"#);
+    html.push_str(include_str!("../../web/billiards-ui.css"));
     html.push_str("</style>\n</head>\n<body>\n");
     html.push_str("<header>\n<h1>Billiards scenario validation suite</h1>\n");
     html.push_str(&format!(
@@ -1391,6 +1323,7 @@ a:hover,a:focus-visible{color:#501212}
             playback_bucket,
             escape_html(&report.name)
         ));
+        html.push_str("<div class=\"card-workspace\">\n");
         let has_visuals = report.cue_tip_diagram_svg.is_some() || report.power_meter_svg.is_some();
         let overview_class = if has_visuals {
             "card-overview"
@@ -1418,7 +1351,7 @@ a:hover,a:focus-visible{color:#501212}
                 push_tooltip(
                     &mut html,
                     "?",
-                    "Needle: estimated cue-ball launch speed. Green arc: ordinary range through 30 mph. Red arc: 30-35 mph break-speed band.",
+                    "Needle: estimated cue-ball launch speed. Green arc: 0-20 mph ordinary range. Yellow arc: 20-30 mph power-break approach. Red arc: 30-35 mph exceptional break-speed band.",
                 );
                 html.push_str("</div>\n</div>\n");
             }
@@ -1465,11 +1398,12 @@ a:hover,a:focus-visible{color:#501212}
                  <button type=\"button\" data-playback-step=\"1\">Step forward</button>\n\
                  <button type=\"button\" data-playback-next-event>Next event</button>\n\
                  <label class=\"playback-speed-control\">Speed <input type=\"range\" data-playback-speed min=\"0.0625\" max=\"1\" value=\"1\" step=\"0.0625\" aria-label=\"Playback speed\"><span class=\"playback-speed-value\" data-playback-speed-label>1x</span></label>\n\
+                 <label class=\"playback-trace-control\"><input type=\"checkbox\" data-playback-trace checked>Trace paths</label>\n\
                  <input type=\"range\" data-playback-slider min=\"0\" max=\"{}\" value=\"{}\" step=\"1\" aria-label=\"Trace frame\">\n\
                  <span class=\"playback-time\" data-playback-time>t=0.000s</span>\n\
                  <span class=\"playback-event\" data-playback-event>No events</span>\n\
                  </div>\n\
-                 <p class=\"playback-help\">Scrub the physics frames in either direction, set playback speed from 1x down to 1/16x for slow motion, or play to the next logged event. The default 2.5 ms physics frames update at about 25 frame changes per second at 1/16x. Balls are sampled by the Rust physics solver; black ticks show instantaneous travel direction. Spin badges use green arrows for natural roll, blue for follow, orange for draw, amber for skid, purple arcs for side spin, and a gray X for no spin.</p>\n\
+                 <p class=\"playback-help\">Scrub the physics frames in either direction, set playback speed from 1x down to 1/16x for slow motion, toggle Trace paths to hide static trajectory lines, or play to the next logged event. The default 2.5 ms physics frames update at about 25 frame changes per second at 1/16x. Balls are sampled by the Rust physics solver; black ticks show instantaneous travel direction. Spin badges use green arrows for natural roll, blue for follow, orange for draw, amber for skid, purple arcs for side spin, and a gray X for no spin.</p>\n\
                  </div>\n",
                 playback_json(playback),
                 max_frame,
@@ -1479,644 +1413,12 @@ a:hover,a:focus-visible{color:#501212}
         push_download_links(&mut html, report);
         html.push_str("</figure>\n");
         push_event_log(&mut html, report);
-        html.push_str("</section>\n");
+        html.push_str("</div>\n</section>\n");
     }
 
-    html.push_str(
-        r#"<script>
-const tableDetailGroups = {
-  cloth: '.table-cloth, .table-cloth-texture',
-  clothTexture: '.table-cloth-texture',
-  rail: '.table-rail, .table-rail-grain, .table-rail-grain-horizontal, .table-rail-grain-vertical, .table-rail-inner-shadow',
-  railTexture: '.table-rail-grain, .table-rail-grain-horizontal, .table-rail-grain-vertical, .table-rail-inner-shadow',
-  cushions: '.table-cushion, .table-cushion-nose, .table-cushion-back',
-  pockets: '.table-pocket-well, .table-pocket-leather, .table-pocket-leather-highlight, .table-pocket-shelf, .table-pocket-shelf-texture, .table-pocket-facing',
-  pocketTexture: '.table-pocket-shelf-texture',
-  diamonds: '.table-diamond',
-};
-const tableDetailAllSelector = Array.from(new Set(Object.values(tableDetailGroups).join(',').split(',').map((selector) => selector.trim()))).join(',');
-const setTableDetailVisible = (svg, selector, visible) => {
-  svg.querySelectorAll(selector).forEach((element) => {
-    element.style.display = visible ? '' : 'none';
-  });
-};
-const applyTableDetailMode = (svg, mode) => {
-  if (!svg) return;
-  const resolvedMode = ['full', 'flat', 'cloth', 'rail'].includes(mode) ? mode : 'full';
-  svg.dataset.tableDetail = resolvedMode;
-  setTableDetailVisible(svg, tableDetailAllSelector, true);
-  if (resolvedMode === 'flat') {
-    setTableDetailVisible(svg, `${tableDetailGroups.clothTexture}, ${tableDetailGroups.railTexture}, ${tableDetailGroups.pocketTexture}`, false);
-  } else if (resolvedMode === 'cloth') {
-    setTableDetailVisible(svg, `${tableDetailGroups.rail}, ${tableDetailGroups.cushions}, ${tableDetailGroups.pockets}, ${tableDetailGroups.diamonds}`, false);
-  } else if (resolvedMode === 'rail') {
-    setTableDetailVisible(svg, tableDetailGroups.cloth, false);
-  }
-};
-const globalTableDetail = document.querySelector('[data-global-table-detail]');
-const tableDetailModeForViewer = (viewer) => {
-  const local = viewer.querySelector('[data-table-detail]')?.value;
-  return local && local !== 'global' ? local : (globalTableDetail?.value ?? 'full');
-};
-const applyTableDetailToViewer = (viewer) => applyTableDetailMode(viewer.querySelector('svg'), tableDetailModeForViewer(viewer));
-const scenarioCards = Array.from(document.querySelectorAll('[data-scenario-card]'));
-const scenarioTocLinks = new Map(Array.from(document.querySelectorAll('[data-scenario-toc-link]')).map((link) => [link.getAttribute('href'), link]));
-const scenarioSearchInput = document.querySelector('[data-scenario-filter-search]');
-const scenarioSpeedFilter = document.querySelector('[data-scenario-filter-speed]');
-const scenarioEventFilter = document.querySelector('[data-scenario-filter-events]');
-const scenarioPlaybackFilter = document.querySelector('[data-scenario-filter-playback]');
-const scenarioFilterCount = document.querySelector('[data-scenario-filter-count]');
-const normalizeScenarioSearch = (value) => String(value ?? '').trim().toLowerCase();
-const applyScenarioFilters = () => {
-  const query = normalizeScenarioSearch(scenarioSearchInput?.value);
-  const speed = scenarioSpeedFilter?.value ?? '';
-  const events = scenarioEventFilter?.value ?? '';
-  const playback = scenarioPlaybackFilter?.value ?? '';
-  let visibleCount = 0;
-  scenarioCards.forEach((card) => {
-    const eventCount = Number(card.dataset.scenarioEventCount ?? '0');
-    const eventsMatch = !events
-      || (events === 'any' ? eventCount > 0 : card.dataset.scenarioEvents === events);
-    const visible = (!query || (card.dataset.scenarioSearch ?? '').includes(query))
-      && (!speed || card.dataset.scenarioSpeedBand === speed)
-      && eventsMatch
-      && (!playback || card.dataset.scenarioPlayback === playback);
-    card.hidden = !visible;
-    scenarioTocLinks.get(`#${card.id}`)?.toggleAttribute('hidden', !visible);
-    if (visible) visibleCount += 1;
-  });
-  if (scenarioFilterCount) {
-    scenarioFilterCount.textContent = `Showing ${visibleCount} of ${scenarioCards.length} scenarios`;
-    scenarioFilterCount.dataset.filtered = String(visibleCount !== scenarioCards.length);
-  }
-};
-scenarioSearchInput?.addEventListener('input', applyScenarioFilters);
-scenarioSpeedFilter?.addEventListener('change', applyScenarioFilters);
-scenarioEventFilter?.addEventListener('change', applyScenarioFilters);
-scenarioPlaybackFilter?.addEventListener('change', applyScenarioFilters);
-document.querySelector('[data-scenario-filter-reset]')?.addEventListener('click', () => {
-  if (scenarioSearchInput) scenarioSearchInput.value = '';
-  if (scenarioSpeedFilter) scenarioSpeedFilter.value = '';
-  if (scenarioEventFilter) scenarioEventFilter.value = '';
-  if (scenarioPlaybackFilter) scenarioPlaybackFilter.value = '';
-  applyScenarioFilters();
-});
-globalTableDetail?.addEventListener('change', () => {
-  document.querySelectorAll('[data-viewer]').forEach(applyTableDetailToViewer);
-});
-applyScenarioFilters();
-document.querySelectorAll('[data-viewer]').forEach((viewer) => {
-  const svg = viewer.querySelector('svg');
-  if (!svg || !svg.viewBox || !svg.viewBox.baseVal) return;
-  const base = svg.viewBox.baseVal;
-  let box = { x: base.x, y: base.y, width: base.width, height: base.height };
-  const apply = () => svg.setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);
-  const zoom = (factor, cx = box.x + box.width / 2, cy = box.y + box.height / 2) => {
-    const nextWidth = box.width * factor;
-    const nextHeight = box.height * factor;
-    const rx = (cx - box.x) / box.width;
-    const ry = (cy - box.y) / box.height;
-    box = { x: cx - nextWidth * rx, y: cy - nextHeight * ry, width: nextWidth, height: nextHeight };
-    apply();
-  };
-  viewer.querySelectorAll('[data-zoom]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const action = button.dataset.zoom;
-      if (action === 'in') zoom(0.8);
-      if (action === 'out') zoom(1.25);
-      if (action === 'reset') { box = { x: base.x, y: base.y, width: base.width, height: base.height }; apply(); }
-    });
-  });
-  const tableDetailSelect = viewer.querySelector('[data-table-detail]');
-  if (tableDetailSelect) {
-    tableDetailSelect.addEventListener('change', () => applyTableDetailToViewer(viewer));
-  }
-  applyTableDetailToViewer(viewer);
-  viewer.querySelectorAll('[data-layer-toggle]').forEach((input) => {
-    input.addEventListener('change', () => {
-      svg.querySelectorAll(`[data-layer="${input.dataset.layerToggle}"]`).forEach((layer) => {
-        layer.style.display = input.checked ? '' : 'none';
-      });
-    });
-  });
-  const card = viewer.closest('.card');
-  const eventTitles = new Map(Array.from(card?.querySelectorAll('[data-event-label]') ?? []).map((row) => [row.getAttribute('data-event-label'), row.getAttribute('data-event-title')]));
-  svg.querySelectorAll('.event-marker[data-event-label]').forEach((marker) => {
-    const eventLabel = marker.getAttribute('data-event-label');
-    const titleText = eventTitles.get(eventLabel);
-    if (!titleText) return;
-    marker.setAttribute('tabindex', '0');
-    marker.setAttribute('aria-label', titleText);
-    marker.classList.add('event-marker-tooltip');
-    if (!marker.querySelector('title')) {
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      title.textContent = titleText;
-      marker.appendChild(title);
-    } else {
-      marker.querySelector('title').textContent = titleText;
-    }
-  });
-  const playbackPanel = viewer.querySelector('[data-playback]');
-  if (playbackPanel) {
-    const playbackDataElement = playbackPanel.querySelector('[data-playback-data]');
-    const slider = playbackPanel.querySelector('[data-playback-slider]');
-    const speedSlider = playbackPanel.querySelector('[data-playback-speed]');
-    const speedLabel = playbackPanel.querySelector('[data-playback-speed-label]');
-    const timeLabel = playbackPanel.querySelector('[data-playback-time]');
-    const eventTicker = playbackPanel.querySelector('[data-playback-event]');
-    const playButton = playbackPanel.querySelector('[data-playback-play]');
-    const nextEventButton = playbackPanel.querySelector('[data-playback-next-event]');
-    let playback = null;
-    const normalizePlayback = (data) => {
-      const normalizeEvent = (event) => Array.isArray(event)
-        ? { label: String(event[0] ?? ''), time: Number(event[1]), summary: String(event[2] ?? '') }
-        : { label: String(event?.label ?? ''), time: Number(event?.time), summary: String(event?.summary ?? '') };
-      const normalizeVisual = (ball) => Array.isArray(ball)
-        ? { id: String(ball[0] ?? ''), fill: String(ball[1] ?? ''), label: ball[2] == null ? null : String(ball[2]), radius: Number(ball[3]), radiusInches: Number(ball[4]) }
-        : ball;
-      const normalizeFrameBall = (ball) => {
-        if (!Array.isArray(ball)) return ball;
-        if (ball.length >= 10) {
-          return { id: String(ball[0] ?? ''), x: Number(ball[1]), y: Number(ball[2]), speed: Number(ball[3]), vx: Number(ball[4]), vy: Number(ball[5]), wx: Number(ball[6]), wy: Number(ball[7]), wz: Number(ball[8]), rollingTarget: Number(ball[9]) };
-        }
-        const vx = Number(ball[3]);
-        const vy = Number(ball[4]);
-        return { id: String(ball[0] ?? ''), x: Number(ball[1]), y: Number(ball[2]), speed: Math.hypot(vx, vy), vx, vy, wx: Number(ball[5]), wy: Number(ball[6]), wz: Number(ball[7]) };
-      };
-      const normalizeFrame = (frame) => Array.isArray(frame)
-        ? { time: Number(frame[0]), balls: Array.isArray(frame[1]) ? frame[1].map(normalizeFrameBall) : [] }
-        : { ...frame, time: Number(frame?.time), balls: Array.isArray(frame?.balls) ? frame.balls.map(normalizeFrameBall) : [] };
-      const balls = Array.isArray(data?.balls) ? data.balls.map(normalizeVisual) : [];
-      const visualById = new Map(balls.map((ball) => [ball.id, ball]));
-      const frames = Array.isArray(data?.frames) ? data.frames.map(normalizeFrame) : [];
-      frames.forEach((frame) => {
-        frame.balls.forEach((ball) => {
-          const visual = visualById.get(ball.id);
-          if (visual && !Number.isFinite(Number(ball.ballRadiusInches))) {
-            ball.ballRadiusInches = visual.radiusInches;
-          }
-        });
-      });
-      return {
-        duration: Number(data?.duration) || 0,
-        events: Array.isArray(data?.events) ? data.events.map(normalizeEvent) : [],
-        balls,
-        frames,
-      };
-    };
-    try {
-      playback = normalizePlayback(JSON.parse(playbackDataElement?.textContent ?? ''));
-    } catch (_) {
-      playback = null;
-    }
-    if (playback && Array.isArray(playback.frames) && playback.frames.length > 0 && slider) {
-      const ns = 'http://www.w3.org/2000/svg';
-      const ballLayer = svg.querySelector('[data-layer="balls"]');
-      if (ballLayer) {
-        ballLayer.style.display = 'none';
-        const ballToggle = viewer.querySelector('[data-layer-toggle="balls"]');
-        if (ballToggle) ballToggle.checked = false;
-      }
-      svg.querySelectorAll('.diagram-layer .ball-spin-glyph').forEach((glyph) => {
-        glyph.style.display = 'none';
-      });
-      const playbackLayer = document.createElementNS(ns, 'g');
-      playbackLayer.setAttribute('class', 'playback-layer');
-      playbackLayer.setAttribute('data-layer', 'playback-balls');
-      if (ballLayer && ballLayer.parentNode) {
-        ballLayer.parentNode.insertBefore(playbackLayer, ballLayer.nextSibling);
-      } else {
-        svg.appendChild(playbackLayer);
-      }
-      const visuals = new Map((playback.balls ?? []).map((ball) => [ball.id, ball]));
-      const events = Array.isArray(playback.events)
-        ? playback.events
-            .map((event) => ({
-              label: String(event.label ?? ''),
-              time: Number(event.time),
-              summary: String(event.summary ?? ''),
-            }))
-            .filter((event) => event.label && Number.isFinite(event.time))
-            .sort((a, b) => a.time - b.time)
-        : [];
-      const eventRows = new Map(Array.from(card?.querySelectorAll('.event-list [data-event-label]') ?? []).map((row) => [row.getAttribute('data-event-label'), row]));
-      const eventHitWindow = 0.005;
-      const clampFrame = (value) => Math.max(0, Math.min(playback.frames.length - 1, Number(value) || 0));
-      const frameTime = (frameIndex) => Number(playback.frames[clampFrame(frameIndex)]?.time) || 0;
-      const formatPlaybackTime = (time) => (Number(time) || 0).toFixed(3);
-      const minPlaybackSpeed = 1 / 16;
-      const maxPlaybackSpeed = 1;
-      const playbackSpeed = () => {
-        const raw = Number(speedSlider?.value);
-        if (!Number.isFinite(raw)) return maxPlaybackSpeed;
-        return Math.max(minPlaybackSpeed, Math.min(maxPlaybackSpeed, raw));
-      };
-      const formatPlaybackSpeed = (speed) => {
-        const inverse = Math.round(1 / speed);
-        if (Math.abs(speed - 1) <= 1e-9) return '1x';
-        if (inverse > 1 && Math.abs(speed - 1 / inverse) <= 1e-6) return `1/${inverse}x`;
-        return `${speed.toFixed(2)}x`;
-      };
-      const updateSpeedLabel = () => {
-        if (speedLabel) speedLabel.textContent = formatPlaybackSpeed(playbackSpeed());
-      };
-      const nextEventAfter = (time) => events.find((event) => event.time > time + eventHitWindow);
-      const updateEventTicker = (time) => {
-        eventRows.forEach((row) => row.classList.remove('event-current'));
-        if (!eventTicker) return;
-        if (events.length === 0) {
-          eventTicker.textContent = 'no logged events';
-          eventTicker.dataset.eventState = 'none';
-          return;
-        }
-        const hit = events.find((event) => Math.abs(event.time - time) <= eventHitWindow);
-        if (hit) {
-          eventTicker.textContent = `event ${hit.label} @ t=${formatPlaybackTime(hit.time)}s: ${hit.summary}`;
-          eventTicker.dataset.eventState = 'hit';
-          eventRows.get(hit.label)?.classList.add('event-current');
-          return;
-        }
-        const next = nextEventAfter(time);
-        if (next) {
-          eventTicker.textContent = `next ${next.label} in ${Math.max(0, next.time - time).toFixed(3)}s: ${next.summary}`;
-          eventTicker.dataset.eventState = 'next';
-          return;
-        }
-        const last = events.slice().reverse().find((event) => event.time <= time + eventHitWindow);
-        if (last) {
-          eventTicker.textContent = `last ${last.label} @ t=${formatPlaybackTime(last.time)}s: ${last.summary}`;
-          eventTicker.dataset.eventState = 'done';
-          eventRows.get(last.label)?.classList.add('event-current');
-        } else {
-          eventTicker.textContent = 'before first event';
-          eventTicker.dataset.eventState = 'before';
-        }
-      };
-      const frameBallMap = (frame) => new Map((frame?.balls ?? []).map((ball) => [ball.id, ball]));
-      const headingForBall = (index, ball) => {
-        const previous = frameBallMap(playback.frames[Math.max(0, index - 1)]).get(ball.id);
-        const next = frameBallMap(playback.frames[Math.min(playback.frames.length - 1, index + 1)]).get(ball.id);
-        const dx = next && (Math.abs(next.x - ball.x) > 0.01 || Math.abs(next.y - ball.y) > 0.01)
-          ? next.x - ball.x
-          : previous ? ball.x - previous.x : 0;
-        const dy = next && (Math.abs(next.x - ball.x) > 0.01 || Math.abs(next.y - ball.y) > 0.01)
-          ? next.y - ball.y
-          : previous ? ball.y - previous.y : 0;
-        const length = Math.hypot(dx, dy);
-        if (length <= 0.01) return null;
-        return { dx: dx / length, dy: dy / length };
-      };
-      const appendCircle = (className, cx, cy, radius, fill, opacity, stroke = 'none', strokeWidth = '0') => {
-        const circle = document.createElementNS(ns, 'circle');
-        circle.setAttribute('class', className);
-        circle.setAttribute('cx', cx.toFixed(3));
-        circle.setAttribute('cy', cy.toFixed(3));
-        circle.setAttribute('r', radius.toFixed(3));
-        circle.setAttribute('fill', fill);
-        circle.setAttribute('fill-opacity', opacity.toFixed(3));
-        circle.setAttribute('stroke', stroke);
-        circle.setAttribute('stroke-width', strokeWidth);
-        playbackLayer.appendChild(circle);
-      };
-      const spinStun = 1e-6;
-      const spinGrey = [0x7f, 0x85, 0x8c];
-      const spinGreen = [0x2d, 0xa4, 0x4e];
-      const spinBlue = [0x09, 0x6b, 0xd8];
-      const spinOrange = [0xfb, 0x85, 0x1e];
-      const spinAmber = [0xbf, 0x87, 0x00];
-      const spinViolet = [0x8b, 0x5c, 0xf6];
-      const finiteNumber = (value) => {
-        const number = Number(value);
-        return Number.isFinite(number) ? number : 0;
-      };
-      const hexColor = (color) => `#${color.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
-      const mixColor = (start, end, t) => start.map((channel, index) => channel + (end[index] - channel) * Math.max(0, Math.min(1, t)));
-      const svgNode = (parent, name, attrs = {}) => {
-        const element = document.createElementNS(ns, name);
-        Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, String(value)));
-        parent.appendChild(element);
-        return element;
-      };
-      const spinMetrics = (ball) => {
-        const vx = finiteNumber(ball.vx);
-        const vy = finiteNumber(ball.vy);
-        const wx = finiteNumber(ball.wx);
-        const wy = finiteNumber(ball.wy);
-        const wz = finiteNumber(ball.wz);
-        const planar = Math.hypot(wx, wy);
-        const total = Math.hypot(planar, wz);
-        const speed = Math.hypot(vx, vy);
-        const radiusInches = Math.max(spinStun, finiteNumber(ball.ballRadiusInches) || 1.125);
-        const suppliedRollingTarget = Math.max(0, finiteNumber(ball.rollingTarget));
-        const rollingTarget = suppliedRollingTarget > spinStun ? suppliedRollingTarget : speed / radiusInches;
-        const rollRatio = rollingTarget > spinStun ? planar / rollingTarget : 0;
-        const rollVx = radiusInches * wy;
-        const rollVy = -radiusInches * wx;
-        const rollSpeed = Math.hypot(rollVx, rollVy);
-        const rollSlip = Math.hypot(vx - rollVx, vy - rollVy);
-        const rollAlignment = speed > spinStun && rollSpeed > spinStun
-          ? Math.max(-1, Math.min(1, (vx * rollVx + vy * rollVy) / (speed * rollSpeed)))
-          : 0;
-        const angle = rollSpeed > spinStun ? Math.atan2(rollVy, rollVx) * 180 / Math.PI : 0;
-        const rollingSlipLimit = Math.max(speed * 0.12, 0.75);
-        const isRolling = speed > spinStun && planar > spinStun && rollSlip <= rollingSlipLimit;
-        const hasProminentSide = Math.abs(wz) > Math.max(planar, rollingTarget) * 0.25;
-        let kind = 'stun';
-        if (total > spinStun && isRolling && hasProminentSide) {
-          kind = 'rolling-english';
-        } else if (total > spinStun && isRolling) {
-          kind = 'rolling';
-        } else if (total > spinStun && rollAlignment <= -0.5) {
-          kind = 'draw';
-        } else if (total > spinStun && rollAlignment >= 0.5 && rollRatio > 1.15) {
-          kind = 'follow';
-        } else if (total > spinStun && Math.abs(wz) >= planar) {
-          kind = 'english';
-        } else if (total > spinStun) {
-          kind = 'spin';
-        }
-        const planarColor = kind === 'stun' || kind === 'english'
-          ? hexColor(spinGrey)
-          : kind === 'rolling' || kind === 'rolling-english'
-            ? hexColor(spinGreen)
-            : kind === 'draw'
-              ? hexColor(spinOrange)
-              : kind === 'follow'
-                ? hexColor(spinBlue)
-                : hexColor(mixColor(spinGrey, spinAmber, planar / Math.max(rollingTarget, 120)));
-        const zColor = hexColor(spinViolet);
-        return { vx, vy, wx, wy, wz, planar, total, rollingTarget, rollRatio, rollAlignment, rollSlip, angle, kind, planarColor, zColor };
-      };
-      const appendSpinGlyph = (ball, radius) => {
-        const metrics = spinMetrics(ball);
-        const glyphRadius = Math.max(8.5, Math.min(13.0, radius * 0.58));
-        const badgeOffset = radius * 0.72;
-        const strokeWidth = Math.max(2.4, Math.min(4.0, radius * 0.135));
-        const titleText = `spin: v=(${metrics.vx.toFixed(1)}, ${metrics.vy.toFixed(1)}) ips; omega=(${metrics.wx.toFixed(1)}, ${metrics.wy.toFixed(1)}, ${metrics.wz.toFixed(1)}) rad/s; roll slip=${metrics.rollSlip.toFixed(1)} ips; roll ratio=${metrics.rollRatio.toFixed(2)}; side=${metrics.wz.toFixed(1)} rad/s`;
-        const group = svgNode(playbackLayer, 'g', {
-          class: 'playback-spin-glyph ball-spin-glyph',
-          role: 'img',
-          'aria-label': titleText,
-          transform: `translate(${(finiteNumber(ball.x) + badgeOffset).toFixed(3)} ${(finiteNumber(ball.y) - badgeOffset).toFixed(3)})`,
-          'data-spin-kind': metrics.kind,
-          'data-spin-angle-deg': metrics.angle.toFixed(3),
-          'data-spin-rps': metrics.total.toFixed(3),
-          'data-spin-planar-rps': metrics.planar.toFixed(3),
-          'data-spin-z-rps': metrics.wz.toFixed(3),
-          'data-spin-roll-ratio': metrics.rollRatio.toFixed(3),
-          'data-spin-roll-alignment': metrics.rollAlignment.toFixed(3),
-          'data-spin-slip-ips': metrics.rollSlip.toFixed(3),
-          'data-spin-vx': metrics.vx.toFixed(3),
-          'data-spin-vy': metrics.vy.toFixed(3),
-          'data-spin-wx': metrics.wx.toFixed(3),
-          'data-spin-wy': metrics.wy.toFixed(3),
-          'data-spin-wz': metrics.wz.toFixed(3),
-        });
-        const title = svgNode(group, 'title');
-        title.textContent = titleText;
-        svgNode(group, 'circle', {
-          class: 'ball-spin-backplate',
-          r: glyphRadius.toFixed(3),
-          'stroke-width': (strokeWidth * 0.75).toFixed(3),
-        });
-        if (metrics.total <= spinStun) {
-          const arm = glyphRadius * 0.48;
-          const xPath = `M ${(-arm).toFixed(3)} ${(-arm).toFixed(3)} L ${arm.toFixed(3)} ${arm.toFixed(3)} M ${arm.toFixed(3)} ${(-arm).toFixed(3)} L ${(-arm).toFixed(3)} ${arm.toFixed(3)}`;
-          svgNode(group, 'path', {
-            class: 'ball-spin-stun-x-halo',
-            d: xPath,
-            'stroke-width': (strokeWidth * 2.7).toFixed(3),
-          });
-          svgNode(group, 'path', {
-            class: 'ball-spin-stun-x-mark',
-            d: xPath,
-            'stroke-width': (strokeWidth * 1.35).toFixed(3),
-          });
-          return;
-        }
-        const rotor = svgNode(group, 'g', { transform: `rotate(${metrics.angle.toFixed(3)})` });
-        if (metrics.planar > spinStun) {
-          const tail = -glyphRadius * 0.70;
-          const tip = glyphRadius * 0.74;
-          const head = glyphRadius * 0.36;
-          const base = tip - head;
-          svgNode(rotor, 'path', {
-            class: 'ball-spin-vector-halo',
-            d: `M ${tail.toFixed(3)} 0 L ${base.toFixed(3)} 0`,
-            'stroke-width': (strokeWidth * 2.65).toFixed(3),
-          });
-          svgNode(rotor, 'path', {
-            class: 'ball-spin-vector',
-            d: `M ${tail.toFixed(3)} 0 L ${base.toFixed(3)} 0`,
-            stroke: metrics.planarColor,
-            'stroke-opacity': '.98',
-            'stroke-width': (strokeWidth * 1.28).toFixed(3),
-          });
-          svgNode(rotor, 'path', {
-            class: 'ball-spin-arrowhead',
-            d: `M ${tip.toFixed(3)} 0 L ${base.toFixed(3)} ${(-head * 0.70).toFixed(3)} L ${base.toFixed(3)} ${(head * 0.70).toFixed(3)} Z`,
-            fill: metrics.planarColor,
-            'fill-opacity': '.98',
-            'stroke-width': (strokeWidth * 0.55).toFixed(3),
-          });
-        }
-        if (Math.abs(metrics.wz) > spinStun) {
-          const arc = glyphRadius * 0.82;
-          const zOpacity = Math.max(0.66, Math.min(1, Math.abs(metrics.wz) / metrics.total));
-          const zGroup = svgNode(group, 'g', { transform: `scale(${metrics.wz >= 0 ? '1.0' : '-1.0'} 1)` });
-          svgNode(zGroup, 'path', {
-            class: 'ball-spin-z-halo',
-            d: `M ${(-arc).toFixed(3)} ${(-arc * 0.42).toFixed(3)} A ${arc.toFixed(3)} ${arc.toFixed(3)} 0 1 1 ${arc.toFixed(3)} ${(arc * 0.42).toFixed(3)}`,
-            'stroke-width': (strokeWidth * 2.25).toFixed(3),
-          });
-          svgNode(zGroup, 'path', {
-            class: 'ball-spin-z',
-            d: `M ${(-arc).toFixed(3)} ${(-arc * 0.42).toFixed(3)} A ${arc.toFixed(3)} ${arc.toFixed(3)} 0 1 1 ${arc.toFixed(3)} ${(arc * 0.42).toFixed(3)}`,
-            stroke: metrics.zColor,
-            'stroke-opacity': zOpacity.toFixed(3),
-            'stroke-width': (strokeWidth * 1.18).toFixed(3),
-          });
-          const head = glyphRadius * 0.30;
-          svgNode(zGroup, 'path', {
-            class: 'ball-spin-z-head',
-            d: `M ${arc.toFixed(3)} ${(arc * 0.42).toFixed(3)} L ${(arc - head * 0.72).toFixed(3)} ${(arc * 0.42 - head * 0.78).toFixed(3)} L ${(arc - head * 0.12).toFixed(3)} ${(arc * 0.42 + head * 0.90).toFixed(3)} Z`,
-            fill: metrics.zColor,
-            'fill-opacity': zOpacity.toFixed(3),
-            'stroke-width': (strokeWidth * 0.55).toFixed(3),
-          });
-        }
-      };
-      const paintPlayback = (frameIndex) => {
-        const index = clampFrame(frameIndex);
-        const frame = playback.frames[index];
-        const time = Number(frame.time) || 0;
-        playbackLayer.replaceChildren();
-        for (const ball of frame.balls ?? []) {
-          const visual = visuals.get(ball.id) ?? {};
-          const radius = Number(visual.radius) || 12;
-          appendCircle('playback-ball-shadow', ball.x + radius * 0.12, ball.y + radius * 0.18, radius * 1.02, '#000', 0.25);
-          appendCircle('playback-ball', ball.x, ball.y, radius, visual.fill || '#ffffff', 1, '#111', '1.25');
-          const heading = headingForBall(index, ball);
-          const speed = Math.max(0, Number(ball.speed) || 0);
-          if (heading && speed > 0.05) {
-            const lineLength = radius * (1.18 + Math.min(speed, 160) / 220);
-            const halfLength = lineLength / 2;
-            const x1 = ball.x - heading.dx * halfLength;
-            const y1 = ball.y - heading.dy * halfLength;
-            const x2 = ball.x + heading.dx * halfLength;
-            const y2 = ball.y + heading.dy * halfLength;
-            const width = Math.max(0.5, Math.min(4.8, 0.5 + speed / 55));
-            const opacity = Math.max(0.18, Math.min(1, speed / 80));
-            const line = document.createElementNS(ns, 'line');
-            line.setAttribute('class', 'playback-heading');
-            line.setAttribute('x1', x1.toFixed(3));
-            line.setAttribute('y1', y1.toFixed(3));
-            line.setAttribute('x2', x2.toFixed(3));
-            line.setAttribute('y2', y2.toFixed(3));
-            line.setAttribute('stroke-width', width.toFixed(3));
-            line.setAttribute('stroke-opacity', opacity.toFixed(3));
-            playbackLayer.appendChild(line);
-          }
-          if (visual.label) {
-            const label = document.createElementNS(ns, 'text');
-            label.setAttribute('class', 'playback-ball-label');
-            label.setAttribute('x', Number(ball.x).toFixed(3));
-            label.setAttribute('y', Number(ball.y).toFixed(3));
-            label.textContent = visual.label;
-            playbackLayer.appendChild(label);
-          }
-          appendSpinGlyph(ball, radius);
-        }
-        slider.value = String(index);
-        if (timeLabel) timeLabel.textContent = `t=${formatPlaybackTime(time)}s`;
-        updateEventTicker(time);
-      };
-      let playing = false;
-      let animationId = null;
-      let playStartedAt = 0;
-      let playStartTime = 0;
-      let playTargetTime = null;
-      const stopPlayback = () => {
-        playing = false;
-        if (animationId !== null) cancelAnimationFrame(animationId);
-        animationId = null;
-        playTargetTime = null;
-        if (playButton) playButton.textContent = 'Play';
-      };
-      const nearestFrameForTime = (time) => {
-        let bestIndex = 0;
-        let bestDistance = Infinity;
-        playback.frames.forEach((frame, index) => {
-          const distance = Math.abs((Number(frame.time) || 0) - time);
-          if (distance < bestDistance) {
-            bestIndex = index;
-            bestDistance = distance;
-          }
-        });
-        return bestIndex;
-      };
-      const startPlayback = (startIndex, targetTime = null) => {
-        stopPlayback();
-        const duration = Math.max(0, Number(playback.duration) || 0);
-        const boundedTarget = Number.isFinite(targetTime) ? Math.max(0, Math.min(duration, targetTime)) : null;
-        playStartTime = frameTime(startIndex);
-        if (boundedTarget !== null && boundedTarget <= playStartTime + eventHitWindow) {
-          paintPlayback(nearestFrameForTime(boundedTarget));
-          return;
-        }
-        playing = true;
-        playTargetTime = boundedTarget;
-        if (playButton) playButton.textContent = 'Pause';
-        playStartedAt = performance.now();
-        paintPlayback(startIndex);
-        animationId = requestAnimationFrame(tick);
-      };
-      const tick = (now) => {
-        if (!playing) return;
-        const duration = Math.max(0, Number(playback.duration) || 0);
-        const targetTime = playTargetTime === null ? duration : playTargetTime;
-        const elapsed = ((now - playStartedAt) / 1000) * playbackSpeed();
-        const time = playStartTime + elapsed;
-        if (duration > 0 && time >= targetTime - eventHitWindow) {
-          paintPlayback(nearestFrameForTime(targetTime));
-          stopPlayback();
-          return;
-        }
-        paintPlayback(nearestFrameForTime(time));
-        animationId = requestAnimationFrame(tick);
-      };
-      slider.addEventListener('input', () => {
-        stopPlayback();
-        paintPlayback(slider.value);
-      });
-      if (speedSlider) {
-        speedSlider.addEventListener('input', () => {
-          updateSpeedLabel();
-          if (playing) {
-            playStartTime = frameTime(slider.value);
-            playStartedAt = performance.now();
-          }
-        });
-      }
-      viewer.querySelectorAll('[data-playback-step]').forEach((button) => {
-        button.addEventListener('click', () => {
-          stopPlayback();
-          paintPlayback(clampFrame(slider.value) + Number(button.dataset.playbackStep));
-        });
-      });
-      if (nextEventButton) {
-        nextEventButton.addEventListener('click', () => {
-          const next = nextEventAfter(frameTime(slider.value));
-          if (!next) {
-            stopPlayback();
-            paintPlayback(playback.frames.length - 1);
-            return;
-          }
-          startPlayback(clampFrame(slider.value), next.time);
-        });
-      }
-      if (playButton) {
-        playButton.addEventListener('click', () => {
-          if (playing) {
-            stopPlayback();
-            return;
-          }
-          let startIndex = clampFrame(slider.value);
-          if (startIndex >= playback.frames.length - 1) startIndex = 0;
-          startPlayback(startIndex);
-        });
-      }
-      updateSpeedLabel();
-      paintPlayback(playback.frames.length - 1);
-    }
-  }
-  svg.addEventListener('wheel', (event) => {
-    event.preventDefault();
-    const rect = svg.getBoundingClientRect();
-    const cx = box.x + ((event.clientX - rect.left) / rect.width) * box.width;
-    const cy = box.y + ((event.clientY - rect.top) / rect.height) * box.height;
-    zoom(event.deltaY < 0 ? 0.9 : 1.1, cx, cy);
-  }, { passive: false });
-  let drag = null;
-  svg.addEventListener('pointerdown', (event) => {
-    svg.setPointerCapture(event.pointerId);
-    svg.classList.add('dragging');
-    drag = { x: event.clientX, y: event.clientY, box: { ...box } };
-  });
-  svg.addEventListener('pointermove', (event) => {
-    if (!drag) return;
-    const rect = svg.getBoundingClientRect();
-    box.x = drag.box.x - ((event.clientX - drag.x) / rect.width) * drag.box.width;
-    box.y = drag.box.y - ((event.clientY - drag.y) / rect.height) * drag.box.height;
-    apply();
-  });
-  const stopDrag = () => { drag = null; svg.classList.remove('dragging'); };
-  svg.addEventListener('pointerup', stopDrag);
-  svg.addEventListener('pointercancel', stopDrag);
-});
-</script>
-"#,
-    );
+    html.push_str("<script>\n");
+    html.push_str(include_str!("../../web/billiards-viewer.js"));
+    html.push_str("</script>\n");
     html.push_str("</main>\n</body>\n</html>\n");
     html
 }
@@ -2224,6 +1526,7 @@ mod tests {
         let svg = render_cue_tip_diagram_svg(0.25, -0.5, 0.5, 15.0);
 
         assert!(svg.contains("class=\"cue-tip-diagram\""));
+        assert!(!svg.contains("class=\"cue-ball-shade\""));
         assert!(svg.contains("data-tip-side=\"0.250\""));
         assert!(svg.contains("data-tip-height=\"-0.500\""));
         assert!(svg.contains("data-miscue-limit=\"0.500\""));
@@ -2244,14 +1547,34 @@ mod tests {
     }
 
     #[test]
-    fn power_meter_renders_redline_and_needle_data() {
+    fn power_meter_renders_monotonic_green_yellow_red_scale_and_black_needle_data() {
         let svg = render_power_meter_svg(30.0, HumanShotSpeedBand::TypicalPowerBreak);
 
         assert!(svg.contains("class=\"power-meter\""));
         assert!(svg.contains("data-cue-ball-speed-mph=\"30.000\""));
         assert!(svg.contains("data-speed-band=\"TypicalPowerBreak\""));
-        assert!(svg.contains("class=\"power-meter-redline\""));
-        assert!(svg.contains("Gauge spans 0 to 35 miles per hour"));
+        assert!(svg.contains("data-speedometer-scale=\"green-yellow-red\""));
+        assert!(svg.contains(
+            "data-zone=\"green\" data-zone-start-mph=\"0.000\" data-zone-end-mph=\"20.000\""
+        ));
+        assert!(svg.contains(
+            "data-zone=\"yellow\" data-zone-start-mph=\"20.000\" data-zone-end-mph=\"30.000\""
+        ));
+        assert!(svg.contains(
+            "data-zone=\"red\" data-zone-start-mph=\"30.000\" data-zone-end-mph=\"35.000\""
+        ));
+        assert!(svg.contains("class=\"power-meter-zone power-meter-zone-yellow\""));
+        assert!(svg.contains("stroke=\"#f3c742\""));
+        assert!(svg.contains("class=\"power-meter-zone power-meter-zone-red power-meter-redline\""));
+        assert!(
+            svg.contains("class=\"power-meter-label-backplate power-meter-label-backplate-red\"")
+        );
+        assert!(svg.contains("font-size=\"12\""));
+        assert!(svg.contains("class=\"power-meter-needle-halo\""));
+        assert!(svg.contains("class=\"power-meter-needle\""));
+        assert!(svg.contains("stroke=\"#050505\" stroke-width=\"7\""));
+        assert!(svg.contains("r=\"10\" fill=\"#050505\""));
+        assert!(svg.contains("Gauge increases monotonically from green 0 to 20 miles per hour, yellow 20 to 30 miles per hour, and red 30 to 35 miles per hour."));
     }
 
     #[test]
@@ -2380,6 +1703,9 @@ mod tests {
         assert!(html.contains("min=\"0.0625\" max=\"1\" value=\"1\""));
         assert!(html.contains("data-playback-speed-label>1x"));
         assert!(html.contains("down to 1/16x for slow motion"));
+        assert!(html.contains("data-playback-trace"));
+        assert!(html.contains("Trace paths"));
+        assert!(html.contains("toggle Trace paths to hide static trajectory lines"));
         assert!(html.contains("default 2.5 ms physics frames"));
         assert!(html.contains("playbackSpeed()"));
         assert!(html.contains("Spin badges use green arrows for natural roll"));
@@ -2393,7 +1719,12 @@ mod tests {
         );
         assert!(html.contains("appendSpinGlyph"));
         assert!(html.contains("playback-spin-glyph"));
+        assert!(html.contains("setTracePathsVisible"));
+        assert!(html.contains(".smooth-polyline, .heading-chevron"));
         assert!(html.contains("event-current"));
+        assert!(html.contains("data-scenario-events=\"single\""));
+        assert!(html.contains("data-scenario-event-count=\"1\""));
+        assert!(html.contains("data-scenario-playback=\"with-playback\""));
     }
 
     #[test]

@@ -7,3 +7,5 @@ build/
 dist/
 gymnasium/billiards_gymnasium/_native*.so
 /.hive/
+
+/web/pkg/

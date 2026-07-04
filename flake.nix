@@ -53,6 +53,7 @@
             cargo-udeps
             cargo-watch
             just
+            wasm-bindgen-cli
             poppler-utils
           ];
 

@@ -3,6 +3,9 @@ name = "billiards"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [workspace]
 members = [".", "xtask"]
 default-members = ["."]
@@ -32,6 +35,9 @@ image = "0.25.6"
 imageproc = "0.25"
 lazy_static = "1.5.0"
 winnow = "0.7"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.108"
 
 [dev-dependencies]
 criterion = "0.5"

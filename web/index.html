@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Billiards SVG Generator</title>
+  <link rel="stylesheet" href="./billiards-ui.css">
+</head>
+<body class="wasm-app">
+  <header>
+    <h1>Billiards SVG Generator</h1>
+    <p class="subtitle">
+      Paste a <code>.billiards</code> DSL scenario, render it in-browser through the compiled Rust/Wasm renderer, then inspect the same table controls, event log, and slow-motion playback used by the validation suite.
+    </p>
+  </header>
+
+  <main class="app-shell">
+    <section class="card editor-panel" aria-labelledby="editor-title">
+      <div class="panel-header">
+        <h2 id="editor-title">Scenario DSL</h2>
+        <div class="controls">
+          <button id="render-button" type="button">Generate SVG</button>
+          <button id="reset-button" type="button">Reset sample</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <textarea id="dsl-input" spellcheck="false" aria-label="Billiards DSL input"></textarea>
+        <div id="status" class="status">Loading Wasm renderer…</div>
+      </div>
+    </section>
+
+    <section class="card wasm-report-card" aria-labelledby="preview-title" data-scenario-card data-scenario-search="" data-scenario-speed-band="" data-scenario-events="none" data-scenario-event-count="0" data-scenario-playback="no-playback">
+      <div class="panel-header">
+        <h2 id="preview-title">Scenario report</h2>
+        <div class="controls">
+          <button id="download-button" type="button" disabled>Download SVG</button>
+        </div>
+      </div>
+      <div id="preview">
+        <p class="empty-preview">Build the Wasm package with <code>just wasm-web</code>, serve <code>web/</code>, then render a scenario.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="./billiards-viewer.js" defer></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

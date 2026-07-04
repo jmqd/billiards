@@ -308,7 +308,11 @@ fn svg_backend_emits_layered_scalable_markup_for_a_ball_layout() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 
     assert!(svg.starts_with("<svg "));
-    assert!(svg.contains("viewBox=\"0 0 1089 1938\""));
+    assert!(svg.contains("viewBox=\"0 0 1938 1089\""));
+    assert!(svg.contains("data-orientation=\"clockwise\""));
+    assert!(
+        svg.contains("class=\"diagram-orientation\" transform=\"translate(1938 0) rotate(90)\"")
+    );
     assert!(svg.contains("data-layer=\"table\""));
     assert!(svg.contains("data-layer=\"balls\""));
     assert!(svg.contains("class=\"ball ball-cue\""));

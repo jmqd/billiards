@@ -67,6 +67,19 @@ For more:
 - ready examples: [examples/scenarios/](./examples/scenarios/)
 - named-preset example: [examples/scenarios/named_physics_pinball.billiards](./examples/scenarios/named_physics_pinball.billiards)
 
+## Browser SVG generator
+
+The Rust renderer can be compiled to Wasm and used from a static web page:
+
+```bash
+nix develop -c just wasm-web
+nix develop -c python -m http.server 8000 --directory web
+```
+
+Then open <http://127.0.0.1:8000/>. The page accepts `.billiards` DSL text,
+renders through the Wasm `render_svg_from_dsl` binding, previews the SVG, and
+offers a download button. Generated Wasm glue lives in `web/pkg/` and is ignored.
+
 ## Thanks
 
 Thanks to Dr. Dave Alciatore of Colorado State University for providing the

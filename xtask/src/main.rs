@@ -924,14 +924,14 @@ fn render_cue_tip_diagram_svg(
     miscue_offset_limit: f64,
     cue_ball_launch_speed_mph: f64,
 ) -> String {
-    let ball_radius = 72.0;
+    let ball_radius = 64.0;
     let ball_center = 90.0;
     let tip_x = ball_center + side_offset * ball_radius;
     let tip_y = ball_center - height_offset * ball_radius;
     let limit_radius = miscue_offset_limit.clamp(0.0, 1.0) * ball_radius;
     let offset_radius = side_offset.hypot(height_offset);
     let marker_radius = cue_tip_marker_radius(cue_ball_launch_speed_mph, ball_radius);
-    let marker_outline_radius = marker_radius + 3.0;
+    let marker_outline_radius = marker_radius + 2.5;
     let limit_status = if offset_radius <= miscue_offset_limit + 1e-12 {
         "inside"
     } else {
@@ -940,11 +940,11 @@ fn render_cue_tip_diagram_svg(
 
     format!(
         r##"<svg class="cue-tip-diagram" data-tip-side="{side_offset:.3}" data-tip-height="{height_offset:.3}" data-miscue-limit="{miscue_offset_limit:.3}" data-cue-ball-speed-mph="{cue_ball_launch_speed_mph:.3}" data-tip-marker-r="{marker_radius:.3}" data-tip-x="{tip_x:.3}" data-tip-y="{tip_y:.3}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 184" role="img" aria-label="Cue ball tip contact: side {side_offset:+.2} ball radii, height {height_offset:+.2} ball radii, {limit_status} the {miscue_offset_limit:.2} ball-radius miscue limit; red marker radius scales with {cue_ball_launch_speed_mph:.2} mph cue-ball launch speed">
-<ellipse class="cue-ball-shadow" cx="94" cy="165" rx="62" ry="16" fill="#000000" opacity=".35"/>
+<ellipse class="cue-ball-shadow" cx="94" cy="157" rx="54" ry="14" fill="#000000" opacity=".28"/>
 <circle class="cue-ball-body" cx="{ball_center:.0}" cy="{ball_center:.0}" r="{ball_radius:.0}" fill="#e9e0c9" stroke="#fff9e9" stroke-width="1.5"/>
-<circle class="cue-ball-highlight" cx="64" cy="50" r="38" fill="#ffffff" opacity=".24"/>
-<ellipse class="cue-ball-glare" cx="61" cy="43" rx="20" ry="12" fill="#ffffff" opacity=".72" transform="rotate(-25 61 43)"/>
-<path d="M39 121C53 145 81 158 113 150" fill="none" stroke="#ffffff" stroke-opacity=".28" stroke-width="6" stroke-linecap="round"/>
+<circle class="cue-ball-highlight" cx="67" cy="55" r="32" fill="#ffffff" opacity=".24"/>
+<ellipse class="cue-ball-glare" cx="64" cy="49" rx="17" ry="10" fill="#ffffff" opacity=".72" transform="rotate(-25 64 49)"/>
+<path d="M45 118C58 138 82 149 110 142" fill="none" stroke="#ffffff" stroke-opacity=".28" stroke-width="5" stroke-linecap="round"/>
 <circle class="miscue-limit" cx="{ball_center:.0}" cy="{ball_center:.0}" r="{limit_radius:.3}" fill="none" stroke="#090909" stroke-width="2.75"/>
 <circle class="cue-tip-marker" cx="{tip_x:.3}" cy="{tip_y:.3}" r="{marker_radius:.3}" fill="#d91919" stroke="#ffffff" stroke-width="2"/>
 <circle class="cue-tip-marker-outline" cx="{tip_x:.3}" cy="{tip_y:.3}" r="{marker_outline_radius:.3}" fill="none" stroke="#7b0000" stroke-opacity=".65" stroke-width="1.5"/>
@@ -955,7 +955,7 @@ fn render_cue_tip_diagram_svg(
 
 fn cue_tip_marker_radius(cue_ball_launch_speed_mph: f64, ball_radius: f64) -> f64 {
     let equator_width = ball_radius * 2.0;
-    let min_radius = equator_width / 16.0;
+    let min_radius = equator_width / 15.0;
     let max_radius = equator_width / 8.0;
     let speed_ratio = (cue_ball_launch_speed_mph / 30.0).clamp(0.0, 1.0);
 
@@ -1263,14 +1263,21 @@ fn push_gallery_controls(html: &mut String, report_count: usize) {
     html.push_str("</section>\n");
 }
 
-fn table_detail_select_html() -> &'static str {
-    "<label>Table detail<select data-table-detail>\
-     <option value=\"global\" selected>Page setting</option>\
-     <option value=\"full\">Full material</option>\
-     <option value=\"flat\">Flat colors</option>\
-     <option value=\"cloth\">Cloth only</option>\
-     <option value=\"rail\">Rails and pockets only</option>\
-     </select></label>"
+const SHOT_SUMMARY_INFO_LABELS: &[&str] = &[
+    "Cue-ball launch",
+    "Cue-stick impact",
+    "Heading",
+    "Tip side",
+    "Tip height",
+    "Clean-cuing limit",
+];
+
+fn is_shot_summary_info_row(row: &ReportInfoRow) -> bool {
+    SHOT_SUMMARY_INFO_LABELS.contains(&row.label.as_str())
+}
+
+fn escaped_embedded_script(source: &str) -> String {
+    source.replace("</script", "<\\/script")
 }
 
 fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> String {
@@ -1357,9 +1364,21 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
             }
             html.push_str("</div>\n");
         }
-        html.push_str("<div class=\"info-panel\">\n");
-        push_info_table(&mut html, &report.info_rows);
-        if !report.notes.is_empty() {
+        let show_compact_shot_info =
+            has_visuals && report.info_rows.iter().any(is_shot_summary_info_row);
+        html.push_str("<div class=\"info-panel shot-data-panel\">\n");
+        if show_compact_shot_info {
+            push_info_table(
+                &mut html,
+                report
+                    .info_rows
+                    .iter()
+                    .filter(|row| is_shot_summary_info_row(row)),
+            );
+        } else {
+            push_info_table(&mut html, &report.info_rows);
+        }
+        if !show_compact_shot_info && !report.notes.is_empty() {
             html.push_str(
                 "<details class=\"scenario-context\" open><summary>Scenario context</summary><ul class=\"notes\">\n",
             );
@@ -1371,53 +1390,55 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
         html.push_str("</div>\n</div>\n");
         html.push_str("<figure class=\"svg-viewer\" data-viewer>\n");
         html.push_str(
-            "<div class=\"viewer-controls\" aria-label=\"Diagram controls\">\n\
-             <button type=\"button\" data-zoom=\"in\">Zoom in</button>\n\
-             <button type=\"button\" data-zoom=\"out\">Zoom out</button>\n\
-             <button type=\"button\" data-zoom=\"reset\">Reset</button>\n\
-             <label><input type=\"checkbox\" data-layer-toggle=\"table\" checked>Table</label>\n\
-             <label><input type=\"checkbox\" data-layer-toggle=\"overlays-below-balls\" checked>Below-ball overlays</label>\n\
-             <label><input type=\"checkbox\" data-layer-toggle=\"balls\" checked>Balls</label>\n\
-             <label><input type=\"checkbox\" data-layer-toggle=\"overlays-above-balls\" checked>Above-ball overlays</label>\n",
-        );
-        html.push_str(table_detail_select_html());
-        html.push_str(
-            "\n</div>\n\
+            "<div class=\"viewer-controls\" data-viewer-controls data-table-detail-default=\"global\" aria-label=\"Diagram controls\"></div>\n\
              <div class=\"svg-frame\">\n",
         );
         html.push_str(&report.inline_svg);
         html.push_str("</div>\n");
         if let Some(playback) = &report.playback {
-            let max_frame = playback.frames.len().saturating_sub(1);
             html.push_str(&format!(
                 "<div class=\"playback-panel\" data-playback>\n\
                  <script type=\"application/json\" data-playback-data>{}</script>\n\
-                 <div class=\"playback-controls\" aria-label=\"Playback controls\">\n\
-                 <button type=\"button\" data-playback-step=\"-1\">Step back</button>\n\
-                 <button type=\"button\" data-playback-play>Play</button>\n\
-                 <button type=\"button\" data-playback-step=\"1\">Step forward</button>\n\
-                 <button type=\"button\" data-playback-next-event>Next event</button>\n\
-                 <label class=\"playback-speed-control\">Speed <input type=\"range\" data-playback-speed min=\"0.0625\" max=\"1\" value=\"1\" step=\"0.0625\" aria-label=\"Playback speed\"><span class=\"playback-speed-value\" data-playback-speed-label>1x</span></label>\n\
-                 <label class=\"playback-trace-control\"><input type=\"checkbox\" data-playback-trace checked>Trace paths</label>\n\
-                 <input type=\"range\" data-playback-slider min=\"0\" max=\"{}\" value=\"{}\" step=\"1\" aria-label=\"Trace frame\">\n\
-                 <span class=\"playback-time\" data-playback-time>t=0.000s</span>\n\
-                 <span class=\"playback-event\" data-playback-event>No events</span>\n\
-                 </div>\n\
-                 <p class=\"playback-help\">Scrub the physics frames in either direction, set playback speed from 1x down to 1/16x for slow motion, toggle Trace paths to hide static trajectory lines, or play to the next logged event. The default 2.5 ms physics frames update at about 25 frame changes per second at 1/16x. Balls are sampled by the Rust physics solver; black ticks show instantaneous travel direction. Spin badges use green arrows for natural roll, blue for follow, orange for draw, amber for skid, purple arcs for side spin, and a gray X for no spin.</p>\n\
                  </div>\n",
-                playback_json(playback),
-                max_frame,
-                max_frame
+                playback_json(playback)
             ));
         }
         push_download_links(&mut html, report);
         html.push_str("</figure>\n");
+        if show_compact_shot_info
+            && (report
+                .info_rows
+                .iter()
+                .any(|row| !is_shot_summary_info_row(row))
+                || !report.notes.is_empty())
+        {
+            html.push_str(
+                "<details class=\"scenario-context scenario-details\"><summary>Scenario details</summary>\n",
+            );
+            push_info_table(
+                &mut html,
+                report
+                    .info_rows
+                    .iter()
+                    .filter(|row| !is_shot_summary_info_row(row)),
+            );
+            if !report.notes.is_empty() {
+                html.push_str("<ul class=\"notes\">\n");
+                for note in &report.notes {
+                    html.push_str(&format!("<li>{}</li>\n", escape_html(note)));
+                }
+                html.push_str("</ul>\n");
+            }
+            html.push_str("</details>\n");
+        }
         push_event_log(&mut html, report);
         html.push_str("</div>\n</section>\n");
     }
 
     html.push_str("<script>\n");
-    html.push_str(include_str!("../../web/billiards-viewer.js"));
+    html.push_str(&escaped_embedded_script(include_str!(
+        "../../web/billiards-viewer.js"
+    )));
     html.push_str("</script>\n");
     html.push_str("</main>\n</body>\n</html>\n");
     html
@@ -1442,7 +1463,7 @@ fn push_tooltip(html: &mut String, label: &str, tooltip: &str) {
     ));
 }
 
-fn push_info_table(html: &mut String, rows: &[ReportInfoRow]) {
+fn push_info_table<'a>(html: &mut String, rows: impl IntoIterator<Item = &'a ReportInfoRow>) {
     html.push_str("<dl class=\"info-table\">\n");
     for row in rows {
         html.push_str(&format!(
@@ -1521,6 +1542,14 @@ fn usage_text() -> &'static str {
 mod tests {
     use super::*;
 
+    fn assert_close(actual: f64, expected: f64) {
+        let delta = (actual - expected).abs();
+        assert!(
+            delta < 1e-9,
+            "expected {actual} to be within 1e-9 of {expected}; delta={delta}"
+        );
+    }
+
     #[test]
     fn cue_tip_diagram_places_marker_from_shot_offsets_and_speed() {
         let svg = render_cue_tip_diagram_svg(0.25, -0.5, 0.5, 15.0);
@@ -1531,19 +1560,19 @@ mod tests {
         assert!(svg.contains("data-tip-height=\"-0.500\""));
         assert!(svg.contains("data-miscue-limit=\"0.500\""));
         assert!(svg.contains("data-cue-ball-speed-mph=\"15.000\""));
-        assert!(svg.contains("data-tip-marker-r=\"13.500\""));
-        assert!(svg.contains("data-tip-x=\"108.000\""));
-        assert!(svg.contains("data-tip-y=\"126.000\""));
-        assert!(svg.contains("class=\"miscue-limit\" cx=\"90\" cy=\"90\" r=\"36.000\""));
-        assert!(svg.contains("class=\"cue-tip-marker\" cx=\"108.000\" cy=\"126.000\" r=\"13.500\""));
+        assert!(svg.contains("data-tip-marker-r=\"12.267\""));
+        assert!(svg.contains("data-tip-x=\"106.000\""));
+        assert!(svg.contains("data-tip-y=\"122.000\""));
+        assert!(svg.contains("class=\"miscue-limit\" cx=\"90\" cy=\"90\" r=\"32.000\""));
+        assert!(svg.contains("class=\"cue-tip-marker\" cx=\"106.000\" cy=\"122.000\" r=\"12.267\""));
         assert!(svg.contains("fill=\"#d91919\""));
     }
 
     #[test]
     fn cue_tip_marker_radius_scales_across_requested_speed_range() {
-        assert_eq!(cue_tip_marker_radius(0.0, 72.0), 9.0);
-        assert_eq!(cue_tip_marker_radius(30.0, 72.0), 18.0);
-        assert_eq!(cue_tip_marker_radius(35.0, 72.0), 18.0);
+        assert_close(cue_tip_marker_radius(0.0, 64.0), 8.533333333333333);
+        assert_eq!(cue_tip_marker_radius(30.0, 64.0), 16.0);
+        assert_eq!(cue_tip_marker_radius(35.0, 64.0), 16.0);
     }
 
     #[test]
@@ -1588,6 +1617,8 @@ mod tests {
                 ReportInfoRow::new("Source", "examples/scenarios/cue_tip_test.billiards"),
                 ReportInfoRow::new("Heading", "90.00°"),
                 ReportInfoRow::new("Cue-ball launch", "7.27 mph · medium speed · medium band"),
+                ReportInfoRow::new("Tip side", "+0.25 R"),
+                ReportInfoRow::new("Tip height", "-0.50 R"),
             ],
             cue_tip_diagram_svg: Some(render_cue_tip_diagram_svg(0.25, -0.5, 0.5, 7.27)),
             power_meter_svg: Some(render_power_meter_svg(7.27, HumanShotSpeedBand::Medium)),
@@ -1599,13 +1630,24 @@ mod tests {
 
         assert!(html.contains("class=\"card-overview\""));
         assert!(html.contains("class=\"visual-stack\""));
+        assert!(html.contains(".card-workspace{display:grid;grid-template-columns:1fr;gap:.85rem"));
+        assert!(html.contains(".visual-stack{display:grid;grid-template-columns:repeat(2,6.8rem)"));
+        assert!(html.contains(".visual-panel svg{display:block;width:6.35rem;height:6.35rem"));
+        assert!(html.contains(
+            ".svg-frame svg[data-orientation=\"clockwise\"]{width:100%;max-height:min(90vh,72rem)}"
+        ));
         assert!(html.contains("<strong>Cue tip</strong>"));
         assert!(html.contains("<strong>Power</strong>"));
         assert!(html.contains("class=\"tooltip\""));
         assert!(html.contains("data-tooltip=\"Red marker: tip-contact offset"));
         assert!(!html.contains("Red dot position is the tip contact"));
         assert!(html.contains("<dl class=\"info-table\""));
-        assert!(html.contains("<dt>Heading</dt><dd>90.00°</dd>"));
+        assert!(html.contains("<dt>Tip side</dt><dd>+0.25 R</dd>"));
+        assert!(html.contains("<dt>Tip height</dt><dd>-0.50 R</dd>"));
+        assert!(html.contains("class=\"info-panel shot-data-panel\""));
+        assert!(html.contains("class=\"scenario-context scenario-details\""));
+        assert!(html.contains("<summary>Scenario details</summary>"));
+        assert!(html.contains("<dt>Source</dt><dd>examples/scenarios/cue_tip_test.billiards</dd>"));
         assert!(html.contains("<svg class=\"cue-tip-diagram\""));
         assert!(html.contains("<svg class=\"power-meter\""));
         assert!(html.contains("class=\"gallery-controls\""));
@@ -1698,7 +1740,16 @@ mod tests {
 
         let html = render_html(&[report], &ValidationSuiteOptions::default());
 
-        assert!(html.contains("data-playback-next-event"));
+        assert!(html.contains("data-playback-reset"));
+        assert!(html.contains("aria-label=\"Rewind to beginning\""));
+        assert!(html.contains(">⏮</button>"));
+        assert!(html.contains("aria-label=\"Step back one frame\""));
+        assert!(html.contains(">⏪</button>"));
+        assert!(html.contains("aria-label=\"Play\" title=\"Play\">▶</button>"));
+        assert!(html.contains("aria-label=\"Step forward one frame\""));
+        assert!(html.contains(">⏩</button>"));
+        assert!(html.contains("aria-label=\"Play to next event\""));
+        assert!(html.contains(">⏭</button>"));
         assert!(html.contains("data-playback-speed"));
         assert!(html.contains("min=\"0.0625\" max=\"1\" value=\"1\""));
         assert!(html.contains("data-playback-speed-label>1x"));
@@ -1725,6 +1776,8 @@ mod tests {
         assert!(html.contains("data-scenario-events=\"single\""));
         assert!(html.contains("data-scenario-event-count=\"1\""));
         assert!(html.contains("data-scenario-playback=\"with-playback\""));
+        assert!(html.contains("data-playback-data>${escapeJsonScript(playback)}<\\/script>"));
+        assert!(!html.contains("data-playback-data>${escapeJsonScript(playback)}</script>"));
     }
 
     #[test]

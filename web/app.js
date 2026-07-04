@@ -46,38 +46,6 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function escapeJsonScript(value) {
-  return JSON.stringify(value)
-    .replaceAll("<", "\\u003c")
-    .replaceAll(">", "\\u003e")
-    .replaceAll("&", "\\u0026");
-}
-
-function eventBucket(events) {
-  if (events.length === 0) return "none";
-  return events.length === 1 ? "single" : "multi";
-}
-
-function playbackPanelHtml(playback) {
-  if (!playback || !Array.isArray(playback.frames) || playback.frames.length === 0) return "";
-  const maxFrame = Math.max(0, playback.frames.length - 1);
-  return `
-    <div class="playback-panel" data-playback>
-      <script type="application/json" data-playback-data>${escapeJsonScript(playback)}</script>
-      <div class="playback-controls" aria-label="Playback controls">
-        <button type="button" data-playback-step="-1">Step back</button>
-        <button type="button" data-playback-play>Play</button>
-        <button type="button" data-playback-step="1">Step forward</button>
-        <button type="button" data-playback-next-event>Next event</button>
-        <label class="playback-speed-control">Speed <input type="range" data-playback-speed min="0.0625" max="1" value="1" step="0.0625" aria-label="Playback speed"><span class="playback-speed-value" data-playback-speed-label>1x</span></label>
-        <label class="playback-trace-control"><input type="checkbox" data-playback-trace checked>Trace paths</label>
-        <input type="range" data-playback-slider min="0" max="${maxFrame}" value="${maxFrame}" step="1" aria-label="Trace frame">
-        <span class="playback-time" data-playback-time>t=0.000s</span>
-        <span class="playback-event" data-playback-event>No events</span>
-      </div>
-      <p class="playback-help">Scrub the Rust physics frames in either direction, set playback speed from 1x down to 1/16x for slow motion, toggle Trace paths to hide static trajectory lines, or play to the next logged event. Balls are sampled by the same solver that generated the SVG. Black ticks show travel direction; spin badges use green arrows for natural roll, blue for follow, orange for draw, amber for skid, purple arcs for side spin, and a gray X for no spin.</p>
-    </div>`;
-}
 
 function eventLogHtml(events) {
   if (events.length === 0) {
@@ -97,6 +65,12 @@ function eventLogHtml(events) {
   return `<details class="event-log" open><summary>Event log</summary><ol class="event-list">${rows}</ol></details>`;
 }
 
+function eventBucket(events) {
+  if (!Array.isArray(events) || events.length === 0) return "none";
+  if (events.length === 1) return "single";
+  return "multi";
+}
+
 function reportHtml(report, elapsedMs) {
   const events = Array.isArray(report.events)
     ? report.events.map((event) => Array.isArray(event)
@@ -108,11 +82,13 @@ function reportHtml(report, elapsedMs) {
   const duration = playback ? `${Number(playback.duration || 0).toFixed(3)} s` : "static layout";
   const frameCount = playback?.frames?.length ?? 0;
   const eventCount = events.length;
+  const viewerControlsHtml = window.BilliardsReportViewer.viewerControlsHtml({ tableDetailDefault: "full" });
+  const playbackPanelHtml = window.BilliardsReportViewer.playbackPanelHtml(playback);
   if (previewCard) {
     previewCard.dataset.scenarioSearch = `${input.value} ${events.map((event) => event.summary).join(" ")}`.toLowerCase();
     previewCard.dataset.scenarioEvents = eventBucket(events);
     previewCard.dataset.scenarioEventCount = String(eventCount);
-    previewCard.dataset.scenarioPlayback = playback ? "playback" : "no-playback";
+    previewCard.dataset.scenarioPlayback = playback ? "with-playback" : "no-playback";
   }
   return `
     <div class="card-workspace">
@@ -129,23 +105,9 @@ function reportHtml(report, elapsedMs) {
         </div>
       </div>
       <figure class="svg-viewer" data-viewer>
-        <div class="viewer-controls" aria-label="Diagram controls">
-          <button type="button" data-zoom="in">Zoom in</button>
-          <button type="button" data-zoom="out">Zoom out</button>
-          <button type="button" data-zoom="reset">Reset</button>
-          <label><input type="checkbox" data-layer-toggle="table" checked>Table</label>
-          <label><input type="checkbox" data-layer-toggle="overlays-below-balls" checked>Below-ball overlays</label>
-          <label><input type="checkbox" data-layer-toggle="balls" checked>Balls</label>
-          <label><input type="checkbox" data-layer-toggle="overlays-above-balls" checked>Above-ball overlays</label>
-          <label>Table detail<select data-table-detail>
-            <option value="full">Full material</option>
-            <option value="flat">Flat colors</option>
-            <option value="cloth">Cloth only</option>
-            <option value="rail">Rails and pockets only</option>
-          </select></label>
-        </div>
+        ${viewerControlsHtml}
         <div class="svg-frame">${report.svg}</div>
-        ${playbackPanelHtml(playback)}
+        ${playbackPanelHtml}
         <div class="downloads">Download: <button id="inline-download-button" type="button">SVG</button></div>
       </figure>
       ${eventLogHtml(events)}

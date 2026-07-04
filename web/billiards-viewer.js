@@ -1,5 +1,4 @@
 (() => {
-  function initializeBilliardsViewers(root = document) {
   const tableDetailGroups = {
     cloth: '.table-cloth, .table-cloth-texture',
     clothTexture: '.table-cloth-texture',
@@ -11,6 +10,80 @@
     diamonds: '.table-diamond',
   };
   const tableDetailAllSelector = Array.from(new Set(Object.values(tableDetailGroups).join(',').split(',').map((selector) => selector.trim()))).join(',');
+  const tableDetailOptions = [
+    ['full', 'Full material'],
+    ['flat', 'Flat colors'],
+    ['cloth', 'Cloth only'],
+    ['rail', 'Rails and pockets only'],
+  ];
+  const playbackHelpText = 'Scrub the physics frames in either direction, set playback speed from 1x down to 1/16x for slow motion, toggle Trace paths to hide static trajectory lines, or use the icon buttons: rewind to the first frame, step one frame back or forward, play/pause, or play to the next logged event. The default 2.5 ms physics frames update at about 25 frame changes per second at 1/16x. Balls are sampled by the Rust physics solver; black ticks show instantaneous travel direction. Spin badges use green arrows for natural roll, blue for follow, orange for draw, amber for skid, purple arcs for side spin, and a gray X for no spin.';
+
+  const escapeHtml = (value) => String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+
+  const escapeJsonScript = (value) => JSON.stringify(value)
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('&', '\\u0026');
+
+  const tableDetailSelectHtml = (tableDetailDefault = 'full') => {
+    const includeGlobal = tableDetailDefault === 'global';
+    const options = includeGlobal ? [['global', 'Page setting'], ...tableDetailOptions] : tableDetailOptions;
+    return `<label>Table detail<select data-table-detail>${options.map(([value, label]) => `<option value="${value}"${value === tableDetailDefault ? ' selected' : ''}>${label}</option>`).join('')}</select></label>`;
+  };
+
+  function viewerControlsHtml({ tableDetailDefault = 'full' } = {}) {
+    return `<div class="viewer-controls" data-viewer-controls aria-label="Diagram controls">
+        <button type="button" data-zoom="in">Zoom in</button>
+        <button type="button" data-zoom="out">Zoom out</button>
+        <button type="button" data-zoom="reset">Reset</button>
+        <label><input type="checkbox" data-layer-toggle="table" checked>Table</label>
+        <label><input type="checkbox" data-layer-toggle="overlays-below-balls" checked>Below-ball overlays</label>
+        <label><input type="checkbox" data-layer-toggle="balls" checked>Balls</label>
+        <label><input type="checkbox" data-layer-toggle="overlays-above-balls" checked>Above-ball overlays</label>
+        ${tableDetailSelectHtml(tableDetailDefault)}
+      </div>`;
+  }
+
+  const playbackControlsHtml = (maxFrame) => `<div class="playback-controls" aria-label="Playback controls">
+        <button type="button" data-playback-reset aria-label="Rewind to beginning" title="Rewind to beginning">⏮</button>
+        <button type="button" data-playback-step="-1" aria-label="Step back one frame" title="Step back">⏪</button>
+        <button type="button" data-playback-play aria-label="Play" title="Play">▶</button>
+        <button type="button" data-playback-step="1" aria-label="Step forward one frame" title="Step forward">⏩</button>
+        <button type="button" data-playback-next-event aria-label="Play to next event" title="Next event">⏭</button>
+        <label class="playback-speed-control">Speed <input type="range" data-playback-speed min="0.0625" max="1" value="1" step="0.0625" aria-label="Playback speed"><span class="playback-speed-value" data-playback-speed-label>1x</span></label>
+        <label class="playback-trace-control"><input type="checkbox" data-playback-trace checked>Trace paths</label>
+        <input type="range" data-playback-slider min="0" max="${maxFrame}" value="${maxFrame}" step="1" aria-label="Trace frame">
+        <span class="playback-time" data-playback-time>t=0.000s</span>
+        <span class="playback-event" data-playback-event>No events</span>
+      </div>
+      <p class="playback-help">${escapeHtml(playbackHelpText)}</p>`;
+
+  function playbackPanelHtml(playback) {
+    if (!playback || !Array.isArray(playback.frames) || playback.frames.length === 0) return '';
+    const maxFrame = Math.max(0, playback.frames.length - 1);
+    return `<div class="playback-panel" data-playback>
+      <script type="application/json" data-playback-data>${escapeJsonScript(playback)}</script>
+      ${playbackControlsHtml(maxFrame)}
+    </div>`;
+  }
+
+  const hydrateViewerControls = (viewer) => {
+    const placeholder = viewer.querySelector('[data-viewer-controls]');
+    if (!placeholder || placeholder.querySelector('[data-zoom]')) return;
+    const tableDetailDefault = placeholder.dataset.tableDetailDefault ?? 'full';
+    placeholder.outerHTML = viewerControlsHtml({ tableDetailDefault });
+  };
+
+  const hydratePlaybackControls = (playbackPanel, playback) => {
+    if (!playbackPanel || playbackPanel.querySelector('[data-playback-slider]')) return;
+    playbackPanel.insertAdjacentHTML('beforeend', playbackControlsHtml(Math.max(0, playback.frames.length - 1)));
+  };
+
+  function initializeBilliardsViewers(root = document) {
   const setTableDetailVisible = (svg, selector, visible) => {
     svg.querySelectorAll(selector).forEach((element) => {
       element.style.display = visible ? '' : 'none';
@@ -85,6 +158,7 @@
     if (root?.matches?.('[data-viewer]')) viewerRoots.push(root);
     root?.querySelectorAll?.('[data-viewer]')?.forEach((viewer) => viewerRoots.push(viewer));
     viewerRoots.forEach((viewer) => {
+    hydrateViewerControls(viewer);
     const svg = viewer.querySelector('svg');
     if (!svg || !svg.viewBox || !svg.viewBox.baseVal) return;
     const base = svg.viewBox.baseVal;
@@ -138,14 +212,6 @@
     const playbackPanel = viewer.querySelector('[data-playback]');
     if (playbackPanel) {
       const playbackDataElement = playbackPanel.querySelector('[data-playback-data]');
-      const slider = playbackPanel.querySelector('[data-playback-slider]');
-      const speedSlider = playbackPanel.querySelector('[data-playback-speed]');
-      const speedLabel = playbackPanel.querySelector('[data-playback-speed-label]');
-      const traceToggle = playbackPanel.querySelector('[data-playback-trace]');
-      const timeLabel = playbackPanel.querySelector('[data-playback-time]');
-      const eventTicker = playbackPanel.querySelector('[data-playback-event]');
-      const playButton = playbackPanel.querySelector('[data-playback-play]');
-      const nextEventButton = playbackPanel.querySelector('[data-playback-next-event]');
       let playback = null;
       const normalizePlayback = (data) => {
         const normalizeEvent = (event) => Array.isArray(event)
@@ -189,6 +255,18 @@
       } catch (_) {
         playback = null;
       }
+      if (playback && Array.isArray(playback.frames) && playback.frames.length > 0) {
+        hydratePlaybackControls(playbackPanel, playback);
+      }
+      const slider = playbackPanel.querySelector('[data-playback-slider]');
+      const speedSlider = playbackPanel.querySelector('[data-playback-speed]');
+      const speedLabel = playbackPanel.querySelector('[data-playback-speed-label]');
+      const traceToggle = playbackPanel.querySelector('[data-playback-trace]');
+      const timeLabel = playbackPanel.querySelector('[data-playback-time]');
+      const eventTicker = playbackPanel.querySelector('[data-playback-event]');
+      const playButton = playbackPanel.querySelector('[data-playback-play]');
+      const resetPlaybackButton = playbackPanel.querySelector('[data-playback-reset]');
+      const nextEventButton = playbackPanel.querySelector('[data-playback-next-event]');
       if (playback && Array.isArray(playback.frames) && playback.frames.length > 0 && slider) {
         const ns = 'http://www.w3.org/2000/svg';
         const ballLayer = svg.querySelector('[data-layer="balls"]');
@@ -526,12 +604,19 @@
         let playStartedAt = 0;
         let playStartTime = 0;
         let playTargetTime = null;
+        const setPlayButtonState = (isPlaying) => {
+          if (!playButton) return;
+          playButton.textContent = isPlaying ? '⏸' : '▶';
+          const label = isPlaying ? 'Pause' : 'Play';
+          playButton.setAttribute('aria-label', label);
+          playButton.setAttribute('title', label);
+        };
         const stopPlayback = () => {
           playing = false;
           if (animationId !== null) cancelAnimationFrame(animationId);
           animationId = null;
           playTargetTime = null;
-          if (playButton) playButton.textContent = 'Play';
+          setPlayButtonState(false);
         };
         const nearestFrameForTime = (time) => {
           let bestIndex = 0;
@@ -556,7 +641,7 @@
           }
           playing = true;
           playTargetTime = boundedTarget;
-          if (playButton) playButton.textContent = 'Pause';
+          setPlayButtonState(true);
           playStartedAt = performance.now();
           paintPlayback(startIndex);
           animationId = requestAnimationFrame(tick);
@@ -586,6 +671,12 @@
               playStartTime = frameTime(slider.value);
               playStartedAt = performance.now();
             }
+          });
+        }
+        if (resetPlaybackButton) {
+          resetPlaybackButton.addEventListener('click', () => {
+            stopPlayback();
+            paintPlayback(0);
           });
         }
         viewer.querySelectorAll('[data-playback-step]').forEach((button) => {
@@ -646,7 +737,7 @@
   });
   }
 
-  window.BilliardsReportViewer = { initialize: initializeBilliardsViewers, initializeBilliardsViewers };
+  window.BilliardsReportViewer = { initialize: initializeBilliardsViewers, initializeBilliardsViewers, viewerControlsHtml, playbackPanelHtml };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => initializeBilliardsViewers(document), { once: true });

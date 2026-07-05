@@ -134,7 +134,7 @@ fn elevated_side_english_seeds_masse_spin_and_bends_after_landing() {
             .expect("elevated side-spin strike should succeed");
         let contact = settle_airborne_ball_on_next_table_contact(&airborne)
             .expect("airborne shot should land back on the table");
-        let landed = contact.state_after_contact;
+        let landed = contact.state_on_table_at_contact;
         let landed_state = landed.as_ball_state();
         let advanced = advance_motion_on_table(&landed, dt, &ball_set, &motion).state;
         let elapsed = dt.as_f64();

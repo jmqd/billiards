@@ -3706,6 +3706,8 @@ fn cue_effective_side_spin_offset(tip_contact: &CueTipContact, cue: &CueStrikeCo
 
 const MAX_CUE_ELEVATION_DEGREES: f64 = 85.0;
 const CUE_ELEVATION_TABLE_REBOUND_COEFFICIENT: f64 = 0.58;
+const AIRBORNE_TABLE_BOUNCE_RESTITUTION: f64 = 0.42;
+const MIN_AIRBORNE_TABLE_REBOUND_SPEED_INCHES_PER_SECOND: f64 = 4.0;
 
 fn validate_cue_elevation(cue_elevation: Angle) -> Result<(), ShotError> {
     if !(0.0..=MAX_CUE_ELEVATION_DEGREES).contains(&cue_elevation.as_degrees()) {
@@ -3917,29 +3919,67 @@ pub fn time_until_airborne_ball_reaches_table(state: &BallState) -> Option<Secon
 }
 
 /// A ballistic airborne segment ending at the next table contact.
+///
+/// `state_on_table_at_contact` is the flattened contact state used by callers that need the table
+/// coordinates at impact. `state_after_contact` is the actual post-contact simulation state; high
+/// enough landings rebound into a smaller airborne hop instead of immediately entering the on-table
+/// solver.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AirborneTableContact {
     pub time_until_contact: Seconds,
     pub state_at_contact: BallState,
-    pub state_after_contact: OnTableBallState,
+    pub state_on_table_at_contact: OnTableBallState,
+    pub state_after_contact: NBallSystemState,
 }
 
-/// Advance an airborne ball to its next table contact and resume the on-table solver domain.
+fn resolve_airborne_table_contact(
+    state_at_contact: &BallState,
+    state_on_table_at_contact: OnTableBallState,
+) -> NBallSystemState {
+    assert!(
+        (0.0..1.0).contains(&AIRBORNE_TABLE_BOUNCE_RESTITUTION),
+        "airborne table bounce restitution must lose vertical energy"
+    );
+
+    let incoming_vertical_speed = (-state_at_contact.vertical_velocity.as_f64()).max(0.0);
+    let rebound_vertical_speed = incoming_vertical_speed * AIRBORNE_TABLE_BOUNCE_RESTITUTION;
+    debug_assert!(
+        rebound_vertical_speed <= incoming_vertical_speed + 1e-9,
+        "a table rebound must not create a higher next hop"
+    );
+
+    if rebound_vertical_speed <= MIN_AIRBORNE_TABLE_REBOUND_SPEED_INCHES_PER_SECOND {
+        return NBallSystemState::OnTable(state_on_table_at_contact);
+    }
+
+    NBallSystemState::Airborne(BallState::airborne(
+        state_at_contact.position.clone(),
+        Inches::zero(),
+        state_at_contact.velocity.clone(),
+        Inches::from_f64(rebound_vertical_speed),
+        state_at_contact.angular_velocity.clone(),
+    ))
+}
+
+/// Advance an airborne ball to its next table contact and resolve the table rebound.
 pub fn settle_airborne_ball_on_next_table_contact(
     state: &BallState,
 ) -> Option<AirborneTableContact> {
     let time_until_contact = time_until_airborne_ball_reaches_table(state)?;
     let state_at_contact = advance_airborne_ball(state, time_until_contact);
-    let state_after_contact = OnTableBallState::try_new(BallState::on_table(
+    let state_on_table_at_contact = OnTableBallState::try_new(BallState::on_table(
         state_at_contact.position.clone(),
         state_at_contact.velocity.clone(),
         state_at_contact.angular_velocity.clone(),
     ))
-    .expect("landing state should be normalized back onto the table plane");
+    .expect("landing state should be normalized onto the table plane");
+    let state_after_contact =
+        resolve_airborne_table_contact(&state_at_contact, state_on_table_at_contact.clone());
 
     Some(AirborneTableContact {
         time_until_contact,
         state_at_contact,
+        state_on_table_at_contact,
         state_after_contact,
     })
 }
@@ -10210,8 +10250,7 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
             ball_index,
             contact,
         } => {
-            states_after[*ball_index] =
-                NBallSystemState::OnTable(contact.state_after_contact.clone());
+            states_after[*ball_index] = contact.state_after_contact.clone();
         }
         NBallSystemEvent::BallRailImpact { ball_index, impact } => {
             states_after[*ball_index] =

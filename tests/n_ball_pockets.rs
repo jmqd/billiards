@@ -8,9 +8,9 @@ use billiards::{
     BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq, MotionPhase,
     MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent, NBallSystemEvent,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJawGeometry,
-    PocketShapeSpec, RadiansPerSecondSq, Rail, RollingResistanceModel, SlidingFrictionModel,
-    SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
-    TYPICAL_BALL_RADIUS,
+    PocketShapeSpec, RadiansPerSecondSq, Rail, RailModel, RollingResistanceModel,
+    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT,
+    STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -208,12 +208,58 @@ fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
     );
     assert_close(contact.state_at_contact.height.as_f64(), 0.0);
     assert!(contact.state_at_contact.vertical_velocity.as_f64() < 0.0);
+    let NBallSystemState::Airborne(rebound_state) = &contact.state_after_contact else {
+        panic!("expected table contact to rebound into a smaller airborne hop");
+    };
+    assert!(rebound_state.vertical_velocity.as_f64() > 0.0);
+    assert!(
+        rebound_state.vertical_velocity.as_f64()
+            < -contact.state_at_contact.vertical_velocity.as_f64()
+    );
+
+    let first_advance = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states,
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    );
+    assert!(matches!(
+        first_advance.states.first(),
+        Some(NBallSystemState::Airborne(_))
+    ));
+
+    let second_event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &first_advance.states,
+        &ball,
+        &table,
+        &motion,
+    );
+    let Some(NBallSystemEvent::BallTableBounce {
+        ball_index: second_ball_index,
+        contact: second_contact,
+    }) = second_event
+    else {
+        panic!("expected second smaller table-contact event, got {second_event:?}");
+    };
+
+    assert_eq!(second_ball_index, 0);
+    assert!(second_contact.time_until_contact < contact.time_until_contact);
+
+    let second_advance = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &first_advance.states,
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    );
+    let Some(NBallSystemState::OnTable(settled_state)) = second_advance.states.first() else {
+        panic!("expected the second table contact to settle back on the table");
+    };
     assert_close(
-        contact
-            .state_after_contact
-            .as_ball_state()
-            .vertical_velocity
-            .as_f64(),
+        settled_state.as_ball_state().vertical_velocity.as_f64(),
         0.0,
     );
 }

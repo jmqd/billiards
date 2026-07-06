@@ -187,7 +187,11 @@ Current v1 restrictions and elevation semantics:
 
 - only `shot(cue)` is supported
 - at most one `shot(...)` statement may appear in a document
-- `.elevation(angle)` sets the cue-stick elevation used by the physics shot model
+- `.elevation(angle)` sets the cue-stick elevation used by the physics shot model and overrides
+  the DSL default; `.elevation(0deg)` explicitly opts into an idealized level cue when side
+  English is present
+- ordinary side-English shots that omit `.elevation(...)` derive the conservative TP A.3
+  rail-clearance elevation of `1.384deg`
 - `.jump()` is shorthand for `.elevation(45deg)`; `.jump(angle)` uses the supplied elevation
 - `.masse(...)` is not a DSL method yet; current massé/swerve behavior is only the lower-level elevated-side-spin physics model, not a declarative massé aiming primitive
 

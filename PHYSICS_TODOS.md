@@ -63,34 +63,27 @@ Scope: current Rust physics implementation cross-checked against the in-repo whi
 
 **Done 2026-07-02.** The rolling integrator now computes TP B.2 curved displacement during rolling advancement, decays side spin over the same interval, and preserves the published estimator as analysis metadata. Regression coverage exercises both the estimator and the actual rolling-path displacement.
 
-### P1 — Add a real massé/swerve model surface, not only hand-tuned elevation examples
+### DONE P1 — Add a real massé/swerve model surface, not only hand-tuned elevation examples
 
-**Problem.** Current massé support is a qualitative elevated-side-spin path: hand-pick heading, speed, side/height, and elevation; the ball may hop; then TP A.4 bends it after landing. The code does not expose Coriolis/BAR massé aiming or validate final direction/curve magnitude against TP A.19.
+**Done 2026-07-06.** `Shot::masse_aim_estimate`, `coriolis_masse_curve_angle_degrees`, `coriolis_masse_final_heading`, `masse_curve_mode_for_launch`, and `validate_coriolis_masse_bar_relationship` now expose a TP A.19 / Coriolis-BAR aiming surface instead of only hand-tuned heading/elevation examples.
 
-- Current `Shot` only stores `cue_elevation`; no massé aim primitive: `src/lib.rs:2987-3050`.
-- DSL supports `.elevation(...)` and `.jump(...)`, not `.masse(...)`: `src/dsl.rs:3388-3394`, `src/dsl.rs:3519-3530`; test expects `.masse(30deg)` to fail in `tests/dsl.rs:1269-1272`.
-- Existing massé/swerve tests assert sign and qualitative bend only: `tests/shot_strikes.rs:117-158`, `tests/scenario_examples.rs:47-146`.
-- Source expectation: TP A.19 and VEPS XVI frame massé with contact point `B`, aim point `A`, resting point `R`, and final direction parallel to `RA`; speed controls where along the path the curve completes: `whitepapers/tp_a_19_masse_shot_aiming_method_and_curved_cue_ball_paths.pdf:114-154`, `:254-257`, `:296-415`; `whitepapers/veps_gems_part_xvi_the_masse_shot.pdf:21-25`, `:71-86`, `:100-106`.
+- The helper computes the final post-curve cue-ball direction from normalized side offset `a`, height offset `b`, and cue elevation `phi` using TP A.19's `atan2(a sin(phi), cos(phi) - b)` relation.
+- `validate_coriolis_masse_bar_relationship` validates the source-style `B`/`A`/`R` relation: cue-ball point `B`, aim point `A` on the cue vertical plane, and final-reference point `R` with the final direction parallel to `RA`.
+- `MasseCurveMode` reports whether the current engine will treat the shot as continuous on-cloth swerve or jump-then-curve after table contact.
+- Tests in `tests/shot_strikes.rs` cover the TP A.19 `a = 0.25R`, `b = 0.25R`, `phi = 75°` magnitude relation, validate a matching `B`/`A`/`R` setup, reject no-side-spin and mismatched final-direction requests, and assert the current nonzero-speed elevated shot is classified as jump-then-curve.
 
-**Target.** Add source-calibrated massé/swerve APIs and tests:
+**Remaining limitation.** This is an explicit calibrated aiming helper, not a full speed/path solve: TP A.19 says speed controls where the curve completes, and the current API still does not choose speed or solve obstacle clearance automatically. DSL `.masse(...)` sugar remains intentionally absent; callers use `.tip(...)` plus `.elevation(...)` and/or the Rust helper.
 
-- compute final Coriolis/BAR direction from tip offset/elevation,
-- derive or validate cue setup from desired final direction / aim point,
-- distinguish continuous on-cloth swerve from jump-then-curve behavior,
-- add magnitude regression examples from TP A.19, not just sign checks.
+### DONE P1 — Decide how ordinary English shots get realistic cue elevation/swerve
 
-### P1 — Decide how ordinary English shots get realistic cue elevation/swerve
+**Done 2026-07-06.** Policy: `Shot::new` remains the low-level idealized API default at `0°`, but
+the scenario DSL now derives a conservative `1.384°` TP A.3 rail-clearance elevation for ordinary
+side-English shots whenever `.elevation(...)`/`.jump(...)` is omitted. Center-ball shots remain
+level by default, and `.elevation(0deg)` is the explicit opt-out for idealized side-English tests.
 
-**Problem.** `Shot::new` defaults to `0°` cue elevation, so ordinary side-English shots have squirt but no cue-elevation-driven swerve unless `.elevation(...)` is explicitly specified. Whitepaper material says a truly level cue is usually unrealistic and swerve is part of effective squirt under normal play.
-
-- Current default: `src/lib.rs:2995-3010`.
-- DSL only applies elevation if `.elevation(...)` or `.jump(...)` appears: `src/dsl.rs:2711-2804`.
-- Source expectation: TP A.3 gives a physical rail-clearance elevation example of `1.384°`: `whitepapers/tp_a_3_minimum_cue_elevation_required_for_a_head_spot_to_foot_spot_center_ball_hit_shot.pdf:63-85`; squirt/swerve article says perfectly level/no-friction shots have no swerve but are not realistic, and speed/elevation/cloth determine effective squirt: `whitepapers/squirt_part_iii_follow_draw_squirt_and_swerve.pdf:57-89`, `:129-133`.
-
-**Target.** Pick an explicit policy:
-
-- keep `0°` as low-level API default but make scenario DSL require/derive realistic elevation for side-English examples, or
-- add a table/bridge/rail-clearance cue-elevation default/config with opt-out for idealized tests.
+- Code: `src/lib.rs:3228-3234`, `src/dsl.rs:42-47`, `src/dsl.rs:2727-2846`
+- Tests: `tests/dsl.rs:1276-1328`
+- Docs: `DSL_SHOT_MINI_SPEC.md:190-194`, `examples/scenarios/README.md:37-39`
 
 ### DONE P2 — Source-calibrate vertical launch and rebound coefficients
 
@@ -121,22 +114,24 @@ Scope: current Rust physics implementation cross-checked against the in-repo whi
 
 **Done 2026-07-02.** `DSL_SHOT_MINI_SPEC.md` now documents supported `.elevation(angle)`, `.jump()`/`.jump(angle)`, and the intentional absence of declarative `.masse(...)` sugar while keeping current elevated-side-spin behavior described as a lower-level physics model.
 
-### P3 — Make trace/rendered paths sample within-phase curvature
+### DONE P3 — Make trace/rendered paths sample within-phase curvature
 
-**Problem.** Some trace/path helpers store event vertices and can under-display the actual within-phase TP A.4 curvature. Scenario playback samples can show curvature, but path polylines and route summaries may miss it.
+**Done 2026-07-06.** Rendered trace paths use phase-aware sampling instead of endpoint-only
+event vertices. `BallPath::sampled_points` advances within each traced segment with the motion
+solver, `GameState::add_rendered_ball_path_styled` samples each rendered segment through the same
+phase-aware path, and `ScenarioBallTrace::sampled_points`/rendering route on-table traces through
+that sampler while retaining `projected_points` as the explicit event-vertex diagnostic view.
 
-- Current path helpers can reduce to segment endpoints: `src/dsl.rs:1211-1264`; related comments noted by audit around `src/lib.rs:2236-2243` and `src/lib.rs:10632-10639`.
-- Scenario tests manually sample `advance_motion_on_table` to observe lateral curve: `tests/scenario_examples.rs:113-143`.
-- Source expectation: TP A.4/TP A.19 curved paths are continuous parabolic sliding trajectories, not just event vertices: `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf:264-280`; `whitepapers/tp_a_19_masse_shot_aiming_method_and_curved_cue_ball_paths.pdf:226-252`.
+- Code evidence: `src/lib.rs:2480-2538`, `src/lib.rs:15064-15103`, `src/lib.rs:15191-15223`, `src/dsl.rs:950-968`, `src/dsl.rs:1230-1327`.
+- Test evidence: `tests/dsl.rs:532-632` asserts a rolling side-spin trace inserts within-segment samples, deviates from endpoint-only segment chords, and renders differently from an endpoint-only baseline.
 
-**Target.** Use phase-aware sampling for rendered/diagnostic trace paths whenever a segment is sliding with nonzero cloth-contact slip or rolling with TP B.2 side-spin curvature enabled.
+### DONE P3 — Decide whether Kim object/table friction should be default physics
 
-### P3 — Decide whether Kim object/table friction should be default physics
+**Done 2026-07-06.** Policy is explicit opt-in: `BallBallCollisionConfig::ideal()`,
+`Default`, and `human_tuned()` keep `object_table_static_friction_coefficient = 0` because
+Kim's measured object/table static friction (`μ_s ≈ 0.2..0.4`) is a significant first-order
+correction, but the current on-table collision state still omits the paired vertical hop.
 
-**Problem.** Kim-style object/table static friction for topspin ball-ball impacts is implemented and tested only as opt-in. Kim argues the effect can be significant, but human-tuned defaults leave the coefficient at zero.
-
-- Current opt-in config/default-off: `src/lib.rs:1215-1270`.
-- Implementation/test: `src/lib.rs:11094-11144`, `tests/non_ideal_ball_collisions.rs:1180-1240`.
-- Source: `whitepapers/collision_of_two_spinning_billiard_balls_and_the_role_of_table_friction.pdf:80-150`, `:700-790`.
-
-**Target.** Decide whether source-accurate default physics should include a nonzero object/table static-friction coefficient, or document it clearly as an optional first-order extension.
+- Source evidence: Kim notes object/table static friction is large and measured around `0.2 < μ_s < 0.4`, and derives the topspin-only first-order normal-speed/object-spin correction in Eqs. (52)-(54): `whitepapers/collision_of_two_spinning_billiard_balls_and_the_role_of_table_friction.pdf:80-150`, `:700-790`.
+- Code evidence: `src/lib.rs:1241-1249` documents default-off as intentional, `src/lib.rs:1259-1278` keeps `new()` and `new_with_friction_model()` default-off, and `src/lib.rs:1301-1314` provides explicit coefficient and Kim-named opt-in config helpers.
+- Test evidence: `tests/non_ideal_ball_collisions.rs:1179-1247` asserts `Default`/`ideal()`/`human_tuned()` are default-off and that human-tuned collision diagnostics apply no Kim normal correction; `tests/non_ideal_ball_collisions.rs:1249-1308` asserts the named Kim opt-in produces the expected first-order recoil, object speed reduction, and object-spin scale.

@@ -34,6 +34,10 @@ each SVG inline with table/overlay layer toggles, zoom/pan controls, 2.5 ms play
 smoother 1/16x slow motion, scenario comments, DSL shot line, simulation summary, event log,
 cue-ball launch speed in mph, and the nearest human-facing shot-speed label.
 
+Scenario DSL shots with nonzero side English derive the conservative `1.384deg` TP A.3
+rail-clearance cue elevation when `.elevation(...)` is omitted. Use `.elevation(0deg)` only when an
+example is intentionally demonstrating the idealized level-cue model.
+
 ## Included scenarios
 
 ### Elevated side-spin / z-spin diagnostics

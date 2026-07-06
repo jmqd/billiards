@@ -6,16 +6,17 @@ use billiards::dsl::{
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
-    visualization::{BallPathRenderOptions, PathColorMode},
-    Angle, AngularVelocity3, BallSetPhysicsSpec, BallState, BallType, CollisionModel, Diamond,
-    GameType, HumanShotSpeedBand, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
-    MotionTransitionConfig, NBallSystemEvent, NBallSystemSimulation, NBallSystemState,
-    OnTableBallState, OnTableMotionConfig, PlayingConditions, Pocket, RadiansPerSecondSq,
-    RailCollisionProfile, RailModel, RollingResistanceModel, Seconds, ShotSpeedPreset,
-    SlidingFrictionModel, SpinDecayModel, TableKind, Velocity2, CAROM_BALL_RADIUS,
+    human_tuned_preview_motion_config,
+    visualization::{BallPathRenderOptions, BallPathStyle, PathColorMode, SmoothPolylineStyle},
+    Angle, AngularVelocity3, BallPathStop, BallSetPhysicsSpec, BallState, BallType, CollisionModel,
+    Diamond, GameType, HumanShotSpeedBand, Inches2, InchesPerSecondSq, MotionPhase,
+    MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemSimulation,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, PlayingConditions, Pocket,
+    RadiansPerSecondSq, RailCollisionProfile, RailModel, RollingResistanceModel, Seconds,
+    ShotSpeedPreset, SlidingFrictionModel, SpinDecayModel, TableKind, Velocity2, CAROM_BALL_RADIUS,
     TYPICAL_BALL_RADIUS,
 };
-use image::load_from_memory;
+use image::{load_from_memory, Rgba};
 
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
@@ -525,6 +526,107 @@ fn shot_scenarios_can_trace_a_preview_path_through_the_engine() {
             .as_ball_state()
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Rest
+    );
+}
+
+#[test]
+fn traced_side_spin_render_paths_sample_within_phase_curvature() {
+    let table = billiards::TableSpec::default();
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = human_tuned_preview_motion_config();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let state = OnTableBallState::try_from(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 6.0),
+    ))
+    .expect("test state should be on-table");
+    let path = billiards::trace_ball_path_with_rails_on_table(
+        &state,
+        BallPathStop::Duration(Seconds::new(2.0)),
+        &ball_set,
+        &table,
+        &motion,
+        RailModel::SpinAware,
+    );
+
+    let projected = path.projected_points(&table);
+    let sampled = path.sampled_points(Seconds::new(0.02), &ball_set, &motion, &table);
+    assert!(
+        sampled.len() > projected.len(),
+        "phase-aware trace sampling should insert within-segment points"
+    );
+
+    let point_xy = |point: &billiards::Position| {
+        (
+            point.x.magnitude.to_f64().expect("point x"),
+            point.y.magnitude.to_f64().expect("point y"),
+        )
+    };
+    let distance_to_segment =
+        |point: &billiards::Position, start: &billiards::Position, end: &billiards::Position| {
+            let (px, py) = point_xy(point);
+            let (sx, sy) = point_xy(start);
+            let (ex, ey) = point_xy(end);
+            let dx = ex - sx;
+            let dy = ey - sy;
+            let length_squared = dx * dx + dy * dy;
+            if length_squared <= f64::EPSILON {
+                return ((px - sx).powi(2) + (py - sy).powi(2)).sqrt();
+            }
+            let u = (((px - sx) * dx + (py - sy) * dy) / length_squared).clamp(0.0, 1.0);
+            let closest_x = sx + u * dx;
+            let closest_y = sy + u * dy;
+            ((px - closest_x).powi(2) + (py - closest_y).powi(2)).sqrt()
+        };
+    let max_endpoint_chord_deviation = sampled
+        .iter()
+        .map(|sample| {
+            projected
+                .windows(2)
+                .map(|segment| distance_to_segment(sample, &segment[0], &segment[1]))
+                .fold(f64::INFINITY, f64::min)
+        })
+        .fold(0.0_f64, f64::max);
+    assert!(
+        max_endpoint_chord_deviation > 1.0e-5,
+        "sampled trace points should deviate from endpoint-only chords; max deviation was {max_endpoint_chord_deviation}"
+    );
+
+    let path_render = BallPathRenderOptions {
+        max_time_step: Seconds::new(0.02),
+        ..BallPathRenderOptions::default().with_heading_chevrons(false)
+    };
+    let path_style = BallPathStyle::new(Rgba([225, 225, 225, 255]));
+    let mut rendered_with_sampling = billiards::GameState::new(table.clone());
+    rendered_with_sampling.add_rendered_ball_path_styled(
+        &path,
+        &ball_set,
+        &motion,
+        &path_render,
+        &path_style,
+    );
+
+    let mut endpoint_only = billiards::GameState::new(table.clone());
+    for segment in &path.segments {
+        let points = [
+            segment.start.as_ball_state().projected_position(&table),
+            segment.end.as_ball_state().projected_position(&table),
+        ];
+        endpoint_only.add_smooth_polyline_styled(
+            &points,
+            SmoothPolylineStyle {
+                color: Rgba([225, 225, 225, 255]),
+                width_px: path_render.width_px,
+                ..SmoothPolylineStyle::new(Rgba([225, 225, 225, 255]))
+            },
+        );
+    }
+
+    assert_ne!(
+        render_png(&rendered_with_sampling),
+        render_png(&endpoint_only),
+        "rendered trace path should not collapse to endpoint-only segment chords"
     );
 }
 
@@ -1269,6 +1371,60 @@ fn parses_elevated_cue_method_and_jump_alias() {
         "ball cue at center\n\
          cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
          shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).masse(30deg).using(default)\n",
+    );
+}
+
+#[test]
+fn side_english_dsl_derives_rail_clearance_elevation_unless_explicitly_level() {
+    let derived = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.25R, height: 0.0R).using(default)\n",
+    )
+    .expect("side-English shot should build");
+    assert_close(
+        derived
+            .shot
+            .as_ref()
+            .expect("scenario should contain a shot")
+            .shot
+            .cue_elevation()
+            .as_degrees(),
+        1.384,
+    );
+
+    let center_ball = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.3R).using(default)\n",
+    )
+    .expect("center-ball shot should build");
+    assert_close(
+        center_ball
+            .shot
+            .as_ref()
+            .expect("scenario should contain a shot")
+            .shot
+            .cue_elevation()
+            .as_degrees(),
+        0.0,
+    );
+
+    let explicit_level = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: -0.25R, height: 0.0R).elevation(0deg).using(default)\n",
+    )
+    .expect("explicitly level side-English shot should build");
+    assert_close(
+        explicit_level
+            .shot
+            .as_ref()
+            .expect("scenario should contain a shot")
+            .shot
+            .cue_elevation()
+            .as_degrees(),
+        0.0,
     );
 }
 

@@ -39,6 +39,13 @@ use winnow::token::take_while;
 
 const DEFAULT_JUMP_CUE_ELEVATION_DEGREES: f64 = 45.0;
 
+/// Conservative scenario-DSL default for ordinary side-English shots that omit `.elevation(...)`.
+///
+/// TP A.3's rail-clearance geometry gives 1.384° for a head-spot to foot-spot center-ball hit.
+/// The low-level `Shot` API remains idealized at 0° by default; DSL authors can explicitly opt
+/// back into that level-cue idealization with `.elevation(0deg)`.
+const DEFAULT_SIDE_ENGLISH_CUE_ELEVATION_DEGREES: f64 = 1.384;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DslDoc {
     pub table: Option<TableRef>,
@@ -2717,6 +2724,14 @@ fn resolve_shot_heading(aim: ShotAimSpec, game_state: &GameState) -> Result<Angl
     }
 }
 
+fn default_cue_elevation_degrees_for_dsl_tip(side_offset_radius: f64) -> Option<f64> {
+    if side_offset_radius.abs() > f64::EPSILON {
+        Some(DEFAULT_SIDE_ENGLISH_CUE_ELEVATION_DEGREES)
+    } else {
+        None
+    }
+}
+
 fn build_shot(
     def: &ShotDef,
     cue_strikes: &HashMap<String, CueStrikeConfig>,
@@ -2808,6 +2823,8 @@ fn build_shot(
     let cue_strike_name = cue_strike_name.ok_or_else(|| DslBuildError::MissingShotMethod {
         method: "using".to_string(),
     })?;
+    let effective_cue_elevation_degrees =
+        cue_elevation_degrees.or_else(|| default_cue_elevation_degrees_for_dsl_tip(side));
 
     let cue_strike = cue_strikes
         .get(&cue_strike_name)
@@ -2822,7 +2839,7 @@ fn build_shot(
         &cue_strike,
     )
     .map_err(DslBuildError::InvalidShot)?;
-    if let Some(elevation_degrees) = cue_elevation_degrees {
+    if let Some(elevation_degrees) = effective_cue_elevation_degrees {
         shot = shot
             .with_cue_elevation(angle_from_degrees(elevation_degrees))
             .map_err(DslBuildError::InvalidShot)?;

@@ -1,10 +1,13 @@
 use billiards::{
-    advance_motion_on_table, cue_endmass_ratio_from_squirt, cue_natural_pivot_length,
+    advance_motion_on_table, coriolis_masse_curve_angle_degrees, coriolis_masse_final_heading,
+    cue_endmass_ratio_from_squirt, cue_natural_pivot_length,
     cue_squirt_angle_degrees_from_endmass_ratio, cue_tip_offset_for_pivot_angle,
-    human_tuned_preview_motion_config, settle_airborne_ball_on_next_table_contact,
-    strike_resting_ball, strike_resting_ball_on_table, Angle, AngularVelocity3, BallSetPhysicsSpec,
-    BallState, CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond, MotionPhase,
-    RestingOnTableBallState, Scale, Seconds, Shot, ShotError, Velocity2, TYPICAL_BALL_RADIUS,
+    human_tuned_preview_motion_config, masse_curve_mode_for_launch,
+    settle_airborne_ball_on_next_table_contact, strike_resting_ball, strike_resting_ball_on_table,
+    validate_coriolis_masse_bar_relationship, Angle, AngularVelocity3, BallSetPhysicsSpec,
+    BallState, CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond, MasseCurveMode,
+    MotionPhase, RestingOnTableBallState, Scale, Seconds, Shot, ShotError, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -210,6 +213,104 @@ fn elevated_side_english_seeds_masse_spin_and_bends_after_landing() {
             "side offset {side_offset} should bend sideways after landing; got offset {curve_offset}"
         );
     }
+}
+
+#[test]
+fn coriolis_masse_helper_predicts_tp_a19_bar_final_direction() {
+    let tip = CueTipContact::new(Scale::from_f64(0.25), Scale::from_f64(0.25))
+        .expect("TP A.19 contact point should validate");
+    let cue_elevation = angle_degrees(75.0);
+    let aim_heading = angle_degrees(0.0);
+    let expected_curve_angle = (0.25_f64 * 75.0_f64.to_radians().sin())
+        .atan2(75.0_f64.to_radians().cos() - 0.25)
+        .to_degrees();
+
+    let curve_angle = coriolis_masse_curve_angle_degrees(&tip, cue_elevation)
+        .expect("side/elevated contact should produce a BAR curve angle");
+    let final_heading = coriolis_masse_final_heading(aim_heading, &tip, cue_elevation)
+        .expect("side/elevated contact should produce a final heading");
+
+    assert_close(curve_angle, expected_curve_angle);
+    assert_close(final_heading.as_degrees(), expected_curve_angle);
+
+    let aim_point = Inches2::new("0", "10");
+    let final_heading_radians = final_heading.as_degrees().to_radians();
+    let final_reference_point = Inches2::new(
+        Inches::from_f64(aim_point.x().as_f64() - 10.0 * final_heading_radians.sin()),
+        Inches::from_f64(aim_point.y().as_f64() - 10.0 * final_heading_radians.cos()),
+    );
+    let relationship = validate_coriolis_masse_bar_relationship(
+        &Inches2::zero(),
+        &aim_point,
+        &final_reference_point,
+        &tip,
+        cue_elevation,
+        1e-9,
+    )
+    .expect("A/B/R relation should match the Coriolis final direction");
+
+    assert_close(relationship.aim_heading.as_degrees(), 0.0);
+    assert_close(
+        relationship.predicted_final_heading.as_degrees(),
+        final_heading.as_degrees(),
+    );
+    assert_close(relationship.final_heading_error_degrees, 0.0);
+}
+
+#[test]
+fn coriolis_masse_bar_validation_rejects_unsupported_or_mismatched_requests() {
+    let no_side = CueTipContact::new(Scale::zero(), Scale::from_f64(0.25))
+        .expect("center-side contact should validate");
+    let side = CueTipContact::new(Scale::from_f64(0.25), Scale::from_f64(0.25))
+        .expect("side contact should validate");
+    let cue_elevation = angle_degrees(75.0);
+
+    let no_side_error = coriolis_masse_curve_angle_degrees(&no_side, cue_elevation)
+        .expect_err("BAR massé helper should require side spin");
+    assert!(matches!(
+        no_side_error,
+        ShotError::MasseRequiresSideSpin { .. }
+    ));
+
+    let mismatch_error = validate_coriolis_masse_bar_relationship(
+        &Inches2::zero(),
+        &Inches2::new("0", "10"),
+        &Inches2::new("0", "0"),
+        &side,
+        cue_elevation,
+        0.1,
+    )
+    .expect_err("straight R->A direction should not match the predicted curve");
+    assert!(matches!(
+        mismatch_error,
+        ShotError::MasseAimRelationshipMismatch { .. }
+    ));
+}
+
+#[test]
+fn shot_masse_aim_estimate_reports_current_jump_then_curve_mode() {
+    let ball_set = BallSetPhysicsSpec::default();
+    let tip = CueTipContact::new(Scale::from_f64(0.25), Scale::from_f64(0.25))
+        .expect("side contact should validate");
+    let shot = Shot::new(angle_degrees(0.0), InchesPerSecond::new("70"), tip.clone())
+        .expect("shot should validate")
+        .with_cue_elevation(angle_degrees(75.0))
+        .expect("elevation should validate");
+
+    let estimate = shot
+        .masse_aim_estimate(&cue_config(), &ball_set)
+        .expect("side/elevated shot should produce a massé aim estimate");
+    let launch_mode =
+        masse_curve_mode_for_launch(&InchesPerSecond::new("0"), shot.cue_elevation(), &ball_set)
+            .expect("zero-speed launch should stay on cloth");
+
+    assert_eq!(estimate.curve_mode, MasseCurveMode::JumpThenCurve);
+    assert_eq!(launch_mode, MasseCurveMode::ContinuousOnClothSwerve);
+    assert_close(
+        estimate.signed_curve_angle_degrees,
+        coriolis_masse_curve_angle_degrees(&tip, shot.cue_elevation())
+            .expect("same tip/elevation should produce curve angle"),
+    );
 }
 
 #[test]

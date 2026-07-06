@@ -1172,6 +1172,7 @@ impl Default for PlayingConditions {
 const IDEAL_BALL_BALL_NORMAL_RESTITUTION: f64 = 1.0;
 const HUMAN_TUNED_BALL_BALL_NORMAL_RESTITUTION: f64 = 0.95;
 const DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.06;
+const KIM_2024_OBJECT_TABLE_STATIC_FRICTION_COEFFICIENT: f64 = 0.30;
 const MARLOW_BALL_BALL_FRICTION_A: f64 = 9.951e-3;
 const MARLOW_BALL_BALL_FRICTION_B: f64 = 0.108;
 const MARLOW_BALL_BALL_FRICTION_C_PER_METER_PER_SECOND: f64 = 1.088;
@@ -1241,9 +1242,11 @@ impl BallBallFrictionModel {
 ///
 /// `ideal()` preserves the existing equal-mass perfectly elastic normal limit and the historical
 /// constant-friction throw approximation. `human_tuned()` uses a less lively normal restitution and
-/// the TP A.14 / Marlow speed-dependent friction curve for throw / spin transfer.
-/// `object_table_static_friction_coefficient` is an opt-in Kim 2024 first-order correction for
-/// object-ball/table static friction during topspin ball-ball impacts.
+/// the TP A.14 / Marlow speed-dependent friction curve for throw / spin transfer. Both leave
+/// object/table static friction off deliberately: Kim 2024 reports a significant first-order
+/// object-ball/table correction with measured `μ_s ≈ 0.2..0.4`, but this on-table collision model
+/// still omits the paired vertical hop state. Use `with_kim_object_table_static_friction()` or an
+/// explicit coefficient to opt into that first-order extension.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BallBallCollisionConfig {
     pub normal_restitution: Scale,
@@ -1298,6 +1301,16 @@ impl BallBallCollisionConfig {
     pub fn with_object_table_static_friction_coefficient(mut self, coefficient: Scale) -> Self {
         self.object_table_static_friction_coefficient = coefficient;
         self
+    }
+
+    pub fn with_kim_object_table_static_friction(self) -> Self {
+        self.with_object_table_static_friction_coefficient(Scale::from_f64(
+            KIM_2024_OBJECT_TABLE_STATIC_FRICTION_COEFFICIENT,
+        ))
+    }
+
+    pub fn kim_table_coupled() -> Self {
+        Self::human_tuned().with_kim_object_table_static_friction()
     }
 
     pub fn applying_conditions(&self, conditions: &PlayingConditions) -> Self {
@@ -2464,11 +2477,11 @@ pub struct BallPathSegment {
     pub event_marker_title: Option<String>,
 }
 
-/// A first-pass traced single-ball path across the table.
+/// A traced single-ball path across the table.
 ///
-/// This is currently an event-vertex path: it records visible straight segments between the traced
-/// state's start point, rail impacts, motion-transition vertices, and the final stop condition. It
-/// does not yet sample within-phase side-spin curvature inside a segment.
+/// The stored segments preserve event vertices (start, rail impacts, motion transitions, and the
+/// final stop condition). Use [`BallPath::sampled_points`] or the rendered path helpers when a
+/// drawable polyline should include within-phase sliding or rolling curvature.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BallPath {
     pub initial_state: OnTableBallState,
@@ -3142,6 +3155,29 @@ pub enum ShotError {
         cue_elevation: Angle,
         vertical_velocity: InchesPerSecond,
     },
+    MasseRequiresSideSpin {
+        tip_contact: CueTipContact,
+    },
+    MasseRequiresCueElevation {
+        cue_elevation: Angle,
+    },
+    MasseAimPointCoincidentWithCueBall {
+        cue_ball_position: Inches2,
+        aim_point: Inches2,
+    },
+    MasseFinalReferenceCoincidentWithAimPoint {
+        aim_point: Inches2,
+        final_reference_point: Inches2,
+    },
+    MasseAimToleranceOutOfRange {
+        tolerance_degrees: f64,
+    },
+    MasseAimRelationshipMismatch {
+        predicted_final_heading: Angle,
+        actual_final_heading: Angle,
+        error_degrees: f64,
+        tolerance_degrees: f64,
+    },
 }
 
 /// A cue-tip contact point on the cue ball, expressed in cue-local ball-radius units.
@@ -3212,11 +3248,49 @@ impl CueTipContact {
     }
 }
 
+/// Current simulation mode used after seeding a Coriolis/BAR massé or swerve intent.
+///
+/// TP A.19 predicts the final post-curve direction from contact geometry; speed controls where
+/// along the path that direction is reached.  The current engine can either keep the stroke in the
+/// on-table solver immediately or launch it ballistically and apply the curve after table contact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MasseCurveMode {
+    ContinuousOnClothSwerve,
+    JumpThenCurve,
+}
+
+/// Coriolis/BAR final-direction estimate for an elevated side-spin shot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MasseAimEstimate {
+    pub aim_heading: Angle,
+    pub final_heading: Angle,
+    pub signed_curve_angle_degrees: f64,
+    pub curve_mode: MasseCurveMode,
+}
+
+/// Validation report for the source-style `B`/`A`/`R` massé aiming relationship.
+///
+/// `cue_ball_position` is point `B`, `aim_point` is point `A` on the cue vertical plane, and
+/// `final_reference_point` is point `R`; the Coriolis/BAR method predicts that the final cue-ball
+/// direction after curving is parallel to `RA`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MasseBarRelationship {
+    pub cue_ball_position: Inches2,
+    pub aim_point: Inches2,
+    pub final_reference_point: Inches2,
+    pub aim_heading: Angle,
+    pub actual_final_heading: Angle,
+    pub predicted_final_heading: Angle,
+    pub signed_curve_angle_degrees: f64,
+    pub final_heading_error_degrees: f64,
+}
+
 /// A fully specified cue shot intent for striking a resting cue ball.
 ///
 /// This is a pure input description: the absolute shot heading, the cue speed at impact, the
-/// validated cue-tip contact point on the ball, and the cue-stick elevation. A zero elevation is a
-/// level stroke and is the default used by all existing callers.
+/// validated cue-tip contact point on the ball, and the cue-stick elevation. The low-level API
+/// keeps a zero-elevation default for idealized physics callers; the scenario DSL applies its own
+/// side-English elevation policy when authors omit `.elevation(...)`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shot {
     heading: Angle,
@@ -3264,6 +3338,33 @@ impl Shot {
         validate_cue_elevation(cue_elevation)?;
         self.cue_elevation = cue_elevation;
         Ok(self)
+    }
+
+    /// Estimate the TP A.19 / Coriolis-BAR final cue-ball direction for this shot.
+    ///
+    /// This is an aiming relation, not a full path solver: it predicts the post-curve direction
+    /// from the cue vertical plane, side-tip offset, height offset, and cue elevation. Shot speed is
+    /// used only to report whether the current engine will keep the stroke in the on-cloth solver
+    /// immediately or represent it as jump-then-curve after landing.
+    pub fn masse_aim_estimate(
+        &self,
+        cue: &CueStrikeConfig,
+        ball_set: &BallSetPhysicsSpec,
+    ) -> Result<MasseAimEstimate, ShotError> {
+        let signed_curve_angle_degrees =
+            coriolis_masse_curve_angle_degrees(&self.tip_contact, self.cue_elevation)?;
+        let final_heading =
+            coriolis_masse_final_heading(self.heading, &self.tip_contact, self.cue_elevation)?;
+        let post_strike_speed = compute_post_strike_speed(self, cue)?;
+        let curve_mode =
+            masse_curve_mode_for_launch(&post_strike_speed, self.cue_elevation, ball_set)?;
+
+        Ok(MasseAimEstimate {
+            aim_heading: self.heading,
+            final_heading,
+            signed_curve_angle_degrees,
+            curve_mode,
+        })
     }
 
     pub fn heading(&self) -> Angle {
@@ -4056,6 +4157,153 @@ fn compute_post_strike_planar_state(
         velocity,
         angular_velocity,
     }
+}
+
+fn signed_heading_delta_degrees(from: Angle, to: Angle) -> f64 {
+    (to.as_degrees() - from.as_degrees() + 540.0).rem_euclid(360.0) - 180.0
+}
+
+fn heading_from_points(from: &Inches2, to: &Inches2) -> Option<Angle> {
+    let dx = to.x().as_f64() - from.x().as_f64();
+    let dy = to.y().as_f64() - from.y().as_f64();
+    if dx.abs() <= f64::EPSILON && dy.abs() <= f64::EPSILON {
+        None
+    } else {
+        Some(Angle::from_north(dx, dy))
+    }
+}
+
+/// Return the signed TP A.19 / Coriolis-BAR final curve angle in degrees.
+///
+/// The angle is measured from the cue vertical plane / initial aiming line to the final cue-ball
+/// direction after the massé/swerve curve has completed. Positive side-tip offset curves to the
+/// player's right. The implementation uses TP A.19 Eq. 7 / Eq. 10 in normalized ball-radius units:
+/// `theta = atan2(a sin(phi), cos(phi) - b)`, where `a` is side offset, `b` is height offset, and
+/// `phi` is cue elevation.
+pub fn coriolis_masse_curve_angle_degrees(
+    tip_contact: &CueTipContact,
+    cue_elevation: Angle,
+) -> Result<f64, ShotError> {
+    validate_cue_elevation(cue_elevation)?;
+
+    let side_offset = tip_contact.side_offset().as_f64();
+    if side_offset.abs() <= f64::EPSILON {
+        return Err(ShotError::MasseRequiresSideSpin {
+            tip_contact: tip_contact.clone(),
+        });
+    }
+    if cue_elevation.as_degrees() <= f64::EPSILON {
+        return Err(ShotError::MasseRequiresCueElevation { cue_elevation });
+    }
+
+    let elevation_radians = cue_elevation.as_degrees().to_radians();
+    let numerator = side_offset * elevation_radians.sin();
+    let denominator = elevation_radians.cos() - tip_contact.height_offset().as_f64();
+
+    Ok(numerator.atan2(denominator).to_degrees())
+}
+
+/// Return the TP A.19 / Coriolis-BAR final post-curve cue-ball heading for an aiming line.
+///
+/// This direction is speed-independent in the source model. Shot speed controls where along the
+/// path the curve completes, not the final line direction.
+pub fn coriolis_masse_final_heading(
+    aim_heading: Angle,
+    tip_contact: &CueTipContact,
+    cue_elevation: Angle,
+) -> Result<Angle, ShotError> {
+    Ok(angle_from_degrees(
+        aim_heading.as_degrees() + coriolis_masse_curve_angle_degrees(tip_contact, cue_elevation)?,
+    ))
+}
+
+/// Classify whether the current elevated-shot engine will curve immediately on cloth or after a
+/// ballistic hop for the given post-strike cue-ball speed.
+pub fn masse_curve_mode_for_launch(
+    post_strike_speed: &InchesPerSecond,
+    cue_elevation: Angle,
+    ball_set: &BallSetPhysicsSpec,
+) -> Result<MasseCurveMode, ShotError> {
+    validate_cue_elevation(cue_elevation)?;
+    if post_strike_speed.as_f64() < 0.0 {
+        return Err(ShotError::NegativeCueSpeed {
+            cue_speed: post_strike_speed.clone(),
+        });
+    }
+    let (normal_restitution, _, _) =
+        airborne_table_contact_coefficients(&ball_set.airborne_table_contact);
+    let vertical_rebound_speed = post_strike_speed.as_f64()
+        * cue_elevation.as_degrees().to_radians().sin()
+        * normal_restitution;
+
+    if vertical_rebound_speed
+        <= MotionPhaseThresholds::default()
+            .airborne_vertical_speed
+            .as_f64()
+    {
+        Ok(MasseCurveMode::ContinuousOnClothSwerve)
+    } else {
+        Ok(MasseCurveMode::JumpThenCurve)
+    }
+}
+
+/// Validate the source-style `B`/`A`/`R` massé aiming relationship.
+///
+/// `cue_ball_position` is `B`, `aim_point` is `A`, and `final_reference_point` is `R`. The cue
+/// vertical plane is `BA`; the requested final direction is `RA`. The relationship is accepted
+/// when the `RA` heading matches the TP A.19 / Coriolis-BAR final direction implied by the supplied
+/// tip contact and cue elevation within `tolerance_degrees`.
+pub fn validate_coriolis_masse_bar_relationship(
+    cue_ball_position: &Inches2,
+    aim_point: &Inches2,
+    final_reference_point: &Inches2,
+    tip_contact: &CueTipContact,
+    cue_elevation: Angle,
+    tolerance_degrees: f64,
+) -> Result<MasseBarRelationship, ShotError> {
+    if !tolerance_degrees.is_finite() || tolerance_degrees < 0.0 {
+        return Err(ShotError::MasseAimToleranceOutOfRange { tolerance_degrees });
+    }
+
+    let aim_heading = heading_from_points(cue_ball_position, aim_point).ok_or_else(|| {
+        ShotError::MasseAimPointCoincidentWithCueBall {
+            cue_ball_position: cue_ball_position.clone(),
+            aim_point: aim_point.clone(),
+        }
+    })?;
+    let actual_final_heading =
+        heading_from_points(final_reference_point, aim_point).ok_or_else(|| {
+            ShotError::MasseFinalReferenceCoincidentWithAimPoint {
+                aim_point: aim_point.clone(),
+                final_reference_point: final_reference_point.clone(),
+            }
+        })?;
+    let predicted_final_heading =
+        coriolis_masse_final_heading(aim_heading, tip_contact, cue_elevation)?;
+    let signed_curve_angle_degrees =
+        coriolis_masse_curve_angle_degrees(tip_contact, cue_elevation)?;
+    let final_heading_error_degrees =
+        signed_heading_delta_degrees(predicted_final_heading, actual_final_heading).abs();
+
+    if final_heading_error_degrees > tolerance_degrees {
+        return Err(ShotError::MasseAimRelationshipMismatch {
+            predicted_final_heading,
+            actual_final_heading,
+            error_degrees: final_heading_error_degrees,
+            tolerance_degrees,
+        });
+    }
+
+    Ok(MasseBarRelationship {
+        cue_ball_position: cue_ball_position.clone(),
+        aim_point: aim_point.clone(),
+        final_reference_point: final_reference_point.clone(),
+        aim_heading,
+        actual_final_heading,
+        predicted_final_heading,
+        signed_curve_angle_degrees,
+        final_heading_error_degrees,
+    })
 }
 
 /// Convert a desired immediate cue-ball launch speed into the cue-stick speed required by the
@@ -11006,10 +11254,8 @@ fn push_visible_ball_path_segment(
 /// Trace a single ball forward over the table while resolving rail impacts using explicit rail
 /// response coefficients.
 ///
-/// This is currently a first-pass event-vertex trace: it records visible straight segments between
-/// the current state, any in-window motion-transition vertices, any in-window rail impacts, and the
-/// final requested stop condition. It does not yet sample within-phase side-spin curvature inside a
-/// segment.
+/// The returned path stores event vertices; [`BallPath::sampled_points`] and rendered path helpers
+/// densify those segments with phase-aware motion sampling for curved sliding or rolling motion.
 pub fn trace_ball_path_with_rail_profile_on_table(
     state: &OnTableBallState,
     stop: BallPathStop,
@@ -11157,10 +11403,8 @@ pub fn trace_ball_path_with_rail_profile_on_table(
 /// Trace a single ball forward over the table while resolving rail impacts using explicit rail
 /// response coefficients.
 ///
-/// This is currently a first-pass event-vertex trace: it records visible straight segments between
-/// the current state, any in-window motion-transition vertices, any in-window rail impacts, and the
-/// final requested stop condition. It does not yet sample within-phase side-spin curvature inside a
-/// segment.
+/// The returned path stores event vertices; [`BallPath::sampled_points`] and rendered path helpers
+/// densify those segments with phase-aware motion sampling for curved sliding or rolling motion.
 pub fn trace_ball_path_with_rail_config_on_table(
     state: &OnTableBallState,
     stop: BallPathStop,

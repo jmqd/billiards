@@ -1177,6 +1177,74 @@ fn frontal_rolling_impact_transfers_spin_and_leaves_object_ball_sliding() {
 }
 
 #[test]
+fn kim_object_table_static_friction_is_default_off_but_named_opt_in() {
+    assert_close(
+        BallBallCollisionConfig::default()
+            .object_table_static_friction_coefficient
+            .as_f64(),
+        0.0,
+    );
+    assert_close(
+        BallBallCollisionConfig::ideal()
+            .object_table_static_friction_coefficient
+            .as_f64(),
+        0.0,
+    );
+    assert_close(
+        BallBallCollisionConfig::human_tuned()
+            .object_table_static_friction_coefficient
+            .as_f64(),
+        0.0,
+    );
+
+    let configured = BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.06))
+        .with_kim_object_table_static_friction();
+    assert_close(
+        configured.object_table_static_friction_coefficient.as_f64(),
+        0.30,
+    );
+    assert_close(
+        BallBallCollisionConfig::kim_table_coupled()
+            .object_table_static_friction_coefficient
+            .as_f64(),
+        0.30,
+    );
+}
+
+#[test]
+fn kim_table_coupling_does_not_affect_human_tuned_default_collision() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let speed = 10.0;
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-speed / radius, 0.0, 0.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &object_ball,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &BallBallCollisionConfig::human_tuned(),
+    );
+    let diagnostics = outcome
+        .diagnostics
+        .expect("throw-aware collision should report diagnostics");
+
+    assert_close(diagnostics.kim_table_coupled_normal_correction, 0.0);
+    assert_close(
+        outcome.a_after.as_ball_state().velocity.y().as_f64(),
+        speed - diagnostics.normal_impulse_per_mass,
+    );
+    assert_close(
+        outcome.b_after.as_ball_state().velocity.y().as_f64(),
+        diagnostics.normal_impulse_per_mass,
+    );
+}
+
+#[test]
 fn kim_table_coupled_head_on_topspin_impact_recoils_cue_ball_and_reduces_object_speed() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let speed = 10.0;
@@ -1190,9 +1258,7 @@ fn kim_table_coupled_head_on_topspin_impact_recoils_cue_ball_and_reduces_object_
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let config =
         BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(ball_ball_friction))
-            .with_object_table_static_friction_coefficient(Scale::from_f64(
-                object_table_static_friction,
-            ));
+            .with_kim_object_table_static_friction();
 
     let outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
         &cue_ball,

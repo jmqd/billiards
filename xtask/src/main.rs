@@ -37,6 +37,7 @@ fn run() -> Result<(), String> {
         }
         CommandName::ValidationSuite(options) => run_validation_suite(&options),
         CommandName::BaseSvg(options) => run_base_svg(&options),
+        CommandName::WasmPreview(options) => run_wasm_preview(&options),
     }
 }
 
@@ -50,6 +51,7 @@ enum CommandName {
     Help,
     ValidationSuite(ValidationSuiteOptions),
     BaseSvg(BaseSvgOptions),
+    WasmPreview(WasmPreviewOptions),
 }
 
 #[derive(Debug)]
@@ -68,11 +70,30 @@ struct BaseSvgOptions {
     transparent_background: bool,
 }
 
+#[derive(Debug)]
+struct WasmPreviewOptions {
+    output_dir: PathBuf,
+    host: String,
+    port: u16,
+    serve: bool,
+}
+
 impl Default for BaseSvgOptions {
     fn default() -> Self {
         Self {
             output_path: PathBuf::from("target/base-pocket-table.svg"),
             transparent_background: false,
+        }
+    }
+}
+
+impl Default for WasmPreviewOptions {
+    fn default() -> Self {
+        Self {
+            output_dir: PathBuf::from("target/wasm-preview"),
+            host: "127.0.0.1".to_string(),
+            port: 8000,
+            serve: true,
         }
     }
 }
@@ -109,6 +130,9 @@ impl Args {
             }),
             "base-svg" | "base-table-svg" => Ok(Self {
                 command: CommandName::BaseSvg(BaseSvgOptions::parse(&raw_args[1..])?),
+            }),
+            "wasm-preview" | "wasm-web" => Ok(Self {
+                command: CommandName::WasmPreview(WasmPreviewOptions::parse(&raw_args[1..])?),
             }),
             other => Err(format!(
                 "unknown xtask command `{other}`\n\n{}",
@@ -203,6 +227,43 @@ impl BaseSvgOptions {
     }
 }
 
+impl WasmPreviewOptions {
+    fn parse(raw_args: &[String]) -> Result<Self, String> {
+        let mut options = Self::default();
+        let mut index = 0;
+        while index < raw_args.len() {
+            match raw_args[index].as_str() {
+                "--output-dir" => {
+                    index += 1;
+                    options.output_dir =
+                        PathBuf::from(value_after(raw_args, index, "--output-dir")?);
+                }
+                "--host" => {
+                    index += 1;
+                    options.host = value_after(raw_args, index, "--host")?.to_string();
+                }
+                "--port" => {
+                    index += 1;
+                    options.port = value_after(raw_args, index, "--port")?
+                        .parse::<u16>()
+                        .map_err(|error| format!("invalid --port: {error}"))?;
+                }
+                "--no-serve" => {
+                    options.serve = false;
+                }
+                "--help" | "-h" => {
+                    print_usage();
+                    std::process::exit(0);
+                }
+                other => return Err(format!("unknown wasm-preview option `{other}`")),
+            }
+            index += 1;
+        }
+
+        Ok(options)
+    }
+}
+
 fn value_after<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str, String> {
     args.get(index)
         .map(String::as_str)
@@ -241,6 +302,230 @@ fn run_base_svg(options: &BaseSvgOptions) -> Result<(), String> {
         options.output_path.display()
     );
     Ok(())
+}
+
+fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
+    fs::create_dir_all(&options.output_dir).map_err(|error| {
+        format!(
+            "failed to create Wasm preview dir {}: {error}",
+            options.output_dir.display()
+        )
+    })?;
+
+    run_checked(
+        Command::new("cargo")
+            .args(["build", "--lib", "--release", "--target"])
+            .arg("wasm32-unknown-unknown"),
+        "failed to build billiards Wasm library",
+    )?;
+
+    let package_dir = options.output_dir.join("pkg");
+    fs::create_dir_all(&package_dir).map_err(|error| {
+        format!(
+            "failed to create Wasm package dir {}: {error}",
+            package_dir.display()
+        )
+    })?;
+
+    run_checked(
+        Command::new("wasm-bindgen")
+            .arg("--target")
+            .arg("web")
+            .arg("--out-dir")
+            .arg(&package_dir)
+            .arg("--no-typescript")
+            .arg("target/wasm32-unknown-unknown/release/billiards.wasm"),
+        "failed to generate browser Wasm bindings",
+    )?;
+
+    copy_preview_asset("web/billiards-ui.css", &options.output_dir)?;
+    copy_preview_asset("web/billiards-viewer.js", &options.output_dir)?;
+
+    let index_path = options.output_dir.join("index.html");
+    fs::write(&index_path, wasm_preview_index_html())
+        .map_err(|error| format!("failed to write {}: {error}", index_path.display()))?;
+
+    println!("Built Wasm preview: {}", index_path.display());
+    if !options.serve {
+        println!(
+            "Serve it with: python -m http.server {} --bind {} --directory {}",
+            options.port,
+            options.host,
+            options.output_dir.display()
+        );
+        return Ok(());
+    }
+
+    let url = format!("http://{}:{}/index.html", options.host, options.port);
+    println!("Serving Wasm preview at {url}");
+    println!("Press Ctrl-C to stop the server.");
+    run_checked(
+        Command::new("python")
+            .arg("-m")
+            .arg("http.server")
+            .arg(options.port.to_string())
+            .arg("--bind")
+            .arg(&options.host)
+            .arg("--directory")
+            .arg(&options.output_dir),
+        "failed to serve Wasm preview",
+    )
+}
+
+fn run_checked(command: &mut Command, failure_message: &str) -> Result<(), String> {
+    let status = command
+        .status()
+        .map_err(|error| format!("{failure_message}: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{failure_message}: command exited with {status}"))
+    }
+}
+
+fn copy_preview_asset(source: impl AsRef<Path>, output_dir: &Path) -> Result<(), String> {
+    let source = source.as_ref();
+    let target = output_dir.join(
+        source
+            .file_name()
+            .ok_or_else(|| format!("asset path {} has no file name", source.display()))?,
+    );
+    fs::copy(source, &target).map_err(|error| {
+        format!(
+            "failed to copy {} to {}: {error}",
+            source.display(),
+            target.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn wasm_preview_index_html() -> &'static str {
+    r###"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Billiards Wasm Preview</title>
+  <link rel="stylesheet" href="./billiards-ui.css">
+  <style>
+    .wasm-preview-actions{display:flex;gap:.5rem;flex-wrap:wrap}
+    .wasm-preview-status{min-height:1.4rem}
+    .wasm-preview-grid{display:grid;grid-template-columns:minmax(22rem,.65fr) minmax(0,1.45fr);gap:1rem;align-items:start}
+    @media (max-width:1100px){.wasm-preview-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body class="wasm-app">
+  <header>
+    <h1>Billiards Wasm Preview</h1>
+    <p class="subtitle">A minimal static page generated by <code>cargo xtask wasm-preview</code>. It imports the compiled Rust/Wasm renderer from <code>./pkg/billiards.js</code>.</p>
+  </header>
+  <main class="wasm-preview-grid">
+    <section class="card editor-panel" aria-labelledby="editor-title">
+      <div class="panel-header">
+        <h2 id="editor-title">Scenario DSL</h2>
+        <div class="wasm-preview-actions">
+          <button id="render-button" type="button" disabled>Render</button>
+          <button id="reset-button" type="button" disabled>Reset sample</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <textarea id="dsl-input" spellcheck="false" aria-label="Billiards DSL input"></textarea>
+        <div id="status" class="status wasm-preview-status">Loading Wasm renderer…</div>
+      </div>
+    </section>
+    <section class="card wasm-report-card" aria-labelledby="preview-title">
+      <div class="panel-header">
+        <h2 id="preview-title">Rendered SVG</h2>
+      </div>
+      <div id="preview">
+        <p class="empty-preview">Waiting for the Wasm renderer.</p>
+      </div>
+    </section>
+  </main>
+  <script src="./billiards-viewer.js"></script>
+  <script type="module">
+    import init, { render_svg_report_from_dsl } from "./pkg/billiards.js";
+
+    const sampleDsl = `table brunswick_gc4_9ft
+ball cue at center
+ball one at (2.18, 4.12)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(0deg).speed(medium-soft).tip(side: -0.35R, height: -0.35R).using(default)
+trace(max_events: 8)
+`;
+
+    const input = document.querySelector("#dsl-input");
+    const status = document.querySelector("#status");
+    const preview = document.querySelector("#preview");
+    const renderButton = document.querySelector("#render-button");
+    const resetButton = document.querySelector("#reset-button");
+
+    function setStatus(message, kind = "") {
+      status.textContent = message;
+      status.classList.toggle("ok", kind === "ok");
+      status.classList.toggle("error", kind === "error");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function eventLogHtml(events) {
+      if (!Array.isArray(events) || events.length === 0) {
+        return "";
+      }
+      const rows = events.map((event) => {
+        const label = escapeHtml(event.label ?? "");
+        const time = Number(event.time ?? 0).toFixed(6);
+        const summary = escapeHtml(event.summary ?? "");
+        return `<li><span class="event-badge">${label}</span> <span class="event-time">t=${time}</span> <span class="event-summary">${summary}</span></li>`;
+      }).join("");
+      return `<details class="event-log" open><summary>Event log</summary><ol class="event-list">${rows}</ol></details>`;
+    }
+
+    function render() {
+      try {
+        const start = performance.now();
+        const report = JSON.parse(render_svg_report_from_dsl(input.value));
+        const elapsedMs = Math.round(performance.now() - start);
+        const viewer = window.BilliardsReportViewer;
+        const controls = viewer?.viewerControlsHtml?.({ tableDetailDefault: "full" }) ?? "";
+        const playback = viewer?.playbackPanelHtml?.(report.playback) ?? "";
+        preview.innerHTML = `<figure class="svg-viewer" data-viewer>${controls}<div class="svg-frame">${report.svg}</div>${playback}</figure>${eventLogHtml(report.events)}`;
+        viewer?.initialize(preview);
+        const svgSizeKiB = (new Blob([report.svg], { type: "image/svg+xml" }).size / 1024).toFixed(1);
+        const frames = report.playback?.frames?.length ?? 0;
+        setStatus(`Rendered ${svgSizeKiB} KiB SVG in ${elapsedMs} ms${frames ? ` with ${frames} playback frames` : ""}.`, "ok");
+      } catch (error) {
+        preview.innerHTML = `<p class="empty-preview">Render failed.</p>`;
+        setStatus(error instanceof Error ? error.message : String(error), "error");
+      }
+    }
+
+    input.value = sampleDsl;
+    try {
+      await init();
+      renderButton.disabled = false;
+      resetButton.disabled = false;
+      renderButton.addEventListener("click", render);
+      resetButton.addEventListener("click", () => {
+        input.value = sampleDsl;
+        render();
+      });
+      render();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), "error");
+      preview.innerHTML = `<p class="empty-preview">The Wasm package did not load. Re-run <code>cargo xtask wasm-preview</code>.</p>`;
+    }
+  </script>
+</body>
+</html>
+"###
 }
 
 const VALIDATION_SUITE_MAX_PARALLELISM: usize = 8;
@@ -1547,7 +1832,7 @@ fn print_usage() {
 }
 
 fn usage_text() -> &'static str {
-    "Usage:\n  cargo xtask validation-suite [options]\n  cargo xtask base-svg [options]\n\nValidation suite options:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for SVG diagrams and index.html [default: target/validation-suite]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.0025]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n\nBase SVG options:\n  --output <path>                    Output SVG path [default: target/base-pocket-table.svg]\n  --transparent                      Render the base table with transparent background metadata\n"
+    "Usage:\n  cargo xtask validation-suite [options]\n  cargo xtask base-svg [options]\n  cargo xtask wasm-preview [options]\n\nValidation suite options:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for SVG diagrams and index.html [default: target/validation-suite]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.0025]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n\nBase SVG options:\n  --output <path>                    Output SVG path [default: target/base-pocket-table.svg]\n  --transparent                      Render the base table with transparent background metadata\n\nWasm preview options:\n  --output-dir <dir>                 Output directory for index.html, assets, and pkg/ [default: target/wasm-preview]\n  --host <host>                      Static server bind host [default: 127.0.0.1]\n  --port <port>                      Static server port [default: 8000]\n  --no-serve                         Build the preview without starting the HTTP server\n"
 }
 
 #[cfg(test)]
@@ -1842,10 +2127,41 @@ mod tests {
     }
 
     #[test]
+    fn wasm_preview_options_parse_output_host_port_and_no_serve() {
+        let args = [
+            "--output-dir".to_string(),
+            "target/custom-wasm".to_string(),
+            "--host".to_string(),
+            "0.0.0.0".to_string(),
+            "--port".to_string(),
+            "9090".to_string(),
+            "--no-serve".to_string(),
+        ];
+
+        let options = WasmPreviewOptions::parse(&args).expect("wasm-preview options should parse");
+
+        assert_eq!(options.output_dir, PathBuf::from("target/custom-wasm"));
+        assert_eq!(options.host, "0.0.0.0");
+        assert_eq!(options.port, 9090);
+        assert!(!options.serve);
+    }
+
+    #[test]
+    fn wasm_preview_options_reject_unknown_option() {
+        let args = ["--format".to_string(), "svg".to_string()];
+
+        let error = WasmPreviewOptions::parse(&args).expect_err("format option is not supported");
+
+        assert!(error.contains("unknown wasm-preview option `--format`"));
+    }
+
+    #[test]
     fn usage_lists_base_svg_command() {
         let usage = usage_text();
 
         assert!(usage.contains("cargo xtask base-svg [options]"));
+        assert!(usage.contains("cargo xtask wasm-preview [options]"));
         assert!(usage.contains("target/base-pocket-table.svg"));
+        assert!(usage.contains("target/wasm-preview"));
     }
 }

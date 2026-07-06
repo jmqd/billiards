@@ -69,16 +69,24 @@ For more:
 
 ## Browser SVG generator
 
-The Rust renderer can be compiled to Wasm and used from a static web page:
+The Rust renderer can be compiled to Wasm and served from a generated static
+preview page:
 
 ```bash
-nix develop -c just wasm-web
-nix develop -c python -m http.server 8000 --directory web
+nix develop -c cargo xtask wasm-preview
 ```
 
-Then open <http://127.0.0.1:8000/>. The page accepts `.billiards` DSL text,
-renders through the Wasm `render_svg_from_dsl` binding, previews the SVG, and
-offers a download button. Generated Wasm glue lives in `web/pkg/` and is ignored.
+Then open the `Serving Wasm preview at ...` URL printed by the command. For a
+build-only artifact that you can serve yourself:
+
+```bash
+nix develop -c cargo xtask wasm-preview --no-serve
+```
+
+The generated page accepts `.billiards` DSL text, renders through the Wasm
+`render_svg_report_from_dsl` binding, previews the SVG, and includes the same
+table-detail and playback controls used by the validation gallery. Generated
+preview output lives in `target/wasm-preview/`.
 
 ## Thanks
 

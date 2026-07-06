@@ -60,7 +60,10 @@ fn rolling_without_slip_is_classified_as_rolling() {
     assert_eq!(
         classify_motion_phase(
             &state,
-            &BallSetPhysicsSpec { radius },
+            &BallSetPhysicsSpec {
+                radius,
+                ..BallSetPhysicsSpec::default()
+            },
             &MotionPhaseConfig {
                 sliding_to_rolling: SlidingToRollingModel::Thresholded {
                     contact_speed_epsilon: billiards::InchesPerSecond::new("0.000001"),
@@ -144,7 +147,10 @@ fn tiny_vertical_noise_below_the_airborne_threshold_is_still_classified_from_on_
     assert_eq!(
         classify_motion_phase(
             &state,
-            &BallSetPhysicsSpec { radius },
+            &BallSetPhysicsSpec {
+                radius,
+                ..BallSetPhysicsSpec::default()
+            },
             &MotionPhaseConfig::default()
         ),
         MotionPhase::Rolling

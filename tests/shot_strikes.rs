@@ -2,9 +2,9 @@ use billiards::{
     advance_motion_on_table, cue_endmass_ratio_from_squirt, cue_natural_pivot_length,
     cue_squirt_angle_degrees_from_endmass_ratio, cue_tip_offset_for_pivot_angle,
     human_tuned_preview_motion_config, settle_airborne_ball_on_next_table_contact,
-    strike_resting_ball, strike_resting_ball_on_table, Angle, BallSetPhysicsSpec, BallState,
-    CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond, MotionPhase,
-    RestingOnTableBallState, Scale, Seconds, Shot, ShotError, TYPICAL_BALL_RADIUS,
+    strike_resting_ball, strike_resting_ball_on_table, Angle, AngularVelocity3, BallSetPhysicsSpec,
+    BallState, CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond, MotionPhase,
+    RestingOnTableBallState, Scale, Seconds, Shot, ShotError, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -114,6 +114,61 @@ fn elevated_center_ball_shot_leaves_table_with_ballistic_vertical_velocity() {
 }
 
 #[test]
+fn elevated_center_ball_uses_tp_b10_table_restitution_for_launch() {
+    let shot = Shot::new(
+        Angle::from_north(0.0, 1.0),
+        InchesPerSecond::new("10"),
+        CueTipContact::center(),
+    )
+    .expect("shot should validate")
+    .with_cue_elevation(angle_degrees(20.0))
+    .expect("elevation should validate");
+
+    let struck = strike_resting_ball(
+        &resting_ball(),
+        &shot,
+        &cue_config(),
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("elevated strike should succeed");
+    let post_strike_speed = 10.0 * (1.0 + (0.8_f64).sqrt()) / 2.0;
+
+    assert_close(
+        struck.vertical_velocity.as_f64(),
+        post_strike_speed * 20.0_f64.to_radians().sin() * 0.6,
+    );
+}
+
+#[test]
+fn airborne_table_contact_applies_tangential_impulse_and_spin_loss() {
+    let ball_set = BallSetPhysicsSpec::default();
+    let airborne = BallState::airborne(
+        Inches2::new("10", "20"),
+        Inches::zero(),
+        Velocity2::new("40", "0"),
+        Inches::from_f64(-10.0),
+        AngularVelocity3::new(0.0, -10.0, 4.0),
+    );
+
+    let contact = settle_airborne_ball_on_next_table_contact(&airborne, &ball_set)
+        .expect("airborne ball should contact the table");
+    let after = contact.state_after_contact.as_ball_state();
+
+    assert!(
+        after.velocity.x().as_f64() < airborne.velocity.x().as_f64(),
+        "table contact should reduce tangential center speed"
+    );
+    assert!(
+        after.angular_velocity.y().as_f64().abs() < airborne.angular_velocity.y().as_f64().abs(),
+        "table contact should reduce spin coupled to contact slip"
+    );
+    assert_close(
+        after.angular_velocity.z().as_f64(),
+        airborne.angular_velocity.z().as_f64(),
+    );
+}
+
+#[test]
 fn elevated_side_english_seeds_masse_spin_and_bends_after_landing() {
     let ball_set = BallSetPhysicsSpec::default();
     let motion = human_tuned_preview_motion_config();
@@ -132,7 +187,7 @@ fn elevated_side_english_seeds_masse_spin_and_bends_after_landing() {
 
         let airborne = strike_resting_ball(&resting_ball(), &shot, &cue_config(), &ball_set)
             .expect("elevated side-spin strike should succeed");
-        let contact = settle_airborne_ball_on_next_table_contact(&airborne)
+        let contact = settle_airborne_ball_on_next_table_contact(&airborne, &ball_set)
             .expect("airborne shot should land back on the table");
         let landed = contact.state_on_table_at_contact;
         let landed_state = landed.as_ball_state();

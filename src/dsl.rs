@@ -1028,6 +1028,10 @@ pub enum ScenarioShotTraceEventKind {
         first_ball: BallType,
         second_ball: BallType,
     },
+    UnsupportedAirborneBallBallContact {
+        first_ball: BallType,
+        second_ball: BallType,
+    },
     SharedBallBallContact {
         balls: Vec<BallType>,
         ball_ball_pairs: Vec<(BallType, BallType)>,
@@ -1064,6 +1068,14 @@ impl ScenarioShotTraceEventKind {
                 second_ball,
             } => format!(
                 "{} -> {} collision",
+                ball_type_name(first_ball),
+                ball_type_name(second_ball)
+            ),
+            ScenarioShotTraceEventKind::UnsupportedAirborneBallBallContact {
+                first_ball,
+                second_ball,
+            } => format!(
+                "{} -> {} unsupported airborne contact",
                 ball_type_name(first_ball),
                 ball_type_name(second_ball)
             ),
@@ -1400,6 +1412,11 @@ fn scenario_event_involves_ball(event: &NBallSystemEvent, ball_index: usize) -> 
             second_ball_index,
             ..
         } => *first_ball_index == ball_index || *second_ball_index == ball_index,
+        NBallSystemEvent::UnsupportedAirborneBallBallContact {
+            first_ball_index,
+            second_ball_index,
+            ..
+        } => *first_ball_index == ball_index || *second_ball_index == ball_index,
         NBallSystemEvent::SharedBallBallContact { ball_indices, .. } => {
             ball_indices.contains(&ball_index)
         }
@@ -1436,6 +1453,14 @@ fn scenario_event_kind_from_system_event(
             second_ball_index,
             ..
         } => ScenarioShotTraceEventKind::BallBallCollision {
+            first_ball: balls[*first_ball_index].ty.clone(),
+            second_ball: balls[*second_ball_index].ty.clone(),
+        },
+        NBallSystemEvent::UnsupportedAirborneBallBallContact {
+            first_ball_index,
+            second_ball_index,
+            ..
+        } => ScenarioShotTraceEventKind::UnsupportedAirborneBallBallContact {
             first_ball: balls[*first_ball_index].ty.clone(),
             second_ball: balls[*second_ball_index].ty.clone(),
         },

@@ -619,6 +619,37 @@ fn the_curve_estimate_reports_tp_b2_rolling_side_spin_turn() {
 }
 
 #[test]
+fn advancing_a_rolling_ball_with_side_spin_follows_the_tp_b2_curve() {
+    let state = rolling_with_small_vertical_spin_state();
+    let advanced = advance_ball_state(
+        &state,
+        Seconds::new(1.0),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    );
+
+    assert_close_with_tolerance(
+        advanced.position.x().as_f64(),
+        10.004_702_077_725_524,
+        1e-12,
+    );
+    assert_close_with_tolerance(
+        advanced.position.y().as_f64(),
+        27.499_997_782_973_136,
+        1e-12,
+    );
+    assert_close_with_tolerance(
+        advanced
+            .velocity
+            .angle_from_north()
+            .expect("rolling ball should keep moving after side-spin decay")
+            .as_degrees(),
+        0.092_577_115_274_648_42,
+        1e-12,
+    );
+}
+
+#[test]
 fn tp_b2_rolling_side_spin_curve_estimate_matches_published_examples() {
     for (mph, distance_inches, expected_time, expected_turn, expected_error) in [
         (2.0, 96.0, 3.339, 0.305, 0.217),

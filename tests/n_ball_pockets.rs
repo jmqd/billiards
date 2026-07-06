@@ -264,6 +264,148 @@ fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
     );
 }
 
+#[test]
+fn airborne_ball_rail_impact_is_scheduled_before_later_table_contact() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let speed = 200.0;
+    let states = vec![NBallSystemState::Airborne(BallState::airborne(
+        inches2(20.0, top_plane - 10.0),
+        Inches::from_f64(12.0),
+        Velocity2::new(Inches::zero(), Inches::from_f64(speed)),
+        Inches::zero(),
+        AngularVelocity3::new(-speed / radius, 0.0, 0.0),
+    ))];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states, &ball, &table, &motion,
+    );
+
+    let Some(NBallSystemEvent::BallRailImpact { ball_index, impact }) = event else {
+        panic!("expected airborne rail impact before table contact, got {event:?}");
+    };
+
+    assert_eq!(ball_index, 0);
+    assert_eq!(impact.rail, Rail::Top);
+    let table_contact_time = (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt();
+    assert!(impact.time_until_impact.as_f64() < table_contact_time);
+}
+
+#[test]
+fn airborne_ball_pocket_capture_is_scheduled_before_later_table_contact() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let planar = fast_rolling_top_right_corner_pocket_state(0.0);
+    let planar = planar.as_ball_state();
+    let states = vec![NBallSystemState::Airborne(BallState::airborne(
+        planar.position.clone(),
+        Inches::from_f64(12.0),
+        planar.velocity.clone(),
+        Inches::zero(),
+        planar.angular_velocity.clone(),
+    ))];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states, &ball, &table, &motion,
+    );
+
+    let Some(NBallSystemEvent::BallPocketCapture {
+        ball_index,
+        capture,
+    }) = event
+    else {
+        panic!("expected airborne pocket capture before table contact, got {event:?}");
+    };
+
+    assert_eq!(ball_index, 0);
+    assert_eq!(capture.pocket, Pocket::TopRight);
+    let table_contact_time = (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt();
+    assert!(capture.time_until_capture.as_f64() < table_contact_time);
+}
+
+#[test]
+fn airborne_ball_ball_contact_is_reported_before_later_table_contact() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let cue = BallState::airborne(
+        inches2(20.0, 20.0),
+        Inches::from_f64(2.0),
+        Velocity2::new(Inches::from_f64(40.0), Inches::zero()),
+        Inches::zero(),
+        AngularVelocity3::zero(),
+    );
+    let object = BallState::resting_at(inches2(24.0, 20.0));
+    let states = vec![
+        NBallSystemState::Airborne(cue),
+        NBallSystemState::OnTable(on_table(object)),
+    ];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states, &ball, &table, &motion,
+    );
+
+    let Some(NBallSystemEvent::UnsupportedAirborneBallBallContact {
+        first_ball_index,
+        second_ball_index,
+        contact,
+    }) = event
+    else {
+        panic!(
+            "expected diagnostic airborne ball-ball contact before table contact, got {event:?}"
+        );
+    };
+
+    assert_eq!((first_ball_index, second_ball_index), (0, 1));
+    assert!(
+        contact.time_until_contact.as_f64()
+            < (4.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt()
+    );
+    let dx = contact.second_at_contact.position.x().as_f64()
+        - contact.first_at_contact.position.x().as_f64();
+    let dy = contact.second_at_contact.position.y().as_f64()
+        - contact.first_at_contact.position.y().as_f64();
+    let dz = contact.second_at_contact.height.as_f64() - contact.first_at_contact.height.as_f64();
+    let center_distance = (dx * dx + dy * dy + dz * dz).sqrt();
+    assert_close(center_distance, 2.0 * ball.radius.as_f64());
+}
+
+#[test]
+fn airborne_ball_jaw_impact_is_scheduled_before_later_table_contact() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let mouth_width = table
+        .diamond_to_inches(table.pocket_spec(Pocket::CenterRight).width.clone())
+        .as_f64();
+    let planar = fast_rolling_side_pocket_state(0.5 * mouth_width);
+    let planar = planar.as_ball_state();
+    let states = vec![NBallSystemState::Airborne(BallState::airborne(
+        planar.position.clone(),
+        Inches::from_f64(12.0),
+        planar.velocity.clone(),
+        Inches::zero(),
+        planar.angular_velocity.clone(),
+    ))];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states, &ball, &table, &motion,
+    );
+
+    let Some(NBallSystemEvent::BallJawImpact { ball_index, impact }) = event else {
+        panic!("expected airborne jaw impact before table contact, got {event:?}");
+    };
+
+    assert_eq!(ball_index, 0);
+    assert_eq!(impact.pocket, Pocket::CenterRight);
+    let table_contact_time = (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt();
+    assert!(impact.time_until_impact.as_f64() < table_contact_time);
+}
+
 fn shared_three_ball_contact_fixture() -> Vec<OnTableBallState> {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let shared_contact_y = -3.0_f64.sqrt() * radius;

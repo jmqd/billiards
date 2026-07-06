@@ -12,12 +12,13 @@ This slice supports:
 - named rail profiles built from those responses
 - named simulation presets that bundle the physics knobs
 - optional built-in playing-conditions presets on simulation presets
-- one optional declarative shot per document
+- one optional declarative cue shot per document, including explicit `.elevation(...)` and
+  `.jump(...)` cue-elevation methods
 - lowering to validated physics-domain types and scenario helpers
 
 It still does **not** add shot sugar like `.follow(...)` / `.draw(...)`, bank-intent methods like
-`.bank(...)`, cue-elevation or airborne shot methods like `.elevation(...)`, `.jump(...)`, or
-`.masse(...)`, cue-elevation-driven swerve, or multi-shot scripts.
+`.bank(...)`, massé aim methods like `.masse(...)`, cue-elevation-driven swerve defaults, or
+multi-shot scripts.
 
 ## Canonical syntax
 
@@ -182,12 +183,13 @@ Required methods, each exactly once:
 - `.tip(side: x, height: y)`
 - `.using(name)`
 
-Current v1 restriction:
+Current v1 restrictions and elevation semantics:
 
 - only `shot(cue)` is supported
 - at most one `shot(...)` statement may appear in a document
-- cue elevation, jump shots, massé shots, and cue-elevation-driven swerve are not represented yet;
-  all parsed shots lower to the horizontal on-table cue-strike model
+- `.elevation(angle)` sets the cue-stick elevation used by the physics shot model
+- `.jump()` is shorthand for `.elevation(45deg)`; `.jump(angle)` uses the supplied elevation
+- `.masse(...)` is not a DSL method yet; current massé/swerve behavior is only the lower-level elevated-side-spin physics model, not a declarative massé aiming primitive
 
 ## Units and shot-speed aliases
 

@@ -5,7 +5,7 @@ use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario, DslScenario
 use billiards::{
     advance_to_next_n_ball_event_on_table,
     advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table, classify_motion_phase,
-    collide_ball_ball_detailed_on_table,
+    collide_ball_ball_detailed_on_table, collide_ball_rail_on_table_with_radius_and_profile,
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
     compute_next_ball_rail_impact_on_table,
@@ -21,7 +21,7 @@ use billiards::{
     RestingOnTableBallState, RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
     TableSpec, Velocity2, CENTER_SPOT, TYPICAL_BALL_RADIUS,
 };
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
 const LAYOUT_DSL: &str = "ball cue at center\nball nine at (3, 7)\nball eight frozen left (6)\n";
 const SINGLE_BALL_SHOT_DSL: &str = "ball cue at center\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(30deg).speed(16ips).tip(side: 0.0R, height: 0.4R).using(default)\n";
@@ -177,6 +177,47 @@ fn bank_state_near_top_rail(table: &TableSpec) -> OnTableBallState {
             0.0,
         ),
     ))
+}
+
+fn rail_resolution_matrix() -> Vec<(OnTableBallState, Rail)> {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let mut fixtures = Vec::with_capacity(216);
+
+    for rail in [Rail::Left, Rail::Right, Rail::Bottom, Rail::Top] {
+        for speed in [10.0_f64, 60.0, 120.0] {
+            for tangent_ratio in [0.0_f64, 0.5, 1.0] {
+                let normal_speed = speed / (1.0 + tangent_ratio * tangent_ratio).sqrt();
+                let tangent_speed = tangent_ratio * normal_speed;
+                let (vx, vy) = match rail {
+                    Rail::Left => (-normal_speed, tangent_speed),
+                    Rail::Right => (normal_speed, -tangent_speed),
+                    Rail::Bottom => (tangent_speed, -normal_speed),
+                    Rail::Top => (-tangent_speed, normal_speed),
+                };
+
+                for side_spin_factor in [-1.0_f64, 0.0, 1.0] {
+                    for rolling_entry in [false, true] {
+                        let (wx, wy) = if rolling_entry {
+                            (-vy / radius, vx / radius)
+                        } else {
+                            (0.0, 0.0)
+                        };
+                        fixtures.push((
+                            on_table(BallState::on_table(
+                                inches2(20.0, 40.0),
+                                Velocity2::new(Inches::from_f64(vx), Inches::from_f64(vy)),
+                                AngularVelocity3::new(wx, wy, side_spin_factor * speed / radius),
+                            )),
+                            rail,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    assert_eq!(fixtures.len(), 216);
+    fixtures
 }
 
 fn collision_predictor_states() -> (
@@ -831,6 +872,42 @@ fn bench_shared_contact_resolution(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_rail_resolution(c: &mut Criterion) {
+    let fixtures = rail_resolution_matrix();
+    let profile = RailCollisionProfile::default();
+    let ball_radius = BallSetPhysicsSpec::default().radius;
+
+    let mut group = c.benchmark_group("rail_resolution");
+    group.measurement_time(Duration::from_secs(10));
+    group.sample_size(30);
+    group.throughput(Throughput::Elements(fixtures.len() as u64));
+
+    for (name, model) in [
+        ("spin_aware_216_impacts", RailModel::SpinAware),
+        (
+            "restitution_only_control_216_impacts",
+            RailModel::RestitutionOnly,
+        ),
+        ("mirror_control_216_impacts", RailModel::Mirror),
+    ] {
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                for (state, rail) in &fixtures {
+                    black_box(collide_ball_rail_on_table_with_radius_and_profile(
+                        black_box(state),
+                        black_box(*rail),
+                        black_box(ball_radius.clone()),
+                        black_box(model),
+                        black_box(&profile),
+                    ));
+                }
+            })
+        });
+    }
+
+    group.finish();
+}
+
 fn bench_end_to_end(c: &mut Criterion) {
     let scenario = parse_dsl_to_scenario(SINGLE_BALL_SHOT_DSL)
         .expect("benchmark single-ball shot DSL should parse");
@@ -884,6 +961,6 @@ fn bench_end_to_end(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_shared_contact_resolution, bench_end_to_end
+    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_shared_contact_resolution, bench_rail_resolution, bench_end_to_end
 );
 criterion_main!(benches);

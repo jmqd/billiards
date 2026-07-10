@@ -1,7 +1,7 @@
 use std::hint::black_box;
 use std::time::Duration;
 
-use billiards::diagram::DiagramOutputFormat;
+use billiards::diagram::{render_scene_to_bytes, DiagramOutputFormat};
 use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario, ScenarioTraceRenderOptions};
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
@@ -338,6 +338,52 @@ fn bench_rendering_throughput(c: &mut Criterion) {
         scale_factor: 1,
         background: DiagramBackground::Table,
     };
+    let rendered = trace.rendered_final_layout_with_trace_options(&scenario, &trace_options);
+    let scene = rendered.to_diagram_scene(&render_options);
+    let transparent_options = DiagramRenderOptions {
+        scale_factor: 1,
+        background: DiagramBackground::Transparent,
+    };
+    let svg_control = render_scene_to_bytes(&scene, DiagramOutputFormat::Svg, &render_options);
+    let png_control = render_scene_to_bytes(&scene, DiagramOutputFormat::Png, &render_options);
+    assert!(!svg_control.is_empty() && !png_control.is_empty());
+
+    let mut stage_group = c.benchmark_group("render_stages");
+    stage_group.measurement_time(Duration::from_secs(8));
+    stage_group.sample_size(10);
+    stage_group.bench_function("scene_build/rich_trace", |b| {
+        b.iter(|| {
+            black_box(rendered.to_diagram_scene(black_box(&render_options)));
+        })
+    });
+    stage_group.bench_function("backend/svg_rich_trace", |b| {
+        b.iter(|| {
+            black_box(render_scene_to_bytes(
+                black_box(&scene),
+                black_box(DiagramOutputFormat::Svg),
+                black_box(&render_options),
+            ));
+        })
+    });
+    stage_group.bench_function("backend/png_table_rich_trace", |b| {
+        b.iter(|| {
+            black_box(render_scene_to_bytes(
+                black_box(&scene),
+                black_box(DiagramOutputFormat::Png),
+                black_box(&render_options),
+            ));
+        })
+    });
+    stage_group.bench_function("backend/png_transparent_rich_trace", |b| {
+        b.iter(|| {
+            black_box(render_scene_to_bytes(
+                black_box(&scene),
+                black_box(DiagramOutputFormat::Png),
+                black_box(&transparent_options),
+            ));
+        })
+    });
+    stage_group.finish();
 
     c.bench_function("throughput_rendering/trace_final_layout_svg", |b| {
         b.iter(|| {

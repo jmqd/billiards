@@ -4763,48 +4763,42 @@ fn raw_advance_within_phase_on_table(
             let final_speed = (initial_speed - linear_deceleration * advance_time).max(0.0);
             let heading_x = state.vx / initial_speed;
             let heading_y = state.vy / initial_speed;
-            let (x, y, final_heading_x, final_heading_y) =
-                if let Some(curve_interval) = rolling_side_spin_curve_interval(
-                    initial_speed,
-                    state.wz,
-                    advance_time,
-                    config,
-                ) {
-                    let signed_turn_scale = state.wz.signum()
-                        * rolling_side_spin_turn_coefficient(radius, config)
-                        / linear_deceleration;
-                    let (curve_dx, curve_dy, curve_heading_x, curve_heading_y) =
-                        rolling_side_spin_curved_displacement(
-                            heading_x,
-                            heading_y,
-                            initial_speed,
-                            curve_interval.final_speed,
-                            linear_deceleration,
-                            signed_turn_scale,
-                        );
-
-                    let remaining_time = (advance_time - curve_interval.duration).max(0.0);
-                    let speed_after_straight =
-                        (curve_interval.final_speed - linear_deceleration * remaining_time)
-                            .max(0.0);
-                    let straight_distance = 0.5
-                        * (curve_interval.final_speed + speed_after_straight)
-                        * remaining_time;
-                    (
-                        state.x + curve_dx + curve_heading_x * straight_distance,
-                        state.y + curve_dy + curve_heading_y * straight_distance,
-                        curve_heading_x,
-                        curve_heading_y,
-                    )
-                } else {
-                    let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
-                    (
-                        state.x + heading_x * travel_distance,
-                        state.y + heading_y * travel_distance,
+            let (x, y, final_heading_x, final_heading_y) = if let Some(curve_interval) =
+                rolling_side_spin_curve_interval(initial_speed, state.wz, advance_time, config)
+            {
+                let signed_turn_scale = state.wz.signum()
+                    * rolling_side_spin_turn_coefficient(radius, config)
+                    / linear_deceleration;
+                let (curve_dx, curve_dy, curve_heading_x, curve_heading_y) =
+                    rolling_side_spin_curved_displacement(
                         heading_x,
                         heading_y,
-                    )
-                };
+                        initial_speed,
+                        curve_interval.final_speed,
+                        linear_deceleration,
+                        signed_turn_scale,
+                    );
+
+                let remaining_time = (advance_time - curve_interval.duration).max(0.0);
+                let speed_after_straight =
+                    (curve_interval.final_speed - linear_deceleration * remaining_time).max(0.0);
+                let straight_distance =
+                    0.5 * (curve_interval.final_speed + speed_after_straight) * remaining_time;
+                (
+                    state.x + curve_dx + curve_heading_x * straight_distance,
+                    state.y + curve_dy + curve_heading_y * straight_distance,
+                    curve_heading_x,
+                    curve_heading_y,
+                )
+            } else {
+                let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
+                (
+                    state.x + heading_x * travel_distance,
+                    state.y + heading_y * travel_distance,
+                    heading_x,
+                    heading_y,
+                )
+            };
             let vx = if final_speed <= f64::EPSILON {
                 0.0
             } else {
@@ -5588,6 +5582,19 @@ fn first_fixed_circle_entry_time_for_raw_motion(
         "fixed-circle contact radius must be non-negative"
     );
 
+    if raw_phase_has_curved_rolling(state, phase.clone(), horizon, ball_radius, config) {
+        return first_curved_fixed_circle_entry_time_for_raw_motion(
+            state,
+            phase,
+            center_x,
+            center_y,
+            contact_radius,
+            horizon,
+            ball_radius,
+            config,
+        );
+    }
+
     let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, ball_radius, config);
     let relative_motion = RelativeQuadraticMotion {
         rx: state.x - center_x,
@@ -5604,6 +5611,154 @@ fn first_fixed_circle_entry_time_for_raw_motion(
     }
 
     first_ball_ball_contact_time_for_relative_motion(relative_motion, horizon)
+}
+
+const CURVED_EVENT_GAP_TOLERANCE_INCHES: f64 = 1e-9;
+
+fn raw_phase_has_curved_rolling(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    horizon: f64,
+    radius: f64,
+    config: &OnTableMotionConfig,
+) -> bool {
+    phase == MotionPhase::Rolling
+        && rolling_side_spin_curve_interval(state.speed(), state.wz, horizon, config).is_some()
+        && rolling_side_spin_turn_coefficient(radius, config).abs() > f64::EPSILON
+}
+
+fn raw_phase_planar_speed_upper_bound(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    horizon: f64,
+    config: &OnTableMotionConfig,
+) -> f64 {
+    match phase {
+        MotionPhase::Rest | MotionPhase::Spinning => 0.0,
+        MotionPhase::Rolling => state.speed(),
+        MotionPhase::Sliding => state.speed() + sliding_friction_acceleration(config) * horizon,
+        MotionPhase::Airborne => {
+            unreachable!("on-table motion helpers cannot bound airborne motion")
+        }
+    }
+}
+
+fn refine_curved_entry_time<F>(mut left: f64, mut right: f64, gap_at: F) -> f64
+where
+    F: Fn(f64) -> f64,
+{
+    for _ in 0..80 {
+        let midpoint = 0.5 * (left + right);
+        if gap_at(midpoint) <= 0.0 {
+            right = midpoint;
+        } else {
+            left = midpoint;
+        }
+    }
+
+    right
+}
+
+fn first_curved_entry_time_adaptive<F, D>(
+    horizon: f64,
+    gap_at: F,
+    gap_rate_upper_bound: f64,
+    derivative_at: D,
+) -> Option<f64>
+where
+    F: Fn(f64) -> f64,
+    D: Fn(f64) -> f64,
+{
+    let initial_gap = gap_at(0.0);
+    let derivative_tolerance = 1e-10 * gap_rate_upper_bound.max(1.0);
+    if initial_gap <= CURVED_EVENT_GAP_TOLERANCE_INCHES {
+        return (derivative_at(0.0) < -derivative_tolerance).then_some(0.0);
+    }
+
+    let time_tolerance = 1e-12 * horizon.max(1.0);
+    let mut pending = vec![(0.0, horizon, initial_gap, gap_at(horizon))];
+    while let Some((left, right, left_gap, right_gap)) = pending.pop() {
+        let width = right - left;
+        let midpoint = 0.5 * (left + right);
+        let midpoint_gap = gap_at(midpoint);
+        if midpoint_gap > gap_rate_upper_bound * (0.5 * width) + CURVED_EVENT_GAP_TOLERANCE_INCHES {
+            continue;
+        }
+
+        if width <= time_tolerance {
+            let bracket = if left_gap > CURVED_EVENT_GAP_TOLERANCE_INCHES
+                && midpoint_gap <= CURVED_EVENT_GAP_TOLERANCE_INCHES
+            {
+                Some((left, midpoint))
+            } else if midpoint_gap > CURVED_EVENT_GAP_TOLERANCE_INCHES
+                && right_gap <= CURVED_EVENT_GAP_TOLERANCE_INCHES
+            {
+                Some((midpoint, right))
+            } else {
+                None
+            };
+            if let Some((entry_left, entry_right)) = bracket {
+                let root = refine_curved_entry_time(entry_left, entry_right, &gap_at);
+                if derivative_at(root) < -derivative_tolerance {
+                    return Some(root);
+                }
+            }
+            continue;
+        }
+
+        // Push the later interval first so the stack always explores the earliest unresolved
+        // interval before a later contact window.
+        pending.push((midpoint, right, midpoint_gap, right_gap));
+        pending.push((left, midpoint, left_gap, midpoint_gap));
+    }
+
+    None
+}
+
+fn raw_state_at_current_phase(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    t_seconds: f64,
+    radius: f64,
+    config: &OnTableMotionConfig,
+) -> RawOnTableBallState {
+    raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config)
+}
+
+fn first_curved_fixed_circle_entry_time_for_raw_motion(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    center_x: f64,
+    center_y: f64,
+    contact_radius: f64,
+    horizon: f64,
+    ball_radius: f64,
+    config: &OnTableMotionConfig,
+) -> Option<f64> {
+    let state_at = |t_seconds| {
+        raw_state_at_current_phase(state, phase.clone(), t_seconds, ball_radius, config)
+    };
+    let gap_at = |t_seconds| {
+        let at_t = state_at(t_seconds);
+        (at_t.x - center_x).hypot(at_t.y - center_y) - contact_radius
+    };
+    let derivative_at = |t_seconds| {
+        let at_t = state_at(t_seconds);
+        let dx = at_t.x - center_x;
+        let dy = at_t.y - center_y;
+        let distance = dx.hypot(dy);
+        if distance <= f64::EPSILON {
+            0.0
+        } else {
+            (dx * at_t.vx + dy * at_t.vy) / distance
+        }
+    };
+    first_curved_entry_time_adaptive(
+        horizon,
+        gap_at,
+        raw_phase_planar_speed_upper_bound(state, phase.clone(), horizon, config),
+        derivative_at,
+    )
 }
 
 fn raw_fixed_circle_contact_is_closing_or_accelerating_inward(
@@ -5805,13 +5960,13 @@ fn raw_ball_ball_contact_is_closing(a: RawOnTableBallState, b: RawOnTableBallSta
 /// - `whitepapers/the_physics_of_billiards.html` describes the ball-ball impact geometry through the
 ///   line of centers, so first contact still occurs when the center distance reaches `2R`.
 ///
-/// Rather than extrapolating with constant translational velocity, this predictor uses the current
-/// within-phase constant-acceleration motion for each ball. The relative center path is quadratic,
-/// so the squared contact gap is quartic; the predictor evaluates the cubic critical points of that
-/// gap and then bisects the first monotonic interval that reaches contact. This finds narrow
-/// grazing contacts without relying on a fixed time-step scan. If no contact occurs before the next
-/// phase boundary, the caller should let the earlier transition happen first and then recompute
-/// collision timing from the new states.
+/// When both paths are quadratic, the predictor evaluates cubic critical points of the squared
+/// relative gap and bisects the first monotonic interval that reaches contact. A rolling path with
+/// active TP B.2 side-spin turn instead uses the same canonical advancement path as integration
+/// and a continuous adaptive exclusion/bracketing search. This finds narrow grazing contacts
+/// without relying on a fixed time-step scan. If no contact occurs before the next phase boundary,
+/// the caller should let the earlier transition happen first and then recompute collision timing
+/// from the new states.
 pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -5852,18 +6007,54 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
         return None;
     }
 
-    let (a_ax, a_ay) = raw_planar_acceleration_during_phase(a_raw, a_phase.clone(), radius, config);
-    let (b_ax, b_ay) = raw_planar_acceleration_during_phase(b_raw, b_phase.clone(), radius, config);
-    let relative_motion = RelativeQuadraticMotion {
-        rx: dx,
-        ry: dy,
-        rvx: b_raw.vx - a_raw.vx,
-        rvy: b_raw.vy - a_raw.vy,
-        rax: b_ax - a_ax,
-        ray: b_ay - a_ay,
-        contact_distance,
-    };
-    let dt_seconds = first_ball_ball_contact_time_for_relative_motion(relative_motion, horizon)?;
+    let dt_seconds =
+        if raw_phase_has_curved_rolling(a_raw, a_phase.clone(), horizon, radius, config)
+            || raw_phase_has_curved_rolling(b_raw, b_phase.clone(), horizon, radius, config)
+        {
+            let a_at = |t_seconds| {
+                raw_state_at_current_phase(a_raw, a_phase.clone(), t_seconds, radius, config)
+            };
+            let b_at = |t_seconds| {
+                raw_state_at_current_phase(b_raw, b_phase.clone(), t_seconds, radius, config)
+            };
+            let gap_at = |t_seconds| {
+                let a_at_t = a_at(t_seconds);
+                let b_at_t = b_at(t_seconds);
+                (b_at_t.x - a_at_t.x).hypot(b_at_t.y - a_at_t.y) - contact_distance
+            };
+            let derivative_at = |t_seconds| {
+                let a_at_t = a_at(t_seconds);
+                let b_at_t = b_at(t_seconds);
+                let dx_at_t = b_at_t.x - a_at_t.x;
+                let dy_at_t = b_at_t.y - a_at_t.y;
+                let distance = dx_at_t.hypot(dy_at_t);
+                if distance <= f64::EPSILON {
+                    0.0
+                } else {
+                    (dx_at_t * (b_at_t.vx - a_at_t.vx) + dy_at_t * (b_at_t.vy - a_at_t.vy))
+                        / distance
+                }
+            };
+            let gap_rate_upper_bound =
+                raw_phase_planar_speed_upper_bound(a_raw, a_phase.clone(), horizon, config)
+                    + raw_phase_planar_speed_upper_bound(b_raw, b_phase.clone(), horizon, config);
+            first_curved_entry_time_adaptive(horizon, gap_at, gap_rate_upper_bound, derivative_at)?
+        } else {
+            let (a_ax, a_ay) =
+                raw_planar_acceleration_during_phase(a_raw, a_phase.clone(), radius, config);
+            let (b_ax, b_ay) =
+                raw_planar_acceleration_during_phase(b_raw, b_phase.clone(), radius, config);
+            let relative_motion = RelativeQuadraticMotion {
+                rx: dx,
+                ry: dy,
+                rvx: b_raw.vx - a_raw.vx,
+                rvy: b_raw.vy - a_raw.vy,
+                rax: b_ax - a_ax,
+                ray: b_ay - a_ay,
+                contact_distance,
+            };
+            first_ball_ball_contact_time_for_relative_motion(relative_motion, horizon)?
+        };
     let time_until_impact = Seconds::new(dt_seconds);
     let a_at_impact = raw_advance_within_phase_on_table(a_raw, a_phase, dt_seconds, radius, config)
         .into_on_table_state();
@@ -5908,6 +6099,29 @@ fn rail_gap_quadratic_derivative(a: f64, b: f64, t_seconds: f64) -> f64 {
     2.0 * a * t_seconds + b
 }
 
+fn raw_rail_gap_at_state(
+    state: RawOnTableBallState,
+    rail: Rail,
+    radius: f64,
+    table: &TableSpec,
+) -> f64 {
+    match rail {
+        Rail::Top => table.diamond_to_inches(Diamond::eight()).as_f64() - radius - state.y,
+        Rail::Bottom => state.y - radius,
+        Rail::Left => state.x - radius,
+        Rail::Right => table.diamond_to_inches(Diamond::four()).as_f64() - radius - state.x,
+    }
+}
+
+fn raw_rail_gap_derivative_at_state(state: RawOnTableBallState, rail: Rail) -> f64 {
+    match rail {
+        Rail::Top => -state.vy,
+        Rail::Bottom => state.vy,
+        Rail::Left => state.vx,
+        Rail::Right => -state.vx,
+    }
+}
+
 fn first_rail_collision_time_during_current_phase_raw(
     state: RawOnTableBallState,
     phase: MotionPhase,
@@ -5917,12 +6131,32 @@ fn first_rail_collision_time_during_current_phase_raw(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<Seconds> {
-    let (a, b, c) =
-        rail_collision_gap_quadratic_coefficients(state, phase, rail, radius, table, config);
+    let (a, b, c) = rail_collision_gap_quadratic_coefficients(
+        state,
+        phase.clone(),
+        rail,
+        radius,
+        table,
+        config,
+    );
     let tolerance = 1e-10 * horizon.max(1.0);
 
     if c <= tolerance && (b < -tolerance || (b.abs() <= tolerance && a < -tolerance)) {
         return Some(Seconds::zero());
+    }
+
+    if raw_phase_has_curved_rolling(state, phase.clone(), horizon, radius, config) {
+        let state_at =
+            |t_seconds| raw_state_at_current_phase(state, phase.clone(), t_seconds, radius, config);
+        let gap_at = |t_seconds| raw_rail_gap_at_state(state_at(t_seconds), rail, radius, table);
+        let derivative_at = |t_seconds| raw_rail_gap_derivative_at_state(state_at(t_seconds), rail);
+        return first_curved_entry_time_adaptive(
+            horizon,
+            gap_at,
+            raw_phase_planar_speed_upper_bound(state, phase.clone(), horizon, config),
+            derivative_at,
+        )
+        .map(Seconds::new);
     }
 
     let mut roots = real_roots_quadratic(a, b, c);
@@ -12145,12 +12379,8 @@ fn estimate_rolling_side_spin_curve_on_table(
         return None;
     }
 
-    let curve_interval = rolling_side_spin_curve_interval(
-        speed,
-        side_spin,
-        speed / linear_deceleration,
-        motion,
-    )?;
+    let curve_interval =
+        rolling_side_spin_curve_interval(speed, side_spin, speed / linear_deceleration, motion)?;
     if !curve_interval.heading_is_reportable
         || curve_interval.final_speed + f64::EPSILON
             < motion.phase.thresholds.rest_linear_speed.as_f64()
@@ -12170,9 +12400,7 @@ fn estimate_rolling_side_spin_curve_on_table(
     let curve_angle_degrees = curve_angle_radians.to_degrees();
     Some(PostContactCueBallCurve {
         time_until_curve_starts: Seconds::new(time_until_curve_starts),
-        time_until_curve_completes: Seconds::new(
-            time_until_curve_starts + curve_interval.duration,
-        ),
+        time_until_curve_completes: Seconds::new(time_until_curve_starts + curve_interval.duration),
         curve_angle_degrees,
         heading_after_curve: angle_from_degrees(start_heading.as_degrees() + curve_angle_degrees),
     })

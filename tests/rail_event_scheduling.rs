@@ -72,6 +72,55 @@ fn a_rolling_ball_predicts_a_top_rail_impact_before_it_stops() {
     );
 }
 
+fn rolling_ball_with_side_spin(x: f64, y: f64, vertical_spin: f64) -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    on_table(BallState::on_table(
+        inches2(x, y),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, vertical_spin),
+    ))
+}
+
+#[test]
+fn curved_rolling_ball_reaches_the_right_rail_before_its_transition() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let right_plane = table.diamond_to_inches(Diamond::four()).as_f64() - radius;
+    let state = rolling_ball_with_side_spin(48.871, 20.0, 2.0);
+
+    let impact = compute_next_ball_rail_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+    )
+    .expect("the canonical rightward curve reaches the rail before one second");
+
+    assert_eq!(impact.rail, Rail::Right);
+    assert!(impact.time_until_impact.as_f64() > 0.0 && impact.time_until_impact.as_f64() < 1.0);
+    assert_close(
+        impact.state_at_impact.as_ball_state().position.x().as_f64(),
+        right_plane,
+    );
+    assert!(
+        impact.state_at_impact.as_ball_state().velocity.x().as_f64() > 0.0,
+        "right-rail contact must be entering"
+    );
+}
+
+#[test]
+fn opposite_spin_curve_away_does_not_create_a_right_rail_impact() {
+    let state = rolling_ball_with_side_spin(48.871, 20.0, -2.0);
+
+    assert!(compute_next_ball_rail_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+    )
+    .is_none());
+}
+
 #[test]
 fn a_ball_already_touching_a_rail_and_moving_into_it_predicts_an_immediate_impact() {
     let table = TableSpec::default();

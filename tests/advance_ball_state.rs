@@ -537,8 +537,16 @@ fn advancing_a_rolling_ball_with_vertical_spin_follows_tp_b2_before_translation_
         &motion_config(),
     );
 
-    assert_close_with_tolerance(advanced.position.x().as_f64(), 10.004_702_077_725_524, 1e-12);
-    assert_close_with_tolerance(advanced.position.y().as_f64(), 27.499_997_782_973_136, 1e-12);
+    assert_close_with_tolerance(
+        advanced.position.x().as_f64(),
+        10.004_702_077_725_524,
+        1e-12,
+    );
+    assert_close_with_tolerance(
+        advanced.position.y().as_f64(),
+        27.499_997_782_973_136,
+        1e-12,
+    );
     assert_close(advanced.speed().as_f64(), 5.0);
     assert_close_with_tolerance(
         advanced
@@ -831,8 +839,16 @@ fn tp_b2_rolling_turn_stops_at_the_configured_linear_speed_threshold() {
         &config,
     );
 
-    assert_close_with_tolerance(advanced.position.x().as_f64(), 10.010_813_961_614_733, 1e-12);
-    assert_close_with_tolerance(advanced.position.y().as_f64(), 29.899_989_411_533_657, 1e-12);
+    assert_close_with_tolerance(
+        advanced.position.x().as_f64(),
+        10.010_813_961_614_733,
+        1e-12,
+    );
+    assert_close_with_tolerance(
+        advanced.position.y().as_f64(),
+        29.899_989_411_533_657,
+        1e-12,
+    );
     assert_close(advanced.speed().as_f64(), 1.0);
     assert_close_with_tolerance(
         advanced

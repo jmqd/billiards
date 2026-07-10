@@ -275,7 +275,10 @@ fn coriolis_masse_helper_translates_above_positive_api_height_to_tp_a19_b() {
         0.1,
     )
     .expect_err("sign-reversed A/B/R relation should be rejected");
-    assert!(matches!(mismatch, ShotError::MasseAimRelationshipMismatch { .. }));
+    assert!(matches!(
+        mismatch,
+        ShotError::MasseAimRelationshipMismatch { .. }
+    ));
 }
 
 #[test]

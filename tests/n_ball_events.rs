@@ -115,6 +115,52 @@ fn the_n_ball_scheduler_picks_the_earliest_ball_ball_collision_across_pairs() {
 }
 
 #[test]
+fn n_ball_scheduler_executes_the_curved_rolling_collision_before_transition() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 2.0),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(
+        12.253_702_077_725_524,
+        27.499_997_782_973_136,
+    )));
+    let ball = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+
+    let event = compute_next_n_ball_event_on_table(&[&cue_ball, &object_ball], &ball, &motion)
+        .expect("the curved collision should reach the N-ball scheduler");
+    match event {
+        NBallOnTableEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            assert_eq!((first_ball_index, second_ball_index), (0, 1));
+            assert!(collision.time_until_impact.as_f64() > 0.0);
+            assert!(collision.time_until_impact.as_f64() < 1.0);
+        }
+        other => panic!("expected the curved ball-ball collision, got {other:?}"),
+    }
+
+    let advanced = advance_to_next_n_ball_event_on_table(
+        &[cue_ball, object_ball],
+        &ball,
+        &motion,
+        CollisionModel::Ideal,
+    );
+    assert!(matches!(
+        advanced.event,
+        Some(NBallOnTableEvent::BallBallCollision {
+            first_ball_index: 0,
+            second_ball_index: 1,
+            ..
+        })
+    ));
+}
+
+#[test]
 fn shared_contact_uses_the_ball_ball_time_when_an_unrelated_transition_is_tied() {
     let [cue_ball, left_object, right_object] = symmetric_shared_contact_fixture();
     let unrelated = rolling_transition_just_before_shared_contact();

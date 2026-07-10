@@ -7,7 +7,7 @@ use billiards::{
     simulate_n_balls_with_rails_on_table_until_rest, AngularVelocity3, BallSetPhysicsSpec,
     BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq, MotionPhase,
     MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent, NBallSystemEvent,
-    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJawGeometry,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJaw, PocketJawGeometry,
     PocketShapeSpec, RadiansPerSecondSq, Rail, RailModel, RollingResistanceModel,
     SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT,
     STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
@@ -42,6 +42,72 @@ fn on_table(state: BallState) -> OnTableBallState {
 
 fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
+}
+
+#[test]
+fn curved_rolling_ball_reaches_the_center_right_first_jaw() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let state = on_table(BallState::on_table(
+        inches2(48.746_297_922_274_476, 45.000_002_217_026_864),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 2.0),
+    ));
+
+    let impact = compute_next_ball_jaw_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+    )
+    .expect("the canonical rightward curve enters the first center-right jaw before one second");
+    let direct_time = impact.time_until_impact.as_f64();
+
+    assert_eq!(impact.pocket, Pocket::CenterRight);
+    assert_eq!(impact.jaw, PocketJaw::First);
+    assert!(direct_time > 0.0 && direct_time < 1.0);
+    let at_impact = impact.state_at_impact.as_ball_state();
+    let dx = at_impact.position.x().as_f64() - 50.0;
+    let dy = at_impact.position.y().as_f64() - 52.5;
+    assert_close(dx.hypot(dy), 1.25);
+    assert!(
+        dx * at_impact.velocity.x().as_f64() + dy * at_impact.velocity.y().as_f64() < 0.0,
+        "jaw contact must be entering"
+    );
+
+    let system_event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &[NBallSystemState::OnTable(state)],
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+    )
+    .expect("the pocket-aware scheduler should retain the canonical jaw event");
+    match system_event {
+        NBallSystemEvent::BallJawImpact { ball_index, impact } => {
+            assert_eq!(ball_index, 0);
+            assert_eq!(impact.pocket, Pocket::CenterRight);
+            assert_eq!(impact.jaw, PocketJaw::First);
+            assert_close(impact.time_until_impact.as_f64(), direct_time);
+        }
+        other => panic!("expected the scheduled center-right jaw impact, got {other:?}"),
+    }
+}
+
+#[test]
+fn opposite_spin_curve_away_does_not_create_a_center_right_jaw_impact() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let state = on_table(BallState::on_table(
+        inches2(48.746_297_922_274_476, 45.000_002_217_026_864),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, -2.0),
+    ));
+
+    assert!(compute_next_ball_jaw_impact_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+    )
+    .is_none());
 }
 
 fn unwrap_on_table_states(states: &[NBallSystemState]) -> Vec<OnTableBallState> {

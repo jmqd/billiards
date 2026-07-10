@@ -60,6 +60,15 @@ Scope: current Rust physics implementation cross-checked against the in-repo whi
 - The reportable TP B.2 interval ends when side spin stops or the configured positive linear-speed cutoff is reached, whichever occurs first. Residual side spin can outlast translation into `MotionPhase::Spinning`.
 - Regression coverage exercises low-spin and long-lived-spin trajectories, continuity across the former lifetime gate, mirrored English, the finite speed cutoff, estimator metadata, and the actual rolling-path displacement.
 
+
+### DONE P1 — Use canonical curved rolling trajectories for continuous events
+
+**Done 2026-07-10.** Ball-ball, rail, and fixed-circle jaw prediction now evaluate the same TP B.2 side-spin path as rolling advancement. A curved rolling interval uses chronological adaptive subdivision with a speed-based exclusion bound and bisection only after it has bracketed an entering contact; genuinely quadratic paths retain their polynomial root solvers.
+
+- The curved path is applied to both participants of ball-ball timing, so a curved ball can no longer tunnel through a stationary object ball or receive a straight-path ghost impact. Rail and jaw paths use signed plane and radial gaps, respectively, with the same canonical raw advancement.
+- Regression coverage includes deterministic rightward-curve ball-ball, right-rail, and center-right jaw contacts that the former fixed-direction surrogate missed; the companion left-side ball, rail, and jaw curve-away cases remain event-free. The N-ball and pocket-aware schedulers receive the same accepted predictions.
+- Source expectation: TP B.2's finite rolling turn is integrated in `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf:275-417`; the event solver preserves analytic polynomial roots only where the trajectory is actually quadratic.
+
 ### DONE P1 — Add a real massé/swerve model surface, not only hand-tuned elevation examples
 
 **Done 2026-07-06; corrected 2026-07-10.** `Shot::masse_aim_estimate`, `coriolis_masse_curve_angle_degrees`, `coriolis_masse_final_heading`, `masse_curve_mode_for_launch`, and `validate_coriolis_masse_bar_relationship` expose a TP A.19 / Coriolis-BAR aiming surface instead of only hand-tuned heading/elevation examples.

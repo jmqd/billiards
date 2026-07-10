@@ -1,9 +1,11 @@
 use billiards::{
-    collide_ball_ball_on_table, compute_next_ball_ball_collision_during_current_phases_on_table,
+    advance_motion_on_table, collide_ball_ball_on_table,
+    compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_ball_ball_collision_on_table, Angle, AngularVelocity3, BallSetPhysicsSpec,
     BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecondSq, MotionPhaseConfig,
     MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
+    RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -299,6 +301,83 @@ fn the_phase_aware_predictor_finds_a_grazing_collision_between_fixed_scan_sample
     assert_close(
         center_distance(&predicted.a_at_impact, &predicted.b_at_impact),
         contact_distance,
+    );
+}
+
+fn rolling_ball_with_side_spin(x: f64, y: f64) -> OnTableBallState {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    on_table(BallState::on_table(
+        inches2(x, y),
+        velocity2(0.0, 10.0),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 2.0),
+    ))
+}
+
+#[test]
+fn curved_rolling_ball_ball_entry_uses_the_canonical_turning_path() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = rolling_ball_with_side_spin(10.0, 20.0);
+    let object_ball = on_table(BallState::resting_at(inches2(
+        12.253_702_077_725_524,
+        27.499_997_782_973_136,
+    )));
+
+    let predicted = compute_next_ball_ball_collision_during_current_phases_on_table(
+        &cue_ball,
+        &object_ball,
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .expect("the canonical rightward curve enters the object ball before one second");
+
+    let impact_time = predicted.time_until_impact.as_f64();
+    assert!(impact_time > 0.0 && impact_time < 1.0);
+    assert_close(
+        center_distance(&predicted.a_at_impact, &predicted.b_at_impact),
+        2.0 * radius,
+    );
+    let a = predicted.a_at_impact.as_ball_state();
+    let b = predicted.b_at_impact.as_ball_state();
+    let dx = b.position.x().as_f64() - a.position.x().as_f64();
+    let dy = b.position.y().as_f64() - a.position.y().as_f64();
+    let dvx = b.velocity.x().as_f64() - a.velocity.x().as_f64();
+    let dvy = b.velocity.y().as_f64() - a.velocity.y().as_f64();
+    assert!(dx * dvx + dy * dvy < 0.0, "contact must be entering");
+
+    let independently_advanced = advance_motion_on_table(
+        &cue_ball,
+        Seconds::new(impact_time),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+    )
+    .state;
+    assert_close(
+        independently_advanced.position.x().as_f64(),
+        a.position.x().as_f64(),
+    );
+    assert_close(
+        independently_advanced.position.y().as_f64(),
+        a.position.y().as_f64(),
+    );
+}
+
+#[test]
+fn curved_rolling_ball_ball_predictor_rejects_the_straight_path_ghost() {
+    let cue_ball = rolling_ball_with_side_spin(10.0, 20.0);
+    let object_ball = on_table(BallState::resting_at(inches2(
+        7.7505,
+        27.499_997_782_973_136,
+    )));
+
+    assert!(
+        compute_next_ball_ball_collision_during_current_phases_on_table(
+            &cue_ball,
+            &object_ball,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .is_none(),
+        "the canonical rightward curve stays outside this left-side object ball"
     );
 }
 

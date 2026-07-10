@@ -197,6 +197,21 @@ fn collision_predictor_states() -> (
     )
 }
 
+fn curved_collision_predictor_states() -> (OnTableBallState, OnTableBallState) {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    (
+        on_table(BallState::on_table(
+            inches2(10.0, 20.0),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-10.0 / radius, 0.0, 2.0),
+        )),
+        on_table(BallState::resting_at(inches2(
+            12.253_702_077_725_524,
+            27.499_997_782_973_136,
+        ))),
+    )
+}
+
 fn throw_aware_collision_states() -> (OnTableBallState, OnTableBallState) {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     (
@@ -707,6 +722,66 @@ fn bench_motion_phase_classification(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_collision_predictor_paths(c: &mut Criterion) {
+    let (linear_a, linear_b, ball_set, motion) = collision_predictor_states();
+    let (curved_a, curved_b) = curved_collision_predictor_states();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let parallel_a = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let parallel_b = on_table(BallState::on_table(
+        inches2(10.0, 0.0),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let grazing_a = on_table(BallState::on_table(
+        inches2(2.0 * radius + 1e-4, -7.5),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let grazing_b = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let fixtures = [
+        ("linear_hit", linear_a, linear_b, true),
+        ("curved_rolling_hit", curved_a, curved_b, true),
+        ("parallel_miss", parallel_a, parallel_b, false),
+        ("grazing_miss", grazing_a, grazing_b, false),
+    ];
+
+    for (name, first, second, expected_hit) in &fixtures {
+        let prediction = compute_next_ball_ball_collision_during_current_phases_on_table(
+            first, second, &ball_set, &motion,
+        );
+        assert_eq!(
+            prediction.is_some(),
+            *expected_hit,
+            "collision fixture {name} changed branch"
+        );
+    }
+
+    let mut group = c.benchmark_group("collision_predictor_paths");
+    group.measurement_time(Duration::from_secs(8));
+    group.sample_size(30);
+
+    for (name, first, second, _) in &fixtures {
+        group.bench_function(*name, |b| {
+            b.iter(|| {
+                black_box(
+                    compute_next_ball_ball_collision_during_current_phases_on_table(
+                        black_box(first),
+                        black_box(second),
+                        black_box(&ball_set),
+                        black_box(&motion),
+                    ),
+                )
+            })
+        });
+    }
+
+    group.finish();
+}
+
 fn bench_end_to_end(c: &mut Criterion) {
     let scenario = parse_dsl_to_scenario(SINGLE_BALL_SHOT_DSL)
         .expect("benchmark single-ball shot DSL should parse");
@@ -760,6 +835,6 @@ fn bench_end_to_end(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_end_to_end
+    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_end_to_end
 );
 criterion_main!(benches);

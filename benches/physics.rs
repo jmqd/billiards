@@ -6,15 +6,17 @@ use billiards::{
     advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
     collide_ball_ball_detailed_on_table,
     compute_next_ball_ball_collision_during_current_phases_on_table,
-    compute_next_ball_rail_impact_on_table, compute_next_transition_on_table,
-    compute_next_two_ball_event_with_rails_on_table,
+    compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
+    compute_next_ball_rail_impact_on_table,
+    compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
+    compute_next_transition_on_table, compute_next_two_ball_event_with_rails_on_table,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest, simulate_two_on_table_balls,
     strike_resting_ball_on_table, trace_ball_path_with_rails_on_table, Angle, AngularVelocity3,
     Ball, BallBallCollisionConfig, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
     CollisionModel, CueStrikeConfig, CueTipContact, Diamond, GameState, Inches, Inches2,
     InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
-    NBallSystemState, OnTableBallState, OnTableMotionConfig, Position, RadiansPerSecondSq, Rail,
-    RailAngleReference, RailCollisionProfile, RailModel, RailTangentDirection,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, Position, RadiansPerSecondSq,
+    Rail, RailAngleReference, RailCollisionProfile, RailModel, RailTangentDirection,
     RestingOnTableBallState, RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
     TableSpec, Velocity2, CENTER_SPOT, TYPICAL_BALL_RADIUS,
 };
@@ -234,6 +236,39 @@ fn direct_pocket_aware_inputs() -> (
     ));
 
     (vec![cue, spinner], ball_set, table, motion)
+}
+
+fn rolling_side_pocket_state_at_angle(
+    speed: f64,
+    angle_degrees: f64,
+    perpendicular_offset: f64,
+    table: &TableSpec,
+) -> OnTableBallState {
+    let pocket_center = Pocket::CenterRight.aiming_center();
+    let pocket_x = table.diamond_to_inches(pocket_center.x).as_f64();
+    let pocket_y = table.diamond_to_inches(pocket_center.y).as_f64();
+    let angle = angle_degrees.to_radians();
+    let direction_x = angle.cos();
+    let direction_y = angle.sin();
+    let tangent_x = -direction_y;
+    let tangent_y = direction_x;
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+
+    on_table(BallState::on_table(
+        inches2(
+            pocket_x - 10.0 * direction_x + perpendicular_offset * tangent_x,
+            pocket_y - 10.0 * direction_y + perpendicular_offset * tangent_y,
+        ),
+        Velocity2::new(
+            Inches::from_f64(speed * direction_x),
+            Inches::from_f64(speed * direction_y),
+        ),
+        AngularVelocity3::new(
+            -speed * direction_y / radius,
+            speed * direction_x / radius,
+            0.0,
+        ),
+    ))
 }
 
 fn run_direct_single_ball_shot_to_completion() {
@@ -504,6 +539,109 @@ fn bench_core_functions(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_pocket_predictors(c: &mut Criterion) {
+    let table = TableSpec::default();
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let slow_capture = rolling_side_pocket_state_at_angle(10.0, 30.0, 0.0, &table);
+    let slow_target_miss = rolling_side_pocket_state_at_angle(10.0, 30.0, 1.8, &table);
+    let fast_capture = rolling_side_pocket_state_at_angle(200.0, 0.0, 0.0, &table);
+    let mouth_width = table
+        .diamond_to_inches(table.pocket_spec(Pocket::CenterRight).width.clone())
+        .as_f64();
+    let fast_jaw_hit = rolling_side_pocket_state_at_angle(200.0, 0.0, 0.5 * mouth_width, &table);
+    let query_states = [NBallSystemState::from(slow_capture.clone())];
+
+    assert!(
+        compute_next_ball_pocket_capture_on_table(&slow_capture, &ball_set, &table, &motion,)
+            .is_some()
+    );
+    assert!(compute_next_ball_pocket_capture_on_table(
+        &slow_target_miss,
+        &ball_set,
+        &table,
+        &motion,
+    )
+    .is_none());
+    assert!(
+        compute_next_ball_pocket_capture_on_table(&fast_capture, &ball_set, &table, &motion,)
+            .is_some()
+    );
+    assert!(
+        compute_next_ball_jaw_impact_on_table(&fast_jaw_hit, &ball_set, &table, &motion).is_some()
+    );
+    assert!(
+        compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+            &query_states,
+            &ball_set,
+            &table,
+            &motion,
+        )
+        .expect("one-ball pocket benchmark geometry should validate")
+        .is_some()
+    );
+
+    let mut group = c.benchmark_group("pocket_predictors");
+    group.measurement_time(Duration::from_secs(8));
+    group.sample_size(20);
+
+    group.bench_function("capture/slow_side_30deg_hit", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&slow_capture),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("capture/slow_side_30deg_target_miss", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&slow_target_miss),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("capture/fast_side_analytic_hit", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&fast_capture),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("jaw/fast_side_hit", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_jaw_impact_on_table(
+                black_box(&fast_jaw_hit),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("scheduler/one_ball_slow_side_capture", |b| {
+        b.iter(|| {
+            black_box(
+                compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+                    black_box(&query_states),
+                    black_box(&ball_set),
+                    black_box(&table),
+                    black_box(&motion),
+                )
+                .expect("one-ball pocket benchmark geometry should validate"),
+            )
+        })
+    });
+
+    group.finish();
+}
+
 fn bench_end_to_end(c: &mut Criterion) {
     let scenario = parse_dsl_to_scenario(SINGLE_BALL_SHOT_DSL)
         .expect("benchmark single-ball shot DSL should parse");
@@ -557,6 +695,6 @@ fn bench_end_to_end(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_setup, bench_core_functions, bench_end_to_end
+    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_end_to_end
 );
 criterion_main!(benches);

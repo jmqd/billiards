@@ -7,17 +7,19 @@ use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_transition_on_table, simulate_two_on_table_balls, strike_resting_ball_on_table,
-    trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, BallPathStop, BallSetPhysicsSpec,
-    BallState, CollisionModel, CueStrikeConfig, CueTipContact, DiagramBackground,
-    DiagramRenderOptions, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
-    RestingOnTableBallState, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
-    SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, BallBallCollisionConfig,
+    BallPathStop, BallSetPhysicsSpec, BallState, CollisionModel, CueStrikeConfig, CueTipContact,
+    DiagramBackground, DiagramRenderOptions, Inches, Inches2, InchesPerSecond, InchesPerSecondSq,
+    MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
+    RadiansPerSecondSq, RailCollisionProfile, RailModel, RestingOnTableBallState,
+    RollingResistanceModel, Scale, Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec,
+    Velocity2, TYPICAL_BALL_RADIUS,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 const SINGLE_BALL_SHOT_DSL: &str = "ball cue at center\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(30deg).speed(16ips).tip(side: 0.0R, height: 0.4R).using(default)\n";
 const TWO_BALL_LAYOUT_DSL: &str = "ball cue at center\nball nine at (2, 4.75)\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(0deg).speed(16ips).tip(side: 0.0R, height: 0.0R).using(default)\n";
+const THREE_BALL_PINBALL_DSL: &str = "ball cue at (1.0, 4.0)\nball one at (2.0, 4.2)\nball two at (3.0, 4.9)\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(80deg).speed(120ips).tip(side: 0.0R, height: 0.0R).using(default)\n";
 
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
@@ -323,6 +325,20 @@ fn bench_rendering_throughput(c: &mut Criterion) {
         )
         .expect("benchmark scenario should simulate")
         .expect("benchmark scenario should contain a shot");
+    let pinball_scenario = parse_dsl_to_scenario(THREE_BALL_PINBALL_DSL)
+        .expect("benchmark pinball scenario should parse");
+    let pinball_trace = pinball_scenario
+        .simulate_shot_trace_with_physics_on_table_until_event_limit(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            &BallBallCollisionConfig::default(),
+            RailModel::SpinAware,
+            &RailCollisionProfile::default(),
+            8,
+        )
+        .expect("benchmark pinball scenario should simulate")
+        .expect("benchmark pinball scenario should contain a shot");
     let trace_options = ScenarioTraceRenderOptions {
         path_render: BallPathRenderOptions {
             max_time_step: Seconds::new(0.005),
@@ -384,6 +400,30 @@ fn bench_rendering_throughput(c: &mut Criterion) {
         })
     });
     stage_group.finish();
+
+    let mut playback_group = c.benchmark_group("playback_scaling");
+    playback_group.measurement_time(Duration::from_secs(8));
+    playback_group.sample_size(10);
+    for (fixture_name, fixture_trace) in [
+        ("two_ball", &trace),
+        ("three_ball_event_limit_8", &pinball_trace),
+    ] {
+        for (step_name, step_seconds) in [("20ms", 0.020_f64), ("5ms", 0.005), ("2_5ms", 0.0025)] {
+            let control = fixture_trace.playback_frames(Seconds::new(step_seconds));
+            let emitted_ball_states = control
+                .iter()
+                .map(|frame| frame.balls.len() as u64)
+                .sum::<u64>();
+            assert!(!control.is_empty() && emitted_ball_states > 0);
+            playback_group.throughput(Throughput::Elements(emitted_ball_states));
+            playback_group.bench_function(format!("{fixture_name}/{step_name}"), |b| {
+                b.iter(|| {
+                    black_box(fixture_trace.playback_frames(black_box(Seconds::new(step_seconds))))
+                })
+            });
+        }
+    }
+    playback_group.finish();
 
     c.bench_function("throughput_rendering/trace_final_layout_svg", |b| {
         b.iter(|| {

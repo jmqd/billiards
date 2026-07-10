@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario, DslScenario};
 use billiards::{
-    advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
+    advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table, classify_motion_phase,
     collide_ball_ball_detailed_on_table,
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
@@ -14,7 +14,7 @@ use billiards::{
     strike_resting_ball_on_table, trace_ball_path_with_rails_on_table, Angle, AngularVelocity3,
     Ball, BallBallCollisionConfig, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
     CollisionModel, CueStrikeConfig, CueTipContact, Diamond, GameState, Inches, Inches2,
-    InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
+    InchesPerSecond, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, Position, RadiansPerSecondSq,
     Rail, RailAngleReference, RailCollisionProfile, RailModel, RailTangentDirection,
     RestingOnTableBallState, RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
@@ -642,6 +642,71 @@ fn bench_pocket_predictors(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_motion_phase_classification(c: &mut Criterion) {
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let fixtures = [
+        (
+            "rest",
+            on_table(BallState::resting_at(inches2(20.0, 20.0))),
+            MotionPhase::Rest,
+        ),
+        (
+            "spinning",
+            on_table(BallState::on_table(
+                inches2(20.0, 20.0),
+                Velocity2::zero(),
+                AngularVelocity3::new(0.0, 0.0, 6.0),
+            )),
+            MotionPhase::Spinning,
+        ),
+        (
+            "rolling",
+            on_table(BallState::on_table(
+                inches2(20.0, 20.0),
+                Velocity2::new("10", "0"),
+                AngularVelocity3::new(0.0, 10.0 / radius, 3.0),
+            )),
+            MotionPhase::Rolling,
+        ),
+        (
+            "sliding",
+            on_table(BallState::on_table(
+                inches2(20.0, 20.0),
+                Velocity2::new("10", "0"),
+                AngularVelocity3::zero(),
+            )),
+            MotionPhase::Sliding,
+        ),
+    ];
+
+    for (_, state, expected) in &fixtures {
+        assert_eq!(
+            classify_motion_phase(state.as_ball_state(), &ball_set, &motion.phase),
+            *expected
+        );
+    }
+
+    let mut group = c.benchmark_group("motion_phase_classification");
+    group.measurement_time(Duration::from_secs(8));
+    group.sample_size(30);
+
+    for (name, state, _) in &fixtures {
+        group.bench_function(*name, |b| {
+            b.iter(|| {
+                black_box(classify_motion_phase(
+                    black_box(state.as_ball_state()),
+                    black_box(&ball_set),
+                    black_box(&motion.phase),
+                ))
+            })
+        });
+    }
+
+    group.finish();
+}
+
 fn bench_end_to_end(c: &mut Criterion) {
     let scenario = parse_dsl_to_scenario(SINGLE_BALL_SHOT_DSL)
         .expect("benchmark single-ball shot DSL should parse");
@@ -695,6 +760,6 @@ fn bench_end_to_end(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_end_to_end
+    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_end_to_end
 );
 criterion_main!(benches);

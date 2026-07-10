@@ -65,12 +65,12 @@ Scope: current Rust physics implementation cross-checked against the in-repo whi
 
 ### DONE P1 — Add a real massé/swerve model surface, not only hand-tuned elevation examples
 
-**Done 2026-07-06.** `Shot::masse_aim_estimate`, `coriolis_masse_curve_angle_degrees`, `coriolis_masse_final_heading`, `masse_curve_mode_for_launch`, and `validate_coriolis_masse_bar_relationship` now expose a TP A.19 / Coriolis-BAR aiming surface instead of only hand-tuned heading/elevation examples.
+**Done 2026-07-06; corrected 2026-07-10.** `Shot::masse_aim_estimate`, `coriolis_masse_curve_angle_degrees`, `coriolis_masse_final_heading`, `masse_curve_mode_for_launch`, and `validate_coriolis_masse_bar_relationship` expose a TP A.19 / Coriolis-BAR aiming surface instead of only hand-tuned heading/elevation examples.
 
-- The helper computes the final post-curve cue-ball direction from normalized side offset `a`, height offset `b`, and cue elevation `phi` using TP A.19's `atan2(a sin(phi), cos(phi) - b)` relation.
+- The helper computes the final post-curve cue-ball direction from normalized side offset `a`, TP A.19's below-positive height `b`, and cue elevation `phi` using `atan2(a sin(phi), cos(phi) - b)`. The public `CueTipContact::height_offset` is above-positive, so the helper explicitly converts `b = -height_offset`.
 - `validate_coriolis_masse_bar_relationship` validates the source-style `B`/`A`/`R` relation: cue-ball point `B`, aim point `A` on the cue vertical plane, and final-reference point `R` with the final direction parallel to `RA`.
 - `MasseCurveMode` reports whether the current engine will treat the shot as continuous on-cloth swerve or jump-then-curve after table contact.
-- Tests in `tests/shot_strikes.rs` cover the TP A.19 `a = 0.25R`, `b = 0.25R`, `phi = 75°` magnitude relation, validate a matching `B`/`A`/`R` setup, reject no-side-spin and mismatched final-direction requests, and assert the current nonzero-speed elevated shot is classified as jump-then-curve.
+- Tests in `tests/shot_strikes.rs` cover the TP A.19 `a = 0.25R`, `b = 0.25R`, `phi = 75°` source relation through API `height_offset = -0.25R`; assert the separate API `height_offset = +0.25R` result; validate a matching `B`/`A`/`R` setup; reject its old sign-reversed final direction; and assert the current nonzero-speed elevated shot is classified as jump-then-curve.
 
 **Remaining limitation.** This is an explicit calibrated aiming helper, not a full speed/path solve: TP A.19 says speed controls where the curve completes, and the current API still does not choose speed or solve obstacle clearance automatically. DSL `.masse(...)` sugar remains intentionally absent; callers use `.tip(...)` plus `.elevation(...)` and/or the Rust helper.
 

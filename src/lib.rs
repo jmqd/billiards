@@ -3343,9 +3343,11 @@ impl Shot {
     /// Estimate the TP A.19 / Coriolis-BAR final cue-ball direction for this shot.
     ///
     /// This is an aiming relation, not a full path solver: it predicts the post-curve direction
-    /// from the cue vertical plane, side-tip offset, height offset, and cue elevation. Shot speed is
-    /// used only to report whether the current engine will keep the stroke in the on-cloth solver
-    /// immediately or represent it as jump-then-curve after landing.
+    /// from the cue vertical plane, side-tip offset, `CueTipContact`'s above-positive height
+    /// offset, and cue elevation. TP A.19 instead defines its `b` offset positive below center;
+    /// this helper translates between those conventions. Shot speed is used only to report whether
+    /// the current engine will keep the stroke in the on-cloth solver immediately or represent it
+    /// as jump-then-curve after landing.
     pub fn masse_aim_estimate(
         &self,
         cue: &CueStrikeConfig,
@@ -4177,9 +4179,10 @@ fn heading_from_points(from: &Inches2, to: &Inches2) -> Option<Angle> {
 ///
 /// The angle is measured from the cue vertical plane / initial aiming line to the final cue-ball
 /// direction after the massé/swerve curve has completed. Positive side-tip offset curves to the
-/// player's right. The implementation uses TP A.19 Eq. 7 / Eq. 10 in normalized ball-radius units:
-/// `theta = atan2(a sin(phi), cos(phi) - b)`, where `a` is side offset, `b` is height offset, and
-/// `phi` is cue elevation.
+/// player's right. TP A.19 Eq. 7 / Eq. 10 uses normalized side offset `a_R` and below-positive
+/// height offset `b_R`, with `theta = atan2(a_R sin(phi), cos(phi) - b_R)`. This API instead uses
+/// `CueTipContact::height_offset` positive above center, so `b_R = -height_offset` and the
+/// denominator below is `cos(phi) + height_offset`.
 pub fn coriolis_masse_curve_angle_degrees(
     tip_contact: &CueTipContact,
     cue_elevation: Angle,
@@ -4198,7 +4201,8 @@ pub fn coriolis_masse_curve_angle_degrees(
 
     let elevation_radians = cue_elevation.as_degrees().to_radians();
     let numerator = side_offset * elevation_radians.sin();
-    let denominator = elevation_radians.cos() - tip_contact.height_offset().as_f64();
+    let b_over_r = -tip_contact.height_offset().as_f64();
+    let denominator = elevation_radians.cos() - b_over_r;
 
     Ok(numerator.atan2(denominator).to_degrees())
 }

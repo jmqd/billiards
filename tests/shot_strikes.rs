@@ -216,45 +216,66 @@ fn elevated_side_english_seeds_masse_spin_and_bends_after_landing() {
 }
 
 #[test]
-fn coriolis_masse_helper_predicts_tp_a19_bar_final_direction() {
-    let tip = CueTipContact::new(Scale::from_f64(0.25), Scale::from_f64(0.25))
-        .expect("TP A.19 contact point should validate");
+fn coriolis_masse_helper_translates_above_positive_api_height_to_tp_a19_b() {
+    let above_center = CueTipContact::new(Scale::from_f64(0.25), Scale::from_f64(0.25))
+        .expect("above-center contact should validate");
+    let below_center = CueTipContact::new(Scale::from_f64(0.25), Scale::from_f64(-0.25))
+        .expect("below-center contact should validate");
     let cue_elevation = angle_degrees(75.0);
     let aim_heading = angle_degrees(0.0);
-    let expected_curve_angle = (0.25_f64 * 75.0_f64.to_radians().sin())
+    let expected_above_center = (0.25_f64 * 75.0_f64.to_radians().sin())
+        .atan2(75.0_f64.to_radians().cos() + 0.25)
+        .to_degrees();
+    let expected_below_center = (0.25_f64 * 75.0_f64.to_radians().sin())
         .atan2(75.0_f64.to_radians().cos() - 0.25)
         .to_degrees();
 
-    let curve_angle = coriolis_masse_curve_angle_degrees(&tip, cue_elevation)
+    let above_curve = coriolis_masse_curve_angle_degrees(&above_center, cue_elevation)
         .expect("side/elevated contact should produce a BAR curve angle");
-    let final_heading = coriolis_masse_final_heading(aim_heading, &tip, cue_elevation)
+    let below_curve = coriolis_masse_curve_angle_degrees(&below_center, cue_elevation)
+        .expect("side/elevated contact should produce a BAR curve angle");
+    let above_heading = coriolis_masse_final_heading(aim_heading, &above_center, cue_elevation)
+        .expect("side/elevated contact should produce a final heading");
+    let below_heading = coriolis_masse_final_heading(aim_heading, &below_center, cue_elevation)
         .expect("side/elevated contact should produce a final heading");
 
-    assert_close(curve_angle, expected_curve_angle);
-    assert_close(final_heading.as_degrees(), expected_curve_angle);
+    assert_close(above_curve, expected_above_center);
+    assert_close(above_heading.as_degrees(), expected_above_center);
+    assert_close(below_curve, expected_below_center);
+    assert_close(below_heading.as_degrees(), expected_below_center);
+    assert!(below_curve > above_curve);
 
     let aim_point = Inches2::new("0", "10");
-    let final_heading_radians = final_heading.as_degrees().to_radians();
-    let final_reference_point = Inches2::new(
-        Inches::from_f64(aim_point.x().as_f64() - 10.0 * final_heading_radians.sin()),
-        Inches::from_f64(aim_point.y().as_f64() - 10.0 * final_heading_radians.cos()),
+    let above_heading_radians = above_heading.as_degrees().to_radians();
+    let source_aligned_reference = Inches2::new(
+        Inches::from_f64(aim_point.x().as_f64() - 10.0 * above_heading_radians.sin()),
+        Inches::from_f64(aim_point.y().as_f64() - 10.0 * above_heading_radians.cos()),
     );
-    let relationship = validate_coriolis_masse_bar_relationship(
+    validate_coriolis_masse_bar_relationship(
         &Inches2::zero(),
         &aim_point,
-        &final_reference_point,
-        &tip,
+        &source_aligned_reference,
+        &above_center,
         cue_elevation,
         1e-9,
     )
-    .expect("A/B/R relation should match the Coriolis final direction");
+    .expect("source-aligned A/B/R relation should validate");
 
-    assert_close(relationship.aim_heading.as_degrees(), 0.0);
-    assert_close(
-        relationship.predicted_final_heading.as_degrees(),
-        final_heading.as_degrees(),
+    let old_heading_radians = expected_below_center.to_radians();
+    let old_sign_reference = Inches2::new(
+        Inches::from_f64(aim_point.x().as_f64() - 10.0 * old_heading_radians.sin()),
+        Inches::from_f64(aim_point.y().as_f64() - 10.0 * old_heading_radians.cos()),
     );
-    assert_close(relationship.final_heading_error_degrees, 0.0);
+    let mismatch = validate_coriolis_masse_bar_relationship(
+        &Inches2::zero(),
+        &aim_point,
+        &old_sign_reference,
+        &above_center,
+        cue_elevation,
+        0.1,
+    )
+    .expect_err("sign-reversed A/B/R relation should be rejected");
+    assert!(matches!(mismatch, ShotError::MasseAimRelationshipMismatch { .. }));
 }
 
 #[test]
@@ -288,14 +309,17 @@ fn coriolis_masse_bar_validation_rejects_unsupported_or_mismatched_requests() {
 }
 
 #[test]
-fn shot_masse_aim_estimate_reports_current_jump_then_curve_mode() {
+fn shot_masse_aim_estimate_reports_corrected_heading_and_curve_mode() {
     let ball_set = BallSetPhysicsSpec::default();
     let tip = CueTipContact::new(Scale::from_f64(0.25), Scale::from_f64(0.25))
         .expect("side contact should validate");
-    let shot = Shot::new(angle_degrees(0.0), InchesPerSecond::new("70"), tip.clone())
+    let shot = Shot::new(angle_degrees(0.0), InchesPerSecond::new("70"), tip)
         .expect("shot should validate")
         .with_cue_elevation(angle_degrees(75.0))
         .expect("elevation should validate");
+    let expected_curve_angle = (0.25_f64 * 75.0_f64.to_radians().sin())
+        .atan2(75.0_f64.to_radians().cos() + 0.25)
+        .to_degrees();
 
     let estimate = shot
         .masse_aim_estimate(&cue_config(), &ball_set)
@@ -306,11 +330,39 @@ fn shot_masse_aim_estimate_reports_current_jump_then_curve_mode() {
 
     assert_eq!(estimate.curve_mode, MasseCurveMode::JumpThenCurve);
     assert_eq!(launch_mode, MasseCurveMode::ContinuousOnClothSwerve);
-    assert_close(
-        estimate.signed_curve_angle_degrees,
-        coriolis_masse_curve_angle_degrees(&tip, shot.cue_elevation())
-            .expect("same tip/elevation should produce curve angle"),
-    );
+    assert_close(estimate.signed_curve_angle_degrees, expected_curve_angle);
+    assert_close(estimate.final_heading.as_degrees(), expected_curve_angle);
+}
+
+#[test]
+fn above_and_below_tip_contacts_keep_opposite_horizontal_strike_spin() {
+    let ball_set = BallSetPhysicsSpec::default();
+    let strike = |height_offset| {
+        strike_resting_ball_on_table(
+            &resting_ball(),
+            &Shot::new(
+                Angle::from_north(0.0, 1.0),
+                InchesPerSecond::new("10"),
+                CueTipContact::new(Scale::from_f64(0.25), Scale::from_f64(height_offset))
+                    .expect("contact should validate"),
+            )
+            .expect("shot should validate"),
+            &cue_config(),
+            &ball_set,
+        )
+        .expect("level side strike should remain on the table")
+    };
+
+    let above = strike(0.25);
+    let below = strike(-0.25);
+    let above_spin = &above.as_ball_state().angular_velocity;
+    let below_spin = &below.as_ball_state().angular_velocity;
+
+    assert!(above_spin.x().as_f64() < 0.0);
+    assert!(below_spin.x().as_f64() > 0.0);
+    assert_close(above_spin.x().as_f64(), -below_spin.x().as_f64());
+    assert_close(above_spin.y().as_f64(), below_spin.y().as_f64());
+    assert_close(above_spin.z().as_f64(), below_spin.z().as_f64());
 }
 
 #[test]

@@ -11,6 +11,7 @@ use billiards::{
     compute_next_ball_rail_impact_on_table,
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
     compute_next_transition_on_table, compute_next_two_ball_event_with_rails_on_table,
+    simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest, simulate_two_on_table_balls,
     strike_resting_ball_on_table, trace_ball_path_with_rails_on_table, Angle, AngularVelocity3,
     Ball, BallBallCollisionConfig, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
@@ -908,6 +909,74 @@ fn bench_rail_resolution(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_pocket_cache_rebuild(c: &mut Criterion) {
+    let (pocket_states, ball_set, table, motion) = direct_pocket_aware_inputs();
+    let pocket_system_states = pocket_states
+        .into_iter()
+        .map(NBallSystemState::from)
+        .collect::<Vec<_>>();
+    let bank_system_states = vec![NBallSystemState::from(bank_state_near_top_rail(&table))];
+    let collision_config = BallBallCollisionConfig::ideal();
+    let rail_profile = RailCollisionProfile::default();
+
+    for (name, states) in [
+        ("one_ball_bank", bank_system_states.as_slice()),
+        ("two_ball_pocket", pocket_system_states.as_slice()),
+    ] {
+        for max_events in [1usize, 2, 4] {
+            let control =
+                simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+                    states,
+                    &ball_set,
+                    &table,
+                    &motion,
+                    CollisionModel::Ideal,
+                    &collision_config,
+                    RailModel::Mirror,
+                    &rail_profile,
+                    Some(max_events),
+                )
+                .expect("cache benchmark geometry should validate");
+            assert!(
+                !control.events.is_empty() && control.events.len() <= max_events,
+                "{name} should produce events up to the requested cap"
+            );
+        }
+    }
+
+    let mut group = c.benchmark_group("pocket_cache_rebuild");
+    group.measurement_time(Duration::from_secs(8));
+    group.sample_size(10);
+
+    for (name, states) in [
+        ("one_ball_bank", bank_system_states.as_slice()),
+        ("two_ball_pocket", pocket_system_states.as_slice()),
+    ] {
+        for max_events in [1usize, 2, 4] {
+            group.bench_function(format!("{name}/event_limit_{max_events}"), |b| {
+                b.iter(|| {
+                    black_box(
+                        simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+                            black_box(states),
+                            black_box(&ball_set),
+                            black_box(&table),
+                            black_box(&motion),
+                            black_box(CollisionModel::Ideal),
+                            black_box(&collision_config),
+                            black_box(RailModel::Mirror),
+                            black_box(&rail_profile),
+                            black_box(Some(max_events)),
+                        )
+                        .expect("cache benchmark geometry should validate"),
+                    )
+                })
+            });
+        }
+    }
+
+    group.finish();
+}
+
 fn bench_end_to_end(c: &mut Criterion) {
     let scenario = parse_dsl_to_scenario(SINGLE_BALL_SHOT_DSL)
         .expect("benchmark single-ball shot DSL should parse");
@@ -961,6 +1030,6 @@ fn bench_end_to_end(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_shared_contact_resolution, bench_rail_resolution, bench_end_to_end
+    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_shared_contact_resolution, bench_rail_resolution, bench_pocket_cache_rebuild, bench_end_to_end
 );
 criterion_main!(benches);

@@ -9,13 +9,14 @@ use billiards::{
     compute_next_transition_on_table, simulate_two_on_table_balls, strike_resting_ball_on_table,
     trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, BallBallCollisionConfig,
     BallPathStop, BallSetPhysicsSpec, BallState, CollisionModel, CueStrikeConfig, CueTipContact,
-    DiagramBackground, DiagramRenderOptions, Inches, Inches2, InchesPerSecond, InchesPerSecondSq,
-    MotionPhaseConfig, MotionTransitionConfig, OnTableBallState, OnTableMotionConfig,
-    RadiansPerSecondSq, RailCollisionProfile, RailModel, RestingOnTableBallState,
-    RollingResistanceModel, Scale, Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec,
-    Velocity2, TYPICAL_BALL_RADIUS,
+    DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2, InchesPerSecond,
+    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
+    OnTableMotionConfig, Position, RadiansPerSecondSq, RailCollisionProfile, RailModel,
+    RestingOnTableBallState, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
+    SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use image::Rgba;
 
 const SINGLE_BALL_SHOT_DSL: &str = "ball cue at center\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(30deg).speed(16ips).tip(side: 0.0R, height: 0.4R).using(default)\n";
 const TWO_BALL_LAYOUT_DSL: &str = "ball cue at center\nball nine at (2, 4.75)\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(0deg).speed(16ips).tip(side: 0.0R, height: 0.0R).using(default)\n";
@@ -360,9 +361,29 @@ fn bench_rendering_throughput(c: &mut Criterion) {
         scale_factor: 1,
         background: DiagramBackground::Transparent,
     };
+    let long_polyline_points = (0..1_000)
+        .map(|index| {
+            let t = index as f64 / 999.0;
+            let x = 0.1 + 3.8 * t;
+            let y = 4.0 + 3.0 * (t * std::f64::consts::TAU * 8.0).sin();
+            Position::new(
+                Diamond::from(x.to_string().as_str()),
+                Diamond::from(y.to_string().as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut long_polyline_state = GameState::new(TableSpec::default());
+    long_polyline_state.add_smooth_polyline(&long_polyline_points, Rgba([0x09, 0x6b, 0xd8, 0xff]));
+    let long_polyline_scene = long_polyline_state.to_diagram_scene(&transparent_options);
     let svg_control = render_scene_to_bytes(&scene, DiagramOutputFormat::Svg, &render_options);
     let png_control = render_scene_to_bytes(&scene, DiagramOutputFormat::Png, &render_options);
     assert!(!svg_control.is_empty() && !png_control.is_empty());
+    let long_polyline_svg_control = render_scene_to_bytes(
+        &long_polyline_scene,
+        DiagramOutputFormat::Svg,
+        &transparent_options,
+    );
+    assert!(!long_polyline_svg_control.is_empty());
 
     let mut stage_group = c.benchmark_group("render_stages");
     stage_group.measurement_time(Duration::from_secs(8));
@@ -378,6 +399,15 @@ fn bench_rendering_throughput(c: &mut Criterion) {
                 black_box(&scene),
                 black_box(DiagramOutputFormat::Svg),
                 black_box(&render_options),
+            ));
+        })
+    });
+    stage_group.bench_function("backend/svg_long_polyline_1000", |b| {
+        b.iter(|| {
+            black_box(render_scene_to_bytes(
+                black_box(&long_polyline_scene),
+                black_box(DiagramOutputFormat::Svg),
+                black_box(&transparent_options),
             ));
         })
     });

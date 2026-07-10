@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario, DslScenario};
 use billiards::{
+    advance_to_next_n_ball_event_on_table,
     advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table, classify_motion_phase,
     collide_ball_ball_detailed_on_table,
     compute_next_ball_ball_collision_during_current_phases_on_table,
@@ -210,6 +211,20 @@ fn curved_collision_predictor_states() -> (OnTableBallState, OnTableBallState) {
             27.499_997_782_973_136,
         ))),
     )
+}
+
+fn zero_time_shared_contact_states() -> [OnTableBallState; 3] {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let contact_y = -3.0_f64.sqrt() * radius;
+    [
+        on_table(BallState::on_table(
+            inches2(0.0, contact_y),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+        )),
+        on_table(BallState::resting_at(inches2(-radius, 0.0))),
+        on_table(BallState::resting_at(inches2(radius, 0.0))),
+    ]
 }
 
 fn throw_aware_collision_states() -> (OnTableBallState, OnTableBallState) {
@@ -782,6 +797,40 @@ fn bench_collision_predictor_paths(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_shared_contact_resolution(c: &mut Criterion) {
+    let states = zero_time_shared_contact_states();
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let control =
+        advance_to_next_n_ball_event_on_table(&states, &ball_set, &motion, CollisionModel::Ideal)
+            .expect("shared-contact benchmark geometry should validate");
+    assert!(matches!(
+        control.event,
+        Some(billiards::NBallOnTableEvent::SharedBallBallContact {
+            ref ball_ball_pairs,
+            ..
+        }) if ball_ball_pairs == &[(0, 1), (0, 2)]
+    ));
+
+    let mut group = c.benchmark_group("shared_contact_resolution");
+    group.measurement_time(Duration::from_secs(10));
+    group.sample_size(40);
+    group.bench_function("symmetric_3_ball_2_contact", |b| {
+        b.iter(|| {
+            black_box(
+                advance_to_next_n_ball_event_on_table(
+                    black_box(&states),
+                    black_box(&ball_set),
+                    black_box(&motion),
+                    black_box(CollisionModel::Ideal),
+                )
+                .expect("shared-contact benchmark geometry should validate"),
+            )
+        })
+    });
+    group.finish();
+}
+
 fn bench_end_to_end(c: &mut Criterion) {
     let scenario = parse_dsl_to_scenario(SINGLE_BALL_SHOT_DSL)
         .expect("benchmark single-ball shot DSL should parse");
@@ -835,6 +884,6 @@ fn bench_end_to_end(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_end_to_end
+    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_shared_contact_resolution, bench_end_to_end
 );
 criterion_main!(benches);

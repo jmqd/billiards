@@ -4647,6 +4647,57 @@ fn time_until_vertical_axis_spin_stops_f64(
         .then_some(initial_spin.abs() / spin_angular_deceleration(config))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RollingSideSpinCurveInterval {
+    duration: f64,
+    final_speed: f64,
+    heading_is_reportable: bool,
+}
+
+fn rolling_side_spin_curve_interval(
+    initial_speed: f64,
+    initial_side_spin: f64,
+    maximum_duration: f64,
+    config: &OnTableMotionConfig,
+) -> Option<RollingSideSpinCurveInterval> {
+    if initial_speed <= f64::EPSILON
+        || initial_side_spin.abs() <= f64::EPSILON
+        || maximum_duration <= f64::EPSILON
+    {
+        return None;
+    }
+
+    let linear_deceleration = rolling_linear_deceleration(config);
+    let spin_deceleration = spin_angular_deceleration(config);
+    let translation_stop_time = initial_speed / linear_deceleration;
+    let spin_stop_time = initial_side_spin.abs() / spin_deceleration;
+    let linear_speed_floor = config.phase.thresholds.rest_linear_speed.as_f64();
+    let (curve_limit_time, heading_is_reportable) = if linear_speed_floor > f64::EPSILON {
+        if linear_speed_floor >= initial_speed {
+            return None;
+        }
+        (
+            (initial_speed - linear_speed_floor) / linear_deceleration,
+            true,
+        )
+    } else {
+        (translation_stop_time, false)
+    };
+    let duration = maximum_duration
+        .min(spin_stop_time)
+        .min(curve_limit_time)
+        .min(translation_stop_time);
+    if duration <= f64::EPSILON {
+        return None;
+    }
+
+    Some(RollingSideSpinCurveInterval {
+        duration,
+        final_speed: (initial_speed - linear_deceleration * duration).max(0.0),
+        heading_is_reportable: heading_is_reportable || duration < translation_stop_time,
+    })
+}
+
 fn raw_advance_within_phase_on_table(
     state: RawOnTableBallState,
     phase: MotionPhase,
@@ -4712,48 +4763,39 @@ fn raw_advance_within_phase_on_table(
             let final_speed = (initial_speed - linear_deceleration * advance_time).max(0.0);
             let heading_x = state.vx / initial_speed;
             let heading_y = state.vy / initial_speed;
-            let side_spin_stop_time = time_until_vertical_axis_spin_stops_f64(state.wz, config);
-
             let (x, y, final_heading_x, final_heading_y) =
-                if let Some(side_spin_stop_time) = side_spin_stop_time {
-                    if side_spin_stop_time > f64::EPSILON && side_spin_stop_time < stop_time {
-                        let curve_time = advance_time.min(side_spin_stop_time);
-                        let speed_after_curve =
-                            (initial_speed - linear_deceleration * curve_time).max(0.0);
-                        let signed_turn_scale = state.wz.signum()
-                            * rolling_side_spin_turn_coefficient(radius, config)
-                            / linear_deceleration;
-
-                        let (curve_dx, curve_dy, curve_heading_x, curve_heading_y) =
-                            rolling_side_spin_curved_displacement(
-                                heading_x,
-                                heading_y,
-                                initial_speed,
-                                speed_after_curve,
-                                linear_deceleration,
-                                signed_turn_scale,
-                            );
-
-                        let remaining_time = (advance_time - curve_time).max(0.0);
-                        let speed_after_straight =
-                            (speed_after_curve - linear_deceleration * remaining_time).max(0.0);
-                        let straight_distance =
-                            0.5 * (speed_after_curve + speed_after_straight) * remaining_time;
-                        (
-                            state.x + curve_dx + curve_heading_x * straight_distance,
-                            state.y + curve_dy + curve_heading_y * straight_distance,
-                            curve_heading_x,
-                            curve_heading_y,
-                        )
-                    } else {
-                        let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
-                        (
-                            state.x + heading_x * travel_distance,
-                            state.y + heading_y * travel_distance,
+                if let Some(curve_interval) = rolling_side_spin_curve_interval(
+                    initial_speed,
+                    state.wz,
+                    advance_time,
+                    config,
+                ) {
+                    let signed_turn_scale = state.wz.signum()
+                        * rolling_side_spin_turn_coefficient(radius, config)
+                        / linear_deceleration;
+                    let (curve_dx, curve_dy, curve_heading_x, curve_heading_y) =
+                        rolling_side_spin_curved_displacement(
                             heading_x,
                             heading_y,
-                        )
-                    }
+                            initial_speed,
+                            curve_interval.final_speed,
+                            linear_deceleration,
+                            signed_turn_scale,
+                        );
+
+                    let remaining_time = (advance_time - curve_interval.duration).max(0.0);
+                    let speed_after_straight =
+                        (curve_interval.final_speed - linear_deceleration * remaining_time)
+                            .max(0.0);
+                    let straight_distance = 0.5
+                        * (curve_interval.final_speed + speed_after_straight)
+                        * remaining_time;
+                    (
+                        state.x + curve_dx + curve_heading_x * straight_distance,
+                        state.y + curve_dy + curve_heading_y * straight_distance,
+                        curve_heading_x,
+                        curve_heading_y,
+                    )
                 } else {
                     let travel_distance = 0.5 * (initial_speed + final_speed) * advance_time;
                     (
@@ -12037,15 +12079,25 @@ fn rolling_side_spin_curved_displacement(
     linear_deceleration: f64,
     signed_turn_scale: f64,
 ) -> (f64, f64, f64, f64) {
-    if signed_turn_scale.abs() <= f64::EPSILON
-        || final_speed <= f64::EPSILON
-        || initial_speed <= final_speed
-    {
+    if signed_turn_scale.abs() <= f64::EPSILON || initial_speed <= final_speed {
         let travel_distance = (initial_speed * initial_speed - final_speed * final_speed)
             / (2.0 * linear_deceleration);
         return (
             heading_x * travel_distance,
             heading_y * travel_distance,
+            heading_x,
+            heading_y,
+        );
+    }
+
+    if final_speed <= f64::EPSILON {
+        let denominator = 4.0 + signed_turn_scale * signed_turn_scale;
+        let speed_scale = initial_speed * initial_speed / linear_deceleration;
+        let cos_integral = 2.0 * speed_scale / denominator;
+        let sin_integral = signed_turn_scale * speed_scale / denominator;
+        return (
+            heading_x * cos_integral + heading_y * sin_integral,
+            heading_y * cos_integral - heading_x * sin_integral,
             heading_x,
             heading_y,
         );
@@ -12086,26 +12138,31 @@ fn estimate_rolling_side_spin_curve_on_table(
     let speed = ball_speed(state).as_f64();
     let side_spin = state.angular_velocity.z().as_f64();
     let linear_deceleration = rolling_linear_deceleration(motion);
-    let spin_deceleration = spin_angular_deceleration(motion);
-    let time_until_spin_stops = side_spin.abs() / spin_deceleration;
-    let time_until_translation_stops = speed / linear_deceleration;
 
     if speed <= motion.phase.thresholds.rest_linear_speed.as_f64()
         || side_spin.abs() <= motion.phase.thresholds.rest_angular_speed.as_f64()
-        || time_until_spin_stops >= time_until_translation_stops
+    {
+        return None;
+    }
+
+    let curve_interval = rolling_side_spin_curve_interval(
+        speed,
+        side_spin,
+        speed / linear_deceleration,
+        motion,
+    )?;
+    if !curve_interval.heading_is_reportable
+        || curve_interval.final_speed + f64::EPSILON
+            < motion.phase.thresholds.rest_linear_speed.as_f64()
     {
         return None;
     }
 
     let start_heading = state.velocity.angle_from_north()?;
     let turn_coefficient = rolling_side_spin_turn_coefficient(ball.radius.as_f64(), motion);
-    let final_speed = speed - linear_deceleration * time_until_spin_stops;
-    if final_speed <= motion.phase.thresholds.rest_linear_speed.as_f64() {
-        return None;
-    }
-
-    let curve_angle_radians =
-        side_spin.signum() * (turn_coefficient / linear_deceleration) * (speed / final_speed).ln();
+    let curve_angle_radians = side_spin.signum()
+        * (turn_coefficient / linear_deceleration)
+        * (speed / curve_interval.final_speed).ln();
     if curve_angle_radians.abs() <= f64::EPSILON {
         return None;
     }
@@ -12113,7 +12170,9 @@ fn estimate_rolling_side_spin_curve_on_table(
     let curve_angle_degrees = curve_angle_radians.to_degrees();
     Some(PostContactCueBallCurve {
         time_until_curve_starts: Seconds::new(time_until_curve_starts),
-        time_until_curve_completes: Seconds::new(time_until_curve_starts + time_until_spin_stops),
+        time_until_curve_completes: Seconds::new(
+            time_until_curve_starts + curve_interval.duration,
+        ),
         curve_angle_degrees,
         heading_after_curve: angle_from_degrees(start_heading.as_degrees() + curve_angle_degrees),
     })
@@ -12125,16 +12184,17 @@ fn estimate_rolling_side_spin_curve_on_table(
 /// horizontal massé spin component in `strike_resting_ball`, and the core on-table TP A.4 sliding
 /// integrator advances that curved path directly once the ball is on the cloth.
 ///
-/// This helper keeps the smaller TP B.2 rolling "ball turn" estimate separate:
+/// This helper summarizes the smaller TP B.2 rolling ball-turn interval:
 ///
 /// - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`
 ///   states that pure `ωz` does not affect the sliding contact-point velocity in the reduced
 ///   on-table post-impact trajectory derivation.
-/// - `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf` predicts a very
-///   small rolling turn from residual side spin, rolling resistance, and spin-down torque.
+/// - `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf` predicts a small
+///   rolling turn from residual side spin, rolling resistance, and spin-down torque.
 ///
-/// The TP B.2 estimate reports analysis data only; rolling motion itself still uses the existing
-/// straight-line analytic model.
+/// A reported interval ends when side spin stops or the configured positive linear-speed cutoff is
+/// reached, whichever occurs first. It does not imply that residual side spin is zero. The helper
+/// intentionally returns no terminal heading when an explicitly zero speed cutoff reaches rest.
 pub fn estimate_post_contact_cue_ball_curve_on_table(
     state: &OnTableBallState,
     ball: &BallSetPhysicsSpec,

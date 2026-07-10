@@ -380,16 +380,18 @@ fn advancing_a_sliding_ball_with_vertical_spin_no_longer_curves_in_the_horizonta
 }
 
 #[test]
-fn the_curve_estimate_is_none_for_a_sliding_state_with_only_vertical_spin_in_the_horizontal_model()
-{
+fn the_curve_estimate_for_sliding_vertical_spin_begins_after_rolling_develops() {
     let state = on_table(sliding_with_vertical_spin_state());
 
-    assert!(estimate_post_contact_cue_ball_curve_on_table(
+    let curve = estimate_post_contact_cue_ball_curve_on_table(
         &state,
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
-    .is_none());
+    .expect("residual side spin should curve after the ball reaches rolling");
+
+    assert!(curve.time_until_curve_starts.as_f64() > 0.0);
+    assert!(curve.curve_angle_degrees > 0.0);
 }
 
 #[test]
@@ -526,28 +528,76 @@ fn advancing_a_pure_spinning_ball_leaves_position_fixed_and_decays_z_spin_linear
 }
 
 #[test]
-fn advancing_a_rolling_ball_with_vertical_spin_no_longer_curls_once_it_is_in_pure_rolling_motion() {
+fn advancing_a_rolling_ball_with_vertical_spin_follows_tp_b2_before_translation_stops() {
     let radius = TYPICAL_BALL_RADIUS.clone();
-    let state = rolling_with_vertical_spin_state();
     let advanced = advance_ball_state(
-        &state,
+        &rolling_with_vertical_spin_state(),
         Seconds::new(1.0),
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     );
 
-    assert_close(advanced.position.x().as_f64(), 10.0);
-    assert_close(advanced.position.y().as_f64(), 27.5);
+    assert_close_with_tolerance(advanced.position.x().as_f64(), 10.004_702_077_725_524, 1e-12);
+    assert_close_with_tolerance(advanced.position.y().as_f64(), 27.499_997_782_973_136, 1e-12);
     assert_close(advanced.speed().as_f64(), 5.0);
-    assert_close(advanced.velocity.x().as_f64(), 0.0);
-    assert_close(advanced.velocity.y().as_f64(), 5.0);
-    assert_close(
-        advanced.angular_velocity.x().as_f64(),
-        -5.0 / radius.as_f64(),
+    assert_close_with_tolerance(
+        advanced
+            .velocity
+            .angle_from_north()
+            .expect("rolling ball should keep moving")
+            .as_degrees(),
+        0.092_577_115_274_648_42,
+        1e-12,
     );
-    assert_close(advanced.angular_velocity.y().as_f64(), 0.0);
     assert_close(advanced.angular_velocity.z().as_f64(), 4.0);
+    assert_close_with_tolerance(
+        advanced.angular_velocity.x().as_f64(),
+        -advanced.velocity.y().as_f64() / radius.as_f64(),
+        1e-12,
+    );
+    assert_close_with_tolerance(
+        advanced.angular_velocity.y().as_f64(),
+        advanced.velocity.x().as_f64() / radius.as_f64(),
+        1e-12,
+    );
     assert_eq!(advanced.motion_phase(radius), MotionPhase::Rolling);
+}
+
+#[test]
+fn tp_b2_rolling_turn_is_continuous_across_spin_translation_lifetime_boundary() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let state_with_spin = |wz| {
+        BallState::on_table(
+            Inches2::new("10", "20"),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-10.0 / radius, 0.0, wz),
+        )
+    };
+    let advance = |state| {
+        advance_ball_state(
+            &state,
+            Seconds::new(1.0),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+    };
+    let below = advance(state_with_spin(4.0 - 1e-6));
+    let above = advance(state_with_spin(4.0 + 1e-6));
+
+    for state in [&below, &above] {
+        assert_close_with_tolerance(state.position.x().as_f64(), 10.004_702_077_725_524, 1e-12);
+        assert_close_with_tolerance(state.position.y().as_f64(), 27.499_997_782_973_136, 1e-12);
+        assert_close_with_tolerance(
+            state
+                .velocity
+                .angle_from_north()
+                .expect("rolling ball should keep moving")
+                .as_degrees(),
+            0.092_577_115_274_648_42,
+            1e-12,
+        );
+    }
+    assert_close(below.speed().as_f64(), above.speed().as_f64());
 }
 
 #[test]
@@ -602,6 +652,51 @@ fn cross_near_vertical_axis_relation_holds_for_rolling_translation_with_residual
     assert_close_with_tolerance(implied_theta.cos(), speed / (total_spin * radius), 1e-12);
 }
 
+#[test]
+fn opposite_long_lived_rolling_side_spin_produces_mirrored_motion() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let state_with_spin = |wz| {
+        BallState::on_table(
+            Inches2::new("10", "20"),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-10.0 / radius, 0.0, wz),
+        )
+    };
+    let advance = |state| {
+        advance_ball_state(
+            &state,
+            Seconds::new(1.0),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+    };
+    let right = advance(state_with_spin(6.0));
+    let left = advance(state_with_spin(-6.0));
+
+    assert_close(right.position.y().as_f64(), left.position.y().as_f64());
+    assert_close(right.speed().as_f64(), left.speed().as_f64());
+    assert_close(
+        right.position.x().as_f64() - 10.0,
+        -(left.position.x().as_f64() - 10.0),
+    );
+    assert_close(
+        right
+            .velocity
+            .angle_from_north()
+            .expect("right-spin ball should keep moving")
+            .as_degrees(),
+        360.0
+            - left
+                .velocity
+                .angle_from_north()
+                .expect("left-spin ball should keep moving")
+                .as_degrees(),
+    );
+    assert_close(
+        right.angular_velocity.z().as_f64(),
+        -left.angular_velocity.z().as_f64(),
+    );
+}
 #[test]
 fn the_curve_estimate_reports_tp_b2_rolling_side_spin_turn() {
     let state = on_table(rolling_with_small_vertical_spin_state());
@@ -704,18 +799,70 @@ fn opposite_rolling_side_spin_turns_the_other_way() {
 }
 
 #[test]
-fn rolling_side_spin_curve_estimate_is_none_when_translation_stops_before_spin() {
+fn rolling_side_spin_curve_estimate_is_truncated_when_spin_outlasts_translation() {
     let state = on_table(rolling_with_vertical_spin_state());
+    let mut config = motion_config();
+    config.phase.thresholds.rest_linear_speed = InchesPerSecond::new("2");
 
-    assert!(
-        estimate_post_contact_cue_ball_curve_on_table(
-            &state,
-            &BallSetPhysicsSpec::default(),
-            &motion_config(),
-        )
-        .is_none(),
-        "TP B.2's turn-rate integral is not used once translation stops before side spin decays"
+    let curve = estimate_post_contact_cue_ball_curve_on_table(
+        &state,
+        &BallSetPhysicsSpec::default(),
+        &config,
+    )
+    .expect("positive-speed cutoff should report the preceding rolling turn");
+
+    assert_close(curve.time_until_curve_starts.as_f64(), 0.0);
+    assert_close(curve.time_until_curve_completes.as_f64(), 1.6);
+    assert_close(curve.curve_angle_degrees, 0.214_957_404_899_832_12);
+    assert_close(
+        curve.heading_after_curve.as_degrees(),
+        0.214_957_404_899_832_12,
     );
+}
+
+#[test]
+fn tp_b2_rolling_turn_stops_at_the_configured_linear_speed_threshold() {
+    let mut config = motion_config();
+    config.phase.thresholds.rest_linear_speed = InchesPerSecond::new("2");
+    let advanced = advance_ball_state(
+        &rolling_with_vertical_spin_state(),
+        Seconds::new(1.8),
+        &BallSetPhysicsSpec::default(),
+        &config,
+    );
+
+    assert_close_with_tolerance(advanced.position.x().as_f64(), 10.010_813_961_614_733, 1e-12);
+    assert_close_with_tolerance(advanced.position.y().as_f64(), 29.899_989_411_533_657, 1e-12);
+    assert_close(advanced.speed().as_f64(), 1.0);
+    assert_close_with_tolerance(
+        advanced
+            .velocity
+            .angle_from_north()
+            .expect("rolling ball should keep moving")
+            .as_degrees(),
+        0.214_957_404_899_832_12,
+        1e-12,
+    );
+    assert_close(advanced.angular_velocity.z().as_f64(), 2.4);
+}
+
+#[test]
+fn tp_b2_exact_stop_with_zero_linear_speed_threshold_keeps_a_finite_endpoint() {
+    let mut config = motion_config();
+    config.phase.thresholds.rest_linear_speed = InchesPerSecond::zero();
+    let advanced = advance_ball_state(
+        &rolling_with_vertical_spin_state(),
+        Seconds::new(2.0),
+        &BallSetPhysicsSpec::default(),
+        &config,
+    );
+
+    assert!(advanced.position.x().as_f64().is_finite());
+    assert!(advanced.position.y().as_f64().is_finite());
+    assert!(advanced.position.x().as_f64() > 10.0);
+    assert_close(advanced.speed().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.x().as_f64(), 0.0);
+    assert_close(advanced.angular_velocity.y().as_f64(), 0.0);
 }
 
 #[test]
@@ -729,8 +876,8 @@ fn advancing_a_rolling_ball_with_vertical_spin_can_enter_the_spinning_phase() {
         &motion_config(),
     );
 
-    assert_close(advanced.position.x().as_f64(), 10.0);
-    assert_close(advanced.position.y().as_f64(), 30.0);
+    assert_close(advanced.position.x().as_f64(), 10.011_655_340_480_87);
+    assert_close(advanced.position.y().as_f64(), 29.999_986_415_285_374);
     assert_close(advanced.speed().as_f64(), 0.0);
     assert_close(advanced.angular_velocity.x().as_f64(), 0.0);
     assert_close(advanced.angular_velocity.y().as_f64(), 0.0);

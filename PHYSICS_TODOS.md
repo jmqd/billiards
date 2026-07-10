@@ -55,13 +55,10 @@ Scope: current Rust physics implementation cross-checked against the in-repo whi
 
 ### DONE P1 — Use TP B.2 rolling side-spin turn in actual motion, not only metadata
 
-**Problem.** The TP B.2 turn estimator was correct as analysis data, but rolling motion integration still advanced in a straight line. Consumers of `advance_motion_on_table`, trace playback, rail prediction, and future ball-collision prediction did not follow the estimated curved path.
+**Done 2026-07-02; corrected 2026-07-10.** The rolling integrator computes TP B.2 curved displacement during rolling advancement, decays side spin over the same interval, and preserves the published estimator as analysis metadata. The 2026-07-10 correction applies curvature whenever finite-speed rolling and side spin coexist; it no longer suppresses the entire curve merely because side spin is predicted to outlast translation.
 
-- Former straight-line rolling integrator: `src/lib.rs:4124-4171`.
-- Estimator/test evidence: `src/lib.rs:11390-11448`, `tests/advance_ball_state.rs:622-649`.
-- Source expectation: TP B.2 defines actual turn rate `Omega_t(v)` and integrates it into path angle/lateral error: `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf:263-365`, `:391-443`.
-
-**Done 2026-07-02.** The rolling integrator now computes TP B.2 curved displacement during rolling advancement, decays side spin over the same interval, and preserves the published estimator as analysis metadata. Regression coverage exercises both the estimator and the actual rolling-path displacement.
+- The reportable TP B.2 interval ends when side spin stops or the configured positive linear-speed cutoff is reached, whichever occurs first. Residual side spin can outlast translation into `MotionPhase::Spinning`.
+- Regression coverage exercises low-spin and long-lived-spin trajectories, continuity across the former lifetime gate, mirrored English, the finite speed cutoff, estimator metadata, and the actual rolling-path displacement.
 
 ### DONE P1 — Add a real massé/swerve model surface, not only hand-tuned elevation examples
 

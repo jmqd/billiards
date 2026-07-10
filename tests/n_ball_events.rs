@@ -98,6 +98,7 @@ fn the_n_ball_scheduler_picks_the_earliest_ball_ball_collision_across_pairs() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("fixture should satisfy N-ball geometry")
     .expect("an event should be predicted");
 
     match event {
@@ -130,6 +131,7 @@ fn n_ball_scheduler_executes_the_curved_rolling_collision_before_transition() {
     let motion = motion_config();
 
     let event = compute_next_n_ball_event_on_table(&[&cue_ball, &object_ball], &ball, &motion)
+        .expect("fixture should satisfy N-ball geometry")
         .expect("the curved collision should reach the N-ball scheduler");
     match event {
         NBallOnTableEvent::BallBallCollision {
@@ -149,7 +151,8 @@ fn n_ball_scheduler_executes_the_curved_rolling_collision_before_transition() {
         &ball,
         &motion,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
     assert!(matches!(
         advanced.event,
         Some(NBallOnTableEvent::BallBallCollision {
@@ -170,6 +173,7 @@ fn shared_contact_uses_the_ball_ball_time_when_an_unrelated_transition_is_tied()
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("fixture should satisfy N-ball geometry")
     .expect("an event should be predicted");
 
     match event {
@@ -209,6 +213,7 @@ fn the_n_ball_scheduler_picks_the_earliest_motion_transition_across_balls() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("fixture should satisfy N-ball geometry")
     .expect("an event should be predicted");
 
     match event {
@@ -248,6 +253,7 @@ fn the_rail_aware_n_ball_scheduler_picks_the_earliest_rail_impact() {
         &table,
         &motion_config(),
     )
+    .expect("fixture should satisfy N-ball geometry")
     .expect("an event should be predicted");
 
     match event {
@@ -281,6 +287,7 @@ fn simultaneous_pair_collisions_break_ties_by_lowest_index_pair() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("fixture should satisfy N-ball geometry")
     .expect("an event should be predicted");
 
     match event {
@@ -313,6 +320,7 @@ fn shared_simultaneous_ball_ball_contacts_report_the_resolution_strategy() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("fixture should satisfy N-ball geometry")
     .expect("the symmetric double hit should be detected");
 
     match event {
@@ -350,7 +358,8 @@ fn frozen_line_contact_resolution_removes_the_synthetic_follow_on_collision() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     match advanced
         .event
@@ -373,7 +382,8 @@ fn frozen_line_contact_resolution_removes_the_synthetic_follow_on_collision() {
         &next_state_refs,
         &BallSetPhysicsSpec::default(),
         &motion_config(),
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     let incoming_speed = 5.0;
     assert_tp_b29_rounded_velocity(
@@ -416,5 +426,6 @@ fn the_n_ball_scheduler_returns_none_when_all_balls_are_resting_and_separated() 
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("fixture should satisfy N-ball geometry")
     .is_none());
 }

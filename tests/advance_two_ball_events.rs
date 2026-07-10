@@ -57,7 +57,8 @@ fn advancing_to_a_motion_transition_advances_both_balls_to_that_time() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
 
     let reported_event = advanced
         .event
@@ -126,7 +127,8 @@ fn advancing_to_a_ball_ball_collision_resolves_the_immediate_post_collision_stat
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
 
     let reported_event = advanced
         .event
@@ -182,7 +184,8 @@ fn advancing_with_no_future_event_returns_the_original_two_ball_state() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
 
     assert_eq!(advanced.elapsed.as_f64(), 0.0);
     assert!(advanced.event.is_none());

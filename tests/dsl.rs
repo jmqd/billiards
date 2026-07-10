@@ -120,6 +120,7 @@ fn carom_table_dsl_builds_pocketless_table_game_and_carom_balls() {
     }
 }
 
+
 #[test]
 fn given_an_invalid_second_statement_when_parsing_then_the_error_offset_points_at_the_bad_token() {
     let err = parse_dsl("ball cue at center\nball nine nope").expect_err("expected parse failure");
@@ -656,7 +657,8 @@ fn shot_scenarios_can_use_named_ball_ball_configs_defined_in_dsl() {
             .expect("ideal ball-ball config should exist"),
         RailModel::SpinAware,
         &RailCollisionProfile::default(),
-    );
+    )
+    .expect("DSL scenario geometry should validate");
     let damped = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
         &initial,
         &BallSetPhysicsSpec::default(),
@@ -668,7 +670,8 @@ fn shot_scenarios_can_use_named_ball_ball_configs_defined_in_dsl() {
             .expect("human ball-ball config should exist"),
         RailModel::SpinAware,
         &RailCollisionProfile::default(),
-    );
+    )
+    .expect("DSL scenario geometry should validate");
 
     let ideal_object_speed = match &ideal.states[1] {
         NBallSystemState::OnTable(state) => state.as_ball_state().speed().as_f64(),
@@ -683,6 +686,31 @@ fn shot_scenarios_can_use_named_ball_ball_configs_defined_in_dsl() {
         damped_object_speed < ideal_object_speed,
         "lower ball-ball restitution should reduce the struck ball's immediate post-collision speed"
     );
+}
+
+#[test]
+fn overlapping_shot_balls_report_named_dsl_geometry_error() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.0, 3.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(0deg).speed(16ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected overlapping shot scenario DSL to build");
+
+    let error = scenario
+        .initial_shot_system_states_on_table(&BallSetPhysicsSpec::default())
+        .expect_err("overlapping shot balls should be rejected");
+    let DslBuildError::InvalidNBallGeometry {
+        first_ball,
+        second_ball,
+        ..
+    } = error
+    else {
+        panic!("expected named N-ball geometry error, got {error:?}");
+    };
+
+    assert_eq!((first_ball, second_ball), (BallType::Cue, BallType::One));
 }
 
 #[test]

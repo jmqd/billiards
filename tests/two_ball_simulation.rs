@@ -52,7 +52,8 @@ fn simulating_for_less_than_the_next_event_advances_both_balls_without_recording
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
     let expected_a = OnTableBallState::try_from(
         advance_motion_on_table(&a, dt, &BallSetPhysicsSpec::default(), &config).state,
     )
@@ -90,14 +91,16 @@ fn simulating_past_one_event_records_it_and_consumes_the_remaining_time_afterwar
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
     let first = advance_to_next_event_for_two_on_table_balls(
         &a,
         &b,
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
     let remaining = Seconds::new(dt.as_f64() - first.elapsed.as_f64());
     let expected_a = OnTableBallState::try_from(
         advance_motion_on_table(&first.a, remaining, &BallSetPhysicsSpec::default(), &config).state,
@@ -141,35 +144,40 @@ fn simulating_through_multiple_events_records_them_in_order() {
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
     let first = advance_to_next_event_for_two_on_table_balls(
         &a,
         &b,
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
     let second = advance_to_next_event_for_two_on_table_balls(
         &first.a,
         &first.b,
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
     let third = advance_to_next_event_for_two_on_table_balls(
         &second.a,
         &second.b,
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
     let fourth = advance_to_next_event_for_two_on_table_balls(
         &third.a,
         &third.b,
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("test geometry should validate");
     let remaining = Seconds::new(
         dt.as_f64()
             - first.elapsed.as_f64()

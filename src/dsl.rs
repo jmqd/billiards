@@ -19,8 +19,8 @@ use crate::{
     Angle, Ball, BallBallCollisionConfig, BallPath, BallPathSegment, BallPathStop,
     BallSetPhysicsSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact,
     Diamond, GameState, GameType, HumanShotSpeedValidation, Inches, InchesPerSecond, MotionPhase,
-    MotionPhaseThresholds, NBallSystemEvent, NBallSystemSimulation, NBallSystemState,
-    OnTableBallState, OnTableMotionConfig, OnTableStateError, PlayingConditions,
+    MotionPhaseThresholds, NBallGeometryError, NBallSystemEvent, NBallSystemSimulation,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, OnTableStateError, PlayingConditions,
     PlayingConditionsPreset, Pocket, PocketJaw, Position, Rail, RailCollisionConfig,
     RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds,
     SharedBallBallContactResolution, Shot, ShotError, ShotSpeedPreset, TableSpec,
@@ -300,6 +300,19 @@ impl DslScenario {
             })
     }
 
+    fn invalid_n_ball_geometry_error(&self, error: NBallGeometryError) -> DslBuildError {
+        let NBallGeometryError::OverlappingOnTableBalls {
+            first_ball_index,
+            second_ball_index,
+            ..
+        } = &error;
+        DslBuildError::InvalidNBallGeometry {
+            first_ball: self.game_state.balls()[*first_ball_index].ty.clone(),
+            second_ball: self.game_state.balls()[*second_ball_index].ty.clone(),
+            error,
+        }
+    }
+
     pub fn initial_shot_system_states_on_table(
         &self,
         ball_set: &BallSetPhysicsSpec,
@@ -313,26 +326,30 @@ impl DslScenario {
             .iter()
             .position(|ball| ball.ty == shot.ball)
             .ok_or(DslBuildError::ShotTargetBallNotPlaced(shot.ball_ref))?;
-        let mut states = Vec::with_capacity(self.game_state.balls().len());
-
-        for (ball_index, game_ball) in self.game_state.balls().iter().enumerate() {
-            let resting = RestingOnTableBallState::try_from(BallState::from_position(
-                &game_ball.position,
-                &self.game_state.table_spec,
-            ))
-            .expect(
-                "game-state ball placements should always correspond to resting on-table states",
-            );
-            let state = if ball_index == shot_target_index {
-                let struck =
-                    crate::strike_resting_ball(&resting, &shot.shot, &shot.cue_strike, ball_set)
-                        .map_err(DslBuildError::InvalidShot)?;
-                NBallSystemState::from(struck)
-            } else {
+        let mut states = self
+            .game_state
+            .balls()
+            .iter()
+            .map(|game_ball| {
+                let resting = RestingOnTableBallState::try_from(BallState::from_position(
+                    &game_ball.position,
+                    &self.game_state.table_spec,
+                ))
+                .expect("game-state ball placements should always correspond to resting on-table states");
                 NBallSystemState::from(resting.into_on_table_ball_state())
-            };
-            states.push(state);
-        }
+            })
+            .collect::<Vec<_>>();
+        states = crate::validate_and_recover_n_ball_system_states(&states, ball_set)
+            .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
+
+        let NBallSystemState::OnTable(target) = &states[shot_target_index] else {
+            unreachable!("validated initial layouts contain only on-table resting balls");
+        };
+        let resting = RestingOnTableBallState::try_from(target.as_ball_state().clone())
+            .expect("validated initial layouts remain resting before the cue strike");
+        let struck = crate::strike_resting_ball(&resting, &shot.shot, &shot.cue_strike, ball_set)
+            .map_err(DslBuildError::InvalidShot)?;
+        states[shot_target_index] = NBallSystemState::from(struck);
 
         Ok(Some(states))
     }
@@ -350,18 +367,18 @@ impl DslScenario {
             return Ok(None);
         };
 
-        Ok(Some(
-            simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
-                &states,
-                ball_set,
-                &self.game_state.table_spec,
-                motion,
-                collision_model,
-                collision_config,
-                rail_model,
-                rail_profile,
-            ),
-        ))
+        let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
+            &states,
+            ball_set,
+            &self.game_state.table_spec,
+            motion,
+            collision_model,
+            collision_config,
+            rail_model,
+            rail_profile,
+        )
+        .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
+        Ok(Some(simulation))
     }
 
     pub fn simulate_shot_system_with_rails_and_pockets_on_table_until_rest(
@@ -402,7 +419,8 @@ impl DslScenario {
             collision_config,
             rail_model,
             rail_profile,
-        );
+        )
+        .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
         let initial_system_states = initial_states;
         let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
         let ball_traces = self.ball_traces_from_simulation(
@@ -414,7 +432,7 @@ impl DslScenario {
             collision_config,
             rail_model,
             rail_profile,
-        );
+        )?;
 
         Ok(Some(ScenarioShotTrace {
             simulation,
@@ -439,17 +457,19 @@ impl DslScenario {
             return Ok(None);
         };
         let initial_system_states = initial_states;
-        let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
-            &initial_system_states,
-            ball_set,
-            &self.game_state.table_spec,
-            motion,
-            collision_model,
-            collision_config,
-            rail_model,
-            rail_profile,
-            Some(max_events),
-        );
+        let simulation =
+            simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+                &initial_system_states,
+                ball_set,
+                &self.game_state.table_spec,
+                motion,
+                collision_model,
+                collision_config,
+                rail_model,
+                rail_profile,
+                Some(max_events),
+            )
+            .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
         let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
         let ball_traces = self.ball_traces_from_simulation(
             &initial_system_states,
@@ -460,7 +480,7 @@ impl DslScenario {
             collision_config,
             rail_model,
             rail_profile,
-        );
+        )?;
 
         Ok(Some(ScenarioShotTrace {
             simulation,
@@ -608,7 +628,7 @@ impl DslScenario {
         collision_config: &BallBallCollisionConfig,
         rail_model: RailModel,
         rail_profile: &RailCollisionProfile,
-    ) -> Vec<ScenarioBallTrace> {
+    ) -> Result<Vec<ScenarioBallTrace>, DslBuildError> {
         let mut current_states = initial_states.to_vec();
         let mut elapsed = Seconds::zero();
         let mut traces = self
@@ -683,7 +703,8 @@ impl DslScenario {
                 collision_config,
                 rail_model,
                 rail_profile,
-            );
+            )
+            .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
             elapsed = Seconds::new(elapsed.as_f64() + step_time.as_f64());
         }
 
@@ -691,7 +712,7 @@ impl DslScenario {
             trace.final_state = final_state.clone();
         }
 
-        traces
+        Ok(traces)
     }
 
     pub fn trace_shot_path_with_rail_profile_on_table(
@@ -1919,6 +1940,11 @@ pub enum DslBuildError {
         error: ShotError,
     },
     InvalidShot(ShotError),
+    InvalidNBallGeometry {
+        first_ball: BallType,
+        second_ball: BallType,
+        error: NBallGeometryError,
+    },
 }
 
 impl std::fmt::Display for DslBuildError {
@@ -2048,6 +2074,14 @@ impl std::fmt::Display for DslBuildError {
                 write!(f, "cue_strike '{name}' is invalid: {error:?}")
             }
             Self::InvalidShot(error) => write!(f, "invalid shot: {error:?}"),
+            Self::InvalidNBallGeometry {
+                first_ball,
+                second_ball,
+                error,
+            } => write!(
+                f,
+                "invalid layout: balls '{first_ball:?}' and '{second_ball:?}' violate rigid geometry: {error}"
+            ),
         }
     }
 }

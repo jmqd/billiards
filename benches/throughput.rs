@@ -209,14 +209,17 @@ fn run_two_ball_sim_batch(
     motion: &OnTableMotionConfig,
 ) {
     for (a, b) in workload {
-        black_box(simulate_two_on_table_balls(
-            black_box(a),
-            black_box(b),
-            black_box(Seconds::new(5.0)),
-            black_box(ball_set),
-            black_box(motion),
-            black_box(CollisionModel::Ideal),
-        ));
+        black_box(
+            simulate_two_on_table_balls(
+                black_box(a),
+                black_box(b),
+                black_box(Seconds::new(5.0)),
+                black_box(ball_set),
+                black_box(motion),
+                black_box(CollisionModel::Ideal),
+            )
+            .expect("two-ball benchmark geometry should validate"),
+        );
     }
 }
 

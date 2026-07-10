@@ -124,7 +124,8 @@ fn nine_ball_break_examples_open_the_rack_after_shared_contact() {
                 &BallBallCollisionConfig::human_tuned(),
                 RailModel::SpinAware,
                 &RailCollisionProfile::default(),
-            );
+            )
+            .expect("break scenario geometry should validate");
             let Some(event) = advanced.event else {
                 break;
             };

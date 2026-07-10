@@ -80,6 +80,7 @@ fn curved_rolling_ball_reaches_the_center_right_first_jaw() {
         &TableSpec::default(),
         &motion_config(),
     )
+    .expect("pocket-aware test geometry should validate")
     .expect("the pocket-aware scheduler should retain the canonical jaw event");
     match system_event {
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {
@@ -210,7 +211,8 @@ fn assert_pocket_aware_matches_rail_aware(states: &[OnTableBallState], label: &s
         &motion,
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("rail-aware test geometry should validate");
     let system_states = states
         .iter()
         .cloned()
@@ -223,7 +225,8 @@ fn assert_pocket_aware_matches_rail_aware(states: &[OnTableBallState], label: &s
         &motion,
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     assert_close(pocket_aware.elapsed.as_f64(), rail_aware.elapsed.as_f64());
     assert_events_equivalent(
@@ -257,7 +260,8 @@ fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
 
     let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
         &states, &ball, &table, &motion,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     let Some(NBallSystemEvent::BallTableBounce {
         ball_index,
@@ -290,7 +294,8 @@ fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
         &motion,
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
     assert!(matches!(
         first_advance.states.first(),
         Some(NBallSystemState::Airborne(_))
@@ -301,7 +306,8 @@ fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
         &ball,
         &table,
         &motion,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
     let Some(NBallSystemEvent::BallTableBounce {
         ball_index: second_ball_index,
         contact: second_contact,
@@ -320,7 +326,8 @@ fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
         &motion,
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
     let Some(NBallSystemState::OnTable(settled_state)) = second_advance.states.first() else {
         panic!("expected the second table contact to settle back on the table");
     };
@@ -348,7 +355,8 @@ fn airborne_ball_rail_impact_is_scheduled_before_later_table_contact() {
 
     let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
         &states, &ball, &table, &motion,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     let Some(NBallSystemEvent::BallRailImpact { ball_index, impact }) = event else {
         panic!("expected airborne rail impact before table contact, got {event:?}");
@@ -377,7 +385,8 @@ fn airborne_ball_pocket_capture_is_scheduled_before_later_table_contact() {
 
     let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
         &states, &ball, &table, &motion,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     let Some(NBallSystemEvent::BallPocketCapture {
         ball_index,
@@ -413,7 +422,8 @@ fn airborne_ball_ball_contact_is_reported_before_later_table_contact() {
 
     let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
         &states, &ball, &table, &motion,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     let Some(NBallSystemEvent::UnsupportedAirborneBallBallContact {
         first_ball_index,
@@ -460,7 +470,8 @@ fn airborne_ball_jaw_impact_is_scheduled_before_later_table_contact() {
 
     let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
         &states, &ball, &table, &motion,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     let Some(NBallSystemEvent::BallJawImpact { ball_index, impact }) = event else {
         panic!("expected airborne jaw impact before table contact, got {event:?}");
@@ -747,6 +758,7 @@ fn a_single_ball_heading_into_the_side_pocket_predicts_capture_before_the_rail()
         &table,
         &motion_config(),
     )
+    .expect("pocket-aware test geometry should validate")
     .expect("an event should be predicted");
 
     assert_eq!(capture.pocket, Pocket::CenterRight);
@@ -976,7 +988,8 @@ fn a_ball_touching_a_side_pocket_jaw_and_moving_inward_predicts_immediate_impact
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     match advanced.event.expect("an event should be reported") {
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {
@@ -1012,7 +1025,8 @@ fn advancing_a_near_jaw_side_pocket_entry_resolves_the_explicit_jaw() {
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     match advanced.event.expect("a first event should be predicted") {
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {
@@ -1041,7 +1055,8 @@ fn a_near_jaw_entry_can_late_drop_on_the_same_jaw_impact_step() {
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     match advanced.event.expect("a first event should be predicted") {
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {
@@ -1081,7 +1096,8 @@ fn a_shallow_side_jaw_glance_is_rejected_instead_of_late_dropping() {
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     match advanced.event.expect("a first event should be predicted") {
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {
@@ -1107,7 +1123,8 @@ fn a_shallow_side_jaw_glance_is_rejected_instead_of_late_dropping() {
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     assert!(matches!(
         simulated.events.first(),
@@ -1407,6 +1424,7 @@ fn pocket_aware_shared_contact_uses_the_ball_ball_time_when_an_unrelated_transit
         &table,
         &motion_config(),
     )
+    .expect("pocket-aware test geometry should validate")
     .expect("an event should be predicted");
 
     match event {
@@ -1450,7 +1468,8 @@ fn pocket_aware_advancing_also_batches_disjoint_same_time_ball_ball_collisions()
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     match advanced.event.expect("an event should be reported") {
         NBallSystemEvent::BallBallCollision {
@@ -1506,7 +1525,8 @@ fn pocket_aware_frozen_three_ball_line_contact_matches_on_table_resolution() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("on-table test geometry should validate");
     let system_states = states
         .iter()
         .cloned()
@@ -1519,7 +1539,8 @@ fn pocket_aware_frozen_three_ball_line_contact_matches_on_table_resolution() {
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     match plain.event.expect("plain event should be reported") {
         billiards::NBallOnTableEvent::BallBallCollision {
@@ -1568,7 +1589,8 @@ fn advancing_to_a_pocket_capture_marks_that_ball_pocketed_and_advances_other_bal
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     let event = advanced.event.expect("an event should be reported");
     match event {
@@ -1630,7 +1652,8 @@ fn simulating_with_pockets_until_rest_keeps_pocketed_balls_out_of_play_and_stops
         &motion_config(),
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     assert!(simulated.events.iter().any(|event| matches!(
         event,
@@ -1676,7 +1699,8 @@ fn pocket_aware_until_rest_continues_after_shared_contact_like_rail_aware_when_p
         &motion,
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("rail-aware test geometry should validate");
     let pocket_aware = simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
         &states,
         &ball_set,
@@ -1684,7 +1708,8 @@ fn pocket_aware_until_rest_continues_after_shared_contact_like_rail_aware_when_p
         &motion,
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     assert_eq!(
         rail_aware.events.len(),
@@ -1743,7 +1768,8 @@ fn cached_pocket_aware_until_rest_simulation_matches_manual_event_stepping() {
             &motion,
             CollisionModel::Ideal,
             billiards::RailModel::Mirror,
-        );
+        )
+        .expect("pocket-aware test geometry should validate");
         let Some(event) = advanced.event else {
             break;
         };
@@ -1759,7 +1785,8 @@ fn cached_pocket_aware_until_rest_simulation_matches_manual_event_stepping() {
         &motion,
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     assert_close(cached.elapsed.as_f64(), manual_elapsed);
     assert_eq!(cached.events, manual_events);
@@ -1789,7 +1816,8 @@ fn cached_pocket_aware_shared_contact_matches_manual_event_stepping() {
             &motion,
             CollisionModel::Ideal,
             billiards::RailModel::Mirror,
-        );
+        )
+        .expect("pocket-aware test geometry should validate");
         let Some(event) = advanced.event else {
             break;
         };
@@ -1809,7 +1837,8 @@ fn cached_pocket_aware_shared_contact_matches_manual_event_stepping() {
         &motion,
         CollisionModel::Ideal,
         billiards::RailModel::Mirror,
-    );
+    )
+    .expect("pocket-aware test geometry should validate");
 
     match cached.events.first() {
         Some(NBallSystemEvent::SharedBallBallContact {

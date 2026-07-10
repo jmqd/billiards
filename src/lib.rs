@@ -2767,6 +2767,47 @@ pub enum RestingOnTableStateError {
     NotResting,
 }
 
+/// Error returned when an aggregate N-ball input violates rigid on-table geometry.
+///
+/// Exact frozen contacts are valid. Only a sub-microinch arithmetic residue is positionally
+/// recovered; material penetration is rejected before event prediction or impulse resolution.
+#[derive(Clone, Debug, PartialEq)]
+pub enum NBallGeometryError {
+    OverlappingOnTableBalls {
+        first_ball_index: usize,
+        second_ball_index: usize,
+        center_distance: Inches,
+        required_center_distance: Inches,
+        penetration: Inches,
+        recovery_tolerance: Inches,
+    },
+}
+
+impl fmt::Display for NBallGeometryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NBallGeometryError::OverlappingOnTableBalls {
+                first_ball_index,
+                second_ball_index,
+                center_distance,
+                required_center_distance,
+                penetration,
+                recovery_tolerance,
+            } => write!(
+                formatter,
+                "on-table balls {first_ball_index} and {second_ball_index} overlap by {:.9} in \
+                 (centers {:.9} in apart; require {:.9} in; recovery tolerance {:.9} in)",
+                penetration.as_f64(),
+                center_distance.as_f64(),
+                required_center_distance.as_f64(),
+                recovery_tolerance.as_f64(),
+            ),
+        }
+    }
+}
+
+impl std::error::Error for NBallGeometryError {}
+
 /// The kinematic state of a billiard ball.
 ///
 /// The local references in `whitepapers/` consistently model each ball using center-of-mass
@@ -2969,6 +3010,187 @@ impl OnTableBallState {
     pub fn into_ball_state(self) -> BallState {
         self.0
     }
+}
+
+const N_BALL_GEOMETRY_RECOVERY_TOLERANCE_INCHES: f64 = 1e-6;
+const MAX_N_BALL_GEOMETRY_RECOVERY_ITERATIONS: usize = 16;
+
+fn n_ball_geometry_error(
+    states: &[OnTableBallState],
+    original_indices: &[usize],
+    first_local_index: usize,
+    second_local_index: usize,
+    required_center_distance: f64,
+) -> NBallGeometryError {
+    let first = states[first_local_index].as_ball_state();
+    let second = states[second_local_index].as_ball_state();
+    let center_distance = (second.position.x().as_f64() - first.position.x().as_f64())
+        .hypot(second.position.y().as_f64() - first.position.y().as_f64());
+    NBallGeometryError::OverlappingOnTableBalls {
+        first_ball_index: original_indices[first_local_index],
+        second_ball_index: original_indices[second_local_index],
+        center_distance: Inches::from_f64(center_distance),
+        required_center_distance: Inches::from_f64(required_center_distance),
+        penetration: Inches::from_f64((required_center_distance - center_distance).max(0.0)),
+        recovery_tolerance: Inches::from_f64(N_BALL_GEOMETRY_RECOVERY_TOLERANCE_INCHES),
+    }
+}
+
+fn validate_and_recover_on_table_states_with_indices(
+    states: &mut [OnTableBallState],
+    original_indices: &[usize],
+    ball_radius: f64,
+) -> Result<(), NBallGeometryError> {
+    debug_assert_eq!(states.len(), original_indices.len());
+    let required_center_distance = 2.0 * ball_radius;
+    let initial_positions = states
+        .iter()
+        .map(|state| {
+            let state = state.as_ball_state();
+            (state.position.x().as_f64(), state.position.y().as_f64())
+        })
+        .collect::<Vec<_>>();
+
+    for _ in 0..MAX_N_BALL_GEOMETRY_RECOVERY_ITERATIONS {
+        let snapshot = states.to_vec();
+        let mut corrections = vec![(0.0, 0.0); states.len()];
+        let mut recovered_pair = None;
+
+        for first_local_index in 0..snapshot.len() {
+            for second_local_index in first_local_index + 1..snapshot.len() {
+                let first = snapshot[first_local_index].as_ball_state();
+                let second = snapshot[second_local_index].as_ball_state();
+                let dx = second.position.x().as_f64() - first.position.x().as_f64();
+                let dy = second.position.y().as_f64() - first.position.y().as_f64();
+                let center_distance = dx.hypot(dy);
+                let penetration = required_center_distance - center_distance;
+                if penetration <= 0.0 {
+                    continue;
+                }
+                let coordinate_scale = first
+                    .position
+                    .x()
+                    .as_f64()
+                    .abs()
+                    .max(first.position.y().as_f64().abs())
+                    .max(second.position.x().as_f64().abs())
+                    .max(second.position.y().as_f64().abs())
+                    .max(required_center_distance)
+                    .max(1.0);
+                let floating_recovery_guard = 64.0 * f64::EPSILON * coordinate_scale;
+                if center_distance <= f64::EPSILON
+                    || penetration
+                        > N_BALL_GEOMETRY_RECOVERY_TOLERANCE_INCHES + floating_recovery_guard
+                {
+                    return Err(n_ball_geometry_error(
+                        &snapshot,
+                        original_indices,
+                        first_local_index,
+                        second_local_index,
+                        required_center_distance,
+                    ));
+                }
+
+                // The correction uses coordinate-scale ulps, rather than only distance-scale
+                // ulps, because translating a ball several table widths from the origin can
+                // otherwise round a valid separation back inside the contact boundary.
+                let correction = 0.5 * (penetration + floating_recovery_guard);
+                let normal_x = dx / center_distance;
+                let normal_y = dy / center_distance;
+                corrections[first_local_index].0 -= correction * normal_x;
+                corrections[first_local_index].1 -= correction * normal_y;
+                corrections[second_local_index].0 += correction * normal_x;
+                corrections[second_local_index].1 += correction * normal_y;
+                recovered_pair.get_or_insert((first_local_index, second_local_index));
+            }
+        }
+
+        let Some((first_local_index, second_local_index)) = recovered_pair else {
+            return Ok(());
+        };
+        for (index, state) in states.iter_mut().enumerate() {
+            let snapshot_state = snapshot[index].as_ball_state();
+            state.0.position = Inches2::new(
+                Inches::from_f64(snapshot_state.position.x().as_f64() + corrections[index].0),
+                Inches::from_f64(snapshot_state.position.y().as_f64() + corrections[index].1),
+            );
+            let (initial_x, initial_y) = initial_positions[index];
+            let displacement = (state.as_ball_state().position.x().as_f64() - initial_x)
+                .hypot(state.as_ball_state().position.y().as_f64() - initial_y);
+            if displacement
+                > N_BALL_GEOMETRY_RECOVERY_TOLERANCE_INCHES
+                    + 16.0 * f64::EPSILON * required_center_distance.max(1.0)
+            {
+                return Err(n_ball_geometry_error(
+                    states,
+                    original_indices,
+                    first_local_index,
+                    second_local_index,
+                    required_center_distance,
+                ));
+            }
+        }
+    }
+
+    for first_local_index in 0..states.len() {
+        for second_local_index in first_local_index + 1..states.len() {
+            let first = states[first_local_index].as_ball_state();
+            let second = states[second_local_index].as_ball_state();
+            let center_distance = (second.position.x().as_f64() - first.position.x().as_f64())
+                .hypot(second.position.y().as_f64() - first.position.y().as_f64());
+            if center_distance < required_center_distance {
+                return Err(n_ball_geometry_error(
+                    states,
+                    original_indices,
+                    first_local_index,
+                    second_local_index,
+                    required_center_distance,
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) fn validate_and_recover_n_ball_on_table_states(
+    states: &[OnTableBallState],
+    ball: &BallSetPhysicsSpec,
+) -> Result<Vec<OnTableBallState>, NBallGeometryError> {
+    let mut recovered = states.to_vec();
+    let original_indices = (0..recovered.len()).collect::<Vec<_>>();
+    validate_and_recover_on_table_states_with_indices(
+        &mut recovered,
+        &original_indices,
+        ball.radius.as_f64(),
+    )?;
+    Ok(recovered)
+}
+
+pub(crate) fn validate_and_recover_n_ball_system_states(
+    states: &[NBallSystemState],
+    ball: &BallSetPhysicsSpec,
+) -> Result<Vec<NBallSystemState>, NBallGeometryError> {
+    let original_indices = states
+        .iter()
+        .enumerate()
+        .filter_map(|(index, state)| state.as_on_table().map(|_| index))
+        .collect::<Vec<_>>();
+    let mut on_table_states = states
+        .iter()
+        .filter_map(|state| state.as_on_table().cloned())
+        .collect::<Vec<_>>();
+    validate_and_recover_on_table_states_with_indices(
+        &mut on_table_states,
+        &original_indices,
+        ball.radius.as_f64(),
+    )?;
+
+    let mut recovered = states.to_vec();
+    for (index, on_table) in original_indices.into_iter().zip(on_table_states) {
+        recovered[index] = NBallSystemState::OnTable(on_table);
+    }
+    Ok(recovered)
 }
 
 impl TryFrom<BallState> for OnTableBallState {
@@ -9183,8 +9405,19 @@ pub fn compute_next_n_ball_event_on_table(
     states: &[&OnTableBallState],
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
-) -> Option<NBallOnTableEvent> {
-    select_earliest_n_ball_event_from_states(states, ball, None, config)
+) -> Result<Option<NBallOnTableEvent>, NBallGeometryError> {
+    let states = states
+        .iter()
+        .map(|state| (*state).clone())
+        .collect::<Vec<_>>();
+    let states = validate_and_recover_n_ball_on_table_states(&states, ball)?;
+    let state_refs = states.iter().collect::<Vec<_>>();
+    Ok(select_earliest_n_ball_event_from_states(
+        &state_refs,
+        ball,
+        None,
+        config,
+    ))
 }
 
 /// Compute the earliest supported future event among any number of on-table balls while also
@@ -9197,8 +9430,19 @@ pub fn compute_next_n_ball_event_with_rails_on_table(
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     config: &OnTableMotionConfig,
-) -> Option<NBallOnTableEvent> {
-    select_earliest_n_ball_event_from_states(states, ball, Some(table), config)
+) -> Result<Option<NBallOnTableEvent>, NBallGeometryError> {
+    let states = states
+        .iter()
+        .map(|state| (*state).clone())
+        .collect::<Vec<_>>();
+    let states = validate_and_recover_n_ball_on_table_states(&states, ball)?;
+    let state_refs = states.iter().collect::<Vec<_>>();
+    Ok(select_earliest_n_ball_event_from_states(
+        &state_refs,
+        ball,
+        Some(table),
+        config,
+    ))
 }
 
 /// Compute the earliest currently supported future event for two on-table balls.
@@ -9210,8 +9454,9 @@ pub fn compute_next_two_ball_event_on_table(
     b: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
-) -> Option<TwoBallOnTableEvent> {
-    compute_next_n_ball_event_on_table(&[a, b], ball, config).map(two_ball_event_from_n_ball_event)
+) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
+    Ok(compute_next_n_ball_event_on_table(&[a, b], ball, config)?
+        .map(two_ball_event_from_n_ball_event))
 }
 
 /// Compute the earliest supported future event for two on-table balls while also considering ideal
@@ -9225,9 +9470,11 @@ pub fn compute_next_two_ball_event_with_rails_on_table(
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     config: &OnTableMotionConfig,
-) -> Option<TwoBallOnTableEvent> {
-    compute_next_n_ball_event_with_rails_on_table(&[a, b], ball, table, config)
-        .map(two_ball_event_from_n_ball_event)
+) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
+    Ok(
+        compute_next_n_ball_event_with_rails_on_table(&[a, b], ball, table, config)?
+            .map(two_ball_event_from_n_ball_event),
+    )
 }
 
 /// Compatibility wrapper for the original two-ball event helper name.
@@ -9236,7 +9483,7 @@ pub fn compute_next_event_for_two_on_table_balls(
     b: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
-) -> Option<TwoBallOnTableEvent> {
+) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
     compute_next_two_ball_event_on_table(a, b, ball, config)
 }
 
@@ -9247,7 +9494,7 @@ pub fn compute_next_event_for_two_on_table_balls_with_rails(
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     config: &OnTableMotionConfig,
-) -> Option<TwoBallOnTableEvent> {
+) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
     compute_next_two_ball_event_with_rails_on_table(a, b, ball, table, config)
 }
 
@@ -10218,21 +10465,23 @@ fn advance_to_next_n_ball_event_with_scheduler<FindNextEvent>(
     collision_config: &BallBallCollisionConfig,
     rail_response: Option<(RailModel, RailCollisionProfile)>,
     find_next_event: FindNextEvent,
-) -> NBallOnTableAdvance
+) -> Result<NBallOnTableAdvance, NBallGeometryError>
 where
-    FindNextEvent: Fn(&[&OnTableBallState]) -> Option<NBallOnTableEvent>,
+    FindNextEvent:
+        Fn(&[&OnTableBallState]) -> Result<Option<NBallOnTableEvent>, NBallGeometryError>,
 {
+    let states = validate_and_recover_n_ball_on_table_states(states, ball)?;
     let state_refs = states.iter().collect::<Vec<_>>();
-    let Some(event) = find_next_event(&state_refs) else {
-        return NBallOnTableAdvance {
-            states: states.to_vec(),
+    let Some(event) = find_next_event(&state_refs)? else {
+        return Ok(NBallOnTableAdvance {
+            states,
             elapsed: Seconds::zero(),
             event: None,
-        };
+        });
     };
 
     let elapsed = event.time();
-    let mut states_after = advance_n_on_table_balls_without_event(states, elapsed, ball, motion);
+    let mut states_after = advance_n_on_table_balls_without_event(&states, elapsed, ball, motion);
     match &event {
         NBallOnTableEvent::MotionTransition { .. } => {}
         NBallOnTableEvent::SharedBallBallContact {
@@ -10320,11 +10569,12 @@ where
         }
     }
 
-    NBallOnTableAdvance {
+    let states_after = validate_and_recover_n_ball_on_table_states(&states_after, ball)?;
+    Ok(NBallOnTableAdvance {
         states: states_after,
         elapsed,
         event: Some(event),
-    }
+    })
 }
 
 /// Advance any number of on-table balls to the next supported event and resolve it.
@@ -10335,7 +10585,7 @@ pub fn advance_to_next_n_ball_event_on_table(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> NBallOnTableAdvance {
+) -> Result<NBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_n_ball_event_with_physics_on_table(
         states,
         ball,
@@ -10353,7 +10603,7 @@ pub fn advance_to_next_n_ball_event_with_physics_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
-) -> NBallOnTableAdvance {
+) -> Result<NBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_n_ball_event_with_scheduler(
         states,
         ball,
@@ -10361,7 +10611,11 @@ pub fn advance_to_next_n_ball_event_with_physics_on_table(
         collision_model,
         collision_config,
         None,
-        |state_refs| compute_next_n_ball_event_on_table(state_refs, ball, motion),
+        |state_refs| {
+            Ok(select_earliest_n_ball_event_from_states(
+                state_refs, ball, None, motion,
+            ))
+        },
     )
 }
 
@@ -10375,7 +10629,7 @@ pub fn advance_to_next_n_ball_event_with_rail_profile_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallOnTableAdvance {
+) -> Result<NBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_n_ball_event_with_physics_and_rail_profile_on_table(
         states,
         ball,
@@ -10399,7 +10653,7 @@ pub fn advance_to_next_n_ball_event_with_physics_and_rail_profile_on_table(
     collision_config: &BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallOnTableAdvance {
+) -> Result<NBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_n_ball_event_with_scheduler(
         states,
         ball,
@@ -10407,7 +10661,14 @@ pub fn advance_to_next_n_ball_event_with_physics_and_rail_profile_on_table(
         collision_model,
         collision_config,
         Some((rail_model, rail_profile.clone())),
-        |state_refs| compute_next_n_ball_event_with_rails_on_table(state_refs, ball, table, motion),
+        |state_refs| {
+            Ok(select_earliest_n_ball_event_from_states(
+                state_refs,
+                ball,
+                Some(table),
+                motion,
+            ))
+        },
     )
 }
 
@@ -10421,7 +10682,7 @@ pub fn advance_to_next_n_ball_event_with_rail_config_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> NBallOnTableAdvance {
+) -> Result<NBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_n_ball_event_with_rail_profile_on_table(
         states,
         ball,
@@ -10446,7 +10707,7 @@ pub fn advance_to_next_n_ball_event_with_rails_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> NBallOnTableAdvance {
+) -> Result<NBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_n_ball_event_with_rail_profile_on_table(
         states,
         ball,
@@ -10468,24 +10729,24 @@ pub fn advance_to_next_two_ball_event_on_table(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> TwoBallOnTableAdvance {
+) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
     let advanced = advance_to_next_n_ball_event_on_table(
         &[a.clone(), b.clone()],
         ball,
         motion,
         collision_model,
-    );
+    )?;
     let [a_after, b_after]: [OnTableBallState; 2] = advanced
         .states
         .try_into()
         .expect("two-ball advance should return exactly two states");
 
-    TwoBallOnTableAdvance {
+    Ok(TwoBallOnTableAdvance {
         a: a_after,
         b: b_after,
         elapsed: advanced.elapsed,
         event: advanced.event.map(two_ball_event_from_n_ball_event),
-    }
+    })
 }
 
 /// Advance two on-table balls to the next supported event while also resolving rail impacts using
@@ -10499,7 +10760,7 @@ pub fn advance_to_next_two_ball_event_with_rail_profile_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> TwoBallOnTableAdvance {
+) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
     let advanced = advance_to_next_n_ball_event_with_rail_profile_on_table(
         &[a.clone(), b.clone()],
         ball,
@@ -10508,18 +10769,18 @@ pub fn advance_to_next_two_ball_event_with_rail_profile_on_table(
         collision_model,
         rail_model,
         rail_profile,
-    );
+    )?;
     let [a_after, b_after]: [OnTableBallState; 2] = advanced
         .states
         .try_into()
         .expect("two-ball advance should return exactly two states");
 
-    TwoBallOnTableAdvance {
+    Ok(TwoBallOnTableAdvance {
         a: a_after,
         b: b_after,
         elapsed: advanced.elapsed,
         event: advanced.event.map(two_ball_event_from_n_ball_event),
-    }
+    })
 }
 
 /// Advance two on-table balls to the next supported event while also resolving rail impacts using
@@ -10533,7 +10794,7 @@ pub fn advance_to_next_two_ball_event_with_rail_config_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> TwoBallOnTableAdvance {
+) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_two_ball_event_with_rail_profile_on_table(
         a,
         b,
@@ -10560,7 +10821,7 @@ pub fn advance_to_next_two_ball_event_with_rails_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> TwoBallOnTableAdvance {
+) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_two_ball_event_with_rail_config_on_table(
         a,
         b,
@@ -10580,7 +10841,7 @@ pub fn advance_to_next_event_for_two_on_table_balls(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> TwoBallOnTableAdvance {
+) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
     advance_to_next_two_ball_event_on_table(a, b, ball, motion, collision_model)
 }
 
@@ -10592,10 +10853,16 @@ fn simulate_two_ball_system_on_table<FindNextEvent, AdvanceNextEvent>(
     motion: &OnTableMotionConfig,
     find_next_event: FindNextEvent,
     advance_next_event: AdvanceNextEvent,
-) -> TwoBallOnTableSimulation
+) -> Result<TwoBallOnTableSimulation, NBallGeometryError>
 where
-    FindNextEvent: Fn(&OnTableBallState, &OnTableBallState) -> Option<TwoBallOnTableEvent>,
-    AdvanceNextEvent: Fn(&OnTableBallState, &OnTableBallState) -> TwoBallOnTableAdvance,
+    FindNextEvent: Fn(
+        &OnTableBallState,
+        &OnTableBallState,
+    ) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError>,
+    AdvanceNextEvent: Fn(
+        &OnTableBallState,
+        &OnTableBallState,
+    ) -> Result<TwoBallOnTableAdvance, NBallGeometryError>,
 {
     assert!(
         dt.as_f64() >= 0.0,
@@ -10609,7 +10876,7 @@ where
     let mut events = Vec::new();
 
     while remaining > f64::EPSILON {
-        let Some(next_event) = find_next_event(&a_state, &b_state) else {
+        let Some(next_event) = find_next_event(&a_state, &b_state)? else {
             let (a_after, b_after) = advance_two_on_table_balls_without_event(
                 &a_state,
                 &b_state,
@@ -10640,7 +10907,7 @@ where
             break;
         }
 
-        let advanced = advance_next_event(&a_state, &b_state);
+        let advanced = advance_next_event(&a_state, &b_state)?;
         let step_elapsed = advanced.elapsed.as_f64();
         assert!(
             step_elapsed >= 0.0,
@@ -10661,12 +10928,12 @@ where
         elapsed = dt;
     }
 
-    TwoBallOnTableSimulation {
+    Ok(TwoBallOnTableSimulation {
         a: a_state,
         b: b_state,
         elapsed,
         events,
-    }
+    })
 }
 
 /// Simulate two on-table balls forward over a requested duration.
@@ -10682,7 +10949,7 @@ pub fn simulate_two_balls_on_table(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> TwoBallOnTableSimulation {
+) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
     simulate_two_ball_system_on_table(
         a,
         b,
@@ -10708,7 +10975,7 @@ pub fn simulate_two_balls_with_rail_profile_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> TwoBallOnTableSimulation {
+) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
     simulate_two_ball_system_on_table(
         a,
         b,
@@ -10745,7 +11012,7 @@ pub fn simulate_two_balls_with_rail_config_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> TwoBallOnTableSimulation {
+) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
     simulate_two_balls_with_rail_profile_on_table(
         a,
         b,
@@ -10773,7 +11040,7 @@ pub fn simulate_two_balls_with_rails_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> TwoBallOnTableSimulation {
+) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
     simulate_two_balls_with_rail_profile_on_table(
         a,
         b,
@@ -10795,16 +11062,16 @@ pub fn simulate_two_on_table_balls(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> TwoBallOnTableSimulation {
+) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
     simulate_two_balls_on_table(a, b, dt, ball, motion, collision_model)
 }
 
 fn simulate_n_ball_system_on_table_until_rest<AdvanceNextEvent>(
     states: &[OnTableBallState],
     advance_next_event: AdvanceNextEvent,
-) -> NBallOnTableSimulation
+) -> Result<NBallOnTableSimulation, NBallGeometryError>
 where
-    AdvanceNextEvent: Fn(&[OnTableBallState]) -> NBallOnTableAdvance,
+    AdvanceNextEvent: Fn(&[OnTableBallState]) -> Result<NBallOnTableAdvance, NBallGeometryError>,
 {
     let mut states = states.to_vec();
     let mut elapsed = Seconds::zero();
@@ -10812,7 +11079,7 @@ where
     let mut consecutive_zero_time_events = 0usize;
 
     loop {
-        let advanced = advance_next_event(&states);
+        let advanced = advance_next_event(&states)?;
         let step_elapsed = advanced.elapsed.as_f64();
 
         let Some(event) = advanced.event else {
@@ -10849,11 +11116,11 @@ where
         }
     }
 
-    NBallOnTableSimulation {
+    Ok(NBallOnTableSimulation {
         states,
         elapsed,
         events,
-    }
+    })
 }
 
 /// Simulate any number of on-table balls until the current scheduler finds no further supported
@@ -10867,7 +11134,7 @@ pub fn simulate_n_balls_on_table_until_rest(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> NBallOnTableSimulation {
+) -> Result<NBallOnTableSimulation, NBallGeometryError> {
     simulate_n_balls_with_physics_on_table_until_rest(
         states,
         ball,
@@ -10885,7 +11152,7 @@ pub fn simulate_n_balls_with_physics_on_table_until_rest(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
-) -> NBallOnTableSimulation {
+) -> Result<NBallOnTableSimulation, NBallGeometryError> {
     simulate_n_ball_system_on_table_until_rest(states, |current| {
         advance_to_next_n_ball_event_with_physics_on_table(
             current,
@@ -10907,7 +11174,7 @@ pub fn simulate_n_balls_with_rail_profile_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallOnTableSimulation {
+) -> Result<NBallOnTableSimulation, NBallGeometryError> {
     simulate_n_ball_system_on_table_until_rest(states, |current| {
         advance_to_next_n_ball_event_with_rail_profile_on_table(
             current,
@@ -10931,7 +11198,7 @@ pub fn simulate_n_balls_with_rail_config_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> NBallOnTableSimulation {
+) -> Result<NBallOnTableSimulation, NBallGeometryError> {
     simulate_n_balls_with_rail_profile_on_table_until_rest(
         states,
         ball,
@@ -10956,7 +11223,7 @@ pub fn simulate_n_balls_with_rails_on_table_until_rest(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> NBallOnTableSimulation {
+) -> Result<NBallOnTableSimulation, NBallGeometryError> {
     simulate_n_balls_with_rail_profile_on_table_until_rest(
         states,
         ball,
@@ -11010,8 +11277,9 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
     config: &OnTableMotionConfig,
-) -> Option<NBallSystemEvent> {
-    PocketAwareEventCache::build(states, ball, table, config).next_event()
+) -> Result<Option<NBallSystemEvent>, NBallGeometryError> {
+    let states = validate_and_recover_n_ball_system_states(states, ball)?;
+    Ok(PocketAwareEventCache::build(&states, ball, table, config).next_event())
 }
 
 /// Advance the richer indexed N-ball system to a supplied event and resolve that event.
@@ -11029,9 +11297,10 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
     collision_config: &BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> Vec<NBallSystemState> {
+) -> Result<Vec<NBallSystemState>, NBallGeometryError> {
+    let states = validate_and_recover_n_ball_system_states(states, ball)?;
     let elapsed = event.time();
-    let mut states_after = advance_n_ball_system_without_event(states, elapsed, ball, motion);
+    let mut states_after = advance_n_ball_system_without_event(&states, elapsed, ball, motion);
     match event {
         NBallSystemEvent::UnsupportedAirborneBallBallContact { .. } => {}
         NBallSystemEvent::MotionTransition { .. } => {}
@@ -11162,7 +11431,7 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
                 ));
         }
     }
-    states_after
+    validate_and_recover_n_ball_system_states(&states_after, ball)
 }
 
 pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
@@ -11174,20 +11443,20 @@ pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
     collision_config: &BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallSystemAdvance {
-    let Some(event) = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
-        states, ball, table, motion,
-    ) else {
-        return NBallSystemAdvance {
-            states: states.to_vec(),
+) -> Result<NBallSystemAdvance, NBallGeometryError> {
+    let states = validate_and_recover_n_ball_system_states(states, ball)?;
+    let Some(event) = PocketAwareEventCache::build(&states, ball, table, motion).next_event()
+    else {
+        return Ok(NBallSystemAdvance {
+            states,
             elapsed: Seconds::zero(),
             event: None,
-        };
+        });
     };
 
-    NBallSystemAdvance {
+    Ok(NBallSystemAdvance {
         states: resolve_n_ball_system_event_with_physics_and_pockets_on_table(
-            states,
+            &states,
             &event,
             ball,
             table,
@@ -11196,10 +11465,10 @@ pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
             collision_config,
             rail_model,
             rail_profile,
-        ),
+        )?,
         elapsed: event.time(),
         event: Some(event),
-    }
+    })
 }
 
 pub fn advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
@@ -11210,7 +11479,7 @@ pub fn advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_tabl
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallSystemAdvance {
+) -> Result<NBallSystemAdvance, NBallGeometryError> {
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
         states,
         ball,
@@ -11234,7 +11503,7 @@ pub fn advance_to_next_n_ball_system_event_with_rail_config_and_pockets_on_table
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> NBallSystemAdvance {
+) -> Result<NBallSystemAdvance, NBallGeometryError> {
     advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
         states,
         ball,
@@ -11255,7 +11524,7 @@ pub fn advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> NBallSystemAdvance {
+) -> Result<NBallSystemAdvance, NBallGeometryError> {
     advance_to_next_n_ball_system_event_with_rail_profile_and_pockets_on_table(
         states,
         ball,
@@ -11278,7 +11547,7 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
     collision_config: &BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallSystemSimulation {
+) -> Result<NBallSystemSimulation, NBallGeometryError> {
     simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
         states,
         ball,
@@ -11302,8 +11571,8 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limi
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
     max_events: Option<usize>,
-) -> NBallSystemSimulation {
-    let mut states = states.to_vec();
+) -> Result<NBallSystemSimulation, NBallGeometryError> {
+    let mut states = validate_and_recover_n_ball_system_states(states, ball)?;
     let mut elapsed = Seconds::zero();
     let mut events = Vec::new();
     let mut cache = PocketAwareEventCache::build(&states, ball, table, motion);
@@ -11334,7 +11603,7 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limi
             collision_config,
             rail_model,
             rail_profile,
-        );
+        )?;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
         events.push(event.clone());
         if event.is_terminal_diagnostic() {
@@ -11359,11 +11628,11 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limi
         }
     }
 
-    NBallSystemSimulation {
+    Ok(NBallSystemSimulation {
         states,
         elapsed,
         events,
-    }
+    })
 }
 
 pub fn simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
@@ -11374,7 +11643,7 @@ pub fn simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallSystemSimulation {
+) -> Result<NBallSystemSimulation, NBallGeometryError> {
     simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
         states,
         ball,
@@ -11397,7 +11666,7 @@ pub fn simulate_n_ball_system_with_rail_config_and_pockets_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> NBallSystemSimulation {
+) -> Result<NBallSystemSimulation, NBallGeometryError> {
     simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
         states,
         ball,
@@ -11418,7 +11687,7 @@ pub fn simulate_n_ball_system_with_rails_and_pockets_on_table_until_rest(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> NBallSystemSimulation {
+) -> Result<NBallSystemSimulation, NBallGeometryError> {
     simulate_n_ball_system_with_rail_profile_and_pockets_on_table_until_rest(
         states,
         ball,
@@ -11441,7 +11710,7 @@ pub fn simulate_n_balls_with_physics_and_pockets_on_table_until_rest(
     collision_config: &BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallSystemSimulation {
+) -> Result<NBallSystemSimulation, NBallGeometryError> {
     let system_states = states
         .iter()
         .cloned()
@@ -11467,7 +11736,7 @@ pub fn simulate_n_balls_with_rail_profile_and_pockets_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> NBallSystemSimulation {
+) -> Result<NBallSystemSimulation, NBallGeometryError> {
     simulate_n_balls_with_physics_and_pockets_on_table_until_rest(
         states,
         ball,
@@ -11489,7 +11758,7 @@ pub fn simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> NBallSystemSimulation {
+) -> Result<NBallSystemSimulation, NBallGeometryError> {
     simulate_n_balls_with_rail_profile_and_pockets_on_table_until_rest(
         states,
         ball,
@@ -12585,7 +12854,7 @@ impl PostContactContinuation {
         other: &OnTableBallState,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> Option<TwoBallOnTableEvent> {
+    ) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
         compute_next_two_ball_event_on_table(self.cue_ball(), other, ball, motion)
     }
 
@@ -12596,7 +12865,7 @@ impl PostContactContinuation {
         other: &OnTableBallState,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> Option<TwoBallOnTableEvent> {
+    ) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
         compute_next_two_ball_event_on_table(self.struck_ball(), other, ball, motion)
     }
 
@@ -12618,7 +12887,7 @@ impl PostContactContinuation {
         ball: &BallSetPhysicsSpec,
         table: &TableSpec,
         motion: &OnTableMotionConfig,
-    ) -> Option<TwoBallOnTableEvent> {
+    ) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
         compute_next_two_ball_event_with_rails_on_table(self.cue_ball(), other, ball, table, motion)
     }
 }

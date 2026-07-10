@@ -85,7 +85,8 @@ fn advancing_to_a_motion_transition_advances_all_n_balls_to_that_time() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     let event = advanced.event.expect("an event should be reported");
     assert_close(event.time().as_f64(), advanced.elapsed.as_f64());
@@ -146,7 +147,8 @@ fn advancing_to_a_ball_ball_collision_only_resolves_the_participating_pair() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     let event = advanced.event.expect("an event should be reported");
     match event {
@@ -211,7 +213,8 @@ fn advancing_with_explicit_ball_ball_physics_uses_that_collision_config() {
         &motion_config(),
         CollisionModel::ThrowAware,
         &human_tuned,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
     let collision = match &advanced.event {
         Some(billiards::NBallOnTableEvent::BallBallCollision {
             first_ball_index,
@@ -270,7 +273,8 @@ fn advancing_simultaneous_disjoint_pair_collisions_resolves_both_pairs_in_one_st
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     match advanced.event.expect("an event should be reported") {
         billiards::NBallOnTableEvent::BallBallCollision {
@@ -313,7 +317,8 @@ fn advancing_frozen_three_ball_line_uses_tp_b29_coupled_velocity_split() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     match advanced.event.expect("an event should be reported") {
         billiards::NBallOnTableEvent::BallBallCollision {
@@ -387,7 +392,8 @@ fn advancing_throw_aware_zero_slip_frozen_three_ball_line_uses_tp_b29_coupled_ve
         &motion_config(),
         CollisionModel::ThrowAware,
         &BallBallCollisionConfig::ideal(),
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     match advanced.event.expect("an event should be reported") {
         billiards::NBallOnTableEvent::BallBallCollision {
@@ -437,7 +443,8 @@ fn advancing_throw_aware_zero_slip_frozen_three_ball_line_uses_tp_b29_coupled_ve
         &motion_config(),
         CollisionModel::ThrowAware,
         &BallBallCollisionConfig::ideal(),
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
     assert!(
         next.event.as_ref().is_none_or(|event| event.time().as_f64() > 1e-9),
         "the coupled frozen-line solve should not leave a synthetic immediate follow-on collision, got {:?}",
@@ -462,7 +469,8 @@ fn advancing_throw_aware_slipping_frozen_three_ball_line_skips_tp_b29_normal_onl
         &motion_config(),
         CollisionModel::ThrowAware,
         &BallBallCollisionConfig::ideal(),
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     match advanced.event.expect("an event should be reported") {
         billiards::NBallOnTableEvent::BallBallCollision {
@@ -512,7 +520,8 @@ fn advancing_shared_simultaneous_contacts_transfers_motion_into_the_cluster() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     match advanced.event.expect("an event should be reported") {
         billiards::NBallOnTableEvent::SharedBallBallContact {
@@ -575,7 +584,8 @@ fn advancing_to_a_rail_impact_only_resolves_the_impacted_ball() {
         &motion_config(),
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     let event = advanced.event.expect("an event should be reported");
     match event {
@@ -620,7 +630,8 @@ fn advancing_with_no_future_event_returns_the_original_n_ball_state() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     assert_eq!(advanced.elapsed.as_f64(), 0.0);
     assert!(advanced.event.is_none());

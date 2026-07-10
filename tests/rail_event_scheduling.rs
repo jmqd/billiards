@@ -319,6 +319,7 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
             &table,
             &motion_config(),
         )
+        .expect("test geometry should validate")
         .expect("outside english should produce a next event");
     let inside_event = follow_inside_continuation
         .next_event_against_ball_with_rails(
@@ -327,6 +328,7 @@ fn follow_and_english_can_change_the_next_rail_aware_event_after_first_contact()
             &table,
             &motion_config(),
         )
+        .expect("test geometry should validate")
         .expect("inside english should produce a next event");
 
     let outside_time = match outside_event {
@@ -378,6 +380,7 @@ fn the_rail_aware_scheduler_picks_a_rail_impact_before_a_later_motion_transition
         &table,
         &motion_config(),
     )
+    .expect("test geometry should validate")
     .expect("an event should be predicted");
 
     match event {
@@ -409,6 +412,7 @@ fn the_rail_aware_scheduler_still_prefers_motion_transition_when_the_rail_is_not
         &table,
         &motion_config(),
     )
+    .expect("test geometry should validate")
     .expect("an event should be predicted");
 
     match event {

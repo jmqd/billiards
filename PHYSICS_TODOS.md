@@ -69,6 +69,15 @@ Scope: current Rust physics implementation cross-checked against the in-repo whi
 - Regression coverage includes deterministic rightward-curve ball-ball, right-rail, and center-right jaw contacts that the former fixed-direction surrogate missed; the companion left-side ball, rail, and jaw curve-away cases remain event-free. The N-ball and pocket-aware schedulers receive the same accepted predictions.
 - Source expectation: TP B.2's finite rolling turn is integrated in `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf:275-417`; the event solver preserves analytic polynomial roots only where the trajectory is actually quadratic.
 
+### DONE P2 — Reject overlapping N-ball states at public boundaries
+
+**Done 2026-07-10.** Aggregate N-ball prediction, advance, resolution, and simulation APIs now return `NBallGeometryError` for material on-table penetration. The validator permits exact frozen contacts and only recovers a sub-microinch construction residue with midpoint-preserving, velocity-free canonical-pair projection.
+
+- `NBallGeometryError::OverlappingOnTableBalls` reports original pair indices, measured and required center distances, positive penetration, and the fixed `1e-6 in` recovery policy. Query APIs normalize an internal snapshot; state-producing APIs return the recovered nonpenetrating snapshot or fail before candidate scheduling or impulse resolution.
+- System and DSL construction paths apply the same invariant. `DslBuildError::InvalidNBallGeometry` preserves both named ball identities and the core indexed/unit-bearing error.
+- Regression coverage rejects stationary, closing, and indexed system overlaps; verifies inclusive tolerance recovery, exact frozen-contact preservation, and DSL failure before a cue strike. Existing rack and break fixtures remain valid.
+- Source expectation: `whitepapers/non_smooth_modelling_of_billiard_and_superbilliard_ball_collisions.pdf:1-3` defines impulses at contact as velocity-level operations, while TP B.29's frozen construction uses `D=2R`; neither supports treating material rigid penetration as a resolved terminal state.
+
 ### DONE P1 — Add a real massé/swerve model surface, not only hand-tuned elevation examples
 
 **Done 2026-07-06; corrected 2026-07-10.** `Shot::masse_aim_estimate`, `coriolis_masse_curve_angle_degrees`, `coriolis_masse_final_heading`, `masse_curve_mode_for_launch`, and `validate_coriolis_masse_bar_relationship` expose a TP A.19 / Coriolis-BAR aiming surface instead of only hand-tuned heading/elevation examples.

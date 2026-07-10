@@ -75,7 +75,8 @@ fn simulating_n_balls_until_rest_with_no_motion_returns_immediately() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     assert_eq!(simulated.elapsed.as_f64(), 0.0);
     assert!(simulated.events.is_empty());
@@ -102,7 +103,8 @@ fn simulating_n_balls_until_rest_records_collision_and_transition_events_until_e
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     assert!(
         !simulated.events.is_empty(),
@@ -156,7 +158,8 @@ fn tp_b5_rolling_direct_hit_travel_distance_ratio_matches_published_anchor() {
             &tp_b5_motion_config(),
             CollisionModel::ThrowAware,
             &collision_config,
-        );
+        )
+        .expect("fixture should satisfy N-ball geometry");
 
         let cue_distance =
             distance_between(&cue_start, &simulated.states[0].as_ball_state().position);
@@ -188,7 +191,8 @@ fn simulating_a_frozen_three_ball_chain_uses_the_tp_b29_coupled_contact_split() 
         &BallSetPhysicsSpec::default(),
         &motion_config(),
         CollisionModel::Ideal,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     assert!(
         !simulated.events.is_empty(),
@@ -256,7 +260,8 @@ fn simulating_n_balls_with_rails_until_rest_records_rail_impacts_and_ends_at_res
         &motion_config(),
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("fixture should satisfy N-ball geometry");
 
     assert!(simulated.events.iter().any(|event| matches!(
         event,

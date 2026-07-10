@@ -53,6 +53,7 @@ fn the_scheduler_picks_a_ball_ball_collision_when_it_arrives_before_any_motion_t
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("test geometry should validate")
     .expect("an event should be predicted");
 
     match event {
@@ -79,6 +80,7 @@ fn the_scheduler_picks_a_motion_transition_when_it_precedes_a_later_collision() 
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("test geometry should validate")
     .expect("an event should be predicted");
 
     match event {
@@ -111,6 +113,7 @@ fn the_scheduler_compares_the_two_balls_motion_transitions_and_returns_the_earli
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("test geometry should validate")
     .expect("an event should be predicted");
 
     match event {
@@ -141,6 +144,7 @@ fn the_scheduler_uses_phase_aware_collision_timing_and_picks_stop_when_a_rolling
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("test geometry should validate")
     .expect("an event should be predicted");
 
     match event {
@@ -170,6 +174,7 @@ fn the_scheduler_picks_stop_when_a_rolling_ball_reaches_contact_with_zero_speed(
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("test geometry should validate")
     .expect("the rolling ball should at least stop");
 
     match event {
@@ -225,6 +230,7 @@ fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_event() {
             &BallSetPhysicsSpec::default(),
             &motion_config(),
         )
+        .expect("test geometry should validate")
         .expect("outside english should still produce a next event")
     {
         TwoBallOnTableEvent::MotionTransition { ball, transition } => {
@@ -283,6 +289,7 @@ fn a_post_contact_continuation_can_follow_the_struck_ball_into_a_combo() {
             &BallSetPhysicsSpec::default(),
             &motion_config(),
         )
+        .expect("test geometry should validate")
         .expect("the struck ball should produce the next combo event")
     {
         TwoBallOnTableEvent::BallBallCollision(collision) => {
@@ -346,6 +353,7 @@ fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_aft
             &BallSetPhysicsSpec::default(),
             &motion_config(),
         )
+        .expect("test geometry should validate")
         .expect("outside english should produce a next event");
     let inside_event = follow_inside_continuation
         .next_event_against_ball(
@@ -353,6 +361,7 @@ fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_aft
             &BallSetPhysicsSpec::default(),
             &motion_config(),
         )
+        .expect("test geometry should validate")
         .expect("inside english should produce a next event");
 
     match outside_event {
@@ -392,5 +401,6 @@ fn the_scheduler_returns_none_when_both_balls_are_resting_and_not_colliding() {
         &BallSetPhysicsSpec::default(),
         &motion_config(),
     )
+    .expect("test geometry should validate")
     .is_none());
 }

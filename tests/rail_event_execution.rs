@@ -66,7 +66,8 @@ fn advancing_to_a_ball_a_rail_impact_reflects_that_ball_and_advances_ball_b_too(
         &motion_config(),
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("test geometry should validate");
     let reported_event = advanced
         .event
         .as_ref()
@@ -130,7 +131,8 @@ fn advancing_to_a_ball_b_rail_impact_reflects_that_ball_and_advances_ball_a_too(
         &motion_config(),
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("test geometry should validate");
 
     match advanced
         .event
@@ -188,6 +190,7 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_configured_restitution_and_spi
     let b = on_table(BallState::resting_at(inches2(30.0, 20.0)));
     let event =
         compute_next_two_ball_event_with_rails_on_table(&a, &b, &ball, &table, &motion_config())
+            .expect("test geometry should validate")
             .expect("an event should be predicted");
     let (impact_wx, expected_a) = match &event {
         TwoBallOnTableEvent::BallRailImpact {
@@ -220,7 +223,8 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_configured_restitution_and_spi
         CollisionModel::Ideal,
         RailModel::SpinAware,
         &rail_config,
-    );
+    )
+    .expect("test geometry should validate");
 
     assert_eq!(advanced.event, Some(event));
     assert_eq!(advanced.a, expected_a);
@@ -245,6 +249,7 @@ fn advancing_to_a_restitution_only_rail_impact_uses_the_configured_restitution()
     let b = on_table(BallState::resting_at(inches2(30.0, 20.0)));
     let event =
         compute_next_two_ball_event_with_rails_on_table(&a, &b, &ball, &table, &motion_config())
+            .expect("test geometry should validate")
             .expect("an event should be predicted");
     let expected_a = match &event {
         TwoBallOnTableEvent::BallRailImpact {
@@ -269,7 +274,8 @@ fn advancing_to_a_restitution_only_rail_impact_uses_the_configured_restitution()
         CollisionModel::Ideal,
         RailModel::RestitutionOnly,
         &rail_config,
-    );
+    )
+    .expect("test geometry should validate");
 
     assert_eq!(advanced.event, Some(event));
     assert_eq!(advanced.a, expected_a);
@@ -300,7 +306,8 @@ fn simulating_with_configured_restitution_records_the_rail_impact() {
         CollisionModel::Ideal,
         RailModel::RestitutionOnly,
         &rail_config,
-    );
+    )
+    .expect("test geometry should validate");
 
     assert_eq!(simulated.events.len(), 1);
     assert_close(simulated.a.as_ball_state().velocity.y().as_f64(), -4.0);
@@ -320,7 +327,8 @@ fn advancing_with_rails_and_no_future_event_returns_the_original_two_ball_state(
         &motion_config(),
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("test geometry should validate");
 
     assert_eq!(advanced.elapsed.as_f64(), 0.0);
     assert!(advanced.event.is_none());
@@ -355,7 +363,8 @@ fn simulating_with_rails_records_a_rail_impact_and_consumes_remaining_time_after
         &config,
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("test geometry should validate");
     let first = advance_to_next_two_ball_event_with_rails_on_table(
         &a,
         &b,
@@ -364,7 +373,8 @@ fn simulating_with_rails_records_a_rail_impact_and_consumes_remaining_time_after
         &config,
         CollisionModel::Ideal,
         RailModel::Mirror,
-    );
+    )
+    .expect("test geometry should validate");
     let remaining = Seconds::new(dt.as_f64() - first.elapsed.as_f64());
     let expected_a = OnTableBallState::try_from(
         advance_motion_on_table(&first.a, remaining, &BallSetPhysicsSpec::default(), &config).state,

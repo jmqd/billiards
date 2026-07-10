@@ -310,14 +310,17 @@ fn run_preparsed_dsl_three_ball_pinball_event_limit(
 
 fn run_direct_two_ball_shot_to_completion() {
     let (cue_ball, object_ball, ball_set, motion) = direct_two_ball_inputs();
-    black_box(simulate_two_on_table_balls(
-        &cue_ball,
-        &object_ball,
-        Seconds::new(5.0),
-        &ball_set,
-        &motion,
-        CollisionModel::Ideal,
-    ));
+    black_box(
+        simulate_two_on_table_balls(
+            &cue_ball,
+            &object_ball,
+            Seconds::new(5.0),
+            &ball_set,
+            &motion,
+            CollisionModel::Ideal,
+        )
+        .expect("two-ball benchmark geometry should validate"),
+    );
 }
 
 fn run_dsl_two_ball_shot_to_completion_from_parse() {
@@ -336,26 +339,32 @@ fn run_dsl_two_ball_shot_to_completion_from_parse() {
         .map(on_table)
         .expect("benchmark scenario should place the nine ball");
 
-    black_box(simulate_two_on_table_balls(
-        &cue_ball,
-        &object_ball,
-        Seconds::new(5.0),
-        &ball_set,
-        &motion,
-        CollisionModel::Ideal,
-    ));
+    black_box(
+        simulate_two_on_table_balls(
+            &cue_ball,
+            &object_ball,
+            Seconds::new(5.0),
+            &ball_set,
+            &motion,
+            CollisionModel::Ideal,
+        )
+        .expect("two-ball benchmark geometry should validate"),
+    );
 }
 
 fn run_cached_pocket_aware_until_rest() {
     let (states, ball_set, table, motion) = direct_pocket_aware_inputs();
-    black_box(simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
-        &states,
-        &ball_set,
-        &table,
-        &motion,
-        CollisionModel::Ideal,
-        RailModel::Mirror,
-    ));
+    black_box(
+        simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+            &states,
+            &ball_set,
+            &table,
+            &motion,
+            CollisionModel::Ideal,
+            RailModel::Mirror,
+        )
+        .expect("pocket-aware benchmark geometry should validate"),
+    );
 }
 
 fn run_manual_pocket_aware_until_rest() {
@@ -373,7 +382,8 @@ fn run_manual_pocket_aware_until_rest() {
             &motion,
             CollisionModel::Ideal,
             RailModel::Mirror,
-        );
+        )
+        .expect("pocket-aware benchmark geometry should validate");
         if advanced.event.is_none() {
             break;
         }
@@ -454,13 +464,16 @@ fn bench_core_functions(c: &mut Criterion) {
     });
     group.bench_function("compute_next_two_ball_event_with_rails_on_table", |b| {
         b.iter(|| {
-            black_box(compute_next_two_ball_event_with_rails_on_table(
-                black_box(&collision_a),
-                black_box(&collision_b),
-                black_box(&collision_ball_set),
-                black_box(&table),
-                black_box(&collision_motion),
-            ))
+            black_box(
+                compute_next_two_ball_event_with_rails_on_table(
+                    black_box(&collision_a),
+                    black_box(&collision_b),
+                    black_box(&collision_ball_set),
+                    black_box(&table),
+                    black_box(&collision_motion),
+                )
+                .expect("two-ball benchmark geometry should validate"),
+            )
         })
     });
     group.bench_function("collide_ball_ball_detailed_on_table/throw_aware", |b| {

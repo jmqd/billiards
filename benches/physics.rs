@@ -415,6 +415,33 @@ fn run_preparsed_dsl_three_ball_pinball_event_limit(
     );
 }
 
+fn run_preparsed_dsl_three_ball_pinball_system_only_event_limit(
+    scenario: &DslScenario,
+    ball_set: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+    collision_config: &BallBallCollisionConfig,
+    rail_profile: &RailCollisionProfile,
+) {
+    let states = scenario
+        .initial_shot_system_states_on_table(ball_set)
+        .expect("benchmark three-ball initial state should build")
+        .expect("benchmark three-ball scenario should contain a shot");
+    black_box(
+        simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+            &states,
+            ball_set,
+            &scenario.game_state.table_spec,
+            motion,
+            CollisionModel::ThrowAware,
+            collision_config,
+            RailModel::SpinAware,
+            rail_profile,
+            Some(8),
+        )
+        .expect("benchmark three-ball system should simulate"),
+    );
+}
+
 fn run_direct_two_ball_shot_to_completion() {
     let (cue_ball, object_ball, ball_set, motion) = direct_two_ball_inputs();
     black_box(
@@ -1000,6 +1027,20 @@ fn bench_end_to_end(c: &mut Criterion) {
     group.bench_function("dsl/preparsed_trace_until_rest", |b| {
         b.iter(|| run_preparsed_dsl_single_ball_shot_to_completion(&scenario, &ball_set, &motion))
     });
+    group.bench_function(
+        "dsl/preparsed_three_ball_pinball_system_only_event_limit_8",
+        |b| {
+            b.iter(|| {
+                run_preparsed_dsl_three_ball_pinball_system_only_event_limit(
+                    &three_ball_scenario,
+                    &ball_set,
+                    &motion,
+                    &collision_config,
+                    &rail_profile,
+                )
+            })
+        },
+    );
     group.bench_function("dsl/preparsed_three_ball_pinball_event_limit_8", |b| {
         b.iter(|| {
             run_preparsed_dsl_three_ball_pinball_event_limit(

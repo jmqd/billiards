@@ -310,10 +310,11 @@ fn direct_pocket_aware_inputs() -> (
     (vec![cue, spinner], ball_set, table, motion)
 }
 
-fn rolling_side_pocket_state_at_angle(
+fn rolling_side_pocket_state_at_angle_and_distance(
     speed: f64,
     angle_degrees: f64,
     perpendicular_offset: f64,
+    distance: f64,
     table: &TableSpec,
 ) -> OnTableBallState {
     let pocket_center = Pocket::CenterRight.aiming_center();
@@ -328,8 +329,8 @@ fn rolling_side_pocket_state_at_angle(
 
     on_table(BallState::on_table(
         inches2(
-            pocket_x - 10.0 * direction_x + perpendicular_offset * tangent_x,
-            pocket_y - 10.0 * direction_y + perpendicular_offset * tangent_y,
+            pocket_x - distance * direction_x + perpendicular_offset * tangent_x,
+            pocket_y - distance * direction_y + perpendicular_offset * tangent_y,
         ),
         Velocity2::new(
             Inches::from_f64(speed * direction_x),
@@ -341,6 +342,38 @@ fn rolling_side_pocket_state_at_angle(
             0.0,
         ),
     ))
+}
+
+fn rolling_side_pocket_state_at_angle(
+    speed: f64,
+    angle_degrees: f64,
+    perpendicular_offset: f64,
+    table: &TableSpec,
+) -> OnTableBallState {
+    rolling_side_pocket_state_at_angle_and_distance(
+        speed,
+        angle_degrees,
+        perpendicular_offset,
+        10.0,
+        table,
+    )
+}
+
+fn pocket_capture_signature(capture: &billiards::PredictedBallPocketCapture) -> (Pocket, [u64; 8]) {
+    let state = capture.state_at_capture.as_ball_state();
+    (
+        capture.pocket,
+        [
+            capture.time_until_capture.as_f64().to_bits(),
+            state.position.x().as_f64().to_bits(),
+            state.position.y().as_f64().to_bits(),
+            state.velocity.x().as_f64().to_bits(),
+            state.velocity.y().as_f64().to_bits(),
+            state.angular_velocity.x().as_f64().to_bits(),
+            state.angular_velocity.y().as_f64().to_bits(),
+            state.angular_velocity.z().as_f64().to_bits(),
+        ],
+    )
 }
 
 fn run_direct_single_ball_shot_to_completion() {
@@ -645,6 +678,53 @@ fn bench_pocket_predictors(c: &mut Criterion) {
     let slow_capture = rolling_side_pocket_state_at_angle(10.0, 30.0, 0.0, &table);
     let slow_target_miss = rolling_side_pocket_state_at_angle(10.0, 30.0, 1.8, &table);
     let fast_capture = rolling_side_pocket_state_at_angle(200.0, 0.0, 0.0, &table);
+    let no_pockets_table = TableSpec::three_cushion_carom_10ft();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let side_center = Pocket::CenterRight.aiming_center();
+    let side_x = table.diamond_to_inches(side_center.x).as_f64();
+    let side_y = table.diamond_to_inches(side_center.y).as_f64();
+    let far_miss = on_table(BallState::on_table(
+        inches2(side_x - 20.0, side_y),
+        Velocity2::new("-5", "0"),
+        AngularVelocity3::new(0.0, -5.0 / radius, 0.0),
+    ));
+    let gate_angle = 60.0_f64.to_radians();
+    let gate_distance = 10.0;
+    let gate_speed = 80.0;
+    let gate_miss = on_table(BallState::on_table(
+        inches2(
+            side_x - gate_distance * gate_angle.cos(),
+            side_y - gate_distance * gate_angle.sin(),
+        ),
+        Velocity2::new(
+            Inches::from_f64(gate_speed * gate_angle.cos()),
+            Inches::from_f64(gate_speed * gate_angle.sin()),
+        ),
+        AngularVelocity3::zero(),
+    ));
+    let scan_fallback = on_table(BallState::on_table(
+        inches2(48.804_289_321_881_34, 51.570_710_678_118_66),
+        Velocity2::new(
+            Inches::from_f64(3.535_533_905_932_737_8),
+            Inches::from_f64(-3.535_533_905_932_737_3),
+        ),
+        AngularVelocity3::new(3.142_696_805_273_544_2, 3.142_696_805_273_544_7, 0.0),
+    ));
+    let fast_between_samples_miss = rolling_side_pocket_state_at_angle(200.0, 0.0, 1.8, &table);
+    let curved_capture = {
+        let straight =
+            rolling_side_pocket_state_at_angle_and_distance(20.0, 15.0, 0.25, 5.0, &table);
+        let state = straight.as_ball_state();
+        on_table(BallState::on_table(
+            state.position.clone(),
+            state.velocity.clone(),
+            AngularVelocity3::new(
+                state.angular_velocity.x().as_f64(),
+                state.angular_velocity.y().as_f64(),
+                8.0,
+            ),
+        ))
+    };
     let mouth_width = table
         .diamond_to_inches(table.pocket_spec(Pocket::CenterRight).width.clone())
         .as_f64();
@@ -685,9 +765,81 @@ fn bench_pocket_predictors(c: &mut Criterion) {
         &motion,
     )
     .is_none());
+    let fast_capture_result =
+        compute_next_ball_pocket_capture_on_table(&fast_capture, &ball_set, &table, &motion)
+            .expect("fast between-samples fixture should be captured");
+    assert_eq!(
+        pocket_capture_signature(&fast_capture_result),
+        (
+            Pocket::CenterRight,
+            [
+                0x3fa6_bb8c_c145_5e2e,
+                0x4048_7000_0000_0000,
+                0x4049_0000_0000_0000,
+                0x4068_f8e5_6403_9a53,
+                0x0000_0000_0000_0000,
+                0x8000_0000_0000_0000,
+                0x4066_3293_0391_6cbc,
+                0x0000_0000_0000_0000,
+            ],
+        )
+    );
+    let fallback_result =
+        compute_next_ball_pocket_capture_on_table(&scan_fallback, &ball_set, &table, &motion)
+            .expect("proven fallback fixture should be captured");
+    assert_eq!(
+        pocket_capture_signature(&fallback_result),
+        (
+            Pocket::CenterRight,
+            [
+                0x3fc1_7510_78cb_a8f3,
+                0x4048_a076_00d9_0ec3,
+                0x4049_8f89_ff26_f13d,
+                0x4008_6d3d_8b54_d490,
+                0xc008_6d3d_8b54_d48f,
+                0x4005_b66f_984b_679c,
+                0x4005_b66f_984b_679c,
+                0x0000_0000_0000_0000,
+            ],
+        )
+    );
     assert!(
-        compute_next_ball_pocket_capture_on_table(&fast_capture, &ball_set, &table, &motion,)
-            .is_some()
+        compute_next_ball_pocket_capture_on_table(&far_miss, &ball_set, &table, &motion).is_none()
+    );
+    assert!(
+        compute_next_ball_pocket_capture_on_table(&gate_miss, &ball_set, &table, &motion).is_none()
+    );
+    assert!(compute_next_ball_pocket_capture_on_table(
+        &fast_between_samples_miss,
+        &ball_set,
+        &table,
+        &motion,
+    )
+    .is_none());
+    assert!(compute_next_ball_pocket_capture_on_table(
+        &far_miss,
+        &ball_set,
+        &no_pockets_table,
+        &motion,
+    )
+    .is_none());
+    let curved_expected =
+        compute_next_ball_pocket_capture_on_table(&curved_capture, &ball_set, &table, &motion);
+    assert_eq!(
+        curved_expected.as_ref().map(pocket_capture_signature),
+        Some((
+            Pocket::CenterRight,
+            [
+                0x3fc9_9d76_a4c5_b259,
+                0x4048_7000_0000_0000,
+                0x4048_fa83_8519_8962,
+                0x4032_5a44_9d19_7c2f,
+                0x4013_a92d_c0be_e41c,
+                0xc011_79ef_c7c6_2019,
+                0x4030_503c_fd6b_fc9c,
+                0x401e_6628_95b3_a4da,
+            ],
+        ))
     );
     assert!(
         compute_next_ball_jaw_impact_on_table(&fast_jaw_hit, &ball_set, &table, &motion).is_some()
@@ -704,8 +856,8 @@ fn bench_pocket_predictors(c: &mut Criterion) {
     );
 
     let mut group = c.benchmark_group("pocket_predictors");
-    group.measurement_time(Duration::from_secs(8));
-    group.sample_size(20);
+    group.measurement_time(Duration::from_secs(10));
+    group.sample_size(30);
 
     group.bench_function("capture/slow_side_30deg_hit", |b| {
         b.iter(|| {
@@ -737,6 +889,66 @@ fn bench_pocket_predictors(c: &mut Criterion) {
             ))
         })
     });
+    group.bench_function("capture/no_pockets", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&far_miss),
+                black_box(&ball_set),
+                black_box(&no_pockets_table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("capture/far_miss", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&far_miss),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("capture/gate_miss_60deg_80ips", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&gate_miss),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("capture/scan_fallback", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&scan_fallback),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("capture/fast_between_samples_hit", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&fast_capture),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("capture/fast_between_samples_miss", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_pocket_capture_on_table(
+                black_box(&fast_between_samples_miss),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
     group.bench_function("jaw/fast_side_hit", |b| {
         b.iter(|| {
             black_box(compute_next_ball_jaw_impact_on_table(
@@ -762,6 +974,59 @@ fn bench_pocket_predictors(c: &mut Criterion) {
     });
 
     group.finish();
+
+    let batch_seed_states = [
+        far_miss,
+        gate_miss,
+        slow_capture,
+        slow_target_miss,
+        scan_fallback,
+        fast_capture,
+        fast_between_samples_miss,
+        curved_capture,
+    ];
+    let batch_seed_expected = [
+        None,
+        None,
+        Some(slow_capture_result),
+        None,
+        Some(fallback_result),
+        Some(fast_capture_result),
+        None,
+        curved_expected,
+    ];
+    let mut batch_group = c.benchmark_group("pocket_predictor_batch");
+    batch_group.measurement_time(Duration::from_secs(10));
+    batch_group.sample_size(30);
+    // Each nominal batch unit is the same complete branch mixture. Criterion throughput
+    // reports the actual query count so slope comparisons never change composition.
+    for batch_repetitions in [1_usize, 4, 16, 64] {
+        let query_count = batch_seed_states.len() * batch_repetitions;
+        let states = (0..query_count)
+            .map(|index| batch_seed_states[index % batch_seed_states.len()].clone())
+            .collect::<Vec<_>>();
+        let expected = (0..query_count)
+            .map(|index| batch_seed_expected[index % batch_seed_expected.len()].clone())
+            .collect::<Vec<_>>();
+        batch_group.throughput(Throughput::Elements(query_count as u64));
+        batch_group.bench_function(format!("capture/{batch_repetitions}"), |b| {
+            let mut outputs = Vec::with_capacity(states.len());
+            b.iter(|| {
+                outputs.clear();
+                outputs.extend(states.iter().map(|state| {
+                    compute_next_ball_pocket_capture_on_table(
+                        black_box(state),
+                        black_box(&ball_set),
+                        black_box(&table),
+                        black_box(&motion),
+                    )
+                }));
+                black_box(&outputs);
+            });
+            assert_eq!(outputs, expected);
+        });
+    }
+    batch_group.finish();
 }
 
 fn bench_motion_phase_classification(c: &mut Criterion) {
@@ -1039,7 +1304,7 @@ fn bench_end_to_end(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("end_to_end");
     group.measurement_time(Duration::from_secs(8));
-    group.sample_size(10);
+    group.sample_size(20);
 
     group.bench_function("direct/strike_and_trace_until_rest", |b| {
         b.iter(run_direct_single_ball_shot_to_completion)

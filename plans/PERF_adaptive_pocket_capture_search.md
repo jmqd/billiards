@@ -2,10 +2,12 @@
 
 ## Status
 
-- **Status:** Accepted implementation plan
+- **Status:** Implemented in `e2e2425` (benchmark contract) and `329e946` (`perf(physics): adaptively bracket pocket capture search`).
 - **Priority:** P0; the measured pocket-aware critical path is dominated by capture prediction.
 - **Confidence:** High that work can be removed without changing the model; medium-high that the interval proof will prune most miss paths. The statistical and differential gates below decide whether the implementation ships.
 - **Owner scope:** `compute_next_ball_pocket_capture_on_table` and its private search helpers in `src/lib.rs`, focused pocket benchmarks in `benches/physics.rs`, and capture/simulation equivalence tests.
+- **Result:** Across three paired release-process comparisons, median changes were **-98.3%** for `far_miss`, **-94.4%** for the sliding `gate_miss_60deg_80ips`, **-91.4%** for the constant-composition batch/64 cell, and **-84.2%** for the three-ball/eight-event endpoint. Every required pocket/end-to-end CI was wholly negative; the standalone rail control stayed within its +3% gate.
+- **Correctness:** The adaptive path preserves the legacy 512-cell lattice, left-to-right first-entry ordering, and 60-step refiner. Differential tests include curved rolling, tiny nonzero quadratic acceleration, tiny-deceleration curvature, boundary, analytic, fallback, and exact public-state cases.
 
 ## Dependencies and landing order
 

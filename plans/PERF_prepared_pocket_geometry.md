@@ -2,11 +2,13 @@
 
 ## Status
 
-- **Status:** Accepted implementation plan; not implemented.
+- **Status:** Implemented in `d0bf626` (`perf: prepare pocket capture geometry once per query`).
 - **Priority:** P0 among pocket-capture micro-optimizations.
 - **Confidence:** High that the work is redundant and removable; medium-high that the committed target-miss fixture can clear the latency gate once its slow-corner scan/cache attribution is confirmed.
 - **Implementation order:** Implement and benchmark this plan before `PERF_current_phase_prediction_context.md`. There is no semantic dependency, but pocket scanning currently dominates the committed one-ball scheduler fixture, so removing geometry preparation from each gap evaluation makes the later context result measurable. Land and assess this change independently before changing phase preparation.
 - **Broader dependencies:** None. This plan deliberately precedes, and does not depend on, adaptive capture search or incremental `PocketAwareEventCache` work.
+- **Result:** Three paired release-process comparisons put the primary target-miss median at **-86.4%**; every primary 95% CI was wholly negative. Slow/fast capture, scheduler, cache-rebuild, and end-to-end controls improved; same-policy resampling cleared noisy jaw/rail negative-control gates.
+- **Corroboration:** Exact-bit, custom-table, per-radius, stored-`None`, and call-local key tests pass. `xctrace` was unavailable on the host, so Instruments Time Profiler/lock traces could not be collected; source/type review confirms the prepared evaluator has no global mutex/hash lookup or heap-owned six-record scratch.
 
 ## Problem and evidence
 

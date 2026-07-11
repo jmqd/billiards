@@ -57,7 +57,7 @@ def parse_args() -> argparse.Namespace:
         default=["boundary", "mixed"],
     )
     parser.add_argument("--samples", type=int, default=30)
-    parser.add_argument("--warmup-calls", type=int, default=3)
+    parser.add_argument("--warmup-calls", type=int, default=5)
     parser.add_argument("--minimum-sample-seconds", type=float, default=0.5)
     parser.add_argument("--threads", type=int)
     return parser.parse_args()

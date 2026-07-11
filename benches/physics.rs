@@ -651,9 +651,32 @@ fn bench_pocket_predictors(c: &mut Criterion) {
     let fast_jaw_hit = rolling_side_pocket_state_at_angle(200.0, 0.0, 0.5 * mouth_width, &table);
     let query_states = [NBallSystemState::from(slow_capture.clone())];
 
-    assert!(
-        compute_next_ball_pocket_capture_on_table(&slow_capture, &ball_set, &table, &motion,)
-            .is_some()
+    let slow_capture_result =
+        compute_next_ball_pocket_capture_on_table(&slow_capture, &ball_set, &table, &motion)
+            .expect("slow side-pocket control should be captured");
+    let slow_capture_state = slow_capture_result.state_at_capture.as_ball_state();
+    assert_eq!(slow_capture_result.pocket, Pocket::CenterRight);
+    assert_eq!(
+        [
+            slow_capture_result.time_until_capture.as_f64().to_bits(),
+            slow_capture_state.position.x().as_f64().to_bits(),
+            slow_capture_state.position.y().as_f64().to_bits(),
+            slow_capture_state.velocity.x().as_f64().to_bits(),
+            slow_capture_state.velocity.y().as_f64().to_bits(),
+            slow_capture_state.angular_velocity.x().as_f64().to_bits(),
+            slow_capture_state.angular_velocity.y().as_f64().to_bits(),
+            slow_capture_state.angular_velocity.z().as_f64().to_bits(),
+        ],
+        [
+            0x3ff4_776c_e2b5_9c84,
+            0x4048_7000_0000_0000,
+            0x4048_acdc_8f46_f71a,
+            0x4008_f882_fca6_8d38,
+            0x3ffc_d56f_c939_f8b4,
+            0xbff9_a146_ebc1_c0a0,
+            0x4006_323b_8b3e_b66b,
+            0x0000_0000_0000_0000,
+        ]
     );
     assert!(compute_next_ball_pocket_capture_on_table(
         &slow_target_miss,

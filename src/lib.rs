@@ -7392,10 +7392,11 @@ fn corner_pocket_slow_target_transitions(
     transitions
 }
 
-fn corner_pocket_slow_target_sleft(
+fn corner_pocket_slow_target_sleft_with_transitions(
     geometry: SlowCornerPocketTargetGeometry,
     ball_radius: f64,
     theta: f64,
+    transitions: Option<SlowCornerPocketTargetTransitions>,
 ) -> f64 {
     let theta_degrees = theta.to_degrees();
     if !theta_degrees.is_finite()
@@ -7404,7 +7405,7 @@ fn corner_pocket_slow_target_sleft(
         return 0.0;
     }
 
-    let Some(transitions) = corner_pocket_slow_target_transitions(geometry, ball_radius) else {
+    let Some(transitions) = transitions else {
         return 0.0;
     };
 
@@ -7425,32 +7426,39 @@ fn corner_pocket_slow_target_sleft(
     target.unwrap_or(0.0).max(0.0)
 }
 
+#[cfg(test)]
+fn corner_pocket_slow_target_sleft(
+    geometry: SlowCornerPocketTargetGeometry,
+    ball_radius: f64,
+    theta: f64,
+) -> f64 {
+    let theta_degrees = theta.to_degrees();
+    if !theta_degrees.is_finite()
+        || theta_degrees.abs() > CORNER_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES
+    {
+        return 0.0;
+    }
+
+    corner_pocket_slow_target_sleft_with_transitions(
+        geometry,
+        ball_radius,
+        theta,
+        corner_pocket_slow_target_transitions(geometry, ball_radius),
+    )
+}
+
+#[cfg(test)]
 fn pocket_slow_target_bounds_in_inches(
     pocket: Pocket,
     signed_entry_angle_degrees: f64,
     ball_radius: f64,
     table: &TableSpec,
 ) -> (f64, f64) {
-    match table.pocket_spec(pocket).ty {
-        PocketType::Side => {
-            let geometry = side_pocket_slow_target_geometry(pocket, table);
-            let theta = signed_entry_angle_degrees.to_radians();
-
-            (
-                side_pocket_slow_target_sleft(geometry, ball_radius, theta),
-                side_pocket_slow_target_sleft(geometry, ball_radius, -theta),
-            )
-        }
-        PocketType::Corner => {
-            let geometry = corner_pocket_slow_target_geometry(pocket, table);
-            let theta = signed_entry_angle_degrees.to_radians();
-
-            (
-                corner_pocket_slow_target_sleft(geometry, ball_radius, theta),
-                corner_pocket_slow_target_sleft(geometry, ball_radius, -theta),
-            )
-        }
-    }
+    slow_pocket_target_bounds_from_prepared(
+        prepare_slow_pocket_target(pocket, table, ball_radius),
+        signed_entry_angle_degrees,
+        ball_radius,
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -7460,6 +7468,34 @@ struct FastPocketTargetGeometry {
     shelf_depth: f64,
     max_entry_angle_degrees: f64,
     critical_angle_degrees: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PreparedSlowPocketTarget {
+    Side(SlowPocketTargetGeometry),
+    Corner {
+        geometry: SlowCornerPocketTargetGeometry,
+        transitions: Option<SlowCornerPocketTargetTransitions>,
+    },
+}
+
+fn prepare_slow_pocket_target(
+    pocket: Pocket,
+    table: &TableSpec,
+    ball_radius: f64,
+) -> PreparedSlowPocketTarget {
+    match table.pocket_spec(pocket).ty {
+        PocketType::Side => {
+            PreparedSlowPocketTarget::Side(side_pocket_slow_target_geometry(pocket, table))
+        }
+        PocketType::Corner => {
+            let geometry = corner_pocket_slow_target_geometry(pocket, table);
+            PreparedSlowPocketTarget::Corner {
+                geometry,
+                transitions: corner_pocket_slow_target_transitions(geometry, ball_radius),
+            }
+        }
+    }
 }
 
 fn fast_pocket_target_geometry(pocket: Pocket, table: &TableSpec) -> FastPocketTargetGeometry {
@@ -7577,22 +7613,89 @@ fn fast_pocket_target_sleft(
     .max(0.0)
 }
 
+fn slow_pocket_target_bounds_from_prepared(
+    target: PreparedSlowPocketTarget,
+    signed_entry_angle_degrees: f64,
+    ball_radius: f64,
+) -> (f64, f64) {
+    let theta = signed_entry_angle_degrees.to_radians();
+    match target {
+        PreparedSlowPocketTarget::Side(geometry) => (
+            side_pocket_slow_target_sleft(geometry, ball_radius, theta),
+            side_pocket_slow_target_sleft(geometry, ball_radius, -theta),
+        ),
+        PreparedSlowPocketTarget::Corner {
+            geometry,
+            transitions,
+        } => (
+            corner_pocket_slow_target_sleft_with_transitions(
+                geometry,
+                ball_radius,
+                theta,
+                transitions,
+            ),
+            corner_pocket_slow_target_sleft_with_transitions(
+                geometry,
+                ball_radius,
+                -theta,
+                transitions,
+            ),
+        ),
+    }
+}
+
+fn fast_pocket_target_bounds_from_prepared(
+    geometry: FastPocketTargetGeometry,
+    signed_entry_angle_degrees: f64,
+    ball_radius: f64,
+) -> (f64, f64) {
+    if signed_entry_angle_degrees.abs() > geometry.max_entry_angle_degrees {
+        return (0.0, 0.0);
+    }
+
+    let theta = signed_entry_angle_degrees.to_radians();
+    (
+        fast_pocket_target_sleft(geometry, ball_radius, theta),
+        fast_pocket_target_sleft(geometry, ball_radius, -theta),
+    )
+}
+
+fn pocket_target_bounds_from_prepared(
+    slow_target: PreparedSlowPocketTarget,
+    fast_target: FastPocketTargetGeometry,
+    signed_entry_angle_degrees: f64,
+    speed: f64,
+    ball_radius: f64,
+) -> (f64, f64) {
+    let (slow_left, slow_right) = slow_pocket_target_bounds_from_prepared(
+        slow_target,
+        signed_entry_angle_degrees,
+        ball_radius,
+    );
+    let (fast_left, fast_right) = fast_pocket_target_bounds_from_prepared(
+        fast_target,
+        signed_entry_angle_degrees,
+        ball_radius,
+    );
+    let fast_fraction = (speed / POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
+
+    (
+        slow_left + fast_fraction * (fast_left - slow_left),
+        slow_right + fast_fraction * (fast_right - slow_right),
+    )
+}
+
+#[cfg(test)]
 fn pocket_fast_target_bounds_in_inches(
     pocket: Pocket,
     signed_entry_angle_degrees: f64,
     ball_radius: f64,
     table: &TableSpec,
 ) -> (f64, f64) {
-    let geometry = fast_pocket_target_geometry(pocket, table);
-    if signed_entry_angle_degrees.abs() > geometry.max_entry_angle_degrees {
-        return (0.0, 0.0);
-    }
-
-    let theta = signed_entry_angle_degrees.to_radians();
-
-    (
-        fast_pocket_target_sleft(geometry, ball_radius, theta),
-        fast_pocket_target_sleft(geometry, ball_radius, -theta),
+    fast_pocket_target_bounds_from_prepared(
+        fast_pocket_target_geometry(pocket, table),
+        signed_entry_angle_degrees,
+        ball_radius,
     )
 }
 
@@ -7603,15 +7706,12 @@ fn pocket_target_bounds_in_inches(
     ball_radius: f64,
     table: &TableSpec,
 ) -> (f64, f64) {
-    let (slow_left, slow_right) =
-        pocket_slow_target_bounds_in_inches(pocket, signed_entry_angle_degrees, ball_radius, table);
-    let (fast_left, fast_right) =
-        pocket_fast_target_bounds_in_inches(pocket, signed_entry_angle_degrees, ball_radius, table);
-    let fast_fraction = (speed / POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
-
-    (
-        slow_left + fast_fraction * (fast_left - slow_left),
-        slow_right + fast_fraction * (fast_right - slow_right),
+    pocket_target_bounds_from_prepared(
+        prepare_slow_pocket_target(pocket, table, ball_radius),
+        fast_pocket_target_geometry(pocket, table),
+        signed_entry_angle_degrees,
+        speed,
+        ball_radius,
     )
 }
 
@@ -7746,6 +7846,310 @@ fn pocket_entry_axis(pocket: Pocket) -> (f64, f64) {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PreparedPocketCaptureGeometry {
+    pocket: Pocket,
+    center_x: f64,
+    center_y: f64,
+    entry_x: f64,
+    entry_y: f64,
+    tangent_x: f64,
+    tangent_y: f64,
+    capture_radius: f64,
+    mouth_projection_minus_ball_radius: f64,
+    back_projection: f64,
+    slow_max_entry_angle_degrees: f64,
+    fast_max_entry_angle_degrees: f64,
+    slow_target: PreparedSlowPocketTarget,
+    fast_target: FastPocketTargetGeometry,
+}
+
+struct PreparedPocketCaptureQuery {
+    ball_radius: f64,
+    pockets: [PreparedPocketCaptureGeometry; 6],
+    #[cfg(test)]
+    resolved_corner_target_count: usize,
+}
+
+impl PreparedPocketCaptureQuery {
+    fn new(table: &TableSpec, ball_radius: f64) -> Self {
+        let mut resolved_corner_targets: [Option<(
+            SlowCornerPocketTargetTransitionKey,
+            Option<SlowCornerPocketTargetTransitions>,
+        )>; 6] = [None; 6];
+        let mut resolved_corner_target_count = 0;
+
+        let pockets = std::array::from_fn(|pocket_index| {
+            let pocket = Pocket::ALL[pocket_index];
+            let pocket_type = table.pocket_spec(pocket).ty.clone();
+            let (center_x, center_y) = pocket_center_in_inches(pocket, table);
+            let (entry_x, entry_y) = pocket_entry_axis(pocket);
+            let tangent_x = -entry_y;
+            let tangent_y = entry_x;
+            let capture_radius = pocket_slow_capture_radius_in_inches(pocket, table);
+            let (jaw_x, jaw_y) =
+                pocket_jaw_reference_point_in_inches(pocket, PocketJaw::First, table);
+            let mouth_projection = entry_x * jaw_x + entry_y * jaw_y;
+            let mouth_projection_minus_ball_radius = mouth_projection - ball_radius;
+            let pocket_projection = entry_x * center_x + entry_y * center_y;
+            let back_projection = pocket_projection + capture_radius;
+            let slow_target = match pocket_type {
+                PocketType::Side => {
+                    PreparedSlowPocketTarget::Side(side_pocket_slow_target_geometry(pocket, table))
+                }
+                PocketType::Corner => {
+                    let geometry = corner_pocket_slow_target_geometry(pocket, table);
+                    let key = corner_pocket_slow_transition_key(geometry, ball_radius);
+                    let mut reused_transitions = None;
+                    for resolved in resolved_corner_targets
+                        .iter()
+                        .take(resolved_corner_target_count)
+                    {
+                        let Some((resolved_key, transitions)) = resolved else {
+                            continue;
+                        };
+                        if *resolved_key == key {
+                            reused_transitions = Some(*transitions);
+                            break;
+                        }
+                    }
+                    let transitions = if let Some(transitions) = reused_transitions {
+                        transitions
+                    } else {
+                        let transitions =
+                            corner_pocket_slow_target_transitions(geometry, ball_radius);
+                        assert!(
+                            resolved_corner_target_count < resolved_corner_targets.len(),
+                            "Pocket::ALL must fit in prepared corner-target scratch"
+                        );
+                        resolved_corner_targets[resolved_corner_target_count] =
+                            Some((key, transitions));
+                        resolved_corner_target_count += 1;
+                        transitions
+                    };
+                    PreparedSlowPocketTarget::Corner {
+                        geometry,
+                        transitions,
+                    }
+                }
+            };
+            let fast_target = fast_pocket_target_geometry(pocket, table);
+            let (slow_max_entry_angle_degrees, fast_max_entry_angle_degrees) = match pocket_type {
+                PocketType::Side => (
+                    SIDE_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES,
+                    SIDE_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES,
+                ),
+                PocketType::Corner => (
+                    CORNER_POCKET_SLOW_MAX_ENTRY_ANGLE_DEGREES,
+                    CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES,
+                ),
+            };
+
+            PreparedPocketCaptureGeometry {
+                pocket,
+                center_x,
+                center_y,
+                entry_x,
+                entry_y,
+                tangent_x,
+                tangent_y,
+                capture_radius,
+                mouth_projection_minus_ball_radius,
+                back_projection,
+                slow_max_entry_angle_degrees,
+                fast_max_entry_angle_degrees,
+                slow_target,
+                fast_target,
+            }
+        });
+
+        Self {
+            ball_radius,
+            pockets,
+            #[cfg(test)]
+            resolved_corner_target_count,
+        }
+    }
+
+    #[cfg(test)]
+    fn pocket_index(pocket: Pocket) -> usize {
+        Pocket::ALL
+            .iter()
+            .position(|candidate| *candidate == pocket)
+            .expect("Pocket::ALL must contain every pocket")
+    }
+
+    fn target_bounds_in_inches(
+        &self,
+        pocket_index: usize,
+        signed_entry_angle_degrees: f64,
+        speed: f64,
+    ) -> (f64, f64) {
+        let geometry = self.pockets[pocket_index];
+        pocket_target_bounds_from_prepared(
+            geometry.slow_target,
+            geometry.fast_target,
+            signed_entry_angle_degrees,
+            speed,
+            self.ball_radius,
+        )
+    }
+
+    fn signed_entry_angle_degrees(
+        &self,
+        state: RawOnTableBallState,
+        pocket_index: usize,
+    ) -> Option<f64> {
+        let speed = state.speed();
+        if speed <= f64::EPSILON {
+            return None;
+        }
+
+        let geometry = self.pockets[pocket_index];
+        let aligned = (state.vx * geometry.entry_x) + (state.vy * geometry.entry_y);
+        let sideways = (state.vx * geometry.tangent_x) + (state.vy * geometry.tangent_y);
+        Some(sideways.atan2(aligned).to_degrees())
+    }
+
+    fn lateral_offset(&self, state: RawOnTableBallState, pocket_index: usize) -> f64 {
+        let geometry = self.pockets[pocket_index];
+        (state.x - geometry.center_x) * geometry.tangent_x
+            + (state.y - geometry.center_y) * geometry.tangent_y
+    }
+
+    fn acceptance_gap(&self, state: RawOnTableBallState, pocket_index: usize) -> f64 {
+        let speed = state.speed();
+        if speed <= f64::EPSILON {
+            return f64::INFINITY;
+        }
+
+        let geometry = self.pockets[pocket_index];
+        let aligned = ((state.vx * geometry.entry_x) + (state.vy * geometry.entry_y)) / speed;
+        let entry_angle = aligned.clamp(-1.0, 1.0).acos().to_degrees();
+        let fast_fraction = (speed / POCKET_FAST_ENTRY_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
+        let max_entry_angle = geometry.slow_max_entry_angle_degrees
+            + fast_fraction
+                * (geometry.fast_max_entry_angle_degrees - geometry.slow_max_entry_angle_degrees);
+
+        entry_angle - max_entry_angle
+    }
+
+    fn capture_gap_during_current_phase(
+        &self,
+        state: RawOnTableBallState,
+        phase: MotionPhase,
+        pocket_index: usize,
+        t_seconds: f64,
+        config: &OnTableMotionConfig,
+    ) -> f64 {
+        let geometry = self.pockets[pocket_index];
+        let at_t =
+            raw_advance_within_phase_on_table(state, phase, t_seconds, self.ball_radius, config);
+        let signed_entry_angle = self
+            .signed_entry_angle_degrees(at_t, pocket_index)
+            .unwrap_or(0.0);
+        let (left_bound, right_bound) =
+            self.target_bounds_in_inches(pocket_index, signed_entry_angle, at_t.speed());
+        let lateral_offset = self.lateral_offset(at_t, pocket_index);
+        let target_gap = (lateral_offset - left_bound).max(-right_bound - lateral_offset);
+        let center_projection = geometry.entry_x * at_t.x + geometry.entry_y * at_t.y;
+        let mouth_plane_gap = geometry.mouth_projection_minus_ball_radius - center_projection;
+        let back_plane_gap = center_projection - geometry.back_projection;
+
+        target_gap
+            .max(self.acceptance_gap(at_t, pocket_index))
+            .max(mouth_plane_gap)
+            .max(back_plane_gap)
+    }
+
+    fn first_radial_entry_time(
+        &self,
+        state: RawOnTableBallState,
+        phase: MotionPhase,
+        pocket_index: usize,
+        horizon: f64,
+        config: &OnTableMotionConfig,
+    ) -> Option<f64> {
+        let geometry = self.pockets[pocket_index];
+        first_fixed_circle_entry_time_for_raw_motion(
+            state,
+            phase,
+            geometry.center_x,
+            geometry.center_y,
+            geometry.capture_radius,
+            horizon,
+            self.ball_radius,
+            config,
+        )
+    }
+
+    fn first_mouth_plane_crossing_time(
+        &self,
+        state: RawOnTableBallState,
+        phase: MotionPhase,
+        pocket_index: usize,
+        horizon: f64,
+        config: &OnTableMotionConfig,
+    ) -> Option<f64> {
+        let geometry = self.pockets[pocket_index];
+        let center_projection = geometry.entry_x * state.x + geometry.entry_y * state.y;
+        let velocity_projection = geometry.entry_x * state.vx + geometry.entry_y * state.vy;
+        let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, self.ball_radius, config);
+        let acceleration_projection = geometry.entry_x * ax + geometry.entry_y * ay;
+        let tolerance = 1e-10 * horizon.max(1.0);
+        let mut roots = real_roots_quadratic(
+            -0.5 * acceleration_projection,
+            -velocity_projection,
+            geometry.mouth_projection_minus_ball_radius - center_projection,
+        );
+        roots.sort_by(|left, right| {
+            left.partial_cmp(right)
+                .expect("finite pocket-mouth roots should sort")
+        });
+
+        for root in roots {
+            if root.is_finite() && root > tolerance && root <= horizon + tolerance {
+                return Some(root.clamp(0.0, horizon));
+            }
+        }
+
+        None
+    }
+
+    fn first_back_plane_crossing_time(
+        &self,
+        state: RawOnTableBallState,
+        phase: MotionPhase,
+        pocket_index: usize,
+        horizon: f64,
+        config: &OnTableMotionConfig,
+    ) -> Option<f64> {
+        let geometry = self.pockets[pocket_index];
+        let center_projection = geometry.entry_x * state.x + geometry.entry_y * state.y;
+        let velocity_projection = geometry.entry_x * state.vx + geometry.entry_y * state.vy;
+        let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, self.ball_radius, config);
+        let acceleration_projection = geometry.entry_x * ax + geometry.entry_y * ay;
+        let tolerance = 1e-10 * horizon.max(1.0);
+        let mut roots = real_roots_quadratic(
+            0.5 * acceleration_projection,
+            velocity_projection,
+            center_projection - geometry.back_projection,
+        );
+        roots.sort_by(|left, right| {
+            left.partial_cmp(right)
+                .expect("finite pocket-back roots should sort")
+        });
+
+        for root in roots {
+            if root.is_finite() && root > tolerance && root <= horizon + tolerance {
+                return Some(root.clamp(0.0, horizon));
+            }
+        }
+
+        None
+    }
+}
+
 fn pocket_entry_angle_degrees_raw(state: RawOnTableBallState, pocket: Pocket) -> Option<f64> {
     let speed = state.speed();
     if speed <= f64::EPSILON {
@@ -7812,105 +8216,6 @@ fn pocket_acceptance_gap_raw(state: RawOnTableBallState, pocket: Pocket, table: 
 
     let entry_angle = pocket_entry_angle_degrees_raw(state, pocket).unwrap_or(f64::INFINITY);
     entry_angle - pocket_capture_max_entry_angle_degrees(pocket, speed, table)
-}
-
-fn pocket_mouth_plane_gap_raw(
-    state: RawOnTableBallState,
-    pocket: Pocket,
-    radius: f64,
-    table: &TableSpec,
-) -> f64 {
-    let (normal_x, normal_y) = pocket_entry_axis(pocket);
-    let (jaw_x, jaw_y) = pocket_jaw_reference_point_in_inches(pocket, PocketJaw::First, table);
-    let mouth_projection = normal_x * jaw_x + normal_y * jaw_y;
-    let center_projection = normal_x * state.x + normal_y * state.y;
-
-    mouth_projection - radius - center_projection
-}
-
-fn pocket_back_plane_gap_raw(state: RawOnTableBallState, pocket: Pocket, table: &TableSpec) -> f64 {
-    let (normal_x, normal_y) = pocket_entry_axis(pocket);
-    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
-    let pocket_projection = normal_x * pocket_x + normal_y * pocket_y;
-    let center_projection = normal_x * state.x + normal_y * state.y;
-    let back_projection = pocket_projection + pocket_slow_capture_radius_in_inches(pocket, table);
-
-    center_projection - back_projection
-}
-
-fn first_pocket_mouth_plane_crossing_time_during_current_phase_raw(
-    state: RawOnTableBallState,
-    phase: MotionPhase,
-    pocket: Pocket,
-    horizon: f64,
-    radius: f64,
-    config: &OnTableMotionConfig,
-    table: &TableSpec,
-) -> Option<f64> {
-    let (normal_x, normal_y) = pocket_entry_axis(pocket);
-    let (jaw_x, jaw_y) = pocket_jaw_reference_point_in_inches(pocket, PocketJaw::First, table);
-    let mouth_projection = normal_x * jaw_x + normal_y * jaw_y;
-    let center_projection = normal_x * state.x + normal_y * state.y;
-    let velocity_projection = normal_x * state.vx + normal_y * state.vy;
-    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, radius, config);
-    let acceleration_projection = normal_x * ax + normal_y * ay;
-    let tolerance = 1e-10 * horizon.max(1.0);
-
-    let mut roots = real_roots_quadratic(
-        -0.5 * acceleration_projection,
-        -velocity_projection,
-        mouth_projection - radius - center_projection,
-    );
-    roots.sort_by(|left, right| {
-        left.partial_cmp(right)
-            .expect("finite pocket-mouth roots should sort")
-    });
-
-    for root in roots {
-        if root.is_finite() && root > tolerance && root <= horizon + tolerance {
-            return Some(root.clamp(0.0, horizon));
-        }
-    }
-
-    None
-}
-
-fn first_pocket_back_plane_crossing_time_during_current_phase_raw(
-    state: RawOnTableBallState,
-    phase: MotionPhase,
-    pocket: Pocket,
-    horizon: f64,
-    radius: f64,
-    config: &OnTableMotionConfig,
-    table: &TableSpec,
-) -> Option<f64> {
-    let (normal_x, normal_y) = pocket_entry_axis(pocket);
-    let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
-    let pocket_projection = normal_x * pocket_x + normal_y * pocket_y;
-    let back_projection = pocket_projection + pocket_slow_capture_radius_in_inches(pocket, table);
-    let center_projection = normal_x * state.x + normal_y * state.y;
-    let velocity_projection = normal_x * state.vx + normal_y * state.vy;
-    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, radius, config);
-    let acceleration_projection = normal_x * ax + normal_y * ay;
-    let tolerance = 1e-10 * horizon.max(1.0);
-
-    let mut roots = real_roots_quadratic(
-        0.5 * acceleration_projection,
-        velocity_projection,
-        center_projection - back_projection,
-    );
-    roots.sort_by(|left, right| {
-        left.partial_cmp(right)
-            .expect("finite pocket-back roots should sort")
-    });
-
-    for root in roots {
-        if root.is_finite() && root > tolerance && root <= horizon + tolerance {
-            return Some(root.clamp(0.0, horizon));
-        }
-    }
-
-    None
 }
 
 fn on_table_state_is_within_pocket_mouth_region(
@@ -8941,8 +9246,155 @@ mod pocket_mouth_tests {
             );
         }
     }
+
+    #[test]
+    fn prepared_capture_query_preserves_gap_bits_and_custom_geometry_is_call_local() {
+        let default_table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let motion = motion_config_with_sliding_acceleration(5.0);
+        let default_query = PreparedPocketCaptureQuery::new(&default_table, radius);
+        let side_index = PreparedPocketCaptureQuery::pocket_index(Pocket::CenterRight);
+        let corner_index = PreparedPocketCaptureQuery::pocket_index(Pocket::TopRight);
+        let side = raw_state_on_pocket_mouth_with_local_offset(
+            Pocket::CenterRight,
+            30.0,
+            1.0,
+            10.0,
+            radius,
+            &default_table,
+        );
+        let corner = raw_state_on_pocket_mouth_with_local_offset(
+            Pocket::TopRight,
+            -30.0,
+            -0.5,
+            10.0,
+            radius,
+            &default_table,
+        );
+
+        assert_eq!(
+            default_query
+                .capture_gap_during_current_phase(
+                    side,
+                    MotionPhase::Rolling,
+                    side_index,
+                    0.125,
+                    &motion,
+                )
+                .to_bits(),
+            0x3fe0_5d22_f888_6e5a
+        );
+        assert_eq!(
+            default_query
+                .capture_gap_during_current_phase(
+                    corner,
+                    MotionPhase::Rolling,
+                    corner_index,
+                    0.125,
+                    &motion,
+                )
+                .to_bits(),
+            0x3fc2_1214_9feb_5bf0
+        );
+        assert!(matches!(
+            default_query.pockets[corner_index].slow_target,
+            PreparedSlowPocketTarget::Corner {
+                transitions: Some(_),
+                ..
+            }
+        ));
+        assert_eq!(default_query.resolved_corner_target_count, 1);
+
+        let mut custom_table = TableSpec::default();
+        for (pocket, width, depth) in [
+            (Pocket::TopRight, "0.190", "0.040"),
+            (Pocket::CenterRight, "0.191", "0.041"),
+            (Pocket::BottomRight, "0.192", "0.042"),
+            (Pocket::BottomLeft, "0.193", "0.043"),
+            (Pocket::CenterLeft, "0.194", "0.044"),
+            (Pocket::TopLeft, "0.195", "0.045"),
+        ] {
+            let spec = custom_table.pocket_spec_mut(pocket);
+            spec.ty = PocketType::Corner;
+            spec.width = Diamond::from(width);
+            spec.depth = Diamond::from(depth);
+        }
+        let custom_query = PreparedPocketCaptureQuery::new(&custom_table, radius);
+        assert_eq!(custom_query.resolved_corner_target_count, 6);
+        let mut corner_keys = [None; 6];
+        let mut saw_cached_none = false;
+        for (pocket_index, pocket) in Pocket::ALL.into_iter().enumerate() {
+            let prepared = custom_query.pockets[pocket_index];
+            assert_eq!(prepared.pocket, pocket);
+            let PreparedSlowPocketTarget::Corner {
+                geometry,
+                transitions,
+            } = prepared.slow_target
+            else {
+                panic!("custom pocket {pocket:?} should be prepared as a corner");
+            };
+            saw_cached_none |= transitions.is_none();
+            corner_keys[pocket_index] = Some(corner_pocket_slow_transition_key(geometry, radius));
+            let expected =
+                pocket_target_bounds_in_inches(pocket, 20.0, 15.0, radius, &custom_table);
+            let actual = custom_query.target_bounds_in_inches(pocket_index, 20.0, 15.0);
+            assert_eq!(
+                [actual.0.to_bits(), actual.1.to_bits()],
+                [expected.0.to_bits(), expected.1.to_bits()]
+            );
+        }
+        assert!(
+            saw_cached_none,
+            "custom corner geometry should preserve a cached transition-solve failure"
+        );
+        for left in 0..corner_keys.len() {
+            for right in (left + 1)..corner_keys.len() {
+                assert_ne!(corner_keys[left], corner_keys[right]);
+            }
+        }
+
+        let custom = raw_state_on_pocket_mouth_with_local_offset(
+            Pocket::CenterRight,
+            20.0,
+            0.3,
+            15.0,
+            radius,
+            &custom_table,
+        );
+        assert_eq!(
+            custom_query
+                .capture_gap_during_current_phase(
+                    custom,
+                    MotionPhase::Rolling,
+                    side_index,
+                    0.125,
+                    &motion,
+                )
+                .to_bits(),
+            0x3fed_b195_3c94_5280
+        );
+
+        let smaller_radius = radius * 0.9;
+        let smaller_query = PreparedPocketCaptureQuery::new(&default_table, smaller_radius);
+        let repeated_default_query = PreparedPocketCaptureQuery::new(&default_table, radius);
+        assert_eq!(default_query.pockets, repeated_default_query.pockets);
+        assert_eq!(default_query.ball_radius.to_bits(), radius.to_bits());
+        assert_eq!(
+            smaller_query.ball_radius.to_bits(),
+            smaller_radius.to_bits()
+        );
+        assert_ne!(
+            default_query.pockets[side_index]
+                .mouth_projection_minus_ball_radius
+                .to_bits(),
+            smaller_query.pockets[side_index]
+                .mouth_projection_minus_ball_radius
+                .to_bits()
+        );
+    }
 }
 
+#[cfg(test)]
 fn pocket_capture_gap_during_current_phase_raw(
     state: RawOnTableBallState,
     phase: MotionPhase,
@@ -8952,40 +9404,32 @@ fn pocket_capture_gap_during_current_phase_raw(
     table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> f64 {
-    let at_t = raw_advance_within_phase_on_table(state, phase, t_seconds, radius, config);
-    let signed_entry_angle = pocket_signed_entry_angle_degrees_raw(at_t, pocket).unwrap_or(0.0);
-    let (left_bound, right_bound) =
-        pocket_target_bounds_in_inches(pocket, signed_entry_angle, at_t.speed(), radius, table);
-    let lateral_offset = pocket_lateral_offset_raw(at_t, pocket, table);
-    let target_gap = (lateral_offset - left_bound).max(-right_bound - lateral_offset);
-    let mouth_plane_gap = pocket_mouth_plane_gap_raw(at_t, pocket, radius, table);
-    let back_plane_gap = pocket_back_plane_gap_raw(at_t, pocket, table);
-
-    target_gap
-        .max(pocket_acceptance_gap_raw(at_t, pocket, table))
-        .max(mouth_plane_gap)
-        .max(back_plane_gap)
+    let query = PreparedPocketCaptureQuery::new(table, radius);
+    query.capture_gap_during_current_phase(
+        state,
+        phase,
+        PreparedPocketCaptureQuery::pocket_index(pocket),
+        t_seconds,
+        config,
+    )
 }
 
 fn refine_ball_pocket_capture_time_during_current_phase_raw(
+    query: &PreparedPocketCaptureQuery,
     state: RawOnTableBallState,
     phase: MotionPhase,
-    pocket: Pocket,
+    pocket_index: usize,
     mut left: f64,
     mut right: f64,
-    radius: f64,
-    table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Seconds {
     for _ in 0..60 {
         let midpoint = 0.5 * (left + right);
-        let gap = pocket_capture_gap_during_current_phase_raw(
+        let gap = query.capture_gap_during_current_phase(
             state,
             phase.clone(),
-            pocket,
+            pocket_index,
             midpoint,
-            radius,
-            table,
             config,
         );
 
@@ -9000,25 +9444,17 @@ fn refine_ball_pocket_capture_time_during_current_phase_raw(
 }
 
 fn scan_ball_pocket_capture_time_during_current_phase_raw(
+    query: &PreparedPocketCaptureQuery,
     state: RawOnTableBallState,
     phase: MotionPhase,
-    pocket: Pocket,
+    pocket_index: usize,
     horizon: f64,
-    radius: f64,
-    table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<Seconds> {
     const POCKET_CAPTURE_SCAN_STEPS: usize = 512;
 
-    let initial_gap = pocket_capture_gap_during_current_phase_raw(
-        state,
-        phase.clone(),
-        pocket,
-        0.0,
-        radius,
-        table,
-        config,
-    );
+    let initial_gap =
+        query.capture_gap_during_current_phase(state, phase.clone(), pocket_index, 0.0, config);
     let capture_tolerance = 1e-9 * horizon.max(1.0);
     if initial_gap <= capture_tolerance {
         return Some(Seconds::zero());
@@ -9029,19 +9465,18 @@ fn scan_ball_pocket_capture_time_during_current_phase_raw(
 
     for step in 1..=POCKET_CAPTURE_SCAN_STEPS {
         let t = horizon * step as f64 / POCKET_CAPTURE_SCAN_STEPS as f64;
-        let gap = pocket_capture_gap_during_current_phase_raw(
-            state,
-            phase.clone(),
-            pocket,
-            t,
-            radius,
-            table,
-            config,
-        );
+        let gap =
+            query.capture_gap_during_current_phase(state, phase.clone(), pocket_index, t, config);
 
         if previous_gap > capture_tolerance && gap <= capture_tolerance {
             return Some(refine_ball_pocket_capture_time_during_current_phase_raw(
-                state, phase, pocket, previous_t, t, radius, table, config,
+                query,
+                state,
+                phase,
+                pocket_index,
+                previous_t,
+                t,
+                config,
             ));
         }
 
@@ -9164,18 +9599,17 @@ pub fn compute_next_ball_pocket_capture_on_table(
     if !horizon.is_finite() || horizon <= f64::EPSILON {
         return None;
     }
+    let query = PreparedPocketCaptureQuery::new(table, radius);
     let capture_tolerance = 1e-9 * horizon.max(1.0);
-
     let mut best: Option<PredictedBallPocketCapture> = None;
 
-    for pocket in Pocket::ALL {
-        let initial_gap = pocket_capture_gap_during_current_phase_raw(
+    for (pocket_index, geometry) in query.pockets.iter().enumerate() {
+        let pocket = geometry.pocket;
+        let initial_gap = query.capture_gap_during_current_phase(
             raw_state,
             phase.clone(),
-            pocket,
+            pocket_index,
             0.0,
-            radius,
-            table,
             config,
         );
         if initial_gap <= capture_tolerance {
@@ -9192,35 +9626,21 @@ pub fn compute_next_ball_pocket_capture_on_table(
             continue;
         }
 
-        let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
-        let capture_radius = pocket_slow_capture_radius_in_inches(pocket, table);
-        let radial_entry_seconds = first_fixed_circle_entry_time_for_raw_motion(
+        let radial_entry_seconds =
+            query.first_radial_entry_time(raw_state, phase.clone(), pocket_index, horizon, config);
+        let mouth_entry_seconds = query.first_mouth_plane_crossing_time(
             raw_state,
             phase.clone(),
-            pocket_x,
-            pocket_y,
-            capture_radius,
+            pocket_index,
             horizon,
-            radius,
             config,
         );
-        let mouth_entry_seconds = first_pocket_mouth_plane_crossing_time_during_current_phase_raw(
+        let back_entry_seconds = query.first_back_plane_crossing_time(
             raw_state,
             phase.clone(),
-            pocket,
+            pocket_index,
             horizon,
-            radius,
             config,
-            table,
-        );
-        let back_entry_seconds = first_pocket_back_plane_crossing_time_during_current_phase_raw(
-            raw_state,
-            phase.clone(),
-            pocket,
-            horizon,
-            radius,
-            config,
-            table,
         );
         let mut analytic_entries = [
             radial_entry_seconds,
@@ -9238,26 +9658,23 @@ pub fn compute_next_ball_pocket_capture_on_table(
 
         let mut time_until_capture = None;
         for candidate_seconds in analytic_entries {
-            if pocket_capture_gap_during_current_phase_raw(
+            if query.capture_gap_during_current_phase(
                 raw_state,
                 phase.clone(),
-                pocket,
+                pocket_index,
                 candidate_seconds,
-                radius,
-                table,
                 config,
             ) <= capture_tolerance
             {
                 let right = (candidate_seconds + capture_tolerance).min(horizon);
                 time_until_capture =
                     Some(refine_ball_pocket_capture_time_during_current_phase_raw(
+                        &query,
                         raw_state,
                         phase.clone(),
-                        pocket,
+                        pocket_index,
                         0.0,
                         right,
-                        radius,
-                        table,
                         config,
                     ));
                 break;
@@ -9268,12 +9685,11 @@ pub fn compute_next_ball_pocket_capture_on_table(
             time_until_capture
         } else {
             let Some(scanned) = scan_ball_pocket_capture_time_during_current_phase_raw(
+                &query,
                 raw_state,
                 phase.clone(),
-                pocket,
+                pocket_index,
                 horizon,
-                radius,
-                table,
                 config,
             ) else {
                 continue;

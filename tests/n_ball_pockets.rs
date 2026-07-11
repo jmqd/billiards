@@ -893,6 +893,114 @@ fn a_slow_angled_side_pocket_entry_outside_the_tp35_target_curve_is_rejected() {
 }
 
 #[test]
+fn prepared_geometry_preserves_the_exact_slow_side_capture_signature() {
+    let table = TableSpec::default();
+    let ball = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let centered = slow_rolling_side_pocket_state_at_angle(30.0, 0.0);
+    let outside_target = slow_rolling_side_pocket_state_at_angle(30.0, 1.8);
+    let capture = compute_next_ball_pocket_capture_on_table(&centered, &ball, &table, &motion)
+        .expect("the centered slow side-pocket shot should be captured");
+    let state = capture.state_at_capture.as_ball_state();
+
+    assert_eq!(capture.pocket, Pocket::CenterRight);
+    assert_eq!(
+        [
+            capture.time_until_capture.as_f64().to_bits(),
+            state.position.x().as_f64().to_bits(),
+            state.position.y().as_f64().to_bits(),
+            state.velocity.x().as_f64().to_bits(),
+            state.velocity.y().as_f64().to_bits(),
+            state.angular_velocity.x().as_f64().to_bits(),
+            state.angular_velocity.y().as_f64().to_bits(),
+            state.angular_velocity.z().as_f64().to_bits(),
+        ],
+        [
+            0x3ff4_776c_e2b5_9c84,
+            0x4048_7000_0000_0000,
+            0x4048_acdc_8f46_f71a,
+            0x4008_f882_fca6_8d38,
+            0x3ffc_d56f_c939_f8b4,
+            0xbff9_a146_ebc1_c0a0,
+            0x4006_323b_8b3e_b66b,
+            0x0000_0000_0000_0000,
+        ]
+    );
+    assert!(
+        compute_next_ball_pocket_capture_on_table(&outside_target, &ball, &table, &motion,)
+            .is_none()
+    );
+}
+
+#[test]
+fn prepared_geometry_preserves_exact_corner_and_fast_capture_signatures() {
+    let table = TableSpec::default();
+    let ball = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+
+    for (state, expected_pocket, expected_signature) in [
+        (
+            slow_rolling_top_right_corner_pocket_state(0.0),
+            Pocket::TopRight,
+            [
+                0x0000_0000_0000_0000,
+                0x4047_ce87_a598_4a57,
+                0x4058_6743_d2cc_252b,
+                0x401c_48c6_001f_0ac0,
+                0x401c_48c6_001f_0ac0,
+                0xc019_243e_38ff_2600,
+                0x4019_243e_38ff_2600,
+                0x0000_0000_0000_0000,
+            ],
+        ),
+        (
+            fast_rolling_side_pocket_state(0.0),
+            Pocket::CenterRight,
+            [
+                0x3fa6_bb8c_c145_5e2e,
+                0x4048_7000_0000_0000,
+                0x4049_0000_0000_0000,
+                0x4068_f8e5_6403_9a53,
+                0x0000_0000_0000_0000,
+                0x8000_0000_0000_0000,
+                0x4066_3293_0391_6cbc,
+                0x0000_0000_0000_0000,
+            ],
+        ),
+    ] {
+        let capture = compute_next_ball_pocket_capture_on_table(&state, &ball, &table, &motion)
+            .expect("exact-signature fixture should be captured");
+        let state = capture.state_at_capture.as_ball_state();
+
+        assert_eq!(capture.pocket, expected_pocket);
+        assert_eq!(
+            [
+                capture.time_until_capture.as_f64().to_bits(),
+                state.position.x().as_f64().to_bits(),
+                state.position.y().as_f64().to_bits(),
+                state.velocity.x().as_f64().to_bits(),
+                state.velocity.y().as_f64().to_bits(),
+                state.angular_velocity.x().as_f64().to_bits(),
+                state.angular_velocity.y().as_f64().to_bits(),
+                state.angular_velocity.z().as_f64().to_bits(),
+            ],
+            expected_signature
+        );
+    }
+}
+
+#[test]
+fn a_pocketless_table_never_predicts_a_capture() {
+    assert!(compute_next_ball_pocket_capture_on_table(
+        &rolling_toward_center_right_side_pocket(),
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::three_cushion_carom_10ft(),
+        &motion_config(),
+    )
+    .is_none());
+}
+
+#[test]
 fn a_single_ball_heading_into_the_side_pocket_predicts_capture_before_the_rail() {
     let table = TableSpec::default();
     let state = rolling_toward_center_right_side_pocket();

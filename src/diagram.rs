@@ -29,9 +29,26 @@ const DIAMOND_SIGHT_HEIGHT_IN: f32 = 0.62;
 const CORNER_POCKET_MOUTH_IN: f32 = 4.5;
 const SIDE_POCKET_MOUTH_IN: f32 = 5.0;
 const CORNER_POCKET_SHELF_IN: f32 = 1.75;
-const CORNER_POCKET_WELL_IN: f32 = 4.55;
-const SIDE_POCKET_LIP_IN: f32 = 1.6;
-const SIDE_POCKET_WELL_IN: f32 = 5.0;
+const CORNER_POCKET_WELL_DIAMETER_IN: f32 = 6.0;
+const CORNER_POCKET_BACK_TANGENT_RATIO: f32 = 0.70;
+// These factors affect only the SVG plan-view artwork. They deliberately
+// leave the nominal table dimensions above unchanged.
+const SIDE_POCKET_DRAWING_MOUTH_SCALE: f32 = 1.0;
+const SIDE_POCKET_DRAWING_LIP_DEPTH_IN: f32 = 2.64103;
+const SIDE_POCKET_DRAWING_FIRST_CONTROL_RUN_IN: f32 = 1.0 / 3.0;
+const SIDE_POCKET_DRAWING_SECOND_CONTROL_DEPTH_IN: f32 = 3.70256;
+const SIDE_POCKET_DRAWING_OUTER_ENDPOINT_DEPTH_IN: f32 = 4.95280;
+const SIDE_POCKET_DRAWING_OUTER_MID_DEPTH_IN: f32 = 5.30664;
+const SIDE_POCKET_DRAWING_SHOULDER_OFFSET_IN: f32 = 1.70;
+const SIDE_POCKET_DRAWING_TUCK_OFFSET_IN: f32 = 0.20;
+const SIDE_POCKET_DRAWING_SHELF_SAGITTA_IN: f32 = 0.32;
+const SIDE_POCKET_DRAWING_SHELF_INNER_SAGITTA_IN: f32 = 0.36;
+// Reducing the shelf sagitta to 40% makes its effective radius more than
+// twice the previous tight side-pocket shelf curve.
+const SIDE_POCKET_DRAWING_SHELF_SAGITTA_SCALE: f32 = 0.40;
+const SIDE_POCKET_DRAWING_LINER_SCALE: f32 = 1.37;
+// Side-pocket mouth cut angle in the rendered top-view bed-edge frame.
+const SIDE_POCKET_CUT_ANGLE_DEG: f32 = 8.0;
 const CUSHION_BEVEL_IN: f32 = 1.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -313,9 +330,9 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}");
         svg.push_str(".table-rail{fill:url(#rosewood-rail)}.table-rail-grain{opacity:.62}.table-rail-grain-horizontal{fill:url(#rosewood-grain)}.table-rail-grain-vertical{fill:url(#rosewood-grain-vertical)}.table-rail-inner-shadow{fill:none;stroke:#210b08;stroke-width:10;opacity:.72}");
         svg.push_str(".table-cushion{fill:url(#blue-cushion)}.table-cushion-nose{stroke:#4bd2ea;stroke-width:3;stroke-linecap:round;opacity:.8}.table-cushion-back{stroke:#056a87;stroke-width:3;stroke-linecap:round;opacity:.65}");
-        svg.push_str(".table-pocket-well{fill:url(#pocket-well);stroke:none}.table-pocket-leather{fill:none;stroke:url(#pocket-leather);stroke-linecap:round;stroke-linejoin:round;opacity:.98}.table-pocket-leather-highlight{fill:none;stroke:#8d8377;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.30}");
+        svg.push_str(".table-pocket-well{fill:url(#pocket-well);stroke:none}.table-pocket-leather{fill:none;stroke:url(#pocket-leather);stroke-linecap:round;stroke-linejoin:round;opacity:.96}.table-pocket-leather-highlight{fill:none;stroke:#8d8377;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.22}");
         svg.push_str(".table-pocket-shelf{fill:url(#tournament-blue-cloth);stroke:none;opacity:1}.table-pocket-shelf-texture{fill:url(#cloth-weave);stroke:none;opacity:.20;pointer-events:none}");
-        svg.push_str(".table-pocket-facing{stroke:#050403;stroke-linecap:round;stroke-linejoin:round}.table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.94}\n");
+        svg.push_str(".table-diamond{fill:#f6f0de;stroke:#9b8c63;stroke-width:.75;opacity:.94}\n");
         svg.push_str(".carom-table .table-rail{fill:url(#carom-wood-rail)}.carom-table .table-cloth{fill:url(#heated-carom-cloth)}.carom-table .table-cloth-texture{opacity:.16}.carom-table .table-cushion{fill:url(#heated-carom-cushion)}.carom-table .table-cushion-nose{stroke:#88ecff;stroke-width:3.2}.carom-table .table-cushion-back{stroke:#064f69;stroke-width:3.2}.carom-table .table-rail-inner-shadow{stroke:#0b0705;stroke-width:12;opacity:.58}\n");
         svg.push_str("</style>\n");
         push_svg_table_defs(&mut svg, scene.viewport);
@@ -566,9 +583,7 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
     let corner_run_y = viewport.y_inches(CORNER_POCKET_MOUTH_IN / 2.0_f32.sqrt());
     let corner_shelf_x = viewport.x_inches(CORNER_POCKET_SHELF_IN);
     let corner_shelf_y = viewport.y_inches(CORNER_POCKET_SHELF_IN);
-    let side_mouth_y = viewport.y_inches(SIDE_POCKET_MOUTH_IN);
-    let side_lip_x = viewport.x_inches(SIDE_POCKET_LIP_IN);
-    let side_well_x = viewport.x_inches(SIDE_POCKET_WELL_IN);
+    let side_mouth_y = viewport.y_inches(SIDE_POCKET_MOUTH_IN * SIDE_POCKET_DRAWING_MOUTH_SCALE);
     let cushion_bevel_x = viewport.x_inches(CUSHION_BEVEL_IN);
     let cushion_bevel_y = viewport.y_inches(CUSHION_BEVEL_IN);
     svg.push_str(&format!(
@@ -585,9 +600,6 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
     ));
     svg.push_str(&format!(
         "<rect class=\"table-cloth-texture\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
-    ));
-    svg.push_str(&format!(
-        "<rect class=\"table-rail-inner-shadow\" x=\"{left:.3}\" y=\"{top:.3}\" width=\"{cloth_w:.3}\" height=\"{cloth_h:.3}\"/>\n"
     ));
 
     let corner_pockets = [
@@ -622,9 +634,8 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
             center_y,
             -1.0,
             side_mouth_y,
-            side_lip_x,
-            side_well_x,
             cushion_x,
+            cushion_bevel_y,
             layer,
         );
         push_svg_side_pocket(
@@ -633,9 +644,8 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
             center_y,
             1.0,
             side_mouth_y,
-            side_lip_x,
-            side_well_x,
             cushion_x,
+            cushion_bevel_y,
             layer,
         );
     }
@@ -695,7 +705,7 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
         cushion_bevel_y,
     );
 
-    for layer in [PocketLayer::Shelf, PocketLayer::Facing] {
+    for layer in [PocketLayer::Shelf] {
         for (corner_x, corner_y, x_sign, y_sign) in corner_pockets {
             push_svg_corner_pocket(
                 svg,
@@ -720,9 +730,8 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
             center_y,
             -1.0,
             side_mouth_y,
-            side_lip_x,
-            side_well_x,
             cushion_x,
+            cushion_bevel_y,
             layer,
         );
         push_svg_side_pocket(
@@ -731,9 +740,8 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
             center_y,
             1.0,
             side_mouth_y,
-            side_lip_x,
-            side_well_x,
             cushion_x,
+            cushion_bevel_y,
             layer,
         );
     }
@@ -929,7 +937,6 @@ enum PocketLayer {
     Well,
     Shelf,
     Liner,
-    Facing,
 }
 
 fn push_svg_corner_pocket(
@@ -948,59 +955,65 @@ fn push_svg_corner_pocket(
     cushion_bevel_y: f32,
     layer: PocketLayer,
 ) {
-    let well_scale = CORNER_POCKET_WELL_IN / CORNER_POCKET_SHELF_IN;
-    let well_x = shelf_x * well_scale;
-    let well_y = shelf_y * well_scale;
-
-    let liner_stroke = (cushion_x.min(cushion_y) * 0.82).clamp(20.0, 32.0);
-    let facing_stroke = (cushion_x.min(cushion_y) * 0.32).clamp(7.0, 11.0);
-    let liner_clearance = liner_stroke * 0.5;
+    let well_radius_scale = (CORNER_POCKET_WELL_DIAMETER_IN * 0.5) / CORNER_POCKET_SHELF_IN;
+    let well_radius_x = shelf_x * well_radius_scale;
+    let well_radius_y = shelf_y * well_radius_scale;
+    let liner_stroke = (cushion_x.min(cushion_y) * 0.57).clamp(17.5, 20.0);
 
     let point =
         |inside_x: f32, inside_y: f32| (corner_x - x_sign * inside_x, corner_y - y_sign * inside_y);
 
-    let (mouth_top_x, mouth_top_y) = point(run_x, 0.0);
-    let (mouth_side_x, mouth_side_y) = point(0.0, run_y);
+    let top_liner_inside = (run_x - cushion_bevel_x, -cushion_y);
+    let side_liner_inside = (-cushion_x, run_y - cushion_bevel_y);
+    let (top_liner_end_x, top_liner_end_y) = point(top_liner_inside.0, top_liner_inside.1);
+    let (side_liner_end_x, side_liner_end_y) = point(side_liner_inside.0, side_liner_inside.1);
 
-    let (top_liner_end_x, top_liner_end_y) = point(
-        run_x - cushion_bevel_x * 0.75,
-        -(cushion_y + liner_clearance),
+    // Separated controls keep the configured midpoint while giving the
+    // padded leather upper a broad circular rear arc instead of a tight cusp.
+    let back_control_center_inside_x =
+        (-well_radius_x - 0.125 * (top_liner_inside.0 + side_liner_inside.0)) / 0.75;
+    let back_control_center_inside_y =
+        (-well_radius_y - 0.125 * (top_liner_inside.1 + side_liner_inside.1)) / 0.75;
+    let back_tangent_x = well_radius_x * CORNER_POCKET_BACK_TANGENT_RATIO;
+    let back_tangent_y = well_radius_y * CORNER_POCKET_BACK_TANGENT_RATIO;
+    let (top_back_control_x, top_back_control_y) = point(
+        back_control_center_inside_x + back_tangent_x,
+        back_control_center_inside_y - back_tangent_y,
     );
-    let (side_liner_end_x, side_liner_end_y) = point(
-        -(cushion_x + liner_clearance),
-        run_y - cushion_bevel_y * 0.75,
+    let (side_back_control_x, side_back_control_y) = point(
+        back_control_center_inside_x - back_tangent_x,
+        back_control_center_inside_y + back_tangent_y,
     );
 
-    let (upper_ctl1_x, upper_ctl1_y) = point(run_x * 0.72, -(cushion_y + liner_clearance));
-    let (upper_ctl2_x, upper_ctl2_y) = point(run_x * 0.08, -well_y * 0.98);
-    let (back_crown_x, back_crown_y) = point(-well_x * 0.72, -well_y * 0.72);
-    let (lower_ctl1_x, lower_ctl1_y) = point(-well_x * 0.98, run_y * 0.08);
-    let (lower_ctl2_x, lower_ctl2_y) = point(-(cushion_x + liner_clearance), run_y * 0.72);
-
-    let back_curve = format!(
-        "M {top_liner_end_x:.3} {top_liner_end_y:.3} \
-         C {upper_ctl1_x:.3} {upper_ctl1_y:.3} {upper_ctl2_x:.3} {upper_ctl2_y:.3} {back_crown_x:.3} {back_crown_y:.3} \
-         C {lower_ctl1_x:.3} {lower_ctl1_y:.3} {lower_ctl2_x:.3} {lower_ctl2_y:.3} {side_liner_end_x:.3} {side_liner_end_y:.3}"
-    );
+    // Shelf depth is measured normally from the line between the cushion
+    // noses to the cloth drop edge. The quadratic control is solved so its
+    // midpoint lands at that physical depth rather than using a visual guess.
+    let shelf_mid_inside_x = run_x * 0.5 - shelf_x / 2.0_f32.sqrt();
+    let shelf_mid_inside_y = run_y * 0.5 - shelf_y / 2.0_f32.sqrt();
+    let drop_control_inside_x =
+        2.0 * shelf_mid_inside_x - 0.5 * (top_liner_inside.0 + side_liner_inside.0);
+    let drop_control_inside_y =
+        2.0 * shelf_mid_inside_y - 0.5 * (top_liner_inside.1 + side_liner_inside.1);
+    let (drop_control_x, drop_control_y) = point(drop_control_inside_x, drop_control_inside_y);
 
     match layer {
         PocketLayer::Well => {
             svg.push_str(&format!(
-                "<path class=\"table-pocket-well\" data-pocket=\"corner\" d=\"M {mouth_top_x:.3} {mouth_top_y:.3} L {top_liner_end_x:.3} {top_liner_end_y:.3} C {upper_ctl1_x:.3} {upper_ctl1_y:.3} {upper_ctl2_x:.3} {upper_ctl2_y:.3} {back_crown_x:.3} {back_crown_y:.3} C {lower_ctl1_x:.3} {lower_ctl1_y:.3} {lower_ctl2_x:.3} {lower_ctl2_y:.3} {side_liner_end_x:.3} {side_liner_end_y:.3} L {mouth_side_x:.3} {mouth_side_y:.3} Z\"/>\n"
+                "<path class=\"table-pocket-well\" data-pocket=\"corner\" d=\"M {top_liner_end_x:.3} {top_liner_end_y:.3} C {top_back_control_x:.3} {top_back_control_y:.3} {side_back_control_x:.3} {side_back_control_y:.3} {side_liner_end_x:.3} {side_liner_end_y:.3} Q {drop_control_x:.3} {drop_control_y:.3} {top_liner_end_x:.3} {top_liner_end_y:.3} Z\"/>\n"
             ));
         }
         PocketLayer::Shelf => {
-            // Let the shelf tuck slightly under the table-bed edge so the
-            // black well cannot peek through as a crescent between cloth areas.
+            // Tuck the mouth edge under the bed and cushion ends. The shelf
+            // and well share the exact drop curve, leaving no exposed sliver.
             let shelf_bed_overlap = 1.05;
             let (shelf_top_x, shelf_top_y) = point(run_x * shelf_bed_overlap, 0.0);
             let (shelf_side_x, shelf_side_y) = point(0.0, run_y * shelf_bed_overlap);
-            let (shelf_outer_control_x, shelf_outer_control_y) =
-                point(-cushion_x * 0.16, -cushion_y * 0.16);
-            let (shelf_inner_control_x, shelf_inner_control_y) = point(run_x * 0.46, run_y * 0.46);
+            let (shelf_inner_control_x, shelf_inner_control_y) = point(run_x * 0.62, run_y * 0.62);
             let shelf_path = format!(
                 "M {shelf_top_x:.3} {shelf_top_y:.3} \
-                 Q {shelf_outer_control_x:.3} {shelf_outer_control_y:.3} {shelf_side_x:.3} {shelf_side_y:.3} \
+                 L {top_liner_end_x:.3} {top_liner_end_y:.3} \
+                 Q {drop_control_x:.3} {drop_control_y:.3} {side_liner_end_x:.3} {side_liner_end_y:.3} \
+                 L {shelf_side_x:.3} {shelf_side_y:.3} \
                  Q {shelf_inner_control_x:.3} {shelf_inner_control_y:.3} {shelf_top_x:.3} {shelf_top_y:.3} Z"
             );
             svg.push_str(&format!(
@@ -1011,24 +1024,15 @@ fn push_svg_corner_pocket(
             ));
         }
         PocketLayer::Liner => {
+            let back_curve = format!(
+                "M {top_liner_end_x:.3} {top_liner_end_y:.3} \
+                 C {top_back_control_x:.3} {top_back_control_y:.3} {side_back_control_x:.3} {side_back_control_y:.3} {side_liner_end_x:.3} {side_liner_end_y:.3}"
+            );
             svg.push_str(&format!(
                 "<path class=\"table-pocket-leather\" data-pocket=\"corner-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
             ));
             svg.push_str(&format!(
                 "<path class=\"table-pocket-leather-highlight\" d=\"{back_curve}\"/>\n"
-            ));
-        }
-        PocketLayer::Facing => {
-            let (top_facing_back_x, top_facing_back_y) =
-                point(run_x - cushion_bevel_x * 0.75, -cushion_y);
-            let (side_facing_back_x, side_facing_back_y) =
-                point(-cushion_x, run_y - cushion_bevel_y * 0.75);
-
-            svg.push_str(&format!(
-                "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{top_facing_back_x:.3}\" y1=\"{top_facing_back_y:.3}\" x2=\"{top_liner_end_x:.3}\" y2=\"{top_liner_end_y:.3}\"/>\n"
-            ));
-            svg.push_str(&format!(
-                "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{side_liner_end_x:.3}\" y1=\"{side_liner_end_y:.3}\" x2=\"{side_facing_back_x:.3}\" y2=\"{side_facing_back_y:.3}\"/>\n"
             ));
         }
     }
@@ -1040,61 +1044,128 @@ fn push_svg_side_pocket(
     center_y: f32,
     x_sign: f32,
     mouth_y: f32,
-    lip_depth_x: f32,
-    well_depth_x: f32,
     cushion_x: f32,
+    cushion_bevel_y: f32,
     layer: PocketLayer,
 ) {
-    let liner_stroke = (cushion_x * 0.78).clamp(20.0, 32.0);
-    let facing_stroke = (cushion_x * 0.32).clamp(7.0, 11.0);
-    let liner_depth_x = cushion_x + liner_stroke * 0.5;
-    let back_depth_x = (well_depth_x - liner_depth_x).max(0.0);
-
+    let px_per_inch = cushion_x / CUSHION_WIDTH_IN;
+    let drawing_scale = mouth_y / (px_per_inch * SIDE_POCKET_MOUTH_IN);
+    let liner_stroke = (cushion_x * 0.57 * SIDE_POCKET_DRAWING_LINER_SCALE).clamp(24.0, 26.0);
+    let mouth_half_y = mouth_y * 0.5;
     let point = |depth_x: f32, offset_y: f32| (rail_x + x_sign * depth_x, center_y + offset_y);
 
-    let (top_x, top_y) = point(0.0, -mouth_y * 0.5);
-    let (bottom_x, bottom_y) = point(0.0, mouth_y * 0.5);
-
-    let (upper_liner_end_x, upper_liner_end_y) = point(liner_depth_x, -mouth_y * 0.5);
-    let (lower_liner_end_x, lower_liner_end_y) = point(liner_depth_x, mouth_y * 0.5);
-
-    let (upper_nipple_x, upper_nipple_y) =
-        point(liner_depth_x + back_depth_x * 0.08, -mouth_y * 0.50);
-    let (upper_ctl_x, upper_ctl_y) = point(liner_depth_x + back_depth_x * 0.45, -mouth_y * 0.54);
-    let (upper_back_x, upper_back_y) = point(liner_depth_x + back_depth_x * 0.98, -mouth_y * 0.30);
-
-    let (back_ctl_upper_x, back_ctl_upper_y) =
-        point(liner_depth_x + back_depth_x * 1.13, -mouth_y * 0.16);
-    let (back_ctl_lower_x, back_ctl_lower_y) =
-        point(liner_depth_x + back_depth_x * 1.13, mouth_y * 0.16);
-
-    let (lower_back_x, lower_back_y) = point(liner_depth_x + back_depth_x * 0.98, mouth_y * 0.30);
-    let (lower_ctl_x, lower_ctl_y) = point(liner_depth_x + back_depth_x * 0.45, mouth_y * 0.54);
-    let (lower_nipple_x, lower_nipple_y) =
-        point(liner_depth_x + back_depth_x * 0.08, mouth_y * 0.50);
-
-    let back_curve = format!(
-        "M {upper_liner_end_x:.3} {upper_liner_end_y:.3} \
-         C {upper_nipple_x:.3} {upper_nipple_y:.3} {upper_ctl_x:.3} {upper_ctl_y:.3} {upper_back_x:.3} {upper_back_y:.3} \
-         C {back_ctl_upper_x:.3} {back_ctl_upper_y:.3} {back_ctl_lower_x:.3} {back_ctl_lower_y:.3} {lower_back_x:.3} {lower_back_y:.3} \
-         C {lower_ctl_x:.3} {lower_ctl_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {lower_liner_end_x:.3} {lower_liner_end_y:.3}"
+    let rail_top = point(0.0, -mouth_half_y);
+    let rail_bottom = point(0.0, mouth_half_y);
+    let lip_top = point(
+        px_per_inch * SIDE_POCKET_DRAWING_LIP_DEPTH_IN * drawing_scale,
+        -mouth_half_y,
     );
-
+    let lip_bottom = point(
+        px_per_inch * SIDE_POCKET_DRAWING_LIP_DEPTH_IN * drawing_scale,
+        mouth_half_y,
+    );
+    // Keep the installed leather profile rounded like the reference/before
+    // silhouette. The 8-degree cut controls only the tangent leaving each
+    // mouth lip; the remaining controls form the broad, symmetric rear bowl.
+    let first_control_depth_in = SIDE_POCKET_DRAWING_LIP_DEPTH_IN
+        + SIDE_POCKET_DRAWING_FIRST_CONTROL_RUN_IN * SIDE_POCKET_CUT_ANGLE_DEG.to_radians().tan();
+    let first_control_run_y =
+        cushion_bevel_y * SIDE_POCKET_DRAWING_FIRST_CONTROL_RUN_IN * drawing_scale;
+    let first_control = point(
+        px_per_inch * first_control_depth_in * drawing_scale,
+        -mouth_half_y + first_control_run_y,
+    );
+    let second_control = point(
+        px_per_inch * SIDE_POCKET_DRAWING_SECOND_CONTROL_DEPTH_IN * drawing_scale,
+        -mouth_half_y - px_per_inch * SIDE_POCKET_DRAWING_TUCK_OFFSET_IN * drawing_scale,
+    );
+    let outer_top = point(
+        px_per_inch * SIDE_POCKET_DRAWING_OUTER_ENDPOINT_DEPTH_IN * drawing_scale,
+        -mouth_half_y + cushion_bevel_y * drawing_scale,
+    );
+    let outer_first_control = point(
+        px_per_inch * SIDE_POCKET_DRAWING_OUTER_MID_DEPTH_IN * drawing_scale,
+        -mouth_half_y + px_per_inch * SIDE_POCKET_DRAWING_SHOULDER_OFFSET_IN * drawing_scale,
+    );
+    let outer_second_control = point(
+        px_per_inch * SIDE_POCKET_DRAWING_OUTER_MID_DEPTH_IN * drawing_scale,
+        mouth_half_y - px_per_inch * SIDE_POCKET_DRAWING_SHOULDER_OFFSET_IN * drawing_scale,
+    );
+    let outer_bottom = point(
+        px_per_inch * SIDE_POCKET_DRAWING_OUTER_ENDPOINT_DEPTH_IN * drawing_scale,
+        mouth_half_y - cushion_bevel_y * drawing_scale,
+    );
+    let third_control = point(
+        px_per_inch * SIDE_POCKET_DRAWING_SECOND_CONTROL_DEPTH_IN * drawing_scale,
+        mouth_half_y + px_per_inch * SIDE_POCKET_DRAWING_TUCK_OFFSET_IN * drawing_scale,
+    );
+    let fourth_control = point(
+        px_per_inch * first_control_depth_in * drawing_scale,
+        mouth_half_y - first_control_run_y,
+    );
+    let liner_curve = format!(
+        "C {:.3} {:.3} {:.3} {:.3} {:.3} {:.3} C {:.3} {:.3} {:.3} {:.3} {:.3} {:.3} C {:.3} {:.3} {:.3} {:.3} {:.3} {:.3}",
+        first_control.0,
+        first_control.1,
+        second_control.0,
+        second_control.1,
+        outer_top.0,
+        outer_top.1,
+        outer_first_control.0,
+        outer_first_control.1,
+        outer_second_control.0,
+        outer_second_control.1,
+        outer_bottom.0,
+        outer_bottom.1,
+        third_control.0,
+        third_control.1,
+        fourth_control.0,
+        fourth_control.1,
+        lip_bottom.0,
+        lip_bottom.1,
+    );
+    let shelf_control = point(
+        px_per_inch
+            * SIDE_POCKET_DRAWING_SHELF_SAGITTA_IN
+            * drawing_scale
+            * SIDE_POCKET_DRAWING_SHELF_SAGITTA_SCALE,
+        0.0,
+    );
+    let shelf_inner_control = point(
+        -px_per_inch
+            * SIDE_POCKET_DRAWING_SHELF_INNER_SAGITTA_IN
+            * drawing_scale
+            * SIDE_POCKET_DRAWING_SHELF_SAGITTA_SCALE,
+        0.0,
+    );
+    let shelf_path = format!(
+        "M {:.3} {:.3} Q {:.3} {:.3} {:.3} {:.3} Q {:.3} {:.3} {:.3} {:.3} Z",
+        rail_top.0,
+        rail_top.1,
+        shelf_control.0,
+        shelf_control.1,
+        rail_bottom.0,
+        rail_bottom.1,
+        shelf_inner_control.0,
+        shelf_inner_control.1,
+        rail_top.0,
+        rail_top.1,
+    );
     match layer {
         PocketLayer::Well => {
             svg.push_str(&format!(
-                "<path class=\"table-pocket-well\" data-pocket=\"side\" d=\"M {top_x:.3} {top_y:.3} L {upper_liner_end_x:.3} {upper_liner_end_y:.3} C {upper_nipple_x:.3} {upper_nipple_y:.3} {upper_ctl_x:.3} {upper_ctl_y:.3} {upper_back_x:.3} {upper_back_y:.3} C {back_ctl_upper_x:.3} {back_ctl_upper_y:.3} {back_ctl_lower_x:.3} {back_ctl_lower_y:.3} {lower_back_x:.3} {lower_back_y:.3} C {lower_ctl_x:.3} {lower_ctl_y:.3} {lower_nipple_x:.3} {lower_nipple_y:.3} {lower_liner_end_x:.3} {lower_liner_end_y:.3} L {bottom_x:.3} {bottom_y:.3} Z\"/>\n"
+                "<path class=\"table-pocket-well\" data-pocket=\"side\" d=\"M {rail_top_x:.3} {rail_top_y:.3} L {lip_top_x:.3} {lip_top_y:.3} {liner_curve} L {rail_bottom_x:.3} {rail_bottom_y:.3} Q {shelf_control_x:.3} {shelf_control_y:.3} {rail_top_x:.3} {rail_top_y:.3} Z\"/>\n",
+                rail_top_x = rail_top.0,
+                rail_top_y = rail_top.1,
+                lip_top_x = lip_top.0,
+                lip_top_y = lip_top.1,
+                rail_bottom_x = rail_bottom.0,
+                rail_bottom_y = rail_bottom.1,
+                shelf_control_x = shelf_control.0,
+                shelf_control_y = shelf_control.1,
             ));
         }
         PocketLayer::Shelf => {
-            let (shelf_outer_control_x, shelf_outer_control_y) = point(lip_depth_x * 0.20, 0.0);
-            let (shelf_inner_control_x, shelf_inner_control_y) =
-                point(-(liner_stroke * 0.24).max(lip_depth_x * 0.20), 0.0);
-            let shelf_path = format!(
-                "M {top_x:.3} {top_y:.3} \
-                 Q {shelf_outer_control_x:.3} {shelf_outer_control_y:.3} {bottom_x:.3} {bottom_y:.3} \
-                 Q {shelf_inner_control_x:.3} {shelf_inner_control_y:.3} {top_x:.3} {top_y:.3} Z"
-            );
             svg.push_str(&format!(
                 "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" d=\"{shelf_path}\"/>\n"
             ));
@@ -1103,22 +1174,12 @@ fn push_svg_side_pocket(
             ));
         }
         PocketLayer::Liner => {
+            let liner_path = format!("M {:.3} {:.3} {liner_curve}", lip_top.0, lip_top.1);
             svg.push_str(&format!(
-                "<path class=\"table-pocket-leather\" data-pocket=\"side-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{back_curve}\"/>\n"
+                "<path class=\"table-pocket-leather\" data-pocket=\"side-liner\" stroke-width=\"{liner_stroke:.3}\" d=\"{liner_path}\"/>\n"
             ));
             svg.push_str(&format!(
-                "<path class=\"table-pocket-leather-highlight\" d=\"{back_curve}\"/>\n"
-            ));
-        }
-        PocketLayer::Facing => {
-            let (upper_facing_x, upper_facing_y) = point(cushion_x, -mouth_y * 0.34);
-            let (lower_facing_x, lower_facing_y) = point(cushion_x, mouth_y * 0.34);
-
-            svg.push_str(&format!(
-                "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{upper_liner_end_x:.3}\" y1=\"{upper_liner_end_y:.3}\" x2=\"{upper_facing_x:.3}\" y2=\"{upper_facing_y:.3}\"/>\n"
-            ));
-            svg.push_str(&format!(
-                "<line class=\"table-pocket-facing\" style=\"stroke-width:{facing_stroke:.3}\" x1=\"{lower_liner_end_x:.3}\" y1=\"{lower_liner_end_y:.3}\" x2=\"{lower_facing_x:.3}\" y2=\"{lower_facing_y:.3}\"/>\n"
+                "<path class=\"table-pocket-leather-highlight\" d=\"{liner_path}\"/>\n"
             ));
         }
     }

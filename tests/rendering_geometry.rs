@@ -76,6 +76,85 @@ fn svg_attr_f32(element: &str, attr: &str) -> f32 {
         .unwrap_or_else(|error| panic!("invalid SVG attribute {attr} in {element}: {error}"))
 }
 
+fn svg_element<'a>(svg: &'a str, marker: &str, index: usize) -> &'a str {
+    svg.lines()
+        .filter(|line| line.contains(marker))
+        .nth(index)
+        .unwrap_or_else(|| panic!("missing SVG element {index} matching {marker}"))
+}
+
+fn svg_path_numbers(element: &str) -> Vec<f32> {
+    let prefix = "d=\"";
+    let start = element
+        .find(prefix)
+        .unwrap_or_else(|| panic!("missing SVG path data in {element}"))
+        + prefix.len();
+    let end = element[start..]
+        .find('"')
+        .unwrap_or_else(|| panic!("unterminated SVG path data in {element}"))
+        + start;
+
+    element[start..end]
+        .split(|ch: char| ch.is_ascii_alphabetic() || ch == ',' || ch.is_whitespace())
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            part.parse()
+                .unwrap_or_else(|error| panic!("invalid SVG path number {part}: {error}"))
+        })
+        .collect()
+}
+
+fn quadratic_midpoint(start: (f32, f32), control: (f32, f32), end: (f32, f32)) -> (f32, f32) {
+    (
+        0.25 * start.0 + 0.5 * control.0 + 0.25 * end.0,
+        0.25 * start.1 + 0.5 * control.1 + 0.25 * end.1,
+    )
+}
+
+fn cubic_midpoint(
+    start: (f32, f32),
+    control_1: (f32, f32),
+    control_2: (f32, f32),
+    end: (f32, f32),
+) -> (f32, f32) {
+    (
+        0.125 * start.0 + 0.375 * control_1.0 + 0.375 * control_2.0 + 0.125 * end.0,
+        0.125 * start.1 + 0.375 * control_1.1 + 0.375 * control_2.1 + 0.125 * end.1,
+    )
+}
+
+fn cubic_radius_at_midpoint(
+    start: (f32, f32),
+    control_1: (f32, f32),
+    control_2: (f32, f32),
+    end: (f32, f32),
+) -> f32 {
+    let velocity = (
+        3.0 * (0.25 * (control_1.0 - start.0)
+            + 0.5 * (control_2.0 - control_1.0)
+            + 0.25 * (end.0 - control_2.0)),
+        3.0 * (0.25 * (control_1.1 - start.1)
+            + 0.5 * (control_2.1 - control_1.1)
+            + 0.25 * (end.1 - control_2.1)),
+    );
+    let acceleration = (
+        6.0 * (0.5 * (control_2.0 - 2.0 * control_1.0 + start.0)
+            + 0.5 * (end.0 - 2.0 * control_2.0 + control_1.0)),
+        6.0 * (0.5 * (control_2.1 - 2.0 * control_1.1 + start.1)
+            + 0.5 * (end.1 - 2.0 * control_2.1 + control_1.1)),
+    );
+    let speed_squared = velocity.0 * velocity.0 + velocity.1 * velocity.1;
+    let cross = (velocity.0 * acceleration.1 - velocity.1 * acceleration.0).abs();
+    speed_squared.powf(1.5) / cross
+}
+
+fn assert_point_close(actual: (f32, f32), expected: (f32, f32)) {
+    assert!(
+        (actual.0 - expected.0).abs() < 0.002 && (actual.1 - expected.1).abs() < 0.002,
+        "point {actual:?} != {expected:?}"
+    );
+}
+
 fn cue_ball_at(x: &str, y: &str) -> GameState {
     GameState::with_balls(
         TableSpec::default(),
@@ -426,7 +505,8 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
         svg.matches("class=\"table-pocket-shelf-shadow\"").count(),
         0
     );
-    assert_eq!(svg.matches("class=\"table-pocket-facing\"").count(), 12);
+    assert_eq!(svg.matches("class=\"table-pocket-facing\"").count(), 0);
+    assert_eq!(svg.matches(".table-pocket-facing").count(), 0);
     assert_eq!(svg.matches("data-pocket=\"corner-liner\"").count(), 4);
     assert_eq!(svg.matches("data-pocket=\"side-liner\"").count(), 2);
     let first_cushion = svg
@@ -435,11 +515,7 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     let first_shelf = svg
         .find("<path class=\"table-pocket-shelf\"")
         .expect("pocket shelf should render");
-    let first_facing = svg
-        .find("<line class=\"table-pocket-facing\"")
-        .expect("pocket facing should render");
     assert!(first_cushion < first_shelf);
-    assert!(first_shelf < first_facing);
     assert!(!svg.contains("stroke-width:0"));
     assert!(svg.contains("id=\"tournament-blue-cloth\" gradientUnits=\"userSpaceOnUse\""));
     assert!(svg.contains("id=\"rosewood-grain\""));
@@ -453,6 +529,150 @@ fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
     );
     assert!(svg.contains("class=\"table-cloth-texture\""));
     assert!(svg.contains("class=\"table-cushion-nose\""));
+    assert!(!svg.contains("<rect class=\"table-rail-inner-shadow\""));
+}
+
+#[test]
+fn svg_pool_pocket_shelves_are_depth_calibrated_and_share_drop_edges() {
+    let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
+    let cloth = svg_element(&svg, "<rect class=\"table-cloth\"", 0);
+    let x_px_per_inch = svg_attr_f32(cloth, "width") / 50.0;
+    let y_px_per_inch = svg_attr_f32(cloth, "height") / 100.0;
+
+    let corner_well = svg_path_numbers(svg_element(
+        &svg,
+        "class=\"table-pocket-well\" data-pocket=\"corner\"",
+        0,
+    ));
+    let corner_shelf = svg_path_numbers(svg_element(
+        &svg,
+        "class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\"",
+        0,
+    ));
+    let corner_drop_start = (corner_well[0], corner_well[1]);
+    let corner_drop_end = (corner_well[6], corner_well[7]);
+    let corner_drop_control = (corner_well[8], corner_well[9]);
+    assert_point_close(corner_drop_start, (corner_shelf[2], corner_shelf[3]));
+    assert_point_close(corner_drop_control, (corner_shelf[4], corner_shelf[5]));
+    assert_point_close(corner_drop_end, (corner_shelf[6], corner_shelf[7]));
+
+    let top_cushion_nose = svg_element(&svg, "<line class=\"table-cushion-nose\"", 0);
+    let corner = (svg_attr_f32(cloth, "x"), svg_attr_f32(cloth, "y"));
+    let corner_back_mid = cubic_midpoint(
+        corner_drop_start,
+        (corner_well[2], corner_well[3]),
+        (corner_well[4], corner_well[5]),
+        corner_drop_end,
+    );
+    let corner_back_setback_x_in = (corner.0 - corner_back_mid.0) / x_px_per_inch;
+    let corner_back_setback_y_in = (corner.1 - corner_back_mid.1) / y_px_per_inch;
+    assert!(
+        (corner_back_setback_x_in - 3.0).abs() < 0.002
+            && (corner_back_setback_y_in - 3.0).abs() < 0.002,
+        "corner liner midpoint setbacks were {corner_back_setback_x_in} x {corner_back_setback_y_in} in"
+    );
+    let corner_back_radius_in = cubic_radius_at_midpoint(
+        corner_drop_start,
+        (corner_well[2], corner_well[3]),
+        (corner_well[4], corner_well[5]),
+        corner_drop_end,
+    ) / ((x_px_per_inch + y_px_per_inch) * 0.5);
+    assert!(
+        (2.0..=2.3).contains(&corner_back_radius_in),
+        "corner liner rear radius was {corner_back_radius_in} in"
+    );
+    let mouth_top = (
+        svg_attr_f32(top_cushion_nose, "x1"),
+        svg_attr_f32(top_cushion_nose, "y1"),
+    );
+    let corner_drop_mid =
+        quadratic_midpoint(corner_drop_start, corner_drop_control, corner_drop_end);
+    let mouth_line_in =
+        (mouth_top.0 - corner.0) / x_px_per_inch + (mouth_top.1 - corner.1) / y_px_per_inch;
+    let drop_line_in = (corner_drop_mid.0 - corner.0) / x_px_per_inch
+        + (corner_drop_mid.1 - corner.1) / y_px_per_inch;
+    let corner_shelf_depth_in = (mouth_line_in - drop_line_in) / 2.0_f32.sqrt();
+    assert!(
+        (corner_shelf_depth_in - 1.75).abs() < 0.002,
+        "corner shelf depth was {corner_shelf_depth_in} in"
+    );
+
+    let side_well = svg_path_numbers(svg_element(
+        &svg,
+        "class=\"table-pocket-well\" data-pocket=\"side\"",
+        0,
+    ));
+    let side_shelf = svg_path_numbers(svg_element(
+        &svg,
+        "class=\"table-pocket-shelf\" data-pocket=\"side-shelf\"",
+        0,
+    ));
+    let side_drop_start = (side_well[0], side_well[1]);
+    let side_drop_end = (side_well[22], side_well[23]);
+    let side_drop_control = (side_well[24], side_well[25]);
+    assert_point_close(side_drop_start, (side_shelf[0], side_shelf[1]));
+    assert_point_close(side_drop_control, (side_shelf[2], side_shelf[3]));
+    assert_point_close(side_drop_end, (side_shelf[4], side_shelf[5]));
+    assert_point_close(
+        (side_well[26], side_well[27]),
+        (side_shelf[8], side_shelf[9]),
+    );
+
+    let side_liner = svg_path_numbers(svg_element(
+        &svg,
+        "class=\"table-pocket-leather\" data-pocket=\"side-liner\"",
+        0,
+    ));
+    let side_mouth_x = side_liner[0];
+    // The output rotates raw x/y clockwise, so the depth-over-bed-run
+    // tangent leaving the lip is the visible top-view cut angle.
+    let side_cut_angle_deg = (side_liner[2] - side_liner[0])
+        .abs()
+        .atan2((side_liner[3] - side_liner[1]).abs())
+        .to_degrees();
+    assert!(
+        (side_cut_angle_deg - 8.0).abs() < 0.25,
+        "side pocket cut tangent was {side_cut_angle_deg} degrees"
+    );
+    let side_mouth_width_in = (side_well[23] - side_well[1]).abs() / y_px_per_inch;
+    assert!(
+        (side_mouth_width_in - 5.0).abs() < 0.002,
+        "side pocket opening was {side_mouth_width_in} in"
+    );
+
+    let side_rear_x = side_liner
+        .iter()
+        .step_by(2)
+        .copied()
+        .fold(f32::INFINITY, f32::min);
+    let side_rear_depth_in = (side_mouth_x - side_rear_x) / x_px_per_inch;
+    assert!(
+        (2.6..=2.8).contains(&side_rear_depth_in),
+        "side liner rear depth was {side_rear_depth_in} in"
+    );
+    let side_rear_radius_in = cubic_radius_at_midpoint(
+        (side_liner[6], side_liner[7]),
+        (side_liner[8], side_liner[9]),
+        (side_liner[10], side_liner[11]),
+        (side_liner[12], side_liner[13]),
+    ) / x_px_per_inch;
+    assert!(
+        (5.0..=6.2).contains(&side_rear_radius_in),
+        "side liner rear radius was {side_rear_radius_in} in"
+    );
+
+    let side_shelf_sagitta_in = (side_drop_start.0 - side_drop_control.0).abs() / x_px_per_inch;
+    assert!(
+        (side_shelf_sagitta_in - 0.128).abs() < 0.002,
+        "side shelf sagitta was {side_shelf_sagitta_in} in"
+    );
+    let side_chord_in = (side_drop_end.1 - side_drop_start.1).abs() / y_px_per_inch;
+    let side_shelf_radius_in =
+        side_chord_in * side_chord_in / (8.0 * side_shelf_sagitta_in) + side_shelf_sagitta_in * 0.5;
+    assert!(
+        side_shelf_radius_in > 20.0,
+        "side shelf radius was {side_shelf_radius_in} in"
+    );
 }
 
 #[test]
@@ -491,7 +711,7 @@ fn svg_three_cushion_table_is_pocketless_with_carom_sights_and_balls() {
 }
 
 #[test]
-fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
+fn svg_table_uses_installed_leather_rims_and_cloth_shelves() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 
     assert!(svg.contains("<path class=\"table-pocket-well\" data-pocket=\"corner\""));
@@ -502,13 +722,20 @@ fn svg_table_uses_shaped_leather_pocket_wells_and_pronounced_facing_noses() {
     assert!(!svg.contains("<path class=\"table-pocket-mouth-shadow\""));
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\""));
     assert!(svg.contains("<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\""));
-    assert!(svg.contains(
-        "<path class=\"table-pocket-shelf\" data-pocket=\"corner-shelf\" d=\"M 167.333 110.000 Q "
-    ));
-    assert!(svg.contains("110.000 167.400 Q 135.117 135.147 167.333 110.000 Z"));
-    assert!(svg.contains(
-        "<path class=\"table-pocket-shelf\" data-pocket=\"side-shelf\" d=\"M 110.000 926.050 Q 104.509 969.000 110.000 1011.950 Q 116.103 969.000 110.000 926.050 Z"
-    ));
+    assert!(!svg.contains("table-pocket-facing"));
+    assert!(!svg.contains(".table-pocket-facing"));
+    let corner_liner = svg_element(&svg, "data-pocket=\"corner-liner\"", 0);
+    let side_liner = svg_element(&svg, "data-pocket=\"side-liner\"", 0);
+    let corner_width = svg_attr_f32(corner_liner, "stroke-width");
+    assert!(
+        (18.0..=19.5).contains(&corner_width),
+        "corner top-plane rim was {corner_width}px wide"
+    );
+    let side_width = svg_attr_f32(side_liner, "stroke-width");
+    assert!(
+        (24.0..=26.0).contains(&side_width),
+        "side top-plane rim was {side_width}px wide"
+    );
     assert!(!svg.contains("<path class=\"table-pocket-shelf-shadow\""));
     assert!(!svg.contains("<circle class=\"table-pocket\""));
 }

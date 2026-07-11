@@ -5899,9 +5899,11 @@ fn raw_phase_has_curved_rolling(
     radius: f64,
     config: &OnTableMotionConfig,
 ) -> bool {
+    let linear_deceleration = rolling_linear_deceleration(config);
     phase == MotionPhase::Rolling
         && rolling_side_spin_curve_interval(state.speed(), state.wz, horizon, config).is_some()
-        && rolling_side_spin_turn_coefficient(radius, config).abs() > f64::EPSILON
+        && (rolling_side_spin_turn_coefficient(radius, config) / linear_deceleration).abs()
+            > f64::EPSILON
 }
 
 fn raw_phase_planar_speed_upper_bound(
@@ -7847,6 +7849,17 @@ fn pocket_entry_axis(pocket: Pocket) -> (f64, f64) {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+struct PocketCaptureEnvelope {
+    entry_axis: [f64; 2],
+    tangent_axis: [f64; 2],
+    min_longitudinal: f64,
+    max_longitudinal: f64,
+    min_lateral: f64,
+    max_lateral: f64,
+    max_entry_angle_degrees: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct PreparedPocketCaptureGeometry {
     pocket: Pocket,
     center_x: f64,
@@ -7860,6 +7873,7 @@ struct PreparedPocketCaptureGeometry {
     back_projection: f64,
     slow_max_entry_angle_degrees: f64,
     fast_max_entry_angle_degrees: f64,
+    envelope: PocketCaptureEnvelope,
     slow_target: PreparedSlowPocketTarget,
     fast_target: FastPocketTargetGeometry,
 }
@@ -7944,6 +7958,18 @@ impl PreparedPocketCaptureQuery {
                     CORNER_POCKET_FAST_MAX_ENTRY_ANGLE_DEGREES,
                 ),
             };
+            let envelope = PocketCaptureEnvelope {
+                entry_axis: [entry_x, entry_y],
+                tangent_axis: [tangent_x, tangent_y],
+                min_longitudinal: mouth_projection_minus_ball_radius,
+                max_longitudinal: back_projection,
+                // The target equations are deliberately not approximated. Until a finite
+                // algebraic enclosure is proven, lateral pruning remains disabled.
+                min_lateral: f64::NEG_INFINITY,
+                max_lateral: f64::INFINITY,
+                max_entry_angle_degrees: slow_max_entry_angle_degrees
+                    .max(fast_max_entry_angle_degrees),
+            };
 
             PreparedPocketCaptureGeometry {
                 pocket,
@@ -7958,6 +7984,7 @@ impl PreparedPocketCaptureQuery {
                 back_projection,
                 slow_max_entry_angle_degrees,
                 fast_max_entry_angle_degrees,
+                envelope,
                 slow_target,
                 fast_target,
             }
@@ -9392,6 +9419,435 @@ mod pocket_mouth_tests {
                 .to_bits()
         );
     }
+
+    fn assert_adaptive_scan_matches_legacy(
+        query: &PreparedPocketCaptureQuery,
+        state: RawOnTableBallState,
+        phase: MotionPhase,
+        pocket: Pocket,
+        horizon: f64,
+        motion: &OnTableMotionConfig,
+    ) -> CaptureSearchStats {
+        let pocket_index = PreparedPocketCaptureQuery::pocket_index(pocket);
+        let legacy = legacy_scan_ball_pocket_capture_time_during_current_phase_raw(
+            query,
+            state,
+            phase.clone(),
+            pocket_index,
+            horizon,
+            motion,
+        );
+        let (adaptive, stats) =
+            adaptive_scan_ball_pocket_capture_time_during_current_phase_raw_with_stats(
+                query,
+                state,
+                phase,
+                pocket_index,
+                horizon,
+                motion,
+            );
+        assert_eq!(adaptive, legacy);
+        stats
+    }
+
+    #[test]
+    fn adaptive_capture_search_matches_the_legacy_grid_on_a_deterministic_lattice() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let query = PreparedPocketCaptureQuery::new(&table, radius);
+        let motion = motion_config_with_sliding_acceleration(5.0);
+        let mut total_legacy_leaf_cells = 0_u64;
+        let mut total_exact_gap_evaluations = 0_u64;
+        let mut comparisons = 0_u64;
+
+        for pocket in Pocket::ALL {
+            let (entry_x, entry_y) = pocket_entry_axis(pocket);
+            for speed in [0.1_f64, 5.0, 60.0, 80.0, 200.0] {
+                let horizon = (speed / 5.0).min(2.0);
+                for angle in [-60.0, -45.0, -30.0, 0.0, 30.0, 45.0, 60.0] {
+                    for lateral_offset in [-2.0, -0.5, 0.0, 0.5, 2.0] {
+                        let mut state = raw_state_on_pocket_mouth_with_local_offset(
+                            pocket,
+                            angle,
+                            lateral_offset,
+                            speed,
+                            radius,
+                            &table,
+                        );
+                        state.x -= 5.0 * entry_x;
+                        state.y -= 5.0 * entry_y;
+                        let stats = assert_adaptive_scan_matches_legacy(
+                            &query,
+                            state,
+                            MotionPhase::Rolling,
+                            pocket,
+                            horizon,
+                            &motion,
+                        );
+                        total_legacy_leaf_cells += u64::from(stats.legacy_leaf_cells);
+                        total_exact_gap_evaluations += u64::from(stats.exact_gap_evaluations);
+                        comparisons += 1;
+                    }
+                }
+            }
+        }
+
+        assert_eq!(comparisons, 1_050);
+        assert!(
+            total_legacy_leaf_cells < comparisons * POCKET_CAPTURE_SCAN_STEPS as u64,
+            "the deterministic lattice should prove at least one legacy cell empty"
+        );
+        assert!(
+            total_exact_gap_evaluations < comparisons * (POCKET_CAPTURE_SCAN_STEPS as u64 + 1),
+            "the deterministic lattice should avoid at least one exact gap evaluation"
+        );
+    }
+
+    #[test]
+    fn adaptive_capture_search_prunes_far_and_angle_gate_misses() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let query = PreparedPocketCaptureQuery::new(&table, radius);
+        let motion = motion_config_with_sliding_acceleration(5.0);
+        let pocket = Pocket::CenterRight;
+        let (entry_x, entry_y) = pocket_entry_axis(pocket);
+
+        let mut far_miss =
+            raw_state_on_pocket_mouth_with_local_offset(pocket, 0.0, 0.0, 5.0, radius, &table);
+        far_miss.x -= 20.0 * entry_x;
+        far_miss.y -= 20.0 * entry_y;
+        far_miss.vx = -5.0 * entry_x;
+        far_miss.vy = -5.0 * entry_y;
+        far_miss.wx = -far_miss.vy / radius;
+        far_miss.wy = far_miss.vx / radius;
+        let far_stats = assert_adaptive_scan_matches_legacy(
+            &query,
+            far_miss,
+            MotionPhase::Rolling,
+            pocket,
+            1.0,
+            &motion,
+        );
+        assert_eq!(far_stats.pockets_broad_phase_rejected, 1);
+        assert_eq!(far_stats.exact_gap_evaluations, 1);
+        assert_eq!(far_stats.legacy_leaf_cells, 0);
+
+        let mut gate_miss =
+            raw_state_on_pocket_mouth_with_local_offset(pocket, 60.0, 0.0, 80.0, radius, &table);
+        gate_miss.x -= 10.0 * entry_x;
+        gate_miss.y -= 10.0 * entry_y;
+        let gate_stats = assert_adaptive_scan_matches_legacy(
+            &query,
+            gate_miss,
+            MotionPhase::Rolling,
+            pocket,
+            2.0,
+            &motion,
+        );
+        assert!(
+            gate_stats.exact_gap_evaluations <= 64,
+            "angle proof should remove at least 80% of exact lattice evaluations; {gate_stats:?}"
+        );
+        assert!(
+            gate_stats.legacy_leaf_cells <= 64,
+            "angle proof should prune at least 80% of gate-miss cells; {gate_stats:?}"
+        );
+    }
+
+    #[test]
+    fn adaptive_capture_search_matches_curved_and_grid_boundary_cases() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let query = PreparedPocketCaptureQuery::new(&table, radius);
+        let motion = motion_config_with_sliding_acceleration(5.0);
+        let pocket = Pocket::CenterRight;
+        let (entry_x, entry_y) = pocket_entry_axis(pocket);
+        let mut curved =
+            raw_state_on_pocket_mouth_with_local_offset(pocket, 15.0, 0.25, 20.0, radius, &table);
+        curved.x -= 4.0 * entry_x;
+        curved.y -= 4.0 * entry_y;
+        curved.wz = 8.0;
+
+        for horizon in [0.5, next_down_f64(0.5), next_up_f64(0.5)] {
+            assert_adaptive_scan_matches_legacy(
+                &query,
+                curved,
+                MotionPhase::Rolling,
+                pocket,
+                horizon,
+                &motion,
+            );
+        }
+
+        let mut seed = 0x5eed_cafe_u64;
+        for _ in 0..128 {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let unit = (seed >> 11) as f64 / ((1_u64 << 53) as f64);
+            let speed = 0.1 + 79.9 * unit;
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let angle = -60.0 + 120.0 * ((seed >> 11) as f64 / ((1_u64 << 53) as f64));
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let offset = -2.5 + 5.0 * ((seed >> 11) as f64 / ((1_u64 << 53) as f64));
+            let mut state = raw_state_on_pocket_mouth_with_local_offset(
+                pocket, angle, offset, speed, radius, &table,
+            );
+            state.x -= 5.0 * entry_x;
+            state.y -= 5.0 * entry_y;
+            assert_adaptive_scan_matches_legacy(
+                &query,
+                state,
+                MotionPhase::Rolling,
+                pocket,
+                (speed / 5.0).min(1.0),
+                &motion,
+            );
+        }
+    }
+
+    #[test]
+    fn adaptive_capture_search_preserves_a_proven_fallback_bracket() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let query = PreparedPocketCaptureQuery::new(&table, radius);
+        let motion = motion_config_with_sliding_acceleration(5.0);
+        let pocket = Pocket::CenterRight;
+        let pocket_index = PreparedPocketCaptureQuery::pocket_index(pocket);
+        let (entry_x, entry_y) = pocket_entry_axis(pocket);
+        let tangent_x = -entry_y;
+        let tangent_y = entry_x;
+        let angle = -45.0_f64.to_radians();
+        let direction_x = angle.cos() * entry_x + angle.sin() * tangent_x;
+        let direction_y = angle.cos() * entry_y + angle.sin() * tangent_y;
+        let mut state =
+            raw_state_on_pocket_mouth_with_local_offset(pocket, -45.0, 1.5, 5.0, radius, &table);
+        state.x -= 0.1 * direction_x;
+        state.y -= 0.1 * direction_y;
+        let horizon = 1.0;
+        let capture_tolerance = 1e-9;
+        let mut analytic_candidates = [
+            query.first_radial_entry_time(
+                state,
+                MotionPhase::Rolling,
+                pocket_index,
+                horizon,
+                &motion,
+            ),
+            query.first_mouth_plane_crossing_time(
+                state,
+                MotionPhase::Rolling,
+                pocket_index,
+                horizon,
+                &motion,
+            ),
+            query.first_back_plane_crossing_time(
+                state,
+                MotionPhase::Rolling,
+                pocket_index,
+                horizon,
+                &motion,
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|time| *time > f64::EPSILON)
+        .collect::<Vec<_>>();
+        analytic_candidates.sort_by(|left, right| {
+            left.partial_cmp(right)
+                .expect("finite candidates should sort")
+        });
+        assert!(
+            !analytic_candidates.into_iter().any(|time| {
+                query.capture_gap_during_current_phase(
+                    state,
+                    MotionPhase::Rolling,
+                    pocket_index,
+                    time,
+                    &motion,
+                ) <= capture_tolerance
+            }),
+            "the fixture must reach fallback rather than validate an analytic candidate"
+        );
+
+        let legacy = legacy_scan_ball_pocket_capture_time_during_current_phase_raw(
+            &query,
+            state,
+            MotionPhase::Rolling,
+            pocket_index,
+            horizon,
+            &motion,
+        )
+        .expect("legacy scan should bracket the fallback capture");
+        let (adaptive, stats) =
+            adaptive_scan_ball_pocket_capture_time_during_current_phase_raw_with_stats(
+                &query,
+                state,
+                MotionPhase::Rolling,
+                pocket_index,
+                horizon,
+                &motion,
+            );
+        let public = compute_next_ball_pocket_capture_on_table(
+            &state.into_on_table_state(),
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion,
+        );
+        let expected_state = raw_advance_within_phase_on_table(
+            state,
+            MotionPhase::Rolling,
+            legacy.as_f64(),
+            radius,
+            &motion,
+        )
+        .into_on_table_state();
+        assert_eq!(
+            public,
+            Some(PredictedBallPocketCapture {
+                pocket,
+                time_until_capture: legacy,
+                state_at_capture: expected_state,
+            })
+        );
+
+        assert_eq!(legacy.as_f64().to_bits(), 0x3fc1_7510_78cb_a8f3);
+        assert_eq!(adaptive, Some(legacy));
+        assert_eq!(stats.pockets_broad_phase_rejected, 0);
+        assert!(stats.legacy_leaf_cells > 0);
+        assert!(
+            stats.exact_gap_evaluations < POCKET_CAPTURE_SCAN_STEPS as u32 + 1,
+            "fallback search should preserve the bracket while pruning work; {stats:?}"
+        );
+    }
+
+    #[test]
+    fn adaptive_capture_search_bounds_tiny_nonzero_sliding_quadratics() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let query = PreparedPocketCaptureQuery::new(&table, radius);
+        let motion = motion_config_with_sliding_acceleration(2e-16);
+        let pocket_index = PreparedPocketCaptureQuery::pocket_index(Pocket::CenterRight);
+        let geometry = query.pockets[pocket_index];
+        let horizon = 2e8;
+        let vx = -2e-8;
+        let cloth_contact_vx = -1.4e-7;
+        let state = RawOnTableBallState {
+            x: geometry.back_projection + 0.75,
+            y: geometry.center_y,
+            vx,
+            vy: 0.0,
+            wx: 0.0,
+            wy: (vx - cloth_contact_vx) / radius,
+            wz: 0.0,
+        };
+
+        let legacy = legacy_scan_ball_pocket_capture_time_during_current_phase_raw(
+            &query,
+            state,
+            MotionPhase::Sliding,
+            pocket_index,
+            horizon,
+            &motion,
+        );
+        let adaptive = scan_ball_pocket_capture_time_during_current_phase_raw(
+            &query,
+            state,
+            MotionPhase::Sliding,
+            pocket_index,
+            horizon,
+            &motion,
+        );
+
+        assert!(
+            legacy.is_some(),
+            "the tiny acceleration reverses the ball into the pocket between equal endpoint positions"
+        );
+        assert_eq!(adaptive, legacy);
+    }
+
+    #[test]
+    fn adaptive_capture_search_uses_the_integrators_curvature_predicate() {
+        let table = TableSpec::default();
+        let radius = BallSetPhysicsSpec::default().radius.as_f64();
+        let query = PreparedPocketCaptureQuery::new(&table, radius);
+        let rolling_deceleration = 9.5e-14;
+        let motion = MotionTransitionConfig {
+            phase: MotionPhaseConfig::default(),
+            sliding_friction: SlidingFrictionModel::ConstantAcceleration {
+                acceleration_magnitude: InchesPerSecondSq::new(Inches::from_f64(5.0)),
+            },
+            spin_decay: SpinDecayModel::ConstantAngularDeceleration {
+                angular_deceleration: RadiansPerSecondSq::new(2.0),
+            },
+            rolling_resistance: RollingResistanceModel::ConstantDeceleration {
+                linear_deceleration: InchesPerSecondSq::new(Inches::from_f64(rolling_deceleration)),
+            },
+        };
+        let speed = 1.0;
+        let angle = 51.0_f64.to_radians();
+        let horizon = speed / rolling_deceleration;
+        let vx = speed * angle.cos();
+        let vy = speed * angle.sin();
+        let zero_origin = RawOnTableBallState {
+            x: 0.0,
+            y: 0.0,
+            vx,
+            vy,
+            wx: -vy / radius,
+            wy: vx / radius,
+            wz: 2.0 * horizon,
+        };
+        let turn_coefficient = rolling_side_spin_turn_coefficient(radius, &motion).abs();
+        assert!(turn_coefficient <= f64::EPSILON);
+        assert!(turn_coefficient / rolling_deceleration > f64::EPSILON);
+        assert!(raw_phase_has_curved_rolling(
+            zero_origin,
+            MotionPhase::Rolling,
+            horizon,
+            radius,
+            &motion,
+        ));
+
+        let capture_sample_time = horizon * 511.0 / POCKET_CAPTURE_SCAN_STEPS as f64;
+        let displacement = raw_advance_within_phase_on_table(
+            zero_origin,
+            MotionPhase::Rolling,
+            capture_sample_time,
+            radius,
+            &motion,
+        );
+        let pocket_index = PreparedPocketCaptureQuery::pocket_index(Pocket::CenterRight);
+        let geometry = query.pockets[pocket_index];
+        let target_x =
+            0.5 * (geometry.mouth_projection_minus_ball_radius + geometry.back_projection);
+        let state = RawOnTableBallState {
+            x: target_x - displacement.x,
+            y: geometry.center_y - displacement.y,
+            ..zero_origin
+        };
+
+        let legacy = legacy_scan_ball_pocket_capture_time_during_current_phase_raw(
+            &query,
+            state,
+            MotionPhase::Rolling,
+            pocket_index,
+            horizon,
+            &motion,
+        );
+        let adaptive = scan_ball_pocket_capture_time_during_current_phase_raw(
+            &query,
+            state,
+            MotionPhase::Rolling,
+            pocket_index,
+            horizon,
+            &motion,
+        );
+
+        assert!(
+            legacy.is_some(),
+            "the curved trajectory reaches the pocket at the penultimate legacy sample"
+        );
+        assert_eq!(adaptive, legacy);
+    }
 }
 
 #[cfg(test)]
@@ -9443,7 +9899,10 @@ fn refine_ball_pocket_capture_time_during_current_phase_raw(
     Seconds::new(right)
 }
 
-fn scan_ball_pocket_capture_time_during_current_phase_raw(
+const POCKET_CAPTURE_SCAN_STEPS: usize = 512;
+
+#[cfg(test)]
+fn legacy_scan_ball_pocket_capture_time_during_current_phase_raw(
     query: &PreparedPocketCaptureQuery,
     state: RawOnTableBallState,
     phase: MotionPhase,
@@ -9451,8 +9910,6 @@ fn scan_ball_pocket_capture_time_during_current_phase_raw(
     horizon: f64,
     config: &OnTableMotionConfig,
 ) -> Option<Seconds> {
-    const POCKET_CAPTURE_SCAN_STEPS: usize = 512;
-
     let initial_gap =
         query.capture_gap_during_current_phase(state, phase.clone(), pocket_index, 0.0, config);
     let capture_tolerance = 1e-9 * horizon.max(1.0);
@@ -9485,6 +9942,473 @@ fn scan_ball_pocket_capture_time_during_current_phase_raw(
     }
 
     None
+}
+
+fn next_up_f64(value: f64) -> f64 {
+    if value.is_nan() || value == f64::INFINITY {
+        return value;
+    }
+    if value == 0.0 {
+        return f64::from_bits(1);
+    }
+    if value > 0.0 {
+        f64::from_bits(value.to_bits() + 1)
+    } else {
+        f64::from_bits(value.to_bits() - 1)
+    }
+}
+
+fn next_down_f64(value: f64) -> f64 {
+    if value.is_nan() || value == f64::NEG_INFINITY {
+        return value;
+    }
+    if value == 0.0 {
+        return f64::from_bits((1_u64 << 63) | 1);
+    }
+    if value > 0.0 {
+        f64::from_bits(value.to_bits() - 1)
+    } else {
+        f64::from_bits(value.to_bits() + 1)
+    }
+}
+
+fn outward_finite_interval(lower: f64, upper: f64, scale: f64) -> Option<(f64, f64)> {
+    if !lower.is_finite() || !upper.is_finite() || !scale.is_finite() {
+        return None;
+    }
+    let error = 128.0 * f64::EPSILON * scale.abs().max(1.0);
+    Some((next_down_f64(lower - error), next_up_f64(upper + error)))
+}
+
+fn quadratic_interval_bounds(
+    constant: f64,
+    linear: f64,
+    quadratic: f64,
+    interval_start: f64,
+    interval_end: f64,
+) -> Option<(f64, f64)> {
+    if !constant.is_finite()
+        || !linear.is_finite()
+        || !quadratic.is_finite()
+        || !interval_start.is_finite()
+        || !interval_end.is_finite()
+        || interval_start > interval_end
+    {
+        return None;
+    }
+
+    let evaluate = |time: f64| constant + linear * time + quadratic * time * time;
+    let start_value = evaluate(interval_start);
+    let end_value = evaluate(interval_end);
+    let mut lower = start_value.min(end_value);
+    let mut upper = start_value.max(end_value);
+    if quadratic != 0.0 {
+        let denominator = 2.0 * quadratic;
+        if denominator == 0.0 || !denominator.is_finite() {
+            return None;
+        }
+        let extremum = -linear / denominator;
+        if !extremum.is_finite() {
+            return None;
+        }
+        if extremum > interval_start && extremum < interval_end {
+            let extremum_value = evaluate(extremum);
+            if !extremum_value.is_finite() {
+                return None;
+            }
+            lower = lower.min(extremum_value);
+            upper = upper.max(extremum_value);
+        }
+    }
+    let time_scale = interval_start.abs().max(interval_end.abs()).max(1.0);
+    let scale =
+        constant.abs() + linear.abs() * time_scale + quadratic.abs() * time_scale * time_scale;
+    outward_finite_interval(lower, upper, scale)
+}
+
+fn projected_position_interval_during_current_phase(
+    query: &PreparedPocketCaptureQuery,
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    axis: [f64; 2],
+    interval_start: f64,
+    interval_end: f64,
+    config: &OnTableMotionConfig,
+) -> Option<(f64, f64)> {
+    if raw_phase_has_curved_rolling(
+        state,
+        phase.clone(),
+        interval_end,
+        query.ball_radius,
+        config,
+    ) {
+        let at_start = raw_advance_within_phase_on_table(
+            state,
+            phase.clone(),
+            interval_start,
+            query.ball_radius,
+            config,
+        );
+        let duration = interval_end - interval_start;
+        if !duration.is_finite() || duration < 0.0 {
+            return None;
+        }
+        let projection = axis[0] * at_start.x + axis[1] * at_start.y;
+        let speed_upper_bound =
+            raw_phase_planar_speed_upper_bound(at_start, phase, duration, config);
+        let reach = speed_upper_bound * duration;
+        outward_finite_interval(
+            projection - reach,
+            projection + reach,
+            projection.abs() + reach.abs(),
+        )
+    } else {
+        let (ax, ay) =
+            raw_planar_acceleration_during_phase(state, phase, query.ball_radius, config);
+        quadratic_interval_bounds(
+            axis[0] * state.x + axis[1] * state.y,
+            axis[0] * state.vx + axis[1] * state.vy,
+            0.5 * (axis[0] * ax + axis[1] * ay),
+            interval_start,
+            interval_end,
+        )
+    }
+}
+
+fn acceptance_angle_proves_interval_empty(
+    query: &PreparedPocketCaptureQuery,
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    entry_axis: [f64; 2],
+    max_entry_angle_degrees: f64,
+    interval_start: f64,
+    interval_end: f64,
+    capture_tolerance: f64,
+    config: &OnTableMotionConfig,
+) -> bool {
+    if matches!(phase, MotionPhase::Rest | MotionPhase::Spinning) {
+        return true;
+    }
+    if raw_phase_has_curved_rolling(
+        state,
+        phase.clone(),
+        interval_end,
+        query.ball_radius,
+        config,
+    ) {
+        return false;
+    }
+
+    let threshold_degrees = max_entry_angle_degrees + capture_tolerance + 1e-10;
+    if !threshold_degrees.is_finite() || !(0.0..90.0).contains(&threshold_degrees) {
+        return false;
+    }
+
+    let entry_x = entry_axis[0];
+    let entry_y = entry_axis[1];
+    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, query.ball_radius, config);
+    let aligned_constant = entry_x * state.vx + entry_y * state.vy;
+    let aligned_linear = entry_x * ax + entry_y * ay;
+    let Some((_, aligned_upper)) = quadratic_interval_bounds(
+        aligned_constant,
+        aligned_linear,
+        0.0,
+        interval_start,
+        interval_end,
+    ) else {
+        return false;
+    };
+    if aligned_upper <= 0.0 {
+        return true;
+    }
+
+    let cosine_squared = threshold_degrees.to_radians().cos().powi(2);
+    let quadratic = aligned_linear * aligned_linear - cosine_squared * (ax * ax + ay * ay);
+    let linear = 2.0
+        * (aligned_constant * aligned_linear - cosine_squared * (state.vx * ax + state.vy * ay));
+    let constant = aligned_constant * aligned_constant
+        - cosine_squared * (state.vx * state.vx + state.vy * state.vy);
+    let Some((_, gap_upper)) =
+        quadratic_interval_bounds(constant, linear, quadratic, interval_start, interval_end)
+    else {
+        return false;
+    };
+
+    gap_upper < 0.0
+}
+
+fn capture_interval_is_proven_empty(
+    query: &PreparedPocketCaptureQuery,
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket_index: usize,
+    interval_start: f64,
+    interval_end: f64,
+    capture_tolerance: f64,
+    config: &OnTableMotionConfig,
+) -> bool {
+    let envelope = query.pockets[pocket_index].envelope;
+    let bound_scale = envelope
+        .min_longitudinal
+        .abs()
+        .max(envelope.max_longitudinal.abs())
+        .max(1.0);
+    let bound_error = 128.0 * f64::EPSILON * bound_scale;
+    let min_longitudinal =
+        next_down_f64(envelope.min_longitudinal - capture_tolerance - bound_error);
+    let max_longitudinal = next_up_f64(envelope.max_longitudinal + capture_tolerance + bound_error);
+    if let Some((path_min, path_max)) = projected_position_interval_during_current_phase(
+        query,
+        state,
+        phase.clone(),
+        envelope.entry_axis,
+        interval_start,
+        interval_end,
+        config,
+    ) {
+        if path_max < min_longitudinal || path_min > max_longitudinal {
+            return true;
+        }
+    }
+
+    if envelope.min_lateral.is_finite() && envelope.max_lateral.is_finite() {
+        let min_lateral = next_down_f64(envelope.min_lateral - capture_tolerance - bound_error);
+        let max_lateral = next_up_f64(envelope.max_lateral + capture_tolerance + bound_error);
+        if let Some((path_min, path_max)) = projected_position_interval_during_current_phase(
+            query,
+            state,
+            phase.clone(),
+            envelope.tangent_axis,
+            interval_start,
+            interval_end,
+            config,
+        ) {
+            if path_max < min_lateral || path_min > max_lateral {
+                return true;
+            }
+        }
+    }
+
+    acceptance_angle_proves_interval_empty(
+        query,
+        state,
+        phase,
+        envelope.entry_axis,
+        envelope.max_entry_angle_degrees,
+        interval_start,
+        interval_end,
+        capture_tolerance,
+        config,
+    )
+}
+
+trait CaptureSearchObserver {
+    #[inline(always)]
+    fn pocket_considered(&mut self) {}
+    #[inline(always)]
+    fn pocket_broad_phase_rejected(&mut self) {}
+    #[inline(always)]
+    fn interval_node(&mut self) {}
+    #[inline(always)]
+    fn exact_gap_evaluations(&mut self, _count: u32) {}
+    #[inline(always)]
+    fn legacy_leaf_cell(&mut self) {}
+}
+
+struct NoCaptureSearchObserver;
+
+impl CaptureSearchObserver for NoCaptureSearchObserver {}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CaptureSearchStats {
+    pockets_considered: u16,
+    pockets_broad_phase_rejected: u16,
+    interval_nodes: u32,
+    exact_gap_evaluations: u32,
+    legacy_leaf_cells: u16,
+}
+
+#[cfg(test)]
+impl CaptureSearchObserver for CaptureSearchStats {
+    fn pocket_considered(&mut self) {
+        self.pockets_considered += 1;
+    }
+
+    fn pocket_broad_phase_rejected(&mut self) {
+        self.pockets_broad_phase_rejected += 1;
+    }
+
+    fn interval_node(&mut self) {
+        self.interval_nodes += 1;
+    }
+
+    fn exact_gap_evaluations(&mut self, count: u32) {
+        self.exact_gap_evaluations += count;
+    }
+
+    fn legacy_leaf_cell(&mut self) {
+        self.legacy_leaf_cells += 1;
+    }
+}
+
+struct AdaptivePocketCaptureSearch<'a, O> {
+    query: &'a PreparedPocketCaptureQuery,
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket_index: usize,
+    horizon: f64,
+    capture_tolerance: f64,
+    config: &'a OnTableMotionConfig,
+    observer: &'a mut O,
+    gap_values: [f64; POCKET_CAPTURE_SCAN_STEPS + 1],
+    gap_known: [bool; POCKET_CAPTURE_SCAN_STEPS + 1],
+}
+
+impl<O: CaptureSearchObserver> AdaptivePocketCaptureSearch<'_, O> {
+    fn lattice_time(&self, lattice_index: usize) -> f64 {
+        self.horizon * lattice_index as f64 / POCKET_CAPTURE_SCAN_STEPS as f64
+    }
+
+    fn exact_gap_at_lattice_index(&mut self, lattice_index: usize) -> f64 {
+        if !self.gap_known[lattice_index] {
+            let time = self.lattice_time(lattice_index);
+            self.gap_values[lattice_index] = self.query.capture_gap_during_current_phase(
+                self.state,
+                self.phase.clone(),
+                self.pocket_index,
+                time,
+                self.config,
+            );
+            self.gap_known[lattice_index] = true;
+            self.observer.exact_gap_evaluations(1);
+        }
+        self.gap_values[lattice_index]
+    }
+
+    fn search_cell_range(
+        &mut self,
+        first_cell: usize,
+        past_last_cell: usize,
+        is_root: bool,
+    ) -> Option<Seconds> {
+        self.observer.interval_node();
+        let interval_start = self.lattice_time(first_cell);
+        let interval_end = self.lattice_time(past_last_cell);
+        if capture_interval_is_proven_empty(
+            self.query,
+            self.state,
+            self.phase.clone(),
+            self.pocket_index,
+            interval_start,
+            interval_end,
+            self.capture_tolerance,
+            self.config,
+        ) {
+            if is_root {
+                self.observer.pocket_broad_phase_rejected();
+            }
+            return None;
+        }
+
+        if past_last_cell - first_cell == 1 {
+            self.observer.legacy_leaf_cell();
+            let left_gap = self.exact_gap_at_lattice_index(first_cell);
+            let right_gap = self.exact_gap_at_lattice_index(past_last_cell);
+            if left_gap > self.capture_tolerance && right_gap <= self.capture_tolerance {
+                self.observer.exact_gap_evaluations(60);
+                return Some(refine_ball_pocket_capture_time_during_current_phase_raw(
+                    self.query,
+                    self.state,
+                    self.phase.clone(),
+                    self.pocket_index,
+                    interval_start,
+                    interval_end,
+                    self.config,
+                ));
+            }
+            return None;
+        }
+
+        let middle_cell = first_cell + (past_last_cell - first_cell) / 2;
+        if let Some(capture) = self.search_cell_range(first_cell, middle_cell, false) {
+            return Some(capture);
+        }
+        self.search_cell_range(middle_cell, past_last_cell, false)
+    }
+}
+
+fn adaptive_scan_ball_pocket_capture_time_during_current_phase_raw_with_observer<
+    O: CaptureSearchObserver,
+>(
+    query: &PreparedPocketCaptureQuery,
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket_index: usize,
+    horizon: f64,
+    config: &OnTableMotionConfig,
+    observer: &mut O,
+) -> Option<Seconds> {
+    observer.pocket_considered();
+    let capture_tolerance = 1e-9 * horizon.max(1.0);
+    let mut search = AdaptivePocketCaptureSearch {
+        query,
+        state,
+        phase,
+        pocket_index,
+        horizon,
+        capture_tolerance,
+        config,
+        observer,
+        gap_values: [0.0; POCKET_CAPTURE_SCAN_STEPS + 1],
+        gap_known: [false; POCKET_CAPTURE_SCAN_STEPS + 1],
+    };
+    if search.exact_gap_at_lattice_index(0) <= capture_tolerance {
+        return Some(Seconds::zero());
+    }
+
+    search.search_cell_range(0, POCKET_CAPTURE_SCAN_STEPS, true)
+}
+
+fn scan_ball_pocket_capture_time_during_current_phase_raw(
+    query: &PreparedPocketCaptureQuery,
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket_index: usize,
+    horizon: f64,
+    config: &OnTableMotionConfig,
+) -> Option<Seconds> {
+    adaptive_scan_ball_pocket_capture_time_during_current_phase_raw_with_observer(
+        query,
+        state,
+        phase,
+        pocket_index,
+        horizon,
+        config,
+        &mut NoCaptureSearchObserver,
+    )
+}
+
+#[cfg(test)]
+fn adaptive_scan_ball_pocket_capture_time_during_current_phase_raw_with_stats(
+    query: &PreparedPocketCaptureQuery,
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    pocket_index: usize,
+    horizon: f64,
+    config: &OnTableMotionConfig,
+) -> (Option<Seconds>, CaptureSearchStats) {
+    let mut stats = CaptureSearchStats::default();
+    let result = adaptive_scan_ball_pocket_capture_time_during_current_phase_raw_with_observer(
+        query,
+        state,
+        phase,
+        pocket_index,
+        horizon,
+        config,
+        &mut stats,
+    );
+    (result, stats)
 }
 
 pub fn compute_next_ball_jaw_impact_on_table(

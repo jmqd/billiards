@@ -5,7 +5,7 @@
 - **Status:** Accepted candidate; implementation plan only.
 - **Priority:** High for PNG rendering, no expected effect on SVG.
 - **Confidence:** High for removing repeated PNG decode/resize work; medium for the incremental value of a cross-render resized-sprite cache until its bounded-cache stage is benchmarked under contention.
-- **Dependencies/order:** The committed table-rich `render_stages` PNG case is a valid stage-isolated warm diagnostic; the nominal transparent case is currently table-backed and must be corrected/rebaselined first. Neither case is a correctness golden or exercises aliases, custom diameters, cache bounds, or fresh-process initialization. Capture the remaining goldens and add the candidate-specific warm/cold fixtures before production edits. This work is independent of SVG write streaming and direct `DiagramScene` construction. If those plans also edit `src/diagram.rs` or `benches/throughput.rs`, land one cleanly and baseline this candidate from its immediate parent; do not combine their measurements.
+- **Dependencies/order:** The committed table-rich and corrected transparent `render_stages` PNG cases are valid stage-isolated warm diagnostics. Neither is a correctness golden or exercises aliases, custom diameters, cache bounds, or fresh-process initialization. Capture the remaining goldens and add the candidate-specific warm/cold fixtures before production edits. This work is independent of SVG write streaming and direct `DiagramScene` construction. If those plans also edit `src/diagram.rs` or `benches/throughput.rs`, land one cleanly and baseline this candidate from its immediate parent; do not combine their measurements.
 
 ## Objective and observable contract
 
@@ -30,8 +30,8 @@ PNG encoding remains in the timed operation and keeps its current encoder settin
 
 ### Measured facts
 
-- `benches/throughput.rs` now contains `render_stages/backend/png_table_rich_trace` and `render_stages/backend/png_transparent_rich_trace`, with quick unchanged-tree results of approximately **13.58 ms** and **13.36 ms**. The table case is a valid prebuilt-scene render-only measurement.
-- The nominal transparent case is currently mislabeled: `scene` is built once with `DiagramBackground::Table`, and `PngBackend::render` reads `scene.background`, not `options.background`. Passing `transparent_options` later does not change the scene, so the 13.36 ms result is another table-backed render and is **not** evidence for the transparent bypass. Correct that fixture on unchanged production code and save a new baseline before measuring this candidate.
+- `benches/throughput.rs` contains `render_stages/backend/png_table_rich_trace` and `render_stages/backend/png_transparent_rich_trace`. The table case produced a quick unchanged-tree result of approximately **13.58 ms**. The corrected transparent case now builds and renders a separate `DiagramBackground::Transparent` scene and produced **14.34-14.48 ms** in `--quick` mode.
+- The earlier 13.36 ms nominal-transparent result was table-backed because `PngBackend::render` reads `scene.background`; it is retained only as a warning against comparing different fixture semantics. The corrected 14.34-14.48 ms result is orientation, not a saved formal baseline.
 - The existing static-PNG profile recorded in `plans/performance_engineering.md` attributes 28.01% to `image::imageops::sample::resize`, 10.12% to `fdeflate::decompress::Decompressor::read`, and 9.12% to PNG unfiltering. PNG encoding filtering is a separate 26.76% and is not addressed here.
 - The same document records an older static table PNG at about 22.1 ms, versus about 1.8 ms for static SVG. These older numbers motivate isolation but are neither substitutes for the committed rich-scene baselines nor acceptance baselines for the candidate-specific fixtures.
 
@@ -198,8 +198,8 @@ Per-render memory is not included in that retained global bound: the mutable 108
 
 ### Stage 0: complete fixtures and save the formal unchanged baseline
 
-1. Fix `render_stages/backend/png_transparent_rich_trace` on the unchanged renderer by building `transparent_scene = rendered.to_diagram_scene(&transparent_options)` and passing that scene to both an untimed control render and the timed closure. Keep the exact filter name, record that the old 13.36 ms result was table-backed, and save a new transparent baseline; never compare the candidate against the mislabeled workload.
-2. Retain `render_stages/backend/png_table_rich_trace` and its approximately 13.58 ms quick result as orientation, then save the formal immediate-parent baseline after the transparent fixture correction.
+1. Retain the corrected `render_stages/backend/png_transparent_rich_trace`: it builds `transparent_scene = rendered.to_diagram_scene(&transparent_options)`, uses that scene for both the untimed control and timed render, and keeps the original filter name. Record the 14.34-14.48 ms quick result as orientation, then save a formal immediate-parent baseline; never compare a candidate against the old table-backed 13.36 ms workload.
+2. Retain `render_stages/backend/png_table_rich_trace` and its approximately 13.58 ms quick result as orientation, then save the formal immediate-parent baseline for the unchanged table fixture.
 3. Add `benches/render_fixtures.rs` with the direct `DiagramScene` factories below, and reuse those immutable factories from warm, cold, and correctness code.
 4. Capture the six checked-in PNG golden fixtures below. Add the RGBA/golden tests and prove they pass on unchanged production code; benchmark controls that only assert nonempty output are not goldens.
 5. Add the missing alias/custom-diameter warm cases and the fresh-process cold harness before production edits.
@@ -239,9 +239,9 @@ This stage preserves arbitrary diameters, bounds per-render retained sprites, an
 Already committed in `benches/throughput.rs`:
 
 - `render_stages/backend/png_table_rich_trace` — prebuilt rich table scene, complete PNG encode timed; quick baseline approximately 13.58 ms.
-- `render_stages/backend/png_transparent_rich_trace` — currently uses that same table-background scene despite its name; quick result approximately 13.36 ms, invalid as a transparent baseline.
+- `render_stages/backend/png_transparent_rich_trace` — separate prebuilt rich transparent scene, complete PNG encode timed; corrected quick result 14.34-14.48 ms.
 
-Correct the second fixture as Stage 0 specifies, prime each corrected rich case with its own untimed control render, and save new immediate-parent baselines before production edits. Retain both corrected filters as warm rich-scene guards. Neither replaces exact pixel fixtures, alias/custom-radius cases, eviction/contention tests, or the fresh-process harness below.
+Prime each rich case with its own untimed control render and save new immediate-parent baselines before production edits. Retain both filters as warm rich-scene guards. Neither replaces exact pixel fixtures, alias/custom-radius cases, eviction/contention tests, or the fresh-process harness below.
 
 ### Shared factories
 

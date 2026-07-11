@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -28,6 +29,21 @@ EXPECTED_KEYS = {
     "final_pocket",
 }
 MATRIX_KEYS = {"pocketed_mask", "final_state", "final_x", "final_y", "final_pocket"}
+EXPECTED_DTYPES = {
+    "elapsed_seconds": "float64",
+    "cue_pocketed": "bool",
+    "nine_pocketed": "bool",
+    "legal_nine_pocketed": "bool",
+    "first_cue_contact": "int64",
+    "lowest_object_ball": "int64",
+    "first_contact_lowest_object_ball": "bool",
+    "event_count": "int64",
+    "pocketed_mask": "bool",
+    "final_state": "int64",
+    "final_x": "float64",
+    "final_y": "float64",
+    "final_pocket": "int64",
+}
 ABSENT_BALL_ID = 255
 
 
@@ -78,16 +94,27 @@ def build_inputs(np: Any, batch_size: int, workload: str) -> tuple[Any, Any, Any
     return ball_ids, ball_xs, ball_ys, shots
 
 
-def validate_output(np: Any, output: dict[str, Any], batch_size: int) -> None:
+def validate_output(np: Any, output: dict[str, Any], batch_size: int) -> str:
     if set(output) != EXPECTED_KEYS:
         raise AssertionError(f"unexpected output keys: {sorted(output)}")
-    for key, value in output.items():
-        array = np.asarray(value)
+    digest = hashlib.sha256()
+    for key in sorted(EXPECTED_KEYS):
+        array = np.asarray(output[key])
         expected_shape = (batch_size, 10) if key in MATRIX_KEYS else (batch_size,)
         if array.shape != expected_shape:
             raise AssertionError(f"{key} has shape {array.shape}, expected {expected_shape}")
+        expected_dtype = np.dtype(EXPECTED_DTYPES[key])
+        if array.dtype != expected_dtype:
+            raise AssertionError(f"{key} has dtype {array.dtype}, expected {expected_dtype}")
         if not array.flags.c_contiguous:
             raise AssertionError(f"{key} is not C-contiguous")
+        if not array.flags.writeable:
+            raise AssertionError(f"{key} is not writeable")
+        digest.update(key.encode())
+        digest.update(array.dtype.str.encode())
+        digest.update(repr(array.shape).encode())
+        digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
 
 
 def median_absolute_deviation(values: list[float]) -> float:
@@ -106,7 +133,7 @@ def measure_case(
 ) -> dict[str, Any]:
     inputs = build_inputs(np, batch_size, workload)
     output = simulate_shots_batch(*inputs)
-    validate_output(np, output, batch_size)
+    expected_output_sha256 = validate_output(np, output, batch_size)
 
     for _ in range(warmup_calls):
         output = simulate_shots_batch(*inputs)
@@ -117,13 +144,14 @@ def measure_case(
     iterations = max(1, int(minimum_sample_seconds / one_call_seconds))
 
     nanoseconds_per_call: list[float] = []
-    checksum = 0
     for _ in range(samples):
         started = time.perf_counter_ns()
         for _ in range(iterations):
             output = simulate_shots_batch(*inputs)
         elapsed_ns = time.perf_counter_ns() - started
-        checksum ^= int(np.asarray(output["event_count"], dtype=np.int64).sum())
+        observed_output_sha256 = validate_output(np, output, batch_size)
+        if observed_output_sha256 != expected_output_sha256:
+            raise AssertionError("deterministic batch output changed between samples")
         nanoseconds_per_call.append(elapsed_ns / iterations)
 
     median_ns = statistics.median(nanoseconds_per_call)
@@ -135,7 +163,7 @@ def measure_case(
         "median_nanoseconds_per_call": median_ns,
         "mad_nanoseconds_per_call": median_absolute_deviation(nanoseconds_per_call),
         "median_shots_per_second": batch_size * 1e9 / median_ns,
-        "checksum": checksum,
+        "output_sha256": expected_output_sha256,
         "sample_nanoseconds_per_call": nanoseconds_per_call,
     }
 

@@ -27,7 +27,7 @@ EXPECTED_KEYS = {
     "final_y",
     "final_pocket",
 }
-MATRIX_KEYS = {"final_state", "final_x", "final_y", "final_pocket"}
+MATRIX_KEYS = {"pocketed_mask", "final_state", "final_x", "final_y", "final_pocket"}
 ABSENT_BALL_ID = 255
 
 

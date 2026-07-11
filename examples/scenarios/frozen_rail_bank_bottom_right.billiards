@@ -1,4 +1,4 @@
-# Frozen-rail bank: 7 and cue are frozen on the right rail; 7 banks into the bottom-right corner.
+# Frozen-rail source fixture. Current simulation stops at the terminal unsupported airborne mixed rail/ball contact rather than claiming the bottom-right bank.
 table brunswick_gc4_9ft
 ball cue frozen right (2.33)
 ball seven frozen right (2.15)

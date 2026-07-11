@@ -3,9 +3,10 @@ use billiards::{
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
     simulate_n_ball_system_with_rails_and_pockets_on_table_until_rest, AngularVelocity3,
     BallSetPhysicsSpec, BallState, CollisionModel, Inches, Inches2, InchesPerSecondSq,
-    MotionPhaseConfig, MotionTransitionConfig, NBallGeometryError, NBallSystemState,
-    OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, RailModel, RollingResistanceModel,
-    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    MotionPhaseConfig, MotionTransitionConfig, NBallGeometryError, NBallOnTableExecutionError,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, RailModel,
+    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 const RECOVERY_TOLERANCE_INCHES: f64 = 1e-6;
@@ -56,6 +57,9 @@ fn assert_gross_overlap(error: NBallGeometryError, first: usize, second: usize) 
             assert!((penetration.as_f64() - 0.25).abs() < 1e-12);
             assert!((recovery_tolerance.as_f64() - RECOVERY_TOLERANCE_INCHES).abs() < 1e-18);
         }
+        NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model } => {
+            panic!("expected overlap error, got unsupported {collision_model:?} shared contact")
+        }
     }
 }
 
@@ -83,7 +87,12 @@ fn stationary_and_closing_gross_overlaps_are_rejected_before_events_or_impulses(
     let advance =
         advance_to_next_n_ball_event_on_table(&closing, &ball, &motion, CollisionModel::Ideal)
             .expect_err("an impulse must not be applied at a penetrated rigid geometry");
-    assert_gross_overlap(advance, 0, 1);
+    match advance {
+        NBallOnTableExecutionError::Geometry(error) => assert_gross_overlap(error, 0, 1),
+        NBallOnTableExecutionError::NonPlanarCollisionModel { collision_model } => {
+            panic!("ideal execution must not reject model {collision_model:?}")
+        }
+    }
 }
 
 #[test]

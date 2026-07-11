@@ -1,7 +1,8 @@
 # Golden-break cut-break manual check.
 # Source: whitepapers/golden_break.pdf
-# Goal: a non-square hit on the 1 sends the cue ball toward the side rail and into the
-# near-stationary 9 in a tight rack; inspect rack transfer and cue-ball route.
+# Goal: a non-square hit on the 1 enters the tight rack; the impact should transfer through
+# the rack and spread it while the 9 remains comparatively central and near stationary, as
+# described by the cited golden-break source.
 table brunswick_gc4_9ft
 ball cue at (1.35, 6.25)
 ball one at (2.000000000000, 2.000000000000)

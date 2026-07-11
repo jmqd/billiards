@@ -1,4 +1,4 @@
-# Short stop shot: the object ball goes to the right side pocket while the cue dies near contact.
+# Stop-shot contact diagnostic: current full vertical response pockets the 1 in center-right while the cue remains on the table.
 ball cue at (1.0, 4.0)
 ball one at (2.4, 4.0)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1)

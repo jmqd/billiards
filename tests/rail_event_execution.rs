@@ -235,6 +235,54 @@ fn advancing_to_a_spin_aware_rail_impact_uses_the_configured_restitution_and_spi
 }
 
 #[test]
+fn spin_aware_zero_restitution_does_not_repeat_a_zero_time_rail_impact() {
+    let table = TableSpec::default();
+    let ball = BallSetPhysicsSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let rail_config = RailCollisionConfig::new(Scale::zero(), Scale::zero())
+        .with_impact_cloth_friction_coefficient(Scale::zero())
+        .with_effective_contact_height_ratio(Scale::zero());
+    let a = on_table(BallState::on_table(
+        inches2(10.0, top_plane),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::zero(),
+    ));
+    let b = on_table(BallState::resting_at(inches2(30.0, 20.0)));
+
+    let advanced = advance_to_next_two_ball_event_with_rail_config_on_table(
+        &a,
+        &b,
+        &ball,
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        RailModel::SpinAware,
+        &rail_config,
+    )
+    .expect("zero-restitution rail impact should resolve");
+    assert_close(advanced.elapsed.as_f64(), 0.0);
+    assert_close(advanced.a.as_ball_state().velocity.y().as_f64(), 0.0);
+
+    let next = compute_next_two_ball_event_with_rails_on_table(
+        &advanced.a,
+        &advanced.b,
+        &ball,
+        &table,
+        &motion_config(),
+    )
+    .expect("post-impact geometry should validate");
+    assert!(
+        !matches!(
+            next,
+            Some(TwoBallOnTableEvent::BallRailImpact { impact, .. })
+                if impact.rail == Rail::Top && impact.time_until_impact.as_f64() <= 1e-12
+        ),
+        "zero restitution must not leave a repeated incoming rail event"
+    );
+}
+
+#[test]
 fn advancing_to_a_restitution_only_rail_impact_uses_the_configured_restitution() {
     let table = TableSpec::default();
     let ball = BallSetPhysicsSpec::default();

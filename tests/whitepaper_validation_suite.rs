@@ -134,6 +134,14 @@ fn tp_3_3_rolling_cue_ball_carom_angles_match_formula_anchors() {
         let cue_ball = rolling_cue_ball_at_cut_angle_degrees(cut_angle_degrees, speed);
         let (cue_after, _) =
             collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
+        assert_near(
+            cue_after.vertical_velocity.as_f64(),
+            0.0,
+            1e-12,
+            "ideal v_z",
+        );
+        let cue_after = OnTableBallState::try_from(cue_after)
+            .expect("ideal collision response must remain on the table");
         let cue_rolling = settle_until_rolling(&cue_after, &motion_config(5.0));
         let actual_degrees = cue_ball_carom_angle_degrees(&cue_rolling);
 
@@ -196,6 +204,24 @@ fn non_ideal_collision_diagnostics_expose_contact_impulse_terms() {
         1e-9,
         "TP A.24/Peskin friction impulse cap",
     );
+    assert_near(
+        outcome.a_after.vertical_velocity.as_f64(),
+        -diagnostics.vertical_impulse_per_mass,
+        1e-9,
+        "cue vertical pair impulse",
+    );
+    assert_near(
+        outcome.b_after.vertical_velocity.as_f64(),
+        diagnostics.vertical_impulse_per_mass,
+        1e-9,
+        "object vertical pair impulse",
+    );
+    assert_near(
+        outcome.a_after.vertical_velocity.as_f64() + outcome.b_after.vertical_velocity.as_f64(),
+        0.0,
+        1e-9,
+        "pre-table vertical pair momentum",
+    );
     assert!(
         outcome.throw_angle_degrees.unwrap().abs() > 0.0,
         "fixture should produce measurable throw"
@@ -203,7 +229,7 @@ fn non_ideal_collision_diagnostics_expose_contact_impulse_terms() {
 }
 
 #[test]
-fn analyzed_collision_reports_bend_curve_slots_and_preserves_outcome() {
+fn analyzed_collision_rejects_an_airborne_cue_branch() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
         inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
@@ -215,14 +241,13 @@ fn analyzed_collision_reports_bend_curve_slots_and_preserves_outcome() {
     let motion = motion_config(5.0);
     let detailed =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
-    let analyzed = detailed.with_post_contact_cue_ball_analysis(&ball, &motion);
 
-    assert_eq!(analyzed.outcome, detailed);
-    assert!(analyzed.cue_ball_bend.is_some());
-    assert_eq!(
-        analyzed.cue_ball_curve,
-        analyzed
-            .outcome
-            .estimate_post_contact_cue_ball_curve(&ball, &motion)
+    assert!(
+        detailed.a_after.vertical_velocity.as_f64().abs() > 0.0,
+        "fixture should create a cue-ball airborne branch"
     );
+    assert!(matches!(
+        detailed.with_post_contact_cue_ball_analysis(&ball, &motion),
+        Err(billiards::OnTableStateError::VerticalVelocityPresent { .. })
+    ));
 }

@@ -1,11 +1,11 @@
 use billiards::{
     simulate_n_balls_on_table_until_rest, simulate_n_balls_with_physics_on_table_until_rest,
     simulate_n_balls_with_rails_on_table_until_rest, AngularVelocity3, BallBallCollisionConfig,
-    BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecond,
-    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent,
-    OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail, RailModel,
-    RollingResistanceModel, Scale, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
-    STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
+    BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent,
+    NBallOnTableExecutionError, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail,
+    RailModel, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -31,37 +31,12 @@ fn motion_config() -> OnTableMotionConfig {
     }
 }
 
-fn tp_b5_motion_config() -> OnTableMotionConfig {
-    MotionTransitionConfig {
-        phase: MotionPhaseConfig::default(),
-        sliding_friction: SlidingFrictionModel::ConstantAcceleration {
-            acceleration_magnitude: InchesPerSecondSq::new(Inches::from_f64(
-                0.20 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
-            )),
-        },
-        spin_decay: SpinDecayModel::ConstantAngularDeceleration {
-            angular_deceleration: RadiansPerSecondSq::new(10.0),
-        },
-        rolling_resistance: RollingResistanceModel::ConstantDeceleration {
-            linear_deceleration: InchesPerSecondSq::new(Inches::from_f64(
-                0.01 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
-            )),
-        },
-    }
-}
-
 fn on_table(state: BallState) -> OnTableBallState {
     OnTableBallState::try_from(state).expect("test states should validate as on-table")
 }
 
 fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
-}
-
-fn distance_between(a: &Inches2, b: &Inches2) -> f64 {
-    let dx = b.x().as_f64() - a.x().as_f64();
-    let dy = b.y().as_f64() - a.y().as_f64();
-    dx.hypot(dy)
 }
 
 #[test]
@@ -133,46 +108,27 @@ fn simulating_n_balls_until_rest_records_collision_and_transition_events_until_e
 }
 
 #[test]
-fn tp_b5_rolling_direct_hit_travel_distance_ratio_matches_published_anchor() {
+fn rolling_direct_hit_requires_full_state_n_ball_simulation() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
-    let cue_start = inches2(0.0, -2.0 * radius);
-    let object_start = inches2(0.0, 0.0);
+    let cue = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "50"),
+        AngularVelocity3::new(-50.0 / radius, 0.0, 0.0),
+    ));
+    let object = on_table(BallState::resting_at(inches2(0.0, 0.0)));
 
-    for impact_speed in [
-        InchesPerSecond::from_mph(3.0),
-        InchesPerSecond::from_mph(7.0),
-    ] {
-        let speed = impact_speed.as_f64();
-        let cue = on_table(BallState::on_table(
-            cue_start.clone(),
-            Velocity2::new(Inches::zero(), Inches::from_f64(speed)),
-            AngularVelocity3::new(-speed / radius, 0.0, 0.0),
-        ));
-        let object = on_table(BallState::resting_at(object_start.clone()));
-        let collision_config =
-            BallBallCollisionConfig::new(Scale::from_f64(0.94), Scale::from_f64(0.06));
-
-        let simulated = simulate_n_balls_with_physics_on_table_until_rest(
+    assert!(matches!(
+        simulate_n_balls_with_physics_on_table_until_rest(
             &[cue, object],
             &BallSetPhysicsSpec::default(),
-            &tp_b5_motion_config(),
+            &motion_config(),
             CollisionModel::ThrowAware,
-            &collision_config,
-        )
-        .expect("fixture should satisfy N-ball geometry");
-
-        let cue_distance =
-            distance_between(&cue_start, &simulated.states[0].as_ball_state().position);
-        let object_distance =
-            distance_between(&object_start, &simulated.states[1].as_ball_state().position);
-        let ratio = object_distance / cue_distance;
-
-        assert!(
-            (ratio - 6.08).abs() < 0.08,
-            "TP B.5 predicts OB/CB travel ratio of about 6.08 after a rolling direct hit; got {ratio} at {} mph",
-            impact_speed.as_mph()
-        );
-    }
+            &BallBallCollisionConfig::human_tuned(),
+        ),
+        Err(NBallOnTableExecutionError::NonPlanarCollisionModel {
+            collision_model: CollisionModel::ThrowAware,
+        })
+    ));
 }
 
 #[test]

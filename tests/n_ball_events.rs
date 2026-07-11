@@ -333,10 +333,7 @@ fn shared_simultaneous_ball_ball_contacts_report_the_resolution_strategy() {
             assert_close(time_until_contact.as_f64(), 1.0);
             assert_eq!(ball_indices, vec![0, 1, 2]);
             assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
-            assert_eq!(
-                resolution.as_str(),
-                "coupled_ideal_or_iterative_pairwise_approximation"
-            );
+            assert_eq!(resolution.as_str(), "coupled_normal");
         }
         other => panic!("expected shared contact, got {other:?}"),
     }

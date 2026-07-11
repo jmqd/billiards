@@ -79,16 +79,16 @@ Expected flavor:
 - longer natural-angle rail-first path on the carom table
 - carom ball and table scale rather than pool-ball physics
 
-### Legal three-cushion scoring examples
+### Planned three-cushion route examples
 
-These layouts are tuned scoring paths: cue ball contacts `yellow` before the final `red`, with at
-least three cue-ball cushion contacts before `red`; some legal examples put one or more cushions
-before `yellow`, and all run on a pocketless carom table.
+These layouts encode cue-ball routes through `yellow` and the named cushions on a pocketless
+carom table. The full vertical collision solver can change the later object contact; the
+regressions therefore validate each route's leading cushion sequence rather than claiming a score.
 
 ### `three_cushion_right_top_left_score.billiards`
 Expected flavor:
 - cue -> yellow first
-- cue rail sequence starts right, top, left before scoring on red
+- cue rail sequence starts right, top, left
 
 ### `three_cushion_left_top_right_score.billiards`
 Expected flavor:
@@ -118,14 +118,14 @@ Expected flavor:
 ### `jump_over_full_ball_showcase.billiards`
 Expected flavor:
 - cue uses `.jump()` as the default 45-degree jump-shot alias
-- cue clears the blocking 1 before landing
-- cue contacts the 2 after the first table bounce
+- cue clears the blocking 1
+- the trace reports the unsupported airborne cue -> 2 contact before a landing bounce
 
 ### `long_jump_over_blocker_showcase.billiards`
 Expected flavor:
 - cue uses `.jump(32deg)` for a lower, longer jump arc
 - cue clears a farther blocking 1 than the 45-degree default example
-- cue contacts the 2 only after the table-bounce event
+- the trace reports the unsupported airborne cue -> 2 contact before a landing bounce
 
 ### Named high-speed / rail-first scoring examples
 
@@ -164,10 +164,12 @@ Expected flavor:
 - fastest of the three stun-check variants
 
 ### `three_cushion_stun_check_long_rail_hold_score.billiards`
-Expected flavor:
+Source fixture for the weaker-check member of the long-rail stun family.
+
+Current modeled flavor:
 - cue -> yellow first with the same near-rail full-hit family
-- slightly reduced check side holds the long-rail return longer
-- rail sequence starts bottom, top, bottom before scoring on red
+- cue reaches bottom then top under the energetic rail solve
+- the intended third-bottom scoring return remains a calibration target, not a claimed outcome
 
 ### `three_cushion_stun_check_long_rail_nip_score.billiards`
 Expected flavor:
@@ -177,8 +179,8 @@ Expected flavor:
 
 ### `three_cushion_three_rails_first_score.billiards`
 Expected flavor:
-- cue takes three cushions before yellow
-- cue rail sequence starts left, right, left before yellow -> red
+- cue rail sequence starts left, right
+- full vertical collision response reaches an object before the planned third cushion
 
 ### `three_cushion_hako_dama_long_box_behind_score.billiards`
 Expected flavor:
@@ -207,8 +209,8 @@ Expected flavor:
 Source: `whitepapers/golden_break.pdf`.
 
 Expected flavor:
-- non-square 1-ball hit opens the tight 9-ball rack
-- cue ball routes toward the side rail and back into the rack/9-ball region
+- non-square 1-ball hit reaches the tight 9-ball rack
+- the trace reports the unsupported airborne 1 -> 2 contact instead of silently resolving it
 
 ### `frozen_proposition_kiss.billiards`
 Source: `whitepapers/frozen_proposition_shot.pdf`.
@@ -234,23 +236,14 @@ Expected flavor:
 ### `hustler_frozen_rail_bank.billiards`
 Source: `whitepapers/billiards_on_the_big_screen_the_hustler.pdf`.
 
-Expected flavor:
-- cue ball is frozen directly behind a rail-frozen 8 on the right side rail
-- firm elevated top-right-English hit banks the 8 into the top-right corner
-
 ### `mirror_frozen_rail_bank_top_left.billiards`
-A mirror-image frozen-rail bank from the left rail.
-
-Expected flavor:
-- cue and 6 are frozen together on the left side rail
-- elevated outside-English hit banks the 6 into the top-left corner
 
 ### `frozen_rail_bank_bottom_right.billiards`
-A second frozen-rail bank, aimed down-table into the bottom-right corner.
 
-Expected flavor:
-- cue and 7 are frozen together on the right side rail
-- the 7 uses the rail contact and transferred spin to fall in bottom-right
+All three preserve a source-inspired, rail-frozen elevated bank layout. The current simulator
+reports a terminal `UnsupportedAirborneBallBallContact` for their mixed ball/rail/table contact
+rather than falsely executing or pocketing the bank. A coupled mixed-contact response is required
+before any of the source pocket outcomes can be claimed.
 
 ### Lag-shot Dr. Dave speed ladder
 
@@ -290,10 +283,10 @@ Expected flavor:
 ### `straight_follow_side_pocket.billiards`
 A straight pot with topspin / follow.
 
-Expected flavor:
+Current modeled flavor:
 - cue -> one collision
 - one pocketed in center-right
-- cue follows through and scratches in center-right
+- cue bounces, then pockets in center-right
 
 ### `straight_draw_side_pocket.billiards`
 A straight pot with draw.
@@ -304,30 +297,27 @@ Expected flavor:
 - cue draws back and scratches in center-left
 
 ### `stop_shot_side_pocket.billiards`
-A short straight stop shot into the right side pocket.
+A straight contact diagnostic with a centered tip.
 
-Expected flavor:
+Current modeled flavor:
 - cue -> one collision
-- cue comes nearly dead to rest near contact
 - one pocketed in center-right
+- cue remains on the table
 
 ### `right_spin_stun_side_pocket.billiards`
-A slight cut to the right side pocket with lots of right spin and a near-stun hit.
+A slight cut with lots of right spin and a near-stun hit.
 
-Expected flavor:
-- cue -> one collision
+Current modeled flavor:
 - one pocketed in center-right
-- cue stays on the table with a visible but bounded post-contact spin effect
-
+- cue remains on the table
 
 ### `low_left_spin_throw_transfer.billiards`
 A low-left-English diagnostic: the cue and 1-ball start vertically aligned,
-with a zero-deflection cue configuration so the due-north shot arrives as a
-100% full-face hit perpendicular to the top cushion.
+with a zero-deflection cue configuration so massé drift is the only pre-impact lateral effect.
 
 Expected flavor:
-- cue -> one collision on a square, vertical line of centers
-- one travels almost straight toward the top cushion; any small lateral motion is spin-induced throw, not setup cut
+- cue -> one collision on a nearly vertical line of centers
+- one travels almost straight toward the top cushion; any small lateral motion is spin-induced
 - one carries a small amount of transferred right spin from the low-left cue-ball spin
 
 ### `long_cut_top_right_rail.billiards`
@@ -396,9 +386,9 @@ Expected flavor:
 - cue scratches in center-right after following through
 
 ### `double_rail_kick_side_pocket.billiards`
-A two-rail kick into an object ball that later falls in the left side pocket.
+A two-rail kick into an object-ball contact diagnostic.
 
-Expected flavor:
+Current modeled flavor:
 - cue rail impact: right
 - cue rail impact: top
 - cue -> one collision

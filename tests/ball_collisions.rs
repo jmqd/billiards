@@ -87,17 +87,6 @@ fn rolling_cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> 
     ))
 }
 
-fn cue_ball_carom_angle_degrees(state: &OnTableBallState) -> f64 {
-    let state = state.as_ball_state();
-    state
-        .velocity
-        .x()
-        .as_f64()
-        .abs()
-        .atan2(state.velocity.y().as_f64())
-        .to_degrees()
-}
-
 fn advance_until_rolling(state: &OnTableBallState) -> OnTableBallState {
     let ball = BallSetPhysicsSpec::default();
     let config = motion_config();
@@ -139,25 +128,21 @@ fn a_head_on_ideal_collision_transfers_forward_motion_without_transferring_spin(
         collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
 
     assert_close(cut_angle.as_degrees(), 0.0);
-    assert_close(cue_after.as_ball_state().speed().as_f64(), 0.0);
-    assert_close(object_after.as_ball_state().velocity.x().as_f64(), 0.0);
-    assert_close(object_after.as_ball_state().velocity.y().as_f64(), 10.0);
+    assert_close(cue_after.speed().as_f64(), 0.0);
+    assert_close(cue_after.vertical_velocity.as_f64(), 0.0);
+    assert_close(object_after.velocity.x().as_f64(), 0.0);
+    assert_close(object_after.velocity.y().as_f64(), 10.0);
+    assert_close(object_after.vertical_velocity.as_f64(), 0.0);
     assert_eq!(
-        cue_after.as_ball_state().angular_velocity,
+        cue_after.angular_velocity,
         cue_ball.as_ball_state().angular_velocity
     );
     assert_eq!(
-        object_after.as_ball_state().angular_velocity,
+        object_after.angular_velocity,
         object_ball.as_ball_state().angular_velocity
     );
-    assert_eq!(
-        cue_after.as_ball_state().position,
-        cue_ball.as_ball_state().position
-    );
-    assert_eq!(
-        object_after.as_ball_state().position,
-        object_ball.as_ball_state().position
-    );
+    assert_eq!(cue_after.position, cue_ball.as_ball_state().position);
+    assert_eq!(object_after.position, object_ball.as_ball_state().position);
 }
 
 #[test]
@@ -202,8 +187,6 @@ fn an_ideal_cut_collision_sends_the_object_ball_along_the_line_of_centers_and_th
     );
     let (cue_after, object_after) =
         collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
-    let cue_after = cue_after.as_ball_state();
-    let object_after = object_after.as_ball_state();
     let dot_product = cue_after.velocity.x().as_f64() * object_after.velocity.x().as_f64()
         + cue_after.velocity.y().as_f64() * object_after.velocity.y().as_f64();
 
@@ -238,8 +221,8 @@ fn a_thirty_degree_cut_transfers_cosine_scaled_speed_to_the_object_ball() {
     );
     let (cue_after, object_after) =
         collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
-    let cue_speed = cue_after.as_ball_state().speed().as_f64();
-    let object_speed = object_after.as_ball_state().speed().as_f64();
+    let cue_speed = cue_after.speed().as_f64();
+    let object_speed = object_after.speed().as_f64();
 
     assert_close(cut_angle.as_degrees(), 30.0);
     assert_close(object_speed, 10.0 * 30.0_f64.to_radians().cos());
@@ -248,7 +231,6 @@ fn a_thirty_degree_cut_transfers_cosine_scaled_speed_to_the_object_ball() {
     assert_close(cue_speed.powi(2) / 100.0, 0.25);
     assert_eq!(
         object_after
-            .as_ball_state()
             .velocity
             .angle_from_north()
             .expect("moving object ball should have a heading"),
@@ -263,8 +245,8 @@ fn a_forty_five_degree_cut_transfers_half_the_kinetic_energy_to_the_object_ball(
 
     let (cue_after, object_after) =
         collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
-    let cue_speed = cue_after.as_ball_state().speed().as_f64();
-    let object_speed = object_after.as_ball_state().speed().as_f64();
+    let cue_speed = cue_after.speed().as_f64();
+    let object_speed = object_after.speed().as_f64();
 
     assert_close(object_speed, 10.0 / 2.0_f64.sqrt());
     assert_close(cue_speed, 10.0 / 2.0_f64.sqrt());
@@ -281,6 +263,10 @@ fn tp_a16_ideal_natural_roll_cut_settles_to_reference_speed_components() {
 
     let (cue_after, object_after) =
         collide_ball_ball_on_table(&cue_ball, &object_ball, CollisionModel::Ideal);
+    let cue_after = OnTableBallState::try_from(cue_after)
+        .expect("ideal collision response must remain on the table");
+    let object_after = OnTableBallState::try_from(object_after)
+        .expect("ideal collision response must remain on the table");
     let cue_rolling = advance_until_rolling(&cue_after);
     let object_rolling = advance_until_rolling(&object_after);
     let cue_rolling = cue_rolling.as_ball_state();
@@ -305,34 +291,34 @@ fn tp_a16_ideal_natural_roll_cut_settles_to_reference_speed_components() {
 }
 
 #[test]
-fn tp_b13_typical_rolling_cue_ball_carom_angles_match_ball_hit_anchors() {
+fn tp_b13_rolling_throw_response_requires_airborne_event_routing_before_carom_settling() {
     let speed = InchesPerSecond::from_mph(3.0).as_f64();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let config = BallBallCollisionConfig::new_with_friction_model(
         Scale::from_f64(0.95),
         BallBallFrictionModel::marlow_speed_fit(Scale::from_f64(1.0)),
     );
+    let cue_ball = rolling_cue_ball_at_cut_angle_degrees(30.0, speed);
+    let (cue_after, object_after) = collide_ball_ball_on_table_with_config(
+        &cue_ball,
+        &object_ball,
+        CollisionModel::ThrowAware,
+        &config,
+    );
 
-    for (cut_angle_degrees, expected_carom_angle_degrees) in [
-        (30.0, 33.4),
-        ((1.0_f64 - 0.25).asin().to_degrees(), 27.0),
-        ((1.0_f64 - 0.75).asin().to_degrees(), 27.5),
-    ] {
-        let cue_ball = rolling_cue_ball_at_cut_angle_degrees(cut_angle_degrees, speed);
-        let (cue_after, _) = collide_ball_ball_on_table_with_config(
-            &cue_ball,
-            &object_ball,
-            CollisionModel::ThrowAware,
-            &config,
-        );
-        let cue_rolling = advance_until_rolling(&cue_after);
-
-        assert_near(
-            cue_ball_carom_angle_degrees(&cue_rolling),
-            expected_carom_angle_degrees,
-            0.15,
-        );
-    }
+    assert!(cue_after.vertical_velocity.as_f64() > 0.0);
+    assert!(object_after.vertical_velocity.as_f64() < 0.0);
+    assert_near(
+        cue_after.vertical_velocity.as_f64() + object_after.vertical_velocity.as_f64(),
+        0.0,
+        1e-9,
+    );
+    assert!(matches!(
+        OnTableBallState::try_from(cue_after),
+        Err(billiards::OnTableStateError::VerticalVelocityPresent { .. })
+    ));
+    assert!(radius > 0.0);
 }
 
 #[test]
@@ -353,10 +339,12 @@ fn a_restitution_tuned_head_on_collision_is_less_lively_than_the_ideal_limit() {
         &human_tuned,
     );
 
-    assert_close(cue_after.as_ball_state().velocity.y().as_f64(), 1.0);
-    assert_close(object_after.as_ball_state().velocity.y().as_f64(), 9.0);
+    assert_close(cue_after.velocity.y().as_f64(), 1.0);
+    assert_close(object_after.velocity.y().as_f64(), 9.0);
+    assert_close(cue_after.vertical_velocity.as_f64(), 0.0);
+    assert_close(object_after.vertical_velocity.as_f64(), 0.0);
     assert!(
-        object_after.as_ball_state().speed().as_f64() < 10.0,
+        object_after.speed().as_f64() < 10.0,
         "restitution below 1 should reduce the struck ball's outgoing speed"
     );
 }

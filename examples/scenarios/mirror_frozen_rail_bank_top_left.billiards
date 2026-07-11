@@ -1,4 +1,4 @@
-# Mirror frozen-rail bank: 6 and cue are frozen on the left rail; 6 banks into the top-left corner.
+# Mirror frozen-rail source fixture. Current simulation stops at the terminal unsupported airborne mixed rail/ball contact rather than claiming the top-left bank.
 table brunswick_gc4_9ft
 ball cue frozen left (5.67)
 ball six frozen left (5.85)

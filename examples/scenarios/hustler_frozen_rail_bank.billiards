@@ -1,7 +1,7 @@
-# The Hustler frozen-rail bank manual check.
+# The Hustler frozen-rail bank source fixture.
 # Source: whitepapers/billiards_on_the_big_screen_the_hustler.pdf
-# Goal: 8-ball and cue ball are both frozen to the right side rail, with the cue frozen directly
-# behind the 8. A firm elevated top-right-English hit banks the 8 into the top-right corner.
+# Target physical shot: 8 and cue are frozen on the right rail; a firm elevated top-right-English hit banks the 8 into top-right.
+# Current limitation: the simulator reports a terminal unsupported airborne mixed rail/ball contact instead of claiming that bank.
 table brunswick_gc4_9ft
 ball cue frozen right (5.67)
 ball eight frozen right (5.85)

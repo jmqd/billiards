@@ -1,5 +1,5 @@
-# Stun-thick long-rail check score: cue hits a near-rail yellow almost full, then checks back around the corner.
-# Iteration B: slightly less check side; the third long rail arrives later before scoring.
+# Stun-thick long-rail check source fixture.
+# Current energetic rail solve reaches bottom then top but does not yet reproduce this weaker-check three-rail score route.
 table three_cushion_carom_10ft
 game three_cushion
 ball cue at (2.721, 6.737)

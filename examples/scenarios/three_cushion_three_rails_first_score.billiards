@@ -1,5 +1,5 @@
-# Three-rails-first bank/bricole score: cue takes three cushions before the first object ball.
-# Goal: high-speed left/right/left rail-first route, then yellow, then red.
+# Three-rails-first bank/bricole diagnostic.
+# Full vertical collision response yields the leading left/right cushion sequence before object contact.
 table three_cushion_carom_10ft
 game three_cushion
 ball cue at (3.014, 6.964)

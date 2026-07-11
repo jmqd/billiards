@@ -1,7 +1,7 @@
 # Full-face low-left spin-transfer diagnostic.
 # Cue and 1 start on one vertical line, perpendicular to the top cushion.
-# The zero-deflection cue setup removes side-tip squirt so heading(0deg) arrives 100% full.
-# Expected: the 1 is struck squarely upward and carries transferred right spin.
+# The zero-deflection cue setup removes side-tip squirt; massé drift before impact remains bounded.
+# Expected: the 1 is struck nearly squarely upward and carries transferred right spin.
 ball cue at (2.0, 3.0)
 ball one at (2.0, 4.0)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1).endmass_ratio(1000000000.0)

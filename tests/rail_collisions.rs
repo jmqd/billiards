@@ -105,6 +105,32 @@ fn rail_local_frame_components(rail: Rail, state: &OnTableBallState) -> [f64; 5]
 }
 
 #[test]
+fn spin_aware_frictionless_restitution_matches_configured_normal_speed() {
+    let radius = TYPICAL_BALL_RADIUS.clone();
+    for normal_restitution in [0.0, 0.68, 1.0] {
+        let config = RailCollisionConfig::new(Scale::from_f64(normal_restitution), Scale::zero())
+            .with_impact_cloth_friction_coefficient(Scale::zero())
+            .with_effective_contact_height_ratio(Scale::zero());
+        for incident_speed in [1.0, 30.0, 90.0] {
+            let state = rail_state_from_local_frame(Rail::Top, 0.0, incident_speed, 0.0, 0.0, 0.0);
+            let reflected = collide_ball_rail_on_table_with_radius_and_config(
+                &state,
+                Rail::Top,
+                radius.clone(),
+                RailModel::SpinAware,
+                &config,
+            );
+            let actual = rail_local_frame_components(Rail::Top, &reflected);
+            assert_close_with_tolerance(actual[0], 0.0, 1e-9);
+            assert_close_with_tolerance(actual[1], -normal_restitution * incident_speed, 1e-7);
+            assert_close_with_tolerance(actual[2], 0.0, 1e-9);
+            assert_close_with_tolerance(actual[3], 0.0, 1e-9);
+            assert_close_with_tolerance(actual[4], 0.0, 1e-9);
+        }
+    }
+}
+
+#[test]
 fn a_square_hit_on_a_horizontal_rail_reflects_straight_back() {
     let state = on_table(BallState::on_table(
         inches2(10.0, 20.0),

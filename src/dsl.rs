@@ -301,15 +301,19 @@ impl DslScenario {
     }
 
     fn invalid_n_ball_geometry_error(&self, error: NBallGeometryError) -> DslBuildError {
-        let NBallGeometryError::OverlappingOnTableBalls {
-            first_ball_index,
-            second_ball_index,
-            ..
-        } = &error;
-        DslBuildError::InvalidNBallGeometry {
-            first_ball: self.game_state.balls()[*first_ball_index].ty.clone(),
-            second_ball: self.game_state.balls()[*second_ball_index].ty.clone(),
-            error,
+        match error {
+            error @ NBallGeometryError::OverlappingOnTableBalls {
+                first_ball_index,
+                second_ball_index,
+                ..
+            } => DslBuildError::InvalidNBallGeometry {
+                first_ball: self.game_state.balls()[first_ball_index].ty.clone(),
+                second_ball: self.game_state.balls()[second_ball_index].ty.clone(),
+                error,
+            },
+            error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { .. } => {
+                DslBuildError::UnsupportedNBallPhysics { error }
+            }
         }
     }
 
@@ -1056,7 +1060,7 @@ pub enum ScenarioShotTraceEventKind {
         first_ball: BallType,
         second_ball: BallType,
     },
-    UnsupportedAirborneBallBallContact {
+    AirborneBallBallCollision {
         first_ball: BallType,
         second_ball: BallType,
     },
@@ -1099,11 +1103,11 @@ impl ScenarioShotTraceEventKind {
                 ball_type_name(first_ball),
                 ball_type_name(second_ball)
             ),
-            ScenarioShotTraceEventKind::UnsupportedAirborneBallBallContact {
+            ScenarioShotTraceEventKind::AirborneBallBallCollision {
                 first_ball,
                 second_ball,
             } => format!(
-                "{} -> {} unsupported airborne contact",
+                "{} -> {} airborne collision",
                 ball_type_name(first_ball),
                 ball_type_name(second_ball)
             ),
@@ -1439,8 +1443,8 @@ fn scenario_event_involves_ball(event: &NBallSystemEvent, ball_index: usize) -> 
             first_ball_index,
             second_ball_index,
             ..
-        } => *first_ball_index == ball_index || *second_ball_index == ball_index,
-        NBallSystemEvent::UnsupportedAirborneBallBallContact {
+        }
+        | NBallSystemEvent::AirborneBallBallCollision {
             first_ball_index,
             second_ball_index,
             ..
@@ -1484,11 +1488,11 @@ fn scenario_event_kind_from_system_event(
             first_ball: balls[*first_ball_index].ty.clone(),
             second_ball: balls[*second_ball_index].ty.clone(),
         },
-        NBallSystemEvent::UnsupportedAirborneBallBallContact {
+        NBallSystemEvent::AirborneBallBallCollision {
             first_ball_index,
             second_ball_index,
             ..
-        } => ScenarioShotTraceEventKind::UnsupportedAirborneBallBallContact {
+        } => ScenarioShotTraceEventKind::AirborneBallBallCollision {
             first_ball: balls[*first_ball_index].ty.clone(),
             second_ball: balls[*second_ball_index].ty.clone(),
         },
@@ -1945,6 +1949,9 @@ pub enum DslBuildError {
         second_ball: BallType,
         error: NBallGeometryError,
     },
+    UnsupportedNBallPhysics {
+        error: NBallGeometryError,
+    },
 }
 
 impl std::fmt::Display for DslBuildError {
@@ -2082,6 +2089,7 @@ impl std::fmt::Display for DslBuildError {
                 f,
                 "invalid layout: balls '{first_ball:?}' and '{second_ball:?}' violate rigid geometry: {error}"
             ),
+            Self::UnsupportedNBallPhysics { error } => write!(f, "unsupported N-ball physics: {error}"),
         }
     }
 }

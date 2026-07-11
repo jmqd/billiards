@@ -101,9 +101,11 @@ fn a_head_on_closing_ball_predicts_the_first_impact_time_and_feeds_the_ideal_col
         center_distance(&predicted.a_at_impact, &predicted.b_at_impact),
         2.0 * radius,
     );
-    assert_close(cue_after.as_ball_state().speed().as_f64(), 0.0);
-    assert_close(object_after.as_ball_state().velocity.x().as_f64(), 0.0);
-    assert_close(object_after.as_ball_state().velocity.y().as_f64(), 5.0);
+    assert_close(cue_after.speed().as_f64(), 0.0);
+    assert_close(cue_after.vertical_velocity.as_f64(), 0.0);
+    assert_close(object_after.velocity.x().as_f64(), 0.0);
+    assert_close(object_after.velocity.y().as_f64(), 5.0);
+    assert_close(object_after.vertical_velocity.as_f64(), 0.0);
 }
 
 #[test]
@@ -219,8 +221,6 @@ fn an_oblique_predicted_impact_preserves_the_expected_line_of_centers_geometry()
         &predicted.b_at_impact,
         CollisionModel::Ideal,
     );
-    let cue_after = cue_after.as_ball_state();
-    let object_after = object_after.as_ball_state();
     let dot_product = cue_after.velocity.x().as_f64() * object_after.velocity.x().as_f64()
         + cue_after.velocity.y().as_f64() * object_after.velocity.y().as_f64();
 

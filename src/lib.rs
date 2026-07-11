@@ -2,10 +2,13 @@ mod assets;
 pub mod diagram;
 mod drawing;
 pub mod dsl;
+pub mod shot_simulation;
 pub mod svg_generator;
 pub mod visualization;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
+
+pub use crate::shot_simulation::*;
 
 pub use crate::svg_generator::{
     render_svg_from_dsl, render_svg_from_dsl_with_options, SvgGeneratorOptions,
@@ -733,7 +736,7 @@ impl BallSetPhysicsSpec {
 ///
 /// `Ideal` is the equal-mass, perfectly elastic limit described by the local references:
 ///
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html` notes that for two balls of the same
+/// - `whitepapers/the_art_of_billiards_play.html` notes that for two balls of the same
 ///   mass in a perfectly elastic collision, the velocity component normal to the point of contact
 ///   is exchanged.
 /// - The same reference also states that when the struck ball is initially stationary, the moving
@@ -771,7 +774,7 @@ pub enum RailModel {
     SpinAware,
 }
 
-const HUMAN_TUNED_RAIL_NORMAL_RESTITUTION: f64 = 0.68;
+const HUMAN_TUNED_RAIL_NORMAL_RESTITUTION: f64 = 0.675;
 const HUMAN_TUNED_RAIL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.17;
 const HUMAN_TUNED_RAIL_IMPACT_CLOTH_FRICTION_COEFFICIENT: f64 = 0.20;
 const HUMAN_TUNED_RAIL_EFFECTIVE_CONTACT_HEIGHT_RATIO: f64 = 0.04;
@@ -803,10 +806,9 @@ pub fn mathavan_rigid_cushion_contains_normal_speed(speed: &InchesPerSecond) -> 
 ///
 /// - `agent_knowledge/whitepapers_formula_candidates.txt` (`TP 7.3`) includes the worked example
 ///   `e = 0.7` and `μ = 0.17` for ball-rail interaction with vertical-plane spin.
-/// - The current effective normal restitution is tuned slightly lower (`0.68`) so the richer
-///   `SpinAware` rail model matches the adjusted TP B.6 rolling-lag speed benchmark from the
-///   second diamond.
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.1, models the rail friction term
+/// - The current effective normal restitution is tuned to `0.675`, slightly lower than TP 7.3's
+///   representative `0.7`, so the energetic solver matches the TP B.6 lag benchmark.
+/// - `whitepapers/the_art_of_billiards_play.html`, §7.1, models the rail friction term
 ///   with the same `fi`-style friction-limited contact-slip structure used here.
 ///
 /// The last two fields tune only the richer `RailModel::SpinAware` path:
@@ -1173,6 +1175,7 @@ const IDEAL_BALL_BALL_NORMAL_RESTITUTION: f64 = 1.0;
 const HUMAN_TUNED_BALL_BALL_NORMAL_RESTITUTION: f64 = 0.95;
 const DEFAULT_BALL_BALL_TANGENTIAL_FRICTION_COEFFICIENT: f64 = 0.06;
 const KIM_2024_OBJECT_TABLE_STATIC_FRICTION_COEFFICIENT: f64 = 0.30;
+const KIM_STATIONARY_OBJECT_SPEED_TOLERANCE_INCHES_PER_SECOND: f64 = 1e-9;
 const MARLOW_BALL_BALL_FRICTION_A: f64 = 9.951e-3;
 const MARLOW_BALL_BALL_FRICTION_B: f64 = 0.108;
 const MARLOW_BALL_BALL_FRICTION_C_PER_METER_PER_SECOND: f64 = 1.088;
@@ -1243,10 +1246,11 @@ impl BallBallFrictionModel {
 /// `ideal()` preserves the existing equal-mass perfectly elastic normal limit and the historical
 /// constant-friction throw approximation. `human_tuned()` uses a less lively normal restitution and
 /// the TP A.14 / Marlow speed-dependent friction curve for throw / spin transfer. Both leave
-/// object/table static friction off deliberately: Kim 2024 reports a significant first-order
-/// object-ball/table correction with measured `μ_s ≈ 0.2..0.4`, but this on-table collision model
-/// still omits the paired vertical hop state. Use `with_kim_object_table_static_friction()` or an
-/// explicit coefficient to opt into that first-order extension.
+/// object/table static friction off deliberately. Kim 2024's first-order table correction is
+/// defined only for a stationary, non-spinning second collision operand. Use
+/// `with_kim_object_table_static_friction()` or an explicit coefficient to opt into that narrowly
+/// scoped extension; moving or spinning object inputs retain the ordinary ball-ball response and
+/// report `KimTableCorrectionStatus::SkippedObjectNotStationary`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BallBallCollisionConfig {
     pub normal_restitution: Scale,
@@ -1298,11 +1302,15 @@ impl BallBallCollisionConfig {
         self
     }
 
+    /// Enable Kim's first-order stationary-object/table correction for the second collision
+    /// operand. Moving or spinning object balls skip this term rather than approximating general
+    /// table friction.
     pub fn with_object_table_static_friction_coefficient(mut self, coefficient: Scale) -> Self {
         self.object_table_static_friction_coefficient = coefficient;
         self
     }
 
+    /// Enable Kim's measured `μ_s = 0.30` stationary-object/table approximation.
     pub fn with_kim_object_table_static_friction(self) -> Self {
         self.with_object_table_static_friction_coefficient(Scale::from_f64(
             KIM_2024_OBJECT_TABLE_STATIC_FRICTION_COEFFICIENT,
@@ -1345,19 +1353,32 @@ impl Default for BallBallCollisionConfig {
 ///
 /// `transferred_spin` is the angular-velocity increment implied by the shared contact-friction
 /// impulse. By default the same increment is applied to both equal-radius balls in the current
-/// reduced on-table model. If Kim-style object/table static friction is enabled, the object ball can
-/// receive an additional horizontal-axis spin increment from the table-coupled vertical impulse.
-/// Full vertical center-of-mass hop remains outside scope.
-///
-/// `diagnostics` exposes the contact basis, slip vector, impulse terms, and friction coefficient
-/// used by non-ideal contact solves. It is `None` for `CollisionModel::Ideal`.
+/// free-sphere response. Kim's opt-in first-order stationary-object/table term can add a further
+/// object-only horizontal-spin contribution. `diagnostics` records whether that term was disabled,
+/// applied, inactive for the impulse direction, or skipped because the second operand was not
+/// stationary.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollisionOutcome {
-    pub a_after: OnTableBallState,
-    pub b_after: OnTableBallState,
+    /// Full immediate free-sphere response for the first collision operand.
+    pub a_after: BallState,
+    /// Full immediate free-sphere response for the second collision operand.
+    pub b_after: BallState,
     pub throw_angle_degrees: Option<f64>,
     pub transferred_spin: Option<AngularVelocity3>,
     pub diagnostics: Option<CollisionDiagnostics>,
+}
+
+/// Whether the opt-in Kim 2024 stationary object/table correction was used.
+///
+/// The correction applies only to the second collision operand when it is both non-translating
+/// and non-spinning before impact. `SkippedObjectNotStationary` retains the ordinary ball-ball
+/// response without fabricating a general table-support impulse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KimTableCorrectionStatus {
+    DisabledByConfiguration,
+    AppliedStationaryObject,
+    InactiveForImpulseDirection,
+    SkippedObjectNotStationary,
 }
 
 /// Contact-space details for debugging and validating a non-ideal ball-ball collision.
@@ -1372,6 +1393,11 @@ pub struct CollisionDiagnostics {
     pub tangential_impulse_per_mass: f64,
     pub vertical_impulse_per_mass: f64,
     pub contact_friction_coefficient: f64,
+    pub kim_table_correction_status: KimTableCorrectionStatus,
+    /// Pre-impact speed of the second collision operand, in inches/second.
+    pub kim_object_center_speed_before: f64,
+    /// `R * |Ω|` of the second collision operand before impact, in inches/second.
+    pub kim_object_spin_surface_speed_before: f64,
     pub kim_table_coupled_normal_correction: f64,
 }
 
@@ -1446,13 +1472,13 @@ pub struct PredictedBallBallCollision {
     pub b_at_impact: OnTableBallState,
 }
 
-/// A predicted future contact involving at least one airborne ball.
+/// A predicted future collision involving at least one airborne ball.
 ///
-/// The current collision-response code is strictly on-table. This diagnostic keeps jump/elevated
-/// shots from silently tunneling through object balls before landing while leaving the full 3D
-/// response model as a separate, explicit implementation step.
+/// Contact timing follows the full three-dimensional center separation while each ball advances in
+/// its current ballistic or on-table state. The resolver applies the corresponding equal-sphere
+/// three-dimensional impulse before either ball is reclassified.
 #[derive(Clone, Debug, PartialEq)]
-pub struct PredictedUnsupportedAirborneBallBallContact {
+pub struct PredictedAirborneBallBallCollision {
     pub time_until_contact: Seconds,
     pub first_at_contact: BallState,
     pub second_at_contact: BallState,
@@ -1460,12 +1486,12 @@ pub struct PredictedUnsupportedAirborneBallBallContact {
 
 const AIRBORNE_BALL_BALL_DIAGNOSTIC_SAMPLE_SECONDS: f64 = 0.001;
 
-fn predict_unsupported_airborne_ball_ball_contact(
+fn predict_airborne_ball_ball_collision(
     first: &NBallSystemState,
     second: &NBallSystemState,
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
-) -> Option<PredictedUnsupportedAirborneBallBallContact> {
+) -> Option<PredictedAirborneBallBallCollision> {
     if first.as_on_table().is_some() && second.as_on_table().is_some() {
         return None;
     }
@@ -1507,9 +1533,38 @@ fn predict_unsupported_airborne_ball_ball_contact(
     };
 
     let mut lower_time = 0.0;
-    if gap_squared_at(lower_time) <= 0.0 {
-        return None;
+    let initial_gap = gap_squared_at(lower_time);
+    let first_state = first.as_ball_state();
+    let second_state = second.as_ball_state();
+    let center_offset = [
+        second_state.position.x().as_f64() - first_state.position.x().as_f64(),
+        second_state.position.y().as_f64() - first_state.position.y().as_f64(),
+        second_state.height.as_f64() - first_state.height.as_f64(),
+    ];
+    let relative_velocity = [
+        second_state.velocity.x().as_f64() - first_state.velocity.x().as_f64(),
+        second_state.velocity.y().as_f64() - first_state.velocity.y().as_f64(),
+        second_state.vertical_velocity.as_f64() - first_state.vertical_velocity.as_f64(),
+    ];
+    let gap_rate = 2.0 * dot_product_3d(center_offset, relative_velocity);
+    let gap_rate_tolerance = 1e-10
+        * (contact_distance * dot_product_3d(relative_velocity, relative_velocity).sqrt()).max(1.0);
+    let diagnostic_sample = AIRBORNE_BALL_BALL_DIAGNOSTIC_SAMPLE_SECONDS.min(horizon);
+    let diagnostic_gap = gap_squared_at(diagnostic_sample);
+    let materially_inward =
+        diagnostic_gap < initial_gap - 1e-12 * contact_distance_squared.max(1.0);
+    let closing_through_sample = gap_rate < -gap_rate_tolerance && diagnostic_gap <= 0.0;
+    let accelerating_inward = gap_rate.abs() <= gap_rate_tolerance && materially_inward;
+    if initial_gap <= 0.0 && (closing_through_sample || accelerating_inward) {
+        return Some(PredictedAirborneBallBallCollision {
+            time_until_contact: Seconds::zero(),
+            first_at_contact: first_state.clone(),
+            second_at_contact: second_state.clone(),
+        });
     }
+
+    // A ball leaving a zero-time contact can later re-enter while it remains airborne.
+    let mut awaiting_free_flight = initial_gap <= 0.0;
 
     let sample_count = (horizon / AIRBORNE_BALL_BALL_DIAGNOSTIC_SAMPLE_SECONDS)
         .ceil()
@@ -1517,6 +1572,13 @@ fn predict_unsupported_airborne_ball_ball_contact(
     for sample_index in 1..=sample_count {
         let upper_time = horizon * sample_index as f64 / sample_count as f64;
         let upper_gap = gap_squared_at(upper_time);
+        if awaiting_free_flight {
+            if upper_gap > 0.0 {
+                lower_time = upper_time;
+                awaiting_free_flight = false;
+            }
+            continue;
+        }
         if upper_gap <= 0.0 {
             let mut lo = lower_time;
             let mut hi = upper_time;
@@ -1534,7 +1596,7 @@ fn predict_unsupported_airborne_ball_ball_contact(
                 ball,
                 motion,
             );
-            return Some(PredictedUnsupportedAirborneBallBallContact {
+            return Some(PredictedAirborneBallBallCollision {
                 time_until_contact: Seconds::new(hi),
                 first_at_contact: states_at_contact[0].as_ball_state().clone(),
                 second_at_contact: states_at_contact[1].as_ball_state().clone(),
@@ -1635,15 +1697,13 @@ impl TwoBallOnTableEvent {
 /// How a shared simultaneous ball-ball contact graph is resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SharedBallBallContactResolution {
-    CoupledIdealOrIterativePairwiseApproximation { max_passes: usize },
+    CoupledNormal,
 }
 
 impl SharedBallBallContactResolution {
     pub fn as_str(&self) -> &'static str {
         match self {
-            SharedBallBallContactResolution::CoupledIdealOrIterativePairwiseApproximation {
-                ..
-            } => "coupled_ideal_or_iterative_pairwise_approximation",
+            SharedBallBallContactResolution::CoupledNormal => "coupled_normal",
         }
     }
 }
@@ -1658,9 +1718,8 @@ impl SharedBallBallContactResolution {
 /// 2. ball-rail impact, ordered by `ball_index`
 /// 3. motion transition, ordered by `ball_index`
 ///
-/// Shared simultaneous ball-ball contacts are reported explicitly because the execution step
-/// resolves the whole contact graph for ideal normal impulses and falls back to a deterministic
-/// iterative pairwise approximation for non-ideal collision models.
+/// Shared simultaneous ball-ball contacts are reported explicitly because execution resolves the
+/// entire contact graph in one coupled normal-impulse solve.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NBallOnTableEvent {
     BallBallCollision {
@@ -1742,7 +1801,7 @@ enum NBallPocketAwareSystemEventSource {
         first_ball_index: usize,
         second_ball_index: usize,
     },
-    UnsupportedAirborneBallBallContact {
+    AirborneBallBallCollision {
         first_ball_index: usize,
         second_ball_index: usize,
     },
@@ -1770,10 +1829,10 @@ enum NBallPocketAwareSystemEventCandidateRef<'a> {
         second_ball_index: usize,
         collision: &'a PredictedBallBallCollision,
     },
-    UnsupportedAirborneBallBallContact {
+    AirborneBallBallCollision {
         first_ball_index: usize,
         second_ball_index: usize,
-        contact: &'a PredictedUnsupportedAirborneBallBallContact,
+        contact: &'a PredictedAirborneBallBallCollision,
     },
     BallJawImpact {
         ball_index: usize,
@@ -1808,11 +1867,11 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
                 first_ball_index,
                 second_ball_index,
             },
-            Self::UnsupportedAirborneBallBallContact {
+            Self::AirborneBallBallCollision {
                 first_ball_index,
                 second_ball_index,
                 ..
-            } => NBallPocketAwareSystemEventSource::UnsupportedAirborneBallBallContact {
+            } => NBallPocketAwareSystemEventSource::AirborneBallBallCollision {
                 first_ball_index,
                 second_ball_index,
             },
@@ -1837,9 +1896,7 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
     fn time_seconds(&self) -> f64 {
         match *self {
             Self::BallBallCollision { collision, .. } => collision.time_until_impact.as_f64(),
-            Self::UnsupportedAirborneBallBallContact { contact, .. } => {
-                contact.time_until_contact.as_f64()
-            }
+            Self::AirborneBallBallCollision { contact, .. } => contact.time_until_contact.as_f64(),
             Self::BallJawImpact { impact, .. } => impact.time_until_impact.as_f64(),
             Self::BallPocketCapture { capture, .. } => capture.time_until_capture.as_f64(),
             Self::BallRailImpact { impact, .. } => impact.time_until_impact.as_f64(),
@@ -1859,11 +1916,11 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
                 second_ball_index,
                 collision: collision.clone(),
             },
-            Self::UnsupportedAirborneBallBallContact {
+            Self::AirborneBallBallCollision {
                 first_ball_index,
                 second_ball_index,
                 contact,
-            } => NBallSystemEvent::UnsupportedAirborneBallBallContact {
+            } => NBallSystemEvent::AirborneBallBallCollision {
                 first_ball_index,
                 second_ball_index,
                 contact: contact.clone(),
@@ -1901,67 +1958,49 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
     }
 }
 
-fn prefer_explicit_jaw_over_nearby_capture_ref(
-    candidate: NBallPocketAwareSystemEventCandidateRef<'_>,
-    current: NBallPocketAwareSystemEventCandidateRef<'_>,
-) -> Option<bool> {
-    match (candidate, current) {
-        (
-            NBallPocketAwareSystemEventCandidateRef::BallJawImpact {
-                ball_index: candidate_ball,
-                impact,
-            },
-            NBallPocketAwareSystemEventCandidateRef::BallPocketCapture {
-                ball_index: current_ball,
-                capture,
-            },
-        ) if candidate_ball == current_ball
-            && impact.pocket == capture.pocket
-            && (impact.time_until_impact.as_f64() - capture.time_until_capture.as_f64()).abs()
-                <= NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS =>
-        {
-            Some(true)
-        }
-        (
-            NBallPocketAwareSystemEventCandidateRef::BallPocketCapture {
-                ball_index: candidate_ball,
-                capture,
-            },
-            NBallPocketAwareSystemEventCandidateRef::BallJawImpact {
-                ball_index: current_ball,
-                impact,
-            },
-        ) if candidate_ball == current_ball
-            && impact.pocket == capture.pocket
-            && (impact.time_until_impact.as_f64() - capture.time_until_capture.as_f64()).abs()
-                <= NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS =>
-        {
-            Some(false)
-        }
-        _ => None,
-    }
+fn earlier_pocket_aware_event_time_and_source(
+    candidate_time: f64,
+    candidate_source: NBallPocketAwareSystemEventSource,
+    current_time: f64,
+    current_source: NBallPocketAwareSystemEventSource,
+) -> bool {
+    candidate_time < current_time
+        || ((candidate_time - current_time).abs() <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
+            && candidate_source < current_source)
 }
 
 fn earlier_n_ball_pocket_aware_event_candidate_ref(
     candidate: NBallPocketAwareSystemEventCandidateRef<'_>,
     current: NBallPocketAwareSystemEventCandidateRef<'_>,
 ) -> bool {
-    if let Some(prefer_candidate) = prefer_explicit_jaw_over_nearby_capture_ref(candidate, current)
-    {
-        return prefer_candidate;
-    }
+    earlier_pocket_aware_event_time_and_source(
+        candidate.time_seconds(),
+        candidate.source(),
+        current.time_seconds(),
+        current.source(),
+    )
+}
 
-    let candidate_time = candidate.time_seconds();
-    let current_time = current.time_seconds();
+#[cfg(test)]
+#[test]
+fn pocket_event_order_never_promotes_a_later_jaw_over_capture() {
+    let jaw = NBallPocketAwareSystemEventSource::BallJawImpact { ball_index: 0 };
+    let capture = NBallPocketAwareSystemEventSource::BallPocketCapture { ball_index: 0 };
 
-    candidate_time < current_time
-        || ((candidate_time - current_time).abs() <= 1e-12 && candidate.source() < current.source())
+    assert!(
+        !earlier_pocket_aware_event_time_and_source(0.047_875, jaw, 0.044, capture),
+        "a later jaw cannot supersede an earlier terminal capture"
+    );
+    assert!(
+        earlier_pocket_aware_event_time_and_source(0.044, capture, 0.047_875, jaw),
+        "the chronological minimum must win regardless of event source"
+    );
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct PocketAwareEventCache {
     ball_ball: HashMap<(usize, usize), PredictedBallBallCollision>,
-    airborne_ball_ball: HashMap<(usize, usize), PredictedUnsupportedAirborneBallBallContact>,
+    airborne_ball_ball: HashMap<(usize, usize), PredictedAirborneBallBallCollision>,
     jaw_impacts: Vec<Option<PredictedBallJawImpact>>,
     pocket_captures: Vec<Option<PredictedBallPocketCapture>>,
     rail_impacts: Vec<Option<PredictedBallRailImpact>>,
@@ -2000,6 +2039,8 @@ impl PocketAwareEventCache {
         table: &TableSpec,
         config: &OnTableMotionConfig,
     ) {
+        self.refresh_ball_pair_predictions(ball_index, states, ball, config);
+
         let state = match &states[ball_index] {
             NBallSystemState::OnTable(state) => {
                 self.table_bounces[ball_index] = None;
@@ -2007,38 +2048,23 @@ impl PocketAwareEventCache {
             }
             NBallSystemState::Airborne(state) => {
                 self.transitions[ball_index] = None;
-                self.ball_ball
-                    .retain(|&(first, second), _| first != ball_index && second != ball_index);
-                self.airborne_ball_ball
-                    .retain(|&(first, second), _| first != ball_index && second != ball_index);
 
                 self.table_bounces[ball_index] =
                     settle_airborne_ball_on_next_table_contact(state, ball);
-                let Some(table_bounce) = self.table_bounces[ball_index].as_ref() else {
+                if self.table_bounces[ball_index].is_none() {
                     self.jaw_impacts[ball_index] = None;
                     self.pocket_captures[ball_index] = None;
                     self.rail_impacts[ball_index] = None;
                     return;
-                };
-                let table_contact_time = table_bounce.time_until_contact.as_f64();
-                let planar_state = OnTableBallState::try_new(BallState::on_table(
-                    state.position.clone(),
-                    state.velocity.clone(),
-                    state.angular_velocity.clone(),
-                ))
-                .expect("airborne planar projection should satisfy on-table invariants");
+                }
 
-                self.jaw_impacts[ball_index] =
-                    compute_next_ball_jaw_impact_on_table(&planar_state, ball, table, config)
-                        .filter(|impact| impact.time_until_impact.as_f64() <= table_contact_time);
-                self.pocket_captures[ball_index] =
-                    compute_next_ball_pocket_capture_on_table(&planar_state, ball, table, config)
-                        .filter(|capture| {
-                            capture.time_until_capture.as_f64() <= table_contact_time
-                        });
-                self.rail_impacts[ball_index] =
-                    compute_next_ball_rail_impact_on_table(&planar_state, ball, table, config)
-                        .filter(|impact| impact.time_until_impact.as_f64() <= table_contact_time);
+                // Rail, jaw, and capture predictors accept `OnTableBallState` because their
+                // responses are planar table-contact models. Never manufacture one by dropping
+                // an airborne ball's height and vertical velocity: a projected XY crossing is not
+                // an executable table-boundary event.
+                self.jaw_impacts[ball_index] = None;
+                self.pocket_captures[ball_index] = None;
+                self.rail_impacts[ball_index] = None;
                 return;
             }
             NBallSystemState::Pocketed { .. } => {
@@ -2047,10 +2073,6 @@ impl PocketAwareEventCache {
                 self.rail_impacts[ball_index] = None;
                 self.table_bounces[ball_index] = None;
                 self.transitions[ball_index] = None;
-                self.ball_ball
-                    .retain(|&(first, second), _| first != ball_index && second != ball_index);
-                self.airborne_ball_ball
-                    .retain(|&(first, second), _| first != ball_index && second != ball_index);
                 return;
             }
         };
@@ -2062,7 +2084,15 @@ impl PocketAwareEventCache {
         self.rail_impacts[ball_index] =
             compute_next_ball_rail_impact_on_table(state, ball, table, config);
         self.transitions[ball_index] = compute_next_transition_on_table(state, ball, config);
+    }
 
+    fn refresh_ball_pair_predictions(
+        &mut self,
+        ball_index: usize,
+        states: &[NBallSystemState],
+        ball: &BallSetPhysicsSpec,
+        config: &OnTableMotionConfig,
+    ) {
         for other_index in 0..states.len() {
             if other_index == ball_index {
                 continue;
@@ -2091,7 +2121,7 @@ impl PocketAwareEventCache {
                 }
                 _ => {
                     self.ball_ball.remove(&key);
-                    if let Some(contact) = predict_unsupported_airborne_ball_ball_contact(
+                    if let Some(contact) = predict_airborne_ball_ball_collision(
                         &states[key.0],
                         &states[key.1],
                         ball,
@@ -2128,12 +2158,11 @@ impl PocketAwareEventCache {
         }
 
         for (&(first_ball_index, second_ball_index), contact) in &self.airborne_ball_ball {
-            let candidate =
-                NBallPocketAwareSystemEventCandidateRef::UnsupportedAirborneBallBallContact {
-                    first_ball_index,
-                    second_ball_index,
-                    contact,
-                };
+            let candidate = NBallPocketAwareSystemEventCandidateRef::AirborneBallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                contact,
+            };
             earliest_time = earliest_time.min(candidate.time_seconds());
             if best.is_none_or(|current| {
                 earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
@@ -2364,10 +2393,10 @@ pub enum NBallSystemEvent {
         second_ball_index: usize,
         collision: PredictedBallBallCollision,
     },
-    UnsupportedAirborneBallBallContact {
+    AirborneBallBallCollision {
         first_ball_index: usize,
         second_ball_index: usize,
-        contact: PredictedUnsupportedAirborneBallBallContact,
+        contact: PredictedAirborneBallBallCollision,
     },
     SharedBallBallContact {
         time_until_contact: Seconds,
@@ -2401,7 +2430,7 @@ impl NBallSystemEvent {
     pub fn time(&self) -> Seconds {
         match self {
             NBallSystemEvent::BallBallCollision { collision, .. } => collision.time_until_impact,
-            NBallSystemEvent::UnsupportedAirborneBallBallContact { contact, .. } => {
+            NBallSystemEvent::AirborneBallBallCollision { contact, .. } => {
                 contact.time_until_contact
             }
             NBallSystemEvent::SharedBallBallContact {
@@ -2420,7 +2449,7 @@ impl NBallSystemEvent {
     pub fn primary_ball(&self) -> Option<usize> {
         match self {
             NBallSystemEvent::BallBallCollision { .. }
-            | NBallSystemEvent::UnsupportedAirborneBallBallContact { .. }
+            | NBallSystemEvent::AirborneBallBallCollision { .. }
             | NBallSystemEvent::SharedBallBallContact { .. } => None,
             NBallSystemEvent::BallJawImpact { ball_index, .. }
             | NBallSystemEvent::BallPocketCapture { ball_index, .. }
@@ -2428,13 +2457,6 @@ impl NBallSystemEvent {
             | NBallSystemEvent::BallTableBounce { ball_index, .. }
             | NBallSystemEvent::MotionTransition { ball_index, .. } => Some(*ball_index),
         }
-    }
-
-    pub fn is_terminal_diagnostic(&self) -> bool {
-        matches!(
-            self,
-            NBallSystemEvent::UnsupportedAirborneBallBallContact { .. }
-        )
     }
 }
 
@@ -2642,7 +2664,7 @@ pub fn human_tuned_preview_motion_config() -> OnTableMotionConfig {
 pub enum SlidingFrictionModel {
     /// Approximate on-cloth sliding with a constant-magnitude translational acceleration `f g`
     /// opposite the cloth-contact slip vector, matching Eq. (M1') in
-    /// `whitepapers/art_of_billiards_play_files/bil_praa.html`.
+    /// `whitepapers/the_art_of_billiards_play.html`.
     ConstantAcceleration {
         acceleration_magnitude: InchesPerSecondSq,
     },
@@ -2653,7 +2675,7 @@ pub enum SlidingFrictionModel {
 pub enum SpinDecayModel {
     /// Approximate z-axis spin decay as a constant-magnitude angular deceleration opposite the
     /// current z-spin direction, matching Eq. (M14') in
-    /// `whitepapers/art_of_billiards_play_files/bil_praa.html`.
+    /// `whitepapers/the_art_of_billiards_play.html`.
     ConstantAngularDeceleration {
         angular_deceleration: RadiansPerSecondSq,
     },
@@ -2781,6 +2803,17 @@ pub enum NBallGeometryError {
         penetration: Inches,
         recovery_tolerance: Inches,
     },
+    UnsupportedNonIdealSharedBallBallContact {
+        collision_model: CollisionModel,
+    },
+}
+
+/// Error returned when an on-table-only continuation cannot safely continue a full collision
+/// response, or when its otherwise valid planar geometry is invalid.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PostContactContinuationError {
+    NotOnTable(OnTableStateError),
+    Geometry(NBallGeometryError),
 }
 
 impl fmt::Display for NBallGeometryError {
@@ -2802,11 +2835,33 @@ impl fmt::Display for NBallGeometryError {
                 required_center_distance.as_f64(),
                 recovery_tolerance.as_f64(),
             ),
+            NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model } => {
+                write!(
+                    formatter,
+                    "shared ball-ball contact with {collision_model:?} requires a full-state coupled solver"
+                )
+            }
         }
     }
 }
 
 impl std::error::Error for NBallGeometryError {}
+
+/// Error returned by an on-table N-ball executor.
+///
+/// The legacy executor is intentionally planar-only. Frictional ball-ball models can generate
+/// vertical center-of-mass motion and therefore belong to the richer `NBallSystemState` API.
+#[derive(Clone, Debug, PartialEq)]
+pub enum NBallOnTableExecutionError {
+    Geometry(NBallGeometryError),
+    NonPlanarCollisionModel { collision_model: CollisionModel },
+}
+
+impl From<NBallGeometryError> for NBallOnTableExecutionError {
+    fn from(error: NBallGeometryError) -> Self {
+        Self::Geometry(error)
+    }
+}
 
 /// The kinematic state of a billiard ball.
 ///
@@ -5318,13 +5373,13 @@ fn try_on_table_state(
 ///
 /// The currently implemented cases are grounded in the local references:
 ///
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3, Eqs. (M4), (M8), and
+/// - `whitepapers/the_art_of_billiards_play.html`, §7.3, Eqs. (M4), (M8), and
 ///   (M10'), gives the exact on-cloth sliding transition under Coulomb friction.
 ///   In that notation, `WE` is the cloth-contact slip velocity. Our
 ///   `cloth_contact_velocity_on_table(...)` helper implements the same quantity, so
 ///   `tc = ||Wi - Wc|| / (f g)` and `Wc = Wi - (2/7) WEi` become
 ///   `tc = (2/7) ||WEi|| / (f g)`.
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.5, Eqs. (M13) through (M14''),
+/// - `whitepapers/the_art_of_billiards_play.html`, §7.5, Eqs. (M13) through (M14''),
 ///   shows that vertical-axis spin decays linearly with time during both sliding and rolling, so a
 ///   rolling ball with residual z-spin can transition to `Spinning` when translation stops.
 /// - `whitepapers/rolling_motion_of_a_ball_spinning_about_a_near_vertical_axis.pdf` reports experimental cases where both `v` and `ω`
@@ -6098,7 +6153,7 @@ fn ideal_ball_ball_collision_velocities(
 /// - `whitepapers/the_physics_of_billiards.html` describes the struck ball moving along the line
 ///   joining the ball centers at contact, which implies impact occurs when the center distance first
 ///   reaches `2R`.
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html` treats the ball-ball event as an
+/// - `whitepapers/the_art_of_billiards_play.html` treats the ball-ball event as an
 ///   instantaneous collision at a single contact configuration, which is the event this helper
 ///   predicts.
 ///
@@ -6166,7 +6221,7 @@ fn raw_ball_ball_contact_is_closing(a: RawOnTableBallState, b: RawOnTableBallSta
     let rvy = b.vy - a.vy;
     let radial_velocity = rx * rvx + ry * rvy;
     let relative_speed = rvx.hypot(rvy);
-    let tolerance = 1e-10 * (rx.hypot(ry) * relative_speed).max(1.0);
+    let tolerance = 1e-8 * (rx.hypot(ry) * relative_speed).max(1.0);
 
     radial_velocity < -tolerance
 }
@@ -6177,7 +6232,7 @@ fn raw_ball_ball_contact_is_closing(a: RawOnTableBallState, b: RawOnTableBallSta
 /// This helper combines the current whitepaper-backed on-table motion model with the standard
 /// ball-ball contact geometry:
 ///
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, §7.3 and §7.5, provide the current
+/// - `whitepapers/the_art_of_billiards_play.html`, §7.3 and §7.5, provide the current
 ///   within-phase sliding, rolling, and z-spin evolution used by `advance_within_phase_on_table(...)`.
 /// - `whitepapers/the_physics_of_billiards.html` describes the ball-ball impact geometry through the
 ///   line of centers, so first contact still occurs when the center distance reaches `2R`.
@@ -6278,15 +6333,16 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
             first_ball_ball_contact_time_for_relative_motion(relative_motion, horizon)?
         };
     let time_until_impact = Seconds::new(dt_seconds);
-    let a_at_impact = raw_advance_within_phase_on_table(a_raw, a_phase, dt_seconds, radius, config)
-        .into_on_table_state();
-    let b_at_impact = raw_advance_within_phase_on_table(b_raw, b_phase, dt_seconds, radius, config)
-        .into_on_table_state();
+    let a_at_impact = raw_advance_within_phase_on_table(a_raw, a_phase, dt_seconds, radius, config);
+    let b_at_impact = raw_advance_within_phase_on_table(b_raw, b_phase, dt_seconds, radius, config);
+    if !raw_ball_ball_contact_is_closing(a_at_impact, b_at_impact) {
+        return None;
+    }
 
     Some(PredictedBallBallCollision {
         time_until_impact,
-        a_at_impact,
-        b_at_impact,
+        a_at_impact: a_at_impact.into_on_table_state(),
+        b_at_impact: b_at_impact.into_on_table_state(),
     })
 }
 
@@ -6409,10 +6465,12 @@ fn first_rail_collision_time_during_current_phase_raw(
 
 /// Predict the next future rail impact for one on-table ball.
 ///
-/// This helper uses the same within-phase on-table motion model as the current single-ball solver,
-/// but checks for first contact against the four ideal rail planes implied by the table geometry.
-/// The current implementation only searches until the ball's next motion transition, making this
-/// the rail analogue of `compute_next_ball_ball_collision_during_current_phases_on_table(...)`.
+/// This helper uses the same within-phase on-table motion model as the current single-ball solver
+/// and predicts only ordinary cushion-face contacts. Rail planes are clipped at configured pocket
+/// mouths; if the ball first crosses an open mouth, this returns `None` rather than inventing a
+/// full-rail rebound. Callers needing continuation through that aperture must use a pocket-aware
+/// event API. The search ends at the ball's next motion transition, matching
+/// `compute_next_ball_ball_collision_during_current_phases_on_table(...)`.
 pub fn compute_next_ball_rail_impact_on_table(
     state: &OnTableBallState,
     ball: &BallSetPhysicsSpec,
@@ -6430,6 +6488,7 @@ pub fn compute_next_ball_rail_impact_on_table(
     }
 
     let mut best: Option<PredictedBallRailImpact> = None;
+    let mut first_pocket_aperture_time: Option<f64> = None;
 
     for rail in [Rail::Top, Rail::Right, Rail::Bottom, Rail::Left] {
         let Some(time_until_impact) = first_rail_collision_time_during_current_phase_raw(
@@ -6451,6 +6510,13 @@ pub fn compute_next_ball_rail_impact_on_table(
             config,
         )
         .into_on_table_state();
+        if rail_contact_lies_within_pocket_aperture(rail, &state_at_impact, table) {
+            let aperture_time = time_until_impact.as_f64();
+            if first_pocket_aperture_time.is_none_or(|current| aperture_time < current) {
+                first_pocket_aperture_time = Some(aperture_time);
+            }
+            continue;
+        }
         let impact = PredictedBallRailImpact {
             rail,
             time_until_impact,
@@ -6464,7 +6530,14 @@ pub fn compute_next_ball_rail_impact_on_table(
         }
     }
 
-    best
+    if first_pocket_aperture_time.is_some_and(|aperture_time| {
+        best.as_ref()
+            .is_none_or(|impact| aperture_time < impact.time_until_impact.as_f64())
+    }) {
+        None
+    } else {
+        best
+    }
 }
 
 fn pocket_center_in_inches(pocket: Pocket, table: &TableSpec) -> (f64, f64) {
@@ -6544,17 +6617,100 @@ fn pocket_jaw_geometry_in_inches(
     jaw: PocketJaw,
     table: &TableSpec,
 ) -> ResolvedPocketJawGeometry {
-    let (center_x, center_y) = pocket_jaw_reference_point_in_inches(pocket, jaw, table);
+    let (mouth_tip_x, mouth_tip_y) = pocket_jaw_reference_point_in_inches(pocket, jaw, table);
     let nose_radius = match &table.pocket_spec(pocket).shape.jaw_geometry {
         PocketJawGeometry::PointNoses => 0.0,
         PocketJawGeometry::RoundedNoses { nose_radius } => nose_radius.as_f64(),
     };
+    if nose_radius <= f64::EPSILON {
+        return ResolvedPocketJawGeometry {
+            center_x: mouth_tip_x,
+            center_y: mouth_tip_y,
+            nose_radius: 0.0,
+        };
+    }
 
+    let other_jaw = match jaw {
+        PocketJaw::First => PocketJaw::Second,
+        PocketJaw::Second => PocketJaw::First,
+    };
+    let (other_tip_x, other_tip_y) = pocket_jaw_reference_point_in_inches(pocket, other_jaw, table);
+    let opening_dx = other_tip_x - mouth_tip_x;
+    let opening_dy = other_tip_y - mouth_tip_y;
+    let opening_length = opening_dx.hypot(opening_dy);
+    assert!(
+        opening_length > f64::EPSILON,
+        "pocket jaws must have distinct physical mouth tips"
+    );
+
+    // `PocketSpec::width` is the physical point-to-point opening. The rounded jaw's support point
+    // toward the opposing jaw is that mouth tip, so its virtual circle center moves one nose radius
+    // away from the opening rather than consuming width from it.
     ResolvedPocketJawGeometry {
-        center_x,
-        center_y,
+        center_x: mouth_tip_x - nose_radius * opening_dx / opening_length,
+        center_y: mouth_tip_y - nose_radius * opening_dy / opening_length,
         nose_radius,
     }
+}
+
+fn rail_contact_lies_within_pocket_aperture(
+    rail: Rail,
+    state_at_impact: &OnTableBallState,
+    table: &TableSpec,
+) -> bool {
+    if !table.has_pockets() {
+        return false;
+    }
+
+    let coordinate = match rail {
+        Rail::Top | Rail::Bottom => state_at_impact.as_ball_state().position.x().as_f64(),
+        Rail::Left | Rail::Right => state_at_impact.as_ball_state().position.y().as_f64(),
+    };
+    let (left_x, right_x, bottom_y, top_y) = pocket_face_coordinates_in_inches(table);
+    const APERTURE_TOLERANCE: f64 = 1e-9;
+
+    for pocket in Pocket::ALL {
+        if pocket_mouth_width_in_inches(pocket, table) <= f64::EPSILON {
+            continue;
+        }
+
+        let mut jaw_coordinates = [0.0; 2];
+        let mut jaw_count = 0;
+        for jaw in PocketJaw::ALL {
+            if pocket_jaw_associated_rail(pocket, jaw) != rail {
+                continue;
+            }
+            let (jaw_x, jaw_y) = pocket_jaw_reference_point_in_inches(pocket, jaw, table);
+            jaw_coordinates[jaw_count] = match rail {
+                Rail::Top | Rail::Bottom => jaw_x,
+                Rail::Left | Rail::Right => jaw_y,
+            };
+            jaw_count += 1;
+        }
+        if jaw_count == 0 {
+            continue;
+        }
+
+        let (aperture_start, aperture_end) = if jaw_count == 2 {
+            (jaw_coordinates[0], jaw_coordinates[1])
+        } else {
+            let (pocket_x, pocket_y) = pocket_center_in_inches(pocket, table);
+            let terminal_coordinate = match rail {
+                Rail::Top | Rail::Bottom if pocket_x <= 0.5 * (left_x + right_x) => left_x,
+                Rail::Top | Rail::Bottom => right_x,
+                Rail::Left | Rail::Right if pocket_y <= 0.5 * (bottom_y + top_y) => bottom_y,
+                Rail::Left | Rail::Right => top_y,
+            };
+            (jaw_coordinates[0], terminal_coordinate)
+        };
+        let lower = aperture_start.min(aperture_end) - APERTURE_TOLERANCE;
+        let upper = aperture_start.max(aperture_end) + APERTURE_TOLERANCE;
+        if coordinate >= lower && coordinate <= upper {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn pocket_slow_capture_radius_in_inches(pocket: Pocket, table: &TableSpec) -> f64 {
@@ -9534,7 +9690,6 @@ fn advance_n_on_table_balls_without_event(
 }
 
 const SIMULTANEOUS_EVENT_TOLERANCE_SECONDS: f64 = 1e-12;
-const SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES: usize = 8;
 const SHARED_BALL_BALL_CONTACT_STATE_EPSILON: f64 = 1e-9;
 const MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS: usize = 256;
 const TP_B29_THREE_BALL_CONTACT_POSITION_EPSILON: f64 = 1e-7;
@@ -9544,9 +9699,7 @@ const TP_B29_MIDDLE_FINAL_SPEED_RATIO: f64 = 0.076_162_352_228_028;
 const TP_B29_OUTGOING_FINAL_SPEED_RATIO: f64 = 0.994_582_552_885_187;
 
 fn shared_ball_ball_contact_resolution() -> SharedBallBallContactResolution {
-    SharedBallBallContactResolution::CoupledIdealOrIterativePairwiseApproximation {
-        max_passes: SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES,
-    }
+    SharedBallBallContactResolution::CoupledNormal
 }
 
 fn simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
@@ -9993,29 +10146,51 @@ fn n_ball_system_collision_delta(before: &[NBallSystemState], after: &[NBallSyst
 struct OnTableKinematicDelta {
     dvx: f64,
     dvy: f64,
+    dvz: f64,
     dwx: f64,
     dwy: f64,
     dwz: f64,
 }
 
 impl OnTableKinematicDelta {
-    fn add_from_collision_pair_state(
-        &mut self,
-        before: &OnTableBallState,
-        after: &OnTableBallState,
-    ) {
-        let before = before.as_ball_state();
-        let after = after.as_ball_state();
-        self.dvx += after.velocity.x().as_f64() - before.velocity.x().as_f64();
-        self.dvy += after.velocity.y().as_f64() - before.velocity.y().as_f64();
-        self.dwx += after.angular_velocity.x().as_f64() - before.angular_velocity.x().as_f64();
-        self.dwy += after.angular_velocity.y().as_f64() - before.angular_velocity.y().as_f64();
-        self.dwz += after.angular_velocity.z().as_f64() - before.angular_velocity.z().as_f64();
-    }
-
     fn magnitude(&self) -> f64 {
-        self.dvx.abs() + self.dvy.abs() + self.dwx.abs() + self.dwy.abs() + self.dwz.abs()
+        self.dvx.abs()
+            + self.dvy.abs()
+            + self.dvz.abs()
+            + self.dwx.abs()
+            + self.dwy.abs()
+            + self.dwz.abs()
     }
+}
+
+/// Resolve a pair only after the public planar executor has rejected non-planar collision models.
+///
+/// Keeping this conversion private makes the planar invariant explicit at the sole legacy boundary;
+/// callers that need frictional responses must use `NBallSystemState`.
+fn collide_ball_ball_in_planar_executor(
+    a: &OnTableBallState,
+    b: &OnTableBallState,
+    ball_radius: Inches,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) -> (OnTableBallState, OnTableBallState) {
+    assert!(
+        shared_contact_supports_coupled_normal_only(collision_model, collision_config),
+        "frictional collision response requires the NBallSystemState executor"
+    );
+    let (a_after, b_after) = collide_ball_ball_on_table_with_radius_and_config(
+        a,
+        b,
+        ball_radius,
+        collision_model,
+        collision_config,
+    );
+    (
+        OnTableBallState::try_from(a_after)
+            .expect("ideal ball-ball collision must preserve the planar state domain"),
+        OnTableBallState::try_from(b_after)
+            .expect("ideal ball-ball collision must preserve the planar state domain"),
+    )
 }
 
 fn apply_on_table_kinematic_delta(
@@ -10047,29 +10222,30 @@ struct SharedIdealBallBallContact {
     relative_normal_velocity: f64,
 }
 
-fn shared_ideal_ball_ball_contact_from_state_refs(
+fn touching_ball_ball_contact_from_state_refs(
     state_refs: &[Option<&OnTableBallState>],
     first_ball_index: usize,
     second_ball_index: usize,
     ball: &BallSetPhysicsSpec,
-    motion: &OnTableMotionConfig,
 ) -> Option<SharedIdealBallBallContact> {
     let first = state_refs.get(first_ball_index).and_then(|state| *state)?;
     let second = state_refs.get(second_ball_index).and_then(|state| *state)?;
-    let collision = compute_next_ball_ball_collision_during_current_phases_on_table(
-        first, second, ball, motion,
-    )?;
-    if collision.time_until_impact.as_f64() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+    let first_state = first.as_ball_state();
+    let second_state = second.as_ball_state();
+    let dx = second_state.position.x().as_f64() - first_state.position.x().as_f64();
+    let dy = second_state.position.y().as_f64() - first_state.position.y().as_f64();
+    let distance = dx.hypot(dy);
+    let contact_distance = 2.0 * ball.radius.as_f64();
+    let contact_tolerance = TP_B29_THREE_BALL_CONTACT_POSITION_EPSILON * contact_distance.max(1.0);
+    if distance <= f64::EPSILON || (distance - contact_distance).abs() > contact_tolerance {
         return None;
     }
 
-    let (normal_x, normal_y, _, _) =
-        collision_contact_basis(&collision.a_at_impact, &collision.b_at_impact);
-    let first_velocity = &collision.a_at_impact.as_ball_state().velocity;
-    let second_velocity = &collision.b_at_impact.as_ball_state().velocity;
-    let relative_normal_velocity = (second_velocity.x().as_f64() - first_velocity.x().as_f64())
-        * normal_x
-        + (second_velocity.y().as_f64() - first_velocity.y().as_f64()) * normal_y;
+    let normal_x = dx / distance;
+    let normal_y = dy / distance;
+    let relative_normal_velocity =
+        (second_state.velocity.x().as_f64() - first_state.velocity.x().as_f64()) * normal_x
+            + (second_state.velocity.y().as_f64() - first_state.velocity.y().as_f64()) * normal_y;
 
     Some(SharedIdealBallBallContact {
         first_ball_index,
@@ -10078,6 +10254,64 @@ fn shared_ideal_ball_ball_contact_from_state_refs(
         normal_y,
         relative_normal_velocity,
     })
+}
+
+fn touching_ball_ball_component_contacts_from_state_refs(
+    state_refs: &[Option<&OnTableBallState>],
+    seed_pairs: &[(usize, usize)],
+    ball: &BallSetPhysicsSpec,
+) -> Vec<SharedIdealBallBallContact> {
+    let mut all_contacts = Vec::new();
+    for first_ball_index in 0..state_refs.len() {
+        for second_ball_index in first_ball_index + 1..state_refs.len() {
+            if let Some(contact) = touching_ball_ball_contact_from_state_refs(
+                state_refs,
+                first_ball_index,
+                second_ball_index,
+                ball,
+            ) {
+                all_contacts.push(contact);
+            }
+        }
+    }
+
+    let mut in_component = vec![false; state_refs.len()];
+    let mut pending = Vec::with_capacity(2 * seed_pairs.len());
+    for &(first_ball_index, second_ball_index) in seed_pairs {
+        if first_ball_index < state_refs.len() && !in_component[first_ball_index] {
+            in_component[first_ball_index] = true;
+            pending.push(first_ball_index);
+        }
+        if second_ball_index < state_refs.len() && !in_component[second_ball_index] {
+            in_component[second_ball_index] = true;
+            pending.push(second_ball_index);
+        }
+    }
+
+    while let Some(ball_index) = pending.pop() {
+        for contact in &all_contacts {
+            let adjacent = if contact.first_ball_index == ball_index {
+                Some(contact.second_ball_index)
+            } else if contact.second_ball_index == ball_index {
+                Some(contact.first_ball_index)
+            } else {
+                None
+            };
+            if let Some(adjacent) = adjacent {
+                if !in_component[adjacent] {
+                    in_component[adjacent] = true;
+                    pending.push(adjacent);
+                }
+            }
+        }
+    }
+
+    all_contacts
+        .into_iter()
+        .filter(|contact| {
+            in_component[contact.first_ball_index] && in_component[contact.second_ball_index]
+        })
+        .collect()
 }
 
 fn shared_contact_unit_impulse_delta(
@@ -10093,133 +10327,186 @@ fn shared_contact_unit_impulse_delta(
     }
 }
 
-fn solve_linear_system(mut matrix: Vec<Vec<f64>>, mut rhs: Vec<f64>) -> Option<Vec<f64>> {
-    let n = rhs.len();
-    if matrix.len() != n || matrix.iter().any(|row| row.len() != n) {
+fn solve_nonnegative_contact_impulses(
+    matrix: &[Vec<f64>],
+    contact_velocity_targets: &[f64],
+) -> Option<Vec<f64>> {
+    if matrix.len() != contact_velocity_targets.len()
+        || matrix.iter().any(|row| row.len() != matrix.len())
+    {
         return None;
     }
+    if matrix.is_empty() {
+        return Some(Vec::new());
+    }
 
-    for pivot_col in 0..n {
-        let mut pivot_row = pivot_col;
-        let mut pivot_abs = matrix[pivot_col][pivot_col].abs();
-        for (candidate_row, row) in matrix.iter().enumerate().skip(pivot_col + 1) {
-            let candidate_abs = row[pivot_col].abs();
-            if candidate_abs > pivot_abs {
-                pivot_row = candidate_row;
-                pivot_abs = candidate_abs;
-            }
-        }
+    // The touching graph can be statically indeterminate (the nine-ball rack has one redundant
+    // planar contact). Synchronous projected gradient descent solves the convex PSD contact LCP
+    // without inventing an edge-order-dependent pivot. Starting from zero selects the minimum-norm
+    // impulse in the redundant subspace.
+    let lipschitz_bound = matrix
+        .iter()
+        .map(|row| row.iter().map(|value| value.abs()).sum::<f64>())
+        .fold(0.0, f64::max);
+    if lipschitz_bound <= f64::EPSILON {
+        return contact_velocity_targets
+            .iter()
+            .all(|target| *target >= -SHARED_BALL_BALL_CONTACT_STATE_EPSILON)
+            .then(|| vec![0.0; matrix.len()]);
+    }
 
-        if pivot_abs <= 1e-12 {
-            return None;
-        }
-        if pivot_row != pivot_col {
-            matrix.swap(pivot_row, pivot_col);
-            rhs.swap(pivot_row, pivot_col);
-        }
+    let step = 1.0 / lipschitz_bound;
+    let target_scale = contact_velocity_targets
+        .iter()
+        .map(|target| target.abs())
+        .fold(1.0, f64::max);
+    let convergence_tolerance = 1e-12 * target_scale;
+    let mut impulses = vec![0.0; matrix.len()];
 
-        let pivot = matrix[pivot_col][pivot_col];
-        for value in matrix[pivot_col].iter_mut().skip(pivot_col) {
-            *value /= pivot;
-        }
-        rhs[pivot_col] /= pivot;
-
-        let pivot_row_tail = matrix[pivot_col][pivot_col..].to_vec();
-        for row in 0..n {
-            if row == pivot_col {
-                continue;
-            }
-
-            let factor = matrix[row][pivot_col];
-            if factor.abs() <= 1e-15 {
-                continue;
-            }
-
-            for (value, pivot_value) in matrix[row]
-                .iter_mut()
-                .skip(pivot_col)
-                .zip(pivot_row_tail.iter())
-            {
-                *value -= factor * pivot_value;
-            }
-            rhs[row] -= factor * rhs[pivot_col];
+    for _ in 0..65_536 {
+        let next = matrix
+            .iter()
+            .zip(contact_velocity_targets)
+            .enumerate()
+            .map(|(index, (row, target))| {
+                let residual = target
+                    + row
+                        .iter()
+                        .zip(&impulses)
+                        .map(|(coefficient, impulse)| coefficient * impulse)
+                        .sum::<f64>();
+                (impulses[index] - step * residual).max(0.0)
+            })
+            .collect::<Vec<_>>();
+        let max_update = next
+            .iter()
+            .zip(&impulses)
+            .map(|(next, current)| (next - current).abs())
+            .fold(0.0, f64::max);
+        impulses = next;
+        if max_update <= convergence_tolerance {
+            let satisfies_complementarity = matrix
+                .iter()
+                .zip(contact_velocity_targets)
+                .zip(&impulses)
+                .all(|((row, target), impulse)| {
+                    let residual = target
+                        + row
+                            .iter()
+                            .zip(&impulses)
+                            .map(|(coefficient, other_impulse)| coefficient * other_impulse)
+                            .sum::<f64>();
+                    if *impulse > convergence_tolerance {
+                        residual.abs() <= 1e-9 * target_scale
+                    } else {
+                        residual >= -1e-9 * target_scale
+                    }
+                });
+            return satisfies_complementarity.then_some(impulses);
         }
     }
 
-    Some(rhs)
+    None
 }
 
-fn coupled_ideal_shared_ball_ball_contact_deltas_from_state_refs(
-    state_refs: &[Option<&OnTableBallState>],
-    ball_ball_pairs: &[(usize, usize)],
-    ball: &BallSetPhysicsSpec,
-    motion: &OnTableMotionConfig,
+#[derive(Clone, Debug)]
+struct SharedNormalImpulseSolution {
+    deltas: Vec<OnTableKinematicDelta>,
+    impulses_per_mass: Vec<f64>,
+}
+
+fn shared_contact_matrix_coefficient(
+    response_contact: SharedIdealBallBallContact,
+    impulse_contact: SharedIdealBallBallContact,
+) -> f64 {
+    let (first_delta_x, first_delta_y) =
+        shared_contact_unit_impulse_delta(impulse_contact, response_contact.first_ball_index);
+    let (second_delta_x, second_delta_y) =
+        shared_contact_unit_impulse_delta(impulse_contact, response_contact.second_ball_index);
+    (second_delta_x - first_delta_x) * response_contact.normal_x
+        + (second_delta_y - first_delta_y) * response_contact.normal_y
+}
+
+fn coupled_normal_shared_ball_ball_contact_solution(
+    state_count: usize,
+    contacts: &[SharedIdealBallBallContact],
     collision_config: &BallBallCollisionConfig,
-) -> Option<Vec<OnTableKinematicDelta>> {
-    let mut contacts = Vec::new();
-    for &(first_ball_index, second_ball_index) in ball_ball_pairs {
-        let contact = shared_ideal_ball_ball_contact_from_state_refs(
-            state_refs,
-            first_ball_index,
-            second_ball_index,
-            ball,
-            motion,
-        )?;
-        if contact.relative_normal_velocity < -SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
-            contacts.push(contact);
-        }
-    }
+) -> Option<SharedNormalImpulseSolution> {
+    let matrix = contacts
+        .iter()
+        .map(|response_contact| {
+            contacts
+                .iter()
+                .map(|impulse_contact| {
+                    shared_contact_matrix_coefficient(*response_contact, *impulse_contact)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let normal_velocities_before = contacts
+        .iter()
+        .map(|contact| contact.relative_normal_velocity)
+        .collect::<Vec<_>>();
+    let compression_impulses =
+        solve_nonnegative_contact_impulses(&matrix, &normal_velocities_before)?;
 
-    let mut active_contact_indices = (0..contacts.len()).collect::<Vec<_>>();
+    // Apply restitution as one component-wide expansion of the feasible compression solution.
+    // Sleeping frozen edges have no independent separating target; they carry only the impulse
+    // needed to keep the connected component non-penetrating.
     let restitution = validated_ball_ball_normal_restitution(collision_config);
-
-    loop {
-        if active_contact_indices.is_empty() {
-            return Some(vec![OnTableKinematicDelta::default(); state_refs.len()]);
-        }
-
-        let active_len = active_contact_indices.len();
-        let mut matrix = vec![vec![0.0; active_len]; active_len];
-        let mut rhs = vec![0.0; active_len];
-
-        for (row_index, &contact_index) in active_contact_indices.iter().enumerate() {
-            let contact = contacts[contact_index];
-            rhs[row_index] = -(1.0 + restitution) * contact.relative_normal_velocity;
-
-            for (col_index, &impulse_contact_index) in active_contact_indices.iter().enumerate() {
-                let impulse_contact = contacts[impulse_contact_index];
-                let (first_delta_x, first_delta_y) =
-                    shared_contact_unit_impulse_delta(impulse_contact, contact.first_ball_index);
-                let (second_delta_x, second_delta_y) =
-                    shared_contact_unit_impulse_delta(impulse_contact, contact.second_ball_index);
-                matrix[row_index][col_index] = (second_delta_x - first_delta_x) * contact.normal_x
-                    + (second_delta_y - first_delta_y) * contact.normal_y;
-            }
-        }
-
-        let impulses = solve_linear_system(matrix, rhs)?;
-        if let Some((remove_index, _)) = impulses
-            .iter()
-            .enumerate()
-            .filter(|(_, impulse)| **impulse < -1e-12)
-            .min_by(|(_, a), (_, b)| a.total_cmp(b))
-        {
-            active_contact_indices.remove(remove_index);
+    let compression_velocity_changes = matrix
+        .iter()
+        .map(|row| {
+            row.iter()
+                .zip(&compression_impulses)
+                .map(|(coefficient, impulse)| coefficient * impulse)
+                .sum::<f64>()
+        })
+        .collect::<Vec<_>>();
+    let mut expansion_scale = restitution;
+    for (normal_velocity_before, compression_velocity_change) in normal_velocities_before
+        .iter()
+        .zip(&compression_velocity_changes)
+    {
+        if *compression_velocity_change >= -SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
             continue;
         }
-
-        let mut deltas = vec![OnTableKinematicDelta::default(); state_refs.len()];
-        for (&contact_index, impulse) in active_contact_indices.iter().zip(impulses) {
-            let contact = contacts[contact_index];
-            let impulse = impulse.max(0.0);
-            deltas[contact.first_ball_index].dvx -= impulse * contact.normal_x;
-            deltas[contact.first_ball_index].dvy -= impulse * contact.normal_y;
-            deltas[contact.second_ball_index].dvx += impulse * contact.normal_x;
-            deltas[contact.second_ball_index].dvy += impulse * contact.normal_y;
-        }
-
-        return Some(deltas);
+        let velocity_after_compression = normal_velocity_before + compression_velocity_change;
+        expansion_scale = expansion_scale.min(
+            (velocity_after_compression / -compression_velocity_change).clamp(0.0, restitution),
+        );
     }
+    let impulses_per_mass = compression_impulses
+        .into_iter()
+        .map(|impulse| (1.0 + expansion_scale) * impulse)
+        .collect::<Vec<_>>();
+
+    let mut deltas = vec![OnTableKinematicDelta::default(); state_count];
+    for (contact, impulse) in contacts.iter().zip(&impulses_per_mass) {
+        deltas[contact.first_ball_index].dvx -= impulse * contact.normal_x;
+        deltas[contact.first_ball_index].dvy -= impulse * contact.normal_y;
+        deltas[contact.second_ball_index].dvx += impulse * contact.normal_x;
+        deltas[contact.second_ball_index].dvy += impulse * contact.normal_y;
+    }
+    Some(SharedNormalImpulseSolution {
+        deltas,
+        impulses_per_mass,
+    })
+}
+fn shared_contact_supports_coupled_normal_only(
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) -> bool {
+    collision_model == CollisionModel::Ideal
+        || (collision_config
+            .friction_model
+            .reference_coefficient()
+            .as_f64()
+            <= f64::EPSILON
+            && collision_config
+                .object_table_static_friction_coefficient
+                .as_f64()
+                <= f64::EPSILON)
 }
 
 fn resolve_shared_zero_time_ball_ball_contacts_on_table(
@@ -10229,9 +10516,9 @@ fn resolve_shared_zero_time_ball_ball_contacts_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
-) {
+) -> Result<(), NBallGeometryError> {
     let state_refs = states_after.iter().map(Some).collect::<Vec<_>>();
-    let mut pairs = sorted_deduped_ball_ball_pairs(
+    let pairs = sorted_deduped_ball_ball_pairs(
         ball_ball_pairs
             .iter()
             .copied()
@@ -10243,89 +10530,325 @@ fn resolve_shared_zero_time_ball_ball_contacts_on_table(
             .collect(),
     );
     if pairs.is_empty() {
-        return;
+        return Ok(());
     }
-
-    if collision_model == CollisionModel::Ideal {
-        if let Some(deltas) = coupled_ideal_shared_ball_ball_contact_deltas_from_state_refs(
-            &state_refs,
-            &pairs,
-            ball,
-            motion,
-            collision_config,
-        ) {
-            for (state, delta) in states_after.iter_mut().zip(deltas) {
-                if delta.magnitude() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
-                    continue;
-                }
-
-                let before = state.clone();
-                *state = apply_on_table_kinematic_delta(&before, delta);
-            }
-
-            return;
-        }
-    }
-
-    for _ in 0..SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES {
-        let snapshot = states_after.to_vec();
-        let state_refs = snapshot.iter().map(Some).collect::<Vec<_>>();
-        pairs = sorted_deduped_ball_ball_pairs(
-            pairs
-                .iter()
-                .copied()
-                .chain(zero_time_ball_ball_pair_indices_from_state_refs(
-                    &state_refs,
-                    ball,
-                    motion,
-                ))
-                .collect(),
+    if !shared_contact_supports_coupled_normal_only(collision_model, collision_config) {
+        return Err(
+            NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model },
         );
-        let mut deltas = vec![OnTableKinematicDelta::default(); states_after.len()];
-        let mut changed = false;
+    }
 
-        for &(first_ball_index, second_ball_index) in &pairs {
-            let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
-                &snapshot[first_ball_index],
-                &snapshot[second_ball_index],
-                ball,
-                motion,
-            ) else {
-                continue;
+    let contacts = touching_ball_ball_component_contacts_from_state_refs(&state_refs, &pairs, ball);
+    let solution = coupled_normal_shared_ball_ball_contact_solution(
+        states_after.len(),
+        &contacts,
+        collision_config,
+    )
+    .ok_or(NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model })?;
+    for (state, delta) in states_after.iter_mut().zip(solution.deltas) {
+        if delta.magnitude() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+            continue;
+        }
+
+        let before = state.clone();
+        *state = apply_on_table_kinematic_delta(&before, delta);
+    }
+    Ok(())
+}
+
+fn shared_contact_friction_deltas(
+    state_refs: &[Option<&OnTableBallState>],
+    contacts: &[SharedIdealBallBallContact],
+    normal_impulses_per_mass: &[f64],
+    ball_radius: f64,
+    collision_config: &BallBallCollisionConfig,
+) -> Vec<OnTableKinematicDelta> {
+    let mut deltas = vec![OnTableKinematicDelta::default(); state_refs.len()];
+    for (contact, normal_impulse_per_mass) in contacts.iter().zip(normal_impulses_per_mass) {
+        let first = state_refs[contact.first_ball_index]
+            .expect("touching component contacts require an on-table first ball");
+        let second = state_refs[contact.second_ball_index]
+            .expect("touching component contacts require an on-table second ball");
+        let (tangential_contact_slip, vertical_contact_slip) =
+            ball_ball_contact_slip_components_on_table(first, second, ball_radius);
+        let contact_slip_speed = tangential_contact_slip.hypot(vertical_contact_slip);
+        let numerical_zero_slip =
+            THROW_AWARE_NUMERICAL_ZERO_SLIP_RATIO * (-contact.relative_normal_velocity).max(1.0);
+        let (tangential_impulse_per_mass, vertical_impulse_per_mass) =
+            if contact_slip_speed <= numerical_zero_slip {
+                (0.0, 0.0)
+            } else {
+                contact_friction_impulse_per_mass(
+                    tangential_contact_slip,
+                    vertical_contact_slip,
+                    *normal_impulse_per_mass,
+                    validated_ball_ball_contact_friction_coefficient(
+                        collision_config,
+                        contact_slip_speed,
+                    ),
+                )
             };
-            if collision.time_until_impact.as_f64() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
-                continue;
-            }
-
-            let (first_after, second_after) = collide_ball_ball_on_table_with_radius_and_config(
-                &collision.a_at_impact,
-                &collision.b_at_impact,
-                ball.radius.clone(),
-                collision_model,
-                collision_config,
-            );
-            deltas[first_ball_index]
-                .add_from_collision_pair_state(&collision.a_at_impact, &first_after);
-            deltas[second_ball_index]
-                .add_from_collision_pair_state(&collision.b_at_impact, &second_after);
-        }
-
-        for (state, delta) in states_after.iter_mut().zip(deltas) {
-            if delta.magnitude() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
-                continue;
-            }
-
-            let before = state.clone();
-            let after = apply_on_table_kinematic_delta(&before, delta);
-            changed |= on_table_ball_state_collision_delta(&before, &after)
-                > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
-            *state = after;
-        }
-
-        if !changed {
-            break;
+        let tangent_x = contact.normal_y;
+        let tangent_y = -contact.normal_x;
+        let spin_delta = transferred_spin_from_contact_impulse(
+            tangent_x,
+            tangent_y,
+            tangential_impulse_per_mass,
+            vertical_impulse_per_mass,
+            ball_radius,
+        )
+        .unwrap_or_else(AngularVelocity3::zero);
+        for (ball_index, linear_sign) in [
+            (contact.first_ball_index, -1.0),
+            (contact.second_ball_index, 1.0),
+        ] {
+            deltas[ball_index].dvx += linear_sign * tangential_impulse_per_mass * tangent_x;
+            deltas[ball_index].dvy += linear_sign * tangential_impulse_per_mass * tangent_y;
+            deltas[ball_index].dvz += linear_sign * vertical_impulse_per_mass;
+            deltas[ball_index].dwx += spin_delta.x().as_f64();
+            deltas[ball_index].dwy += spin_delta.y().as_f64();
+            deltas[ball_index].dwz += spin_delta.z().as_f64();
         }
     }
+    deltas
+}
+
+fn shared_friction_passivity_scale(
+    state_refs: &[Option<&OnTableBallState>],
+    normal_deltas: &[OnTableKinematicDelta],
+    friction_deltas: &[OnTableKinematicDelta],
+    ball_radius: f64,
+) -> f64 {
+    let angular_energy_scale = ball_radius * ball_radius / 5.0;
+    let mut base_energy = 0.0;
+    let mut linear_term = 0.0;
+    let mut quadratic_term = 0.0;
+    for ((state, normal), friction) in state_refs.iter().zip(normal_deltas).zip(friction_deltas) {
+        let Some(state) = state else {
+            continue;
+        };
+        let state = state.as_ball_state();
+        let base_velocity = [
+            state.velocity.x().as_f64() + normal.dvx,
+            state.velocity.y().as_f64() + normal.dvy,
+            normal.dvz,
+        ];
+        let friction_velocity = [friction.dvx, friction.dvy, friction.dvz];
+        let base_spin = [
+            state.angular_velocity.x().as_f64() + normal.dwx,
+            state.angular_velocity.y().as_f64() + normal.dwy,
+            state.angular_velocity.z().as_f64() + normal.dwz,
+        ];
+        let friction_spin = [friction.dwx, friction.dwy, friction.dwz];
+        base_energy += 0.5 * base_velocity.iter().map(|value| value * value).sum::<f64>()
+            + angular_energy_scale * base_spin.iter().map(|value| value * value).sum::<f64>();
+        linear_term += base_velocity
+            .iter()
+            .zip(friction_velocity)
+            .map(|(base, change)| base * change)
+            .sum::<f64>()
+            + 2.0
+                * angular_energy_scale
+                * base_spin
+                    .iter()
+                    .zip(friction_spin)
+                    .map(|(base, change)| base * change)
+                    .sum::<f64>();
+        quadratic_term += 0.5
+            * friction_velocity
+                .iter()
+                .map(|value| value * value)
+                .sum::<f64>()
+            + angular_energy_scale * friction_spin.iter().map(|value| value * value).sum::<f64>();
+    }
+
+    let energy_tolerance = 1e-10 * base_energy.max(1.0);
+    if linear_term + quadratic_term <= energy_tolerance {
+        1.0
+    } else if linear_term < 0.0 && quadratic_term > f64::EPSILON {
+        (-linear_term / quadratic_term).clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+fn add_scaled_kinematic_delta(
+    target: &mut OnTableKinematicDelta,
+    source: OnTableKinematicDelta,
+    scale: f64,
+) {
+    target.dvx += scale * source.dvx;
+    target.dvy += scale * source.dvy;
+    target.dvz += scale * source.dvz;
+    target.dwx += scale * source.dwx;
+    target.dwy += scale * source.dwy;
+    target.dwz += scale * source.dwz;
+}
+
+fn shared_contacts_after_kinematic_deltas(
+    state_refs: &[Option<&OnTableBallState>],
+    contacts: &[SharedIdealBallBallContact],
+    deltas: &[OnTableKinematicDelta],
+) -> Vec<SharedIdealBallBallContact> {
+    contacts
+        .iter()
+        .map(|contact| {
+            let first = state_refs[contact.first_ball_index]
+                .expect("touching component contacts require an on-table first ball")
+                .as_ball_state();
+            let second = state_refs[contact.second_ball_index]
+                .expect("touching component contacts require an on-table second ball")
+                .as_ball_state();
+            let first_delta = deltas[contact.first_ball_index];
+            let second_delta = deltas[contact.second_ball_index];
+            let relative_normal_velocity = (second.velocity.x().as_f64() + second_delta.dvx
+                - first.velocity.x().as_f64()
+                - first_delta.dvx)
+                * contact.normal_x
+                + (second.velocity.y().as_f64() + second_delta.dvy
+                    - first.velocity.y().as_f64()
+                    - first_delta.dvy)
+                    * contact.normal_y;
+            SharedIdealBallBallContact {
+                relative_normal_velocity,
+                ..*contact
+            }
+        })
+        .collect()
+}
+
+fn supported_system_state_after_on_table_ball_ball_collision(state: BallState) -> NBallSystemState {
+    if state.vertical_velocity.as_f64() > SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+        return NBallSystemState::Airborne(state);
+    }
+
+    let supported = BallState::on_table(state.position, state.velocity, state.angular_velocity);
+    NBallSystemState::OnTable(
+        OnTableBallState::try_from(supported)
+            .expect("unilateral table support must produce an on-table state"),
+    )
+}
+
+fn supported_system_state_after_shared_contact(
+    state: &OnTableBallState,
+    delta: OnTableKinematicDelta,
+) -> NBallSystemState {
+    let state = state.as_ball_state();
+    supported_system_state_after_on_table_ball_ball_collision(BallState::new(
+        state.position.clone(),
+        Inches::zero(),
+        Velocity2::new(
+            Inches::from_f64(state.velocity.x().as_f64() + delta.dvx),
+            Inches::from_f64(state.velocity.y().as_f64() + delta.dvy),
+        ),
+        Inches::from_f64(delta.dvz),
+        AngularVelocity3::new(
+            state.angular_velocity.x().as_f64() + delta.dwx,
+            state.angular_velocity.y().as_f64() + delta.dwy,
+            state.angular_velocity.z().as_f64() + delta.dwz,
+        ),
+    ))
+}
+
+fn resolve_touching_ball_ball_components_in_system_states(
+    states_after: &mut [NBallSystemState],
+    seed_pairs: &[(usize, usize)],
+    ball: &BallSetPhysicsSpec,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) -> Result<Vec<(usize, usize)>, NBallGeometryError> {
+    let snapshot = states_after
+        .iter()
+        .map(|state| state.as_on_table().cloned())
+        .collect::<Vec<_>>();
+    let state_refs = snapshot
+        .iter()
+        .map(|state| state.as_ref())
+        .collect::<Vec<_>>();
+    let contacts =
+        touching_ball_ball_component_contacts_from_state_refs(&state_refs, seed_pairs, ball);
+    if contacts.is_empty() {
+        return Ok(Vec::new());
+    }
+    if contacts.len() > 1
+        && collision_config
+            .object_table_static_friction_coefficient
+            .as_f64()
+            > f64::EPSILON
+    {
+        return Err(
+            NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model },
+        );
+    }
+
+    let mut solution = coupled_normal_shared_ball_ball_contact_solution(
+        states_after.len(),
+        &contacts,
+        collision_config,
+    )
+    .ok_or(NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model })?;
+    if collision_model != CollisionModel::Ideal {
+        let friction_deltas = shared_contact_friction_deltas(
+            &state_refs,
+            &contacts,
+            &solution.impulses_per_mass,
+            ball.radius.as_f64(),
+            collision_config,
+        );
+        let friction_scale = shared_friction_passivity_scale(
+            &state_refs,
+            &solution.deltas,
+            &friction_deltas,
+            ball.radius.as_f64(),
+        );
+        for (delta, friction_delta) in solution.deltas.iter_mut().zip(friction_deltas) {
+            add_scaled_kinematic_delta(delta, friction_delta, friction_scale);
+        }
+
+        let contacts_after_friction =
+            shared_contacts_after_kinematic_deltas(&state_refs, &contacts, &solution.deltas);
+        if contacts_after_friction.iter().any(|contact| {
+            contact.relative_normal_velocity < -SHARED_BALL_BALL_CONTACT_STATE_EPSILON
+        }) {
+            let mut inelastic_config = collision_config.clone();
+            inelastic_config.normal_restitution = Scale::zero();
+            let corrector = coupled_normal_shared_ball_ball_contact_solution(
+                states_after.len(),
+                &contacts_after_friction,
+                &inelastic_config,
+            )
+            .ok_or(
+                NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model },
+            )?;
+            for (delta, corrector_delta) in solution.deltas.iter_mut().zip(corrector.deltas) {
+                add_scaled_kinematic_delta(delta, corrector_delta, 1.0);
+            }
+        }
+    }
+
+    let final_contacts =
+        shared_contacts_after_kinematic_deltas(&state_refs, &contacts, &solution.deltas);
+    if final_contacts.iter().any(|contact| {
+        contact.relative_normal_velocity < -16.0 * SHARED_BALL_BALL_CONTACT_STATE_EPSILON
+    }) {
+        return Err(
+            NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model },
+        );
+    }
+
+    for (index, delta) in solution.deltas.into_iter().enumerate() {
+        let Some(before) = snapshot[index].as_ref() else {
+            continue;
+        };
+        if delta.magnitude() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+            continue;
+        }
+        states_after[index] = supported_system_state_after_shared_contact(before, delta);
+    }
+    Ok(contacts
+        .into_iter()
+        .map(|contact| (contact.first_ball_index, contact.second_ball_index))
+        .collect())
 }
 
 fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
@@ -10335,7 +10858,7 @@ fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
-) {
+) -> Result<Vec<(usize, usize)>, NBallGeometryError> {
     let snapshot = states_after
         .iter()
         .map(|state| state.as_on_table().cloned())
@@ -10344,7 +10867,7 @@ fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
         .iter()
         .map(|state| state.as_ref())
         .collect::<Vec<_>>();
-    let mut pairs = sorted_deduped_ball_ball_pairs(
+    let pairs = sorted_deduped_ball_ball_pairs(
         ball_ball_pairs
             .iter()
             .copied()
@@ -10356,105 +10879,15 @@ fn resolve_shared_zero_time_ball_ball_contacts_in_system_states(
             .collect(),
     );
     if pairs.is_empty() {
-        return;
+        return Ok(pairs);
     }
-
-    if collision_model == CollisionModel::Ideal {
-        if let Some(deltas) = coupled_ideal_shared_ball_ball_contact_deltas_from_state_refs(
-            &state_refs,
-            &pairs,
-            ball,
-            motion,
-            collision_config,
-        ) {
-            for (index, delta) in deltas.into_iter().enumerate() {
-                if delta.magnitude() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
-                    continue;
-                }
-                let Some(before) = states_after[index].as_on_table() else {
-                    continue;
-                };
-
-                let after = apply_on_table_kinematic_delta(before, delta);
-                states_after[index] = NBallSystemState::OnTable(after);
-            }
-
-            return;
-        }
-    }
-
-    for _ in 0..SHARED_BALL_BALL_CONTACT_RESOLUTION_PASSES {
-        let snapshot = states_after
-            .iter()
-            .map(|state| state.as_on_table().cloned())
-            .collect::<Vec<_>>();
-        let state_refs = snapshot
-            .iter()
-            .map(|state| state.as_ref())
-            .collect::<Vec<_>>();
-        pairs = sorted_deduped_ball_ball_pairs(
-            pairs
-                .iter()
-                .copied()
-                .chain(zero_time_ball_ball_pair_indices_from_state_refs(
-                    &state_refs,
-                    ball,
-                    motion,
-                ))
-                .collect(),
-        );
-        let mut deltas = vec![OnTableKinematicDelta::default(); states_after.len()];
-        let mut changed = false;
-
-        for &(first_ball_index, second_ball_index) in &pairs {
-            let (Some(first_before), Some(second_before)) =
-                (&snapshot[first_ball_index], &snapshot[second_ball_index])
-            else {
-                continue;
-            };
-            let Some(collision) = compute_next_ball_ball_collision_during_current_phases_on_table(
-                first_before,
-                second_before,
-                ball,
-                motion,
-            ) else {
-                continue;
-            };
-            if collision.time_until_impact.as_f64() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
-                continue;
-            }
-
-            let (first_after, second_after) = collide_ball_ball_on_table_with_radius_and_config(
-                &collision.a_at_impact,
-                &collision.b_at_impact,
-                ball.radius.clone(),
-                collision_model,
-                collision_config,
-            );
-            deltas[first_ball_index]
-                .add_from_collision_pair_state(&collision.a_at_impact, &first_after);
-            deltas[second_ball_index]
-                .add_from_collision_pair_state(&collision.b_at_impact, &second_after);
-        }
-
-        for (index, delta) in deltas.into_iter().enumerate() {
-            if delta.magnitude() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
-                continue;
-            }
-            let Some(before) = states_after[index].as_on_table() else {
-                continue;
-            };
-
-            let after = apply_on_table_kinematic_delta(before, delta);
-            changed |= on_table_ball_state_collision_delta(before, &after)
-                > SHARED_BALL_BALL_CONTACT_STATE_EPSILON;
-            states_after[index] = NBallSystemState::OnTable(after);
-        }
-
-        if !changed {
-            break;
-        }
-    }
+    resolve_touching_ball_ball_components_in_system_states(
+        states_after,
+        &pairs,
+        ball,
+        collision_model,
+        collision_config,
+    )
 }
 
 fn advance_to_next_n_ball_event_with_scheduler<FindNextEvent>(
@@ -10465,11 +10898,14 @@ fn advance_to_next_n_ball_event_with_scheduler<FindNextEvent>(
     collision_config: &BallBallCollisionConfig,
     rail_response: Option<(RailModel, RailCollisionProfile)>,
     find_next_event: FindNextEvent,
-) -> Result<NBallOnTableAdvance, NBallGeometryError>
+) -> Result<NBallOnTableAdvance, NBallOnTableExecutionError>
 where
     FindNextEvent:
         Fn(&[&OnTableBallState]) -> Result<Option<NBallOnTableEvent>, NBallGeometryError>,
 {
+    if !shared_contact_supports_coupled_normal_only(collision_model, collision_config) {
+        return Err(NBallOnTableExecutionError::NonPlanarCollisionModel { collision_model });
+    }
     let states = validate_and_recover_n_ball_on_table_states(states, ball)?;
     let state_refs = states.iter().collect::<Vec<_>>();
     let Some(event) = find_next_event(&state_refs)? else {
@@ -10494,7 +10930,7 @@ where
                 motion,
                 collision_model,
                 collision_config,
-            );
+            )?;
         }
         NBallOnTableEvent::BallBallCollision {
             first_ball_index,
@@ -10520,27 +10956,25 @@ where
                     );
 
                 if simultaneous_collisions.is_empty() {
-                    let (first_after, second_after) =
-                        collide_ball_ball_on_table_with_radius_and_config(
+                    let (first_after, second_after) = collide_ball_ball_in_planar_executor(
+                        &collision.a_at_impact,
+                        &collision.b_at_impact,
+                        ball.radius.clone(),
+                        collision_model,
+                        collision_config,
+                    );
+                    states_after[*first_ball_index] = first_after;
+                    states_after[*second_ball_index] = second_after;
+                } else {
+                    for (first_ball_index, second_ball_index, collision) in simultaneous_collisions
+                    {
+                        let (first_after, second_after) = collide_ball_ball_in_planar_executor(
                             &collision.a_at_impact,
                             &collision.b_at_impact,
                             ball.radius.clone(),
                             collision_model,
                             collision_config,
                         );
-                    states_after[*first_ball_index] = first_after;
-                    states_after[*second_ball_index] = second_after;
-                } else {
-                    for (first_ball_index, second_ball_index, collision) in simultaneous_collisions
-                    {
-                        let (first_after, second_after) =
-                            collide_ball_ball_on_table_with_radius_and_config(
-                                &collision.a_at_impact,
-                                &collision.b_at_impact,
-                                ball.radius.clone(),
-                                collision_model,
-                                collision_config,
-                            );
                         states_after[first_ball_index] = first_after;
                         states_after[second_ball_index] = second_after;
                     }
@@ -10553,7 +10987,7 @@ where
                 motion,
                 collision_model,
                 collision_config,
-            );
+            )?;
         }
         NBallOnTableEvent::BallRailImpact { ball_index, impact } => {
             let (rail_model, rail_profile) = rail_response
@@ -10585,7 +11019,7 @@ pub fn advance_to_next_n_ball_event_on_table(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> Result<NBallOnTableAdvance, NBallGeometryError> {
+) -> Result<NBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_n_ball_event_with_physics_on_table(
         states,
         ball,
@@ -10603,7 +11037,7 @@ pub fn advance_to_next_n_ball_event_with_physics_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
-) -> Result<NBallOnTableAdvance, NBallGeometryError> {
+) -> Result<NBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_n_ball_event_with_scheduler(
         states,
         ball,
@@ -10629,7 +11063,7 @@ pub fn advance_to_next_n_ball_event_with_rail_profile_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> Result<NBallOnTableAdvance, NBallGeometryError> {
+) -> Result<NBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_n_ball_event_with_physics_and_rail_profile_on_table(
         states,
         ball,
@@ -10653,7 +11087,7 @@ pub fn advance_to_next_n_ball_event_with_physics_and_rail_profile_on_table(
     collision_config: &BallBallCollisionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> Result<NBallOnTableAdvance, NBallGeometryError> {
+) -> Result<NBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_n_ball_event_with_scheduler(
         states,
         ball,
@@ -10682,7 +11116,7 @@ pub fn advance_to_next_n_ball_event_with_rail_config_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> Result<NBallOnTableAdvance, NBallGeometryError> {
+) -> Result<NBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_n_ball_event_with_rail_profile_on_table(
         states,
         ball,
@@ -10707,7 +11141,7 @@ pub fn advance_to_next_n_ball_event_with_rails_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> Result<NBallOnTableAdvance, NBallGeometryError> {
+) -> Result<NBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_n_ball_event_with_rail_profile_on_table(
         states,
         ball,
@@ -10729,7 +11163,7 @@ pub fn advance_to_next_two_ball_event_on_table(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
+) -> Result<TwoBallOnTableAdvance, NBallOnTableExecutionError> {
     let advanced = advance_to_next_n_ball_event_on_table(
         &[a.clone(), b.clone()],
         ball,
@@ -10760,7 +11194,7 @@ pub fn advance_to_next_two_ball_event_with_rail_profile_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
+) -> Result<TwoBallOnTableAdvance, NBallOnTableExecutionError> {
     let advanced = advance_to_next_n_ball_event_with_rail_profile_on_table(
         &[a.clone(), b.clone()],
         ball,
@@ -10794,7 +11228,7 @@ pub fn advance_to_next_two_ball_event_with_rail_config_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
+) -> Result<TwoBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_two_ball_event_with_rail_profile_on_table(
         a,
         b,
@@ -10821,7 +11255,7 @@ pub fn advance_to_next_two_ball_event_with_rails_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
+) -> Result<TwoBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_two_ball_event_with_rail_config_on_table(
         a,
         b,
@@ -10841,7 +11275,7 @@ pub fn advance_to_next_event_for_two_on_table_balls(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> Result<TwoBallOnTableAdvance, NBallGeometryError> {
+) -> Result<TwoBallOnTableAdvance, NBallOnTableExecutionError> {
     advance_to_next_two_ball_event_on_table(a, b, ball, motion, collision_model)
 }
 
@@ -10853,7 +11287,7 @@ fn simulate_two_ball_system_on_table<FindNextEvent, AdvanceNextEvent>(
     motion: &OnTableMotionConfig,
     find_next_event: FindNextEvent,
     advance_next_event: AdvanceNextEvent,
-) -> Result<TwoBallOnTableSimulation, NBallGeometryError>
+) -> Result<TwoBallOnTableSimulation, NBallOnTableExecutionError>
 where
     FindNextEvent: Fn(
         &OnTableBallState,
@@ -10862,7 +11296,7 @@ where
     AdvanceNextEvent: Fn(
         &OnTableBallState,
         &OnTableBallState,
-    ) -> Result<TwoBallOnTableAdvance, NBallGeometryError>,
+    ) -> Result<TwoBallOnTableAdvance, NBallOnTableExecutionError>,
 {
     assert!(
         dt.as_f64() >= 0.0,
@@ -10949,7 +11383,7 @@ pub fn simulate_two_balls_on_table(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
+) -> Result<TwoBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_two_ball_system_on_table(
         a,
         b,
@@ -10975,7 +11409,7 @@ pub fn simulate_two_balls_with_rail_profile_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
+) -> Result<TwoBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_two_ball_system_on_table(
         a,
         b,
@@ -11012,7 +11446,7 @@ pub fn simulate_two_balls_with_rail_config_on_table(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
+) -> Result<TwoBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_two_balls_with_rail_profile_on_table(
         a,
         b,
@@ -11040,7 +11474,7 @@ pub fn simulate_two_balls_with_rails_on_table(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
+) -> Result<TwoBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_two_balls_with_rail_profile_on_table(
         a,
         b,
@@ -11062,16 +11496,17 @@ pub fn simulate_two_on_table_balls(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> Result<TwoBallOnTableSimulation, NBallGeometryError> {
+) -> Result<TwoBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_two_balls_on_table(a, b, dt, ball, motion, collision_model)
 }
 
 fn simulate_n_ball_system_on_table_until_rest<AdvanceNextEvent>(
     states: &[OnTableBallState],
     advance_next_event: AdvanceNextEvent,
-) -> Result<NBallOnTableSimulation, NBallGeometryError>
+) -> Result<NBallOnTableSimulation, NBallOnTableExecutionError>
 where
-    AdvanceNextEvent: Fn(&[OnTableBallState]) -> Result<NBallOnTableAdvance, NBallGeometryError>,
+    AdvanceNextEvent:
+        Fn(&[OnTableBallState]) -> Result<NBallOnTableAdvance, NBallOnTableExecutionError>,
 {
     let mut states = states.to_vec();
     let mut elapsed = Seconds::zero();
@@ -11134,7 +11569,7 @@ pub fn simulate_n_balls_on_table_until_rest(
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
-) -> Result<NBallOnTableSimulation, NBallGeometryError> {
+) -> Result<NBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_n_balls_with_physics_on_table_until_rest(
         states,
         ball,
@@ -11152,7 +11587,7 @@ pub fn simulate_n_balls_with_physics_on_table_until_rest(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
-) -> Result<NBallOnTableSimulation, NBallGeometryError> {
+) -> Result<NBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_n_ball_system_on_table_until_rest(states, |current| {
         advance_to_next_n_ball_event_with_physics_on_table(
             current,
@@ -11174,7 +11609,7 @@ pub fn simulate_n_balls_with_rail_profile_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> Result<NBallOnTableSimulation, NBallGeometryError> {
+) -> Result<NBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_n_ball_system_on_table_until_rest(states, |current| {
         advance_to_next_n_ball_event_with_rail_profile_on_table(
             current,
@@ -11198,7 +11633,7 @@ pub fn simulate_n_balls_with_rail_config_on_table_until_rest(
     collision_model: CollisionModel,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> Result<NBallOnTableSimulation, NBallGeometryError> {
+) -> Result<NBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_n_balls_with_rail_profile_on_table_until_rest(
         states,
         ball,
@@ -11223,7 +11658,7 @@ pub fn simulate_n_balls_with_rails_on_table_until_rest(
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     rail_model: RailModel,
-) -> Result<NBallOnTableSimulation, NBallGeometryError> {
+) -> Result<NBallOnTableSimulation, NBallOnTableExecutionError> {
     simulate_n_balls_with_rail_profile_on_table_until_rest(
         states,
         ball,
@@ -11261,11 +11696,6 @@ fn advance_n_ball_system_without_event(
         .collect()
 }
 
-// The current pocket-capture predictor is only a coarse first-pass acceptance gate. If that gate
-// lands within a few milliseconds of an explicit same-pocket jaw contact, prefer the explicit jaw
-// so the scheduler does not pocket a ball that is effectively already entering the jaw collision.
-const NEARBY_JAW_CAPTURE_ORDER_TOLERANCE_SECONDS: f64 = 0.005;
-
 /// Compute the earliest supported future event for the richer indexed N-ball system while also
 /// considering rail impacts, pocket captures, and ballistic table-contact events against the
 /// current table geometry.
@@ -11280,6 +11710,378 @@ pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
 ) -> Result<Option<NBallSystemEvent>, NBallGeometryError> {
     let states = validate_and_recover_n_ball_system_states(states, ball)?;
     Ok(PocketAwareEventCache::build(&states, ball, table, config).next_event())
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum NBallSystemAppliedEffect {
+    BallBallPair {
+        first_ball_index: usize,
+        second_ball_index: usize,
+    },
+    TpB29ThreeBallLine {
+        incoming_ball_index: usize,
+        middle_ball_index: usize,
+        outgoing_ball_index: usize,
+    },
+    SharedBallBallContact {
+        ball_ball_pairs: Vec<(usize, usize)>,
+    },
+    BallJawContact {
+        ball_index: usize,
+        pocket: Pocket,
+        jaw: PocketJaw,
+        captured: bool,
+    },
+    BallPocketed {
+        ball_index: usize,
+        pocket: Pocket,
+    },
+    BallRailContact {
+        ball_index: usize,
+        rail: Rail,
+    },
+    BallTableContact {
+        ball_index: usize,
+    },
+    MotionTransition {
+        ball_index: usize,
+        phase_before: MotionPhase,
+        phase_after: MotionPhase,
+    },
+    AirborneBallBallPair {
+        first_ball_index: usize,
+        second_ball_index: usize,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NBallSystemUnsupportedResolution {
+    pub error: NBallGeometryError,
+    pub ball_ball_pairs: Vec<(usize, usize)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NBallSystemResolvedStep {
+    pub states: Vec<NBallSystemState>,
+    pub effects: Vec<NBallSystemAppliedEffect>,
+    pub unsupported: Option<NBallSystemUnsupportedResolution>,
+}
+
+pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+    states: &[NBallSystemState],
+    event: &NBallSystemEvent,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> Result<NBallSystemResolvedStep, NBallGeometryError> {
+    let states = validate_and_recover_n_ball_system_states(states, ball)?;
+    let mut states_after = advance_n_ball_system_without_event(&states, event.time(), ball, motion);
+    let mut effects = Vec::new();
+    match event {
+        NBallSystemEvent::AirborneBallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            contact,
+        } => {
+            let (first_after, second_after) = collide_airborne_ball_ball_with_radius_and_config(
+                &contact.first_at_contact,
+                &contact.second_at_contact,
+                ball.radius.as_f64(),
+                collision_model,
+                collision_config,
+            );
+            states_after[*first_ball_index] =
+                system_state_after_airborne_ball_ball_collision(first_after);
+            states_after[*second_ball_index] =
+                system_state_after_airborne_ball_ball_collision(second_after);
+            effects.push(NBallSystemAppliedEffect::AirborneBallBallPair {
+                first_ball_index: *first_ball_index,
+                second_ball_index: *second_ball_index,
+            });
+        }
+        NBallSystemEvent::MotionTransition {
+            ball_index,
+            transition,
+        } => effects.push(NBallSystemAppliedEffect::MotionTransition {
+            ball_index: *ball_index,
+            phase_before: transition.phase_before.clone(),
+            phase_after: transition.phase_after.clone(),
+        }),
+        NBallSystemEvent::SharedBallBallContact {
+            ball_ball_pairs, ..
+        } => {
+            let state_refs = states_after
+                .iter()
+                .map(|state| state.as_on_table())
+                .collect::<Vec<_>>();
+            let unsupported_pairs = sorted_deduped_ball_ball_pairs(
+                ball_ball_pairs
+                    .iter()
+                    .copied()
+                    .chain(zero_time_ball_ball_pair_indices_from_state_refs(
+                        &state_refs,
+                        ball,
+                        motion,
+                    ))
+                    .collect(),
+            );
+            match resolve_shared_zero_time_ball_ball_contacts_in_system_states(
+                &mut states_after,
+                ball_ball_pairs,
+                ball,
+                motion,
+                collision_model,
+                collision_config,
+            ) {
+                Ok(ball_ball_pairs) => effects
+                    .push(NBallSystemAppliedEffect::SharedBallBallContact { ball_ball_pairs }),
+                Err(
+                    error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { .. },
+                ) => {
+                    return Ok(NBallSystemResolvedStep {
+                        states: validate_and_recover_n_ball_system_states(&states_after, ball)?,
+                        effects,
+                        unsupported: Some(NBallSystemUnsupportedResolution {
+                            error,
+                            ball_ball_pairs: unsupported_pairs,
+                        }),
+                    });
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } => {
+            let state_refs = states_after
+                .iter()
+                .map(|state| state.as_on_table())
+                .collect::<Vec<_>>();
+            let primary_pair = [(*first_ball_index, *second_ball_index)];
+            let component_contacts = touching_ball_ball_component_contacts_from_state_refs(
+                &state_refs,
+                &primary_pair,
+                ball,
+            );
+            let mut component_ball_indices = component_contacts
+                .iter()
+                .flat_map(|contact| [contact.first_ball_index, contact.second_ball_index])
+                .collect::<Vec<_>>();
+            component_ball_indices.sort_unstable();
+            component_ball_indices.dedup();
+            let line_contact = if component_contacts.len() == 2 && component_ball_indices.len() == 3
+            {
+                tp_b29_three_ball_line_contact(
+                    &state_refs,
+                    *first_ball_index,
+                    *second_ball_index,
+                    ball,
+                    collision_model,
+                    collision_config,
+                )
+            } else {
+                None
+            };
+
+            if let Some(line_contact) = line_contact {
+                resolve_tp_b29_three_ball_line_contact_in_system_states(
+                    &mut states_after,
+                    line_contact,
+                );
+                effects.push(NBallSystemAppliedEffect::TpB29ThreeBallLine {
+                    incoming_ball_index: line_contact.incoming_ball_index,
+                    middle_ball_index: line_contact.middle_ball_index,
+                    outgoing_ball_index: line_contact.outgoing_ball_index,
+                });
+            } else if component_contacts.len() > 1 {
+                let component_pairs = component_contacts
+                    .iter()
+                    .map(|contact| (contact.first_ball_index, contact.second_ball_index))
+                    .collect::<Vec<_>>();
+                match resolve_touching_ball_ball_components_in_system_states(
+                    &mut states_after,
+                    &primary_pair,
+                    ball,
+                    collision_model,
+                    collision_config,
+                ) {
+                    Ok(ball_ball_pairs) => effects
+                        .push(NBallSystemAppliedEffect::SharedBallBallContact { ball_ball_pairs }),
+                    Err(
+                        error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact {
+                            ..
+                        },
+                    ) => {
+                        return Ok(NBallSystemResolvedStep {
+                            states: validate_and_recover_n_ball_system_states(&states_after, ball)?,
+                            effects,
+                            unsupported: Some(NBallSystemUnsupportedResolution {
+                                error,
+                                ball_ball_pairs: component_pairs,
+                            }),
+                        });
+                    }
+                    Err(error) => return Err(error),
+                }
+            } else {
+                let simultaneous_collisions =
+                    simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
+                        &state_refs,
+                        ball,
+                        motion,
+                    );
+
+                if simultaneous_collisions.is_empty() {
+                    let (first_after, second_after) =
+                        collide_ball_ball_on_table_with_radius_and_config(
+                            &collision.a_at_impact,
+                            &collision.b_at_impact,
+                            ball.radius.clone(),
+                            collision_model,
+                            collision_config,
+                        );
+                    states_after[*first_ball_index] =
+                        supported_system_state_after_on_table_ball_ball_collision(first_after);
+                    states_after[*second_ball_index] =
+                        supported_system_state_after_on_table_ball_ball_collision(second_after);
+                    effects.push(NBallSystemAppliedEffect::BallBallPair {
+                        first_ball_index: *first_ball_index,
+                        second_ball_index: *second_ball_index,
+                    });
+                } else {
+                    for (first_ball_index, second_ball_index, collision) in simultaneous_collisions
+                    {
+                        let (first_after, second_after) =
+                            collide_ball_ball_on_table_with_radius_and_config(
+                                &collision.a_at_impact,
+                                &collision.b_at_impact,
+                                ball.radius.clone(),
+                                collision_model,
+                                collision_config,
+                            );
+                        states_after[first_ball_index] =
+                            supported_system_state_after_on_table_ball_ball_collision(first_after);
+                        states_after[second_ball_index] =
+                            supported_system_state_after_on_table_ball_ball_collision(second_after);
+                        effects.push(NBallSystemAppliedEffect::BallBallPair {
+                            first_ball_index,
+                            second_ball_index,
+                        });
+                    }
+                }
+            }
+            let state_refs = states_after
+                .iter()
+                .map(|state| state.as_on_table())
+                .collect::<Vec<_>>();
+            let unsupported_pairs = sorted_deduped_ball_ball_pairs(
+                zero_time_ball_ball_pair_indices_from_state_refs(&state_refs, ball, motion),
+            );
+            match resolve_shared_zero_time_ball_ball_contacts_in_system_states(
+                &mut states_after,
+                &[],
+                ball,
+                motion,
+                collision_model,
+                collision_config,
+            ) {
+                Ok(ball_ball_pairs) if !ball_ball_pairs.is_empty() => effects
+                    .push(NBallSystemAppliedEffect::SharedBallBallContact { ball_ball_pairs }),
+                Ok(_) => {}
+                Err(
+                    error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { .. },
+                ) => {
+                    return Ok(NBallSystemResolvedStep {
+                        states: validate_and_recover_n_ball_system_states(&states_after, ball)?,
+                        effects,
+                        unsupported: Some(NBallSystemUnsupportedResolution {
+                            error,
+                            ball_ball_pairs: unsupported_pairs,
+                        }),
+                    });
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        NBallSystemEvent::BallJawImpact { ball_index, impact } => {
+            let state_after_jaw = collide_ball_jaw_on_table_with_radius_and_profile(
+                &impact.state_at_impact,
+                impact,
+                table,
+                ball.radius.clone(),
+                rail_model,
+                rail_profile,
+            );
+            let captured = should_capture_after_jaw_impact(
+                &state_after_jaw,
+                impact.pocket,
+                ball,
+                table,
+                motion,
+            );
+            states_after[*ball_index] = if captured {
+                NBallSystemState::Pocketed {
+                    pocket: impact.pocket,
+                    state_at_capture: state_after_jaw,
+                }
+            } else {
+                NBallSystemState::OnTable(state_after_jaw)
+            };
+            effects.push(NBallSystemAppliedEffect::BallJawContact {
+                ball_index: *ball_index,
+                pocket: impact.pocket,
+                jaw: impact.jaw,
+                captured,
+            });
+        }
+        NBallSystemEvent::BallPocketCapture {
+            ball_index,
+            capture,
+        } => {
+            states_after[*ball_index] = NBallSystemState::Pocketed {
+                pocket: capture.pocket,
+                state_at_capture: capture.state_at_capture.clone(),
+            };
+            effects.push(NBallSystemAppliedEffect::BallPocketed {
+                ball_index: *ball_index,
+                pocket: capture.pocket,
+            });
+        }
+        NBallSystemEvent::BallTableBounce {
+            ball_index,
+            contact,
+        } => {
+            states_after[*ball_index] = contact.state_after_contact.clone();
+            effects.push(NBallSystemAppliedEffect::BallTableContact {
+                ball_index: *ball_index,
+            });
+        }
+        NBallSystemEvent::BallRailImpact { ball_index, impact } => {
+            states_after[*ball_index] =
+                NBallSystemState::OnTable(collide_ball_rail_on_table_with_radius_and_profile(
+                    &impact.state_at_impact,
+                    impact.rail,
+                    ball.radius.clone(),
+                    rail_model,
+                    rail_profile,
+                ));
+            effects.push(NBallSystemAppliedEffect::BallRailContact {
+                ball_index: *ball_index,
+                rail: impact.rail,
+            });
+        }
+    }
+    Ok(NBallSystemResolvedStep {
+        states: validate_and_recover_n_ball_system_states(&states_after, ball)?,
+        effects,
+        unsupported: None,
+    })
 }
 
 /// Advance the richer indexed N-ball system to a supplied event and resolve that event.
@@ -11298,140 +12100,21 @@ pub fn resolve_n_ball_system_event_with_physics_and_pockets_on_table(
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
 ) -> Result<Vec<NBallSystemState>, NBallGeometryError> {
-    let states = validate_and_recover_n_ball_system_states(states, ball)?;
-    let elapsed = event.time();
-    let mut states_after = advance_n_ball_system_without_event(&states, elapsed, ball, motion);
-    match event {
-        NBallSystemEvent::UnsupportedAirborneBallBallContact { .. } => {}
-        NBallSystemEvent::MotionTransition { .. } => {}
-        NBallSystemEvent::SharedBallBallContact {
-            ball_ball_pairs, ..
-        } => {
-            resolve_shared_zero_time_ball_ball_contacts_in_system_states(
-                &mut states_after,
-                ball_ball_pairs,
-                ball,
-                motion,
-                collision_model,
-                collision_config,
-            );
-        }
-        NBallSystemEvent::BallBallCollision {
-            first_ball_index,
-            second_ball_index,
-            collision,
-        } => {
-            let state_refs = states_after
-                .iter()
-                .map(|state| state.as_on_table())
-                .collect::<Vec<_>>();
-            if let Some(line_contact) = tp_b29_three_ball_line_contact(
-                &state_refs,
-                *first_ball_index,
-                *second_ball_index,
-                ball,
-                collision_model,
-                collision_config,
-            ) {
-                resolve_tp_b29_three_ball_line_contact_in_system_states(
-                    &mut states_after,
-                    line_contact,
-                );
-            } else {
-                let simultaneous_collisions =
-                    simultaneous_disjoint_zero_time_ball_ball_collisions_from_state_refs(
-                        &state_refs,
-                        ball,
-                        motion,
-                    );
-
-                if simultaneous_collisions.is_empty() {
-                    let (first_after, second_after) =
-                        collide_ball_ball_on_table_with_radius_and_config(
-                            &collision.a_at_impact,
-                            &collision.b_at_impact,
-                            ball.radius.clone(),
-                            collision_model,
-                            collision_config,
-                        );
-                    states_after[*first_ball_index] = NBallSystemState::OnTable(first_after);
-                    states_after[*second_ball_index] = NBallSystemState::OnTable(second_after);
-                } else {
-                    for (first_ball_index, second_ball_index, collision) in simultaneous_collisions
-                    {
-                        let (first_after, second_after) =
-                            collide_ball_ball_on_table_with_radius_and_config(
-                                &collision.a_at_impact,
-                                &collision.b_at_impact,
-                                ball.radius.clone(),
-                                collision_model,
-                                collision_config,
-                            );
-                        states_after[first_ball_index] = NBallSystemState::OnTable(first_after);
-                        states_after[second_ball_index] = NBallSystemState::OnTable(second_after);
-                    }
-                }
-            }
-            resolve_shared_zero_time_ball_ball_contacts_in_system_states(
-                &mut states_after,
-                &[],
-                ball,
-                motion,
-                collision_model,
-                collision_config,
-            );
-        }
-        NBallSystemEvent::BallJawImpact { ball_index, impact } => {
-            let state_after_jaw = collide_ball_jaw_on_table_with_radius_and_profile(
-                &impact.state_at_impact,
-                impact,
-                table,
-                ball.radius.clone(),
-                rail_model,
-                rail_profile,
-            );
-            states_after[*ball_index] = if should_capture_after_jaw_impact(
-                &state_after_jaw,
-                impact.pocket,
-                ball,
-                table,
-                motion,
-            ) {
-                NBallSystemState::Pocketed {
-                    pocket: impact.pocket,
-                    state_at_capture: state_after_jaw,
-                }
-            } else {
-                NBallSystemState::OnTable(state_after_jaw)
-            };
-        }
-        NBallSystemEvent::BallPocketCapture {
-            ball_index,
-            capture,
-        } => {
-            states_after[*ball_index] = NBallSystemState::Pocketed {
-                pocket: capture.pocket,
-                state_at_capture: capture.state_at_capture.clone(),
-            };
-        }
-        NBallSystemEvent::BallTableBounce {
-            ball_index,
-            contact,
-        } => {
-            states_after[*ball_index] = contact.state_after_contact.clone();
-        }
-        NBallSystemEvent::BallRailImpact { ball_index, impact } => {
-            states_after[*ball_index] =
-                NBallSystemState::OnTable(collide_ball_rail_on_table_with_radius_and_profile(
-                    &impact.state_at_impact,
-                    impact.rail,
-                    ball.radius.clone(),
-                    rail_model,
-                    rail_profile,
-                ));
-        }
+    let resolved = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+        states,
+        event,
+        ball,
+        table,
+        motion,
+        collision_model,
+        collision_config,
+        rail_model,
+        rail_profile,
+    )?;
+    if let Some(unsupported) = resolved.unsupported {
+        return Err(unsupported.error);
     }
-    validate_and_recover_n_ball_system_states(&states_after, ball)
+    Ok(resolved.states)
 }
 
 pub fn advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
@@ -11606,9 +12289,6 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limi
         )?;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
         events.push(event.clone());
-        if event.is_terminal_diagnostic() {
-            break;
-        }
 
         // Rebuild after every resolved event so cached event times and hidden simultaneous-contact
         // side effects stay exactly aligned with manual step-and-recompute simulation.
@@ -12141,12 +12821,12 @@ fn ideal_collision_outcome_on_table_with_config(
     );
 
     CollisionOutcome {
-        a_after: build_on_table_ball_state(
+        a_after: BallState::on_table(
             a_state.position.clone(),
             a_velocity,
             a_state.angular_velocity.clone(),
         ),
-        b_after: build_on_table_ball_state(
+        b_after: BallState::on_table(
             b_state.position.clone(),
             b_velocity,
             b_state.angular_velocity.clone(),
@@ -12204,22 +12884,32 @@ fn transferred_spin_from_contact_impulse(
     }
 }
 
+fn kim_stationary_object_domain(state: &BallState, ball_radius: f64) -> (f64, f64, bool) {
+    let center_speed = ball_speed(state).as_f64();
+    let angular_velocity = &state.angular_velocity;
+    let spin_surface_speed = ball_radius
+        * angular_velocity
+            .x()
+            .as_f64()
+            .hypot(angular_velocity.y().as_f64())
+            .hypot(angular_velocity.z().as_f64());
+    (
+        center_speed,
+        spin_surface_speed,
+        center_speed <= KIM_STATIONARY_OBJECT_SPEED_TOLERANCE_INCHES_PER_SECOND
+            && spin_surface_speed <= KIM_STATIONARY_OBJECT_SPEED_TOLERANCE_INCHES_PER_SECOND,
+    )
+}
+
 fn frictional_collision_outcome_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
     ball_radius: f64,
     config: &BallBallCollisionConfig,
-    require_stationary_object_ball: bool,
 ) -> CollisionOutcome {
     let ideal = ideal_collision_outcome_on_table_with_config(a, b, config);
     let a_state = a.as_ball_state();
     let b_state = b.as_ball_state();
-
-    // `ThrowAware` and `SpinFriction` share one contact-impulse solve. The optional stationary
-    // guard is kept only for any future model that deliberately narrows scope.
-    if require_stationary_object_ball && ball_speed(b_state).as_f64() > 1e-9 {
-        return ideal;
-    }
 
     let (normal_x, normal_y, tangent_x, tangent_y) = collision_contact_basis(a, b);
     let normal_restitution = validated_ball_ball_normal_restitution(config);
@@ -12227,6 +12917,11 @@ fn frictional_collision_outcome_on_table_with_config(
         validated_ball_ball_tangential_friction_coefficient(config);
     let object_table_static_friction_coefficient =
         validated_ball_ball_object_table_static_friction_coefficient(config);
+    let (
+        kim_object_center_speed_before,
+        kim_object_spin_surface_speed_before,
+        kim_object_is_stationary,
+    ) = kim_stationary_object_domain(b_state, ball_radius);
 
     let a_normal_before = project_velocity_on_basis(&a_state.velocity, normal_x, normal_y);
     let b_normal_before = project_velocity_on_basis(&b_state.velocity, normal_x, normal_y);
@@ -12238,11 +12933,14 @@ fn frictional_collision_outcome_on_table_with_config(
     let tangential_contact_slip = (a_tangent_before - b_tangent_before)
         - ball_radius
             * (a_state.angular_velocity.z().as_f64() + b_state.angular_velocity.z().as_f64());
-    let vertical_contact_slip = ball_radius
-        * (normal_y
-            * (a_state.angular_velocity.x().as_f64() + b_state.angular_velocity.x().as_f64())
-            - normal_x
-                * (a_state.angular_velocity.y().as_f64() + b_state.angular_velocity.y().as_f64()));
+    let vertical_contact_slip = (a_state.vertical_velocity.as_f64()
+        - b_state.vertical_velocity.as_f64())
+        + ball_radius
+            * (normal_y
+                * (a_state.angular_velocity.x().as_f64() + b_state.angular_velocity.x().as_f64())
+                - normal_x
+                    * (a_state.angular_velocity.y().as_f64()
+                        + b_state.angular_velocity.y().as_f64()));
     let contact_slip_speed = tangential_contact_slip.hypot(vertical_contact_slip);
     let tangential_friction_coefficient =
         validated_ball_ball_contact_friction_coefficient(config, contact_slip_speed);
@@ -12259,11 +12957,23 @@ fn frictional_collision_outcome_on_table_with_config(
                 tangential_friction_coefficient,
             )
         };
-    let kim_table_coupled_normal_correction = if vertical_impulse_per_mass < 0.0 {
-        0.5 * object_table_static_friction_coefficient * vertical_impulse_per_mass
+    let kim_table_correction_status = if object_table_static_friction_coefficient <= f64::EPSILON {
+        KimTableCorrectionStatus::DisabledByConfiguration
+    } else if !kim_object_is_stationary {
+        KimTableCorrectionStatus::SkippedObjectNotStationary
+    } else if vertical_impulse_per_mass < 0.0 {
+        KimTableCorrectionStatus::AppliedStationaryObject
     } else {
-        0.0
+        KimTableCorrectionStatus::InactiveForImpulseDirection
     };
+    let effective_object_table_static_friction_coefficient =
+        if kim_table_correction_status == KimTableCorrectionStatus::AppliedStationaryObject {
+            object_table_static_friction_coefficient
+        } else {
+            0.0
+        };
+    let kim_table_coupled_normal_correction =
+        0.5 * effective_object_table_static_friction_coefficient * vertical_impulse_per_mass;
 
     let a_velocity = Velocity2::new(
         Inches::from_f64(
@@ -12316,11 +13026,7 @@ fn frictional_collision_outcome_on_table_with_config(
         .as_ref()
         .map(|spin| spin.z().as_f64())
         .unwrap_or(0.0);
-    let object_horizontal_spin_scale = if vertical_impulse_per_mass < 0.0 {
-        1.0 + object_table_static_friction_coefficient
-    } else {
-        1.0
-    };
+    let object_horizontal_spin_scale = 1.0 + effective_object_table_static_friction_coefficient;
     let a_angular_velocity = AngularVelocity3::new(
         a_state.angular_velocity.x().as_f64() + spin_delta_x,
         a_state.angular_velocity.y().as_f64() + spin_delta_y,
@@ -12334,31 +13040,34 @@ fn frictional_collision_outcome_on_table_with_config(
 
     let b_normal_after = project_velocity_on_basis(&b_velocity, normal_x, normal_y);
     let b_tangent_after = project_velocity_on_basis(&b_velocity, tangent_x, tangent_y);
-    let throw_angle_degrees =
-        if !require_stationary_object_ball && ball_speed(b_state).as_f64() > 1e-9 {
-            let ideal_heading = ideal.b_after.as_ball_state().velocity.angle_from_north();
-            let actual_heading = b_velocity.angle_from_north();
-            match (ideal_heading, actual_heading) {
-                (Some(ideal_heading), Some(actual_heading)) => {
-                    signed_angle_difference_degrees(ideal_heading, actual_heading)
-                }
-                _ => 0.0,
+    let throw_angle_degrees = if ball_speed(b_state).as_f64() > 1e-9 {
+        let ideal_heading = ideal.b_after.velocity.angle_from_north();
+        let actual_heading = b_velocity.angle_from_north();
+        match (ideal_heading, actual_heading) {
+            (Some(ideal_heading), Some(actual_heading)) => {
+                signed_angle_difference_degrees(ideal_heading, actual_heading)
             }
-        } else if b_normal_after.abs() <= f64::EPSILON && b_tangent_after.abs() <= f64::EPSILON {
-            0.0
-        } else {
-            b_tangent_after.atan2(b_normal_after).to_degrees()
-        };
+            _ => 0.0,
+        }
+    } else if b_normal_after.abs() <= f64::EPSILON && b_tangent_after.abs() <= f64::EPSILON {
+        0.0
+    } else {
+        b_tangent_after.atan2(b_normal_after).to_degrees()
+    };
 
     CollisionOutcome {
-        a_after: build_on_table_ball_state(
+        a_after: BallState::new(
             a_state.position.clone(),
+            Inches::zero(),
             a_velocity,
+            Inches::from_f64(a_state.vertical_velocity.as_f64() - vertical_impulse_per_mass),
             a_angular_velocity,
         ),
-        b_after: build_on_table_ball_state(
+        b_after: BallState::new(
             b_state.position.clone(),
+            Inches::zero(),
             b_velocity,
+            Inches::from_f64(b_state.vertical_velocity.as_f64() + vertical_impulse_per_mass),
             b_angular_velocity,
         ),
         throw_angle_degrees: Some(throw_angle_degrees),
@@ -12373,6 +13082,9 @@ fn frictional_collision_outcome_on_table_with_config(
             tangential_impulse_per_mass,
             vertical_impulse_per_mass,
             contact_friction_coefficient: tangential_friction_coefficient,
+            kim_table_correction_status,
+            kim_object_center_speed_before,
+            kim_object_spin_surface_speed_before,
             kim_table_coupled_normal_correction,
         }),
     }
@@ -12384,7 +13096,7 @@ fn throw_aware_collision_outcome_on_table_with_config(
     ball_radius: f64,
     config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
-    frictional_collision_outcome_on_table_with_config(a, b, ball_radius, config, false)
+    frictional_collision_outcome_on_table_with_config(a, b, ball_radius, config)
 }
 
 fn spin_friction_collision_outcome_on_table_with_config(
@@ -12393,7 +13105,152 @@ fn spin_friction_collision_outcome_on_table_with_config(
     ball_radius: f64,
     config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
-    frictional_collision_outcome_on_table_with_config(a, b, ball_radius, config, false)
+    frictional_collision_outcome_on_table_with_config(a, b, ball_radius, config)
+}
+
+fn dot_product_3d(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+}
+
+fn cross_product_3d(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
+}
+
+fn collide_airborne_ball_ball_with_radius_and_config(
+    first: &BallState,
+    second: &BallState,
+    ball_radius: f64,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+) -> (BallState, BallState) {
+    let first_position = [
+        first.position.x().as_f64(),
+        first.position.y().as_f64(),
+        first.height.as_f64(),
+    ];
+    let second_position = [
+        second.position.x().as_f64(),
+        second.position.y().as_f64(),
+        second.height.as_f64(),
+    ];
+    let center_offset = [
+        second_position[0] - first_position[0],
+        second_position[1] - first_position[1],
+        second_position[2] - first_position[2],
+    ];
+    let center_distance = dot_product_3d(center_offset, center_offset).sqrt();
+    if center_distance <= f64::EPSILON {
+        return (first.clone(), second.clone());
+    }
+    let normal = [
+        center_offset[0] / center_distance,
+        center_offset[1] / center_distance,
+        center_offset[2] / center_distance,
+    ];
+    let first_velocity = [
+        first.velocity.x().as_f64(),
+        first.velocity.y().as_f64(),
+        first.vertical_velocity.as_f64(),
+    ];
+    let second_velocity = [
+        second.velocity.x().as_f64(),
+        second.velocity.y().as_f64(),
+        second.vertical_velocity.as_f64(),
+    ];
+    let relative_center_velocity = [
+        first_velocity[0] - second_velocity[0],
+        first_velocity[1] - second_velocity[1],
+        first_velocity[2] - second_velocity[2],
+    ];
+    let closing_speed = dot_product_3d(relative_center_velocity, normal);
+    if closing_speed <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+        return (first.clone(), second.clone());
+    }
+
+    let normal_impulse_per_mass =
+        0.5 * (1.0 + validated_ball_ball_normal_restitution(collision_config)) * closing_speed;
+    let first_spin = [
+        first.angular_velocity.x().as_f64(),
+        first.angular_velocity.y().as_f64(),
+        first.angular_velocity.z().as_f64(),
+    ];
+    let second_spin = [
+        second.angular_velocity.x().as_f64(),
+        second.angular_velocity.y().as_f64(),
+        second.angular_velocity.z().as_f64(),
+    ];
+    let spin_sum = [
+        first_spin[0] + second_spin[0],
+        first_spin[1] + second_spin[1],
+        first_spin[2] + second_spin[2],
+    ];
+    let rotational_surface_velocity =
+        cross_product_3d(spin_sum, normal).map(|value| ball_radius * value);
+    let relative_surface_velocity = [
+        relative_center_velocity[0] + rotational_surface_velocity[0],
+        relative_center_velocity[1] + rotational_surface_velocity[1],
+        relative_center_velocity[2] + rotational_surface_velocity[2],
+    ];
+    let surface_normal_speed = dot_product_3d(relative_surface_velocity, normal);
+    let contact_slip = [
+        relative_surface_velocity[0] - surface_normal_speed * normal[0],
+        relative_surface_velocity[1] - surface_normal_speed * normal[1],
+        relative_surface_velocity[2] - surface_normal_speed * normal[2],
+    ];
+    let contact_slip_speed = dot_product_3d(contact_slip, contact_slip).sqrt();
+    let friction_impulse_per_mass = if collision_model == CollisionModel::Ideal
+        || contact_slip_speed <= f64::EPSILON
+    {
+        [0.0; 3]
+    } else {
+        let friction_impulse_magnitude = (contact_slip_speed / 7.0).min(
+            validated_ball_ball_contact_friction_coefficient(collision_config, contact_slip_speed)
+                * normal_impulse_per_mass,
+        );
+        let scale = friction_impulse_magnitude / contact_slip_speed;
+        contact_slip.map(|value| scale * value)
+    };
+    let first_velocity_after = std::array::from_fn(|axis| {
+        first_velocity[axis]
+            - normal_impulse_per_mass * normal[axis]
+            - friction_impulse_per_mass[axis]
+    });
+    let second_velocity_after = std::array::from_fn(|axis| {
+        second_velocity[axis]
+            + normal_impulse_per_mass * normal[axis]
+            + friction_impulse_per_mass[axis]
+    });
+    let angular_impulse_scale = -5.0 / (2.0 * ball_radius);
+    let spin_delta = cross_product_3d(normal, friction_impulse_per_mass)
+        .map(|value| angular_impulse_scale * value);
+    let first_spin_after = std::array::from_fn(|axis| first_spin[axis] + spin_delta[axis]);
+    let second_spin_after = std::array::from_fn(|axis| second_spin[axis] + spin_delta[axis]);
+
+    let rebuild = |state: &BallState, velocity: [f64; 3], spin: [f64; 3]| {
+        BallState::new(
+            state.position.clone(),
+            state.height.clone(),
+            Velocity2::new(Inches::from_f64(velocity[0]), Inches::from_f64(velocity[1])),
+            Inches::from_f64(velocity[2]),
+            AngularVelocity3::new(spin[0], spin[1], spin[2]),
+        )
+    };
+    (
+        rebuild(first, first_velocity_after, first_spin_after),
+        rebuild(second, second_velocity_after, second_spin_after),
+    )
+}
+
+fn system_state_after_airborne_ball_ball_collision(state: BallState) -> NBallSystemState {
+    if state.height.as_f64() > SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+        NBallSystemState::Airborne(state)
+    } else {
+        supported_system_state_after_on_table_ball_ball_collision(state)
+    }
 }
 
 /// Resolve an instantaneous ball-ball collision for two validated on-table states and return the
@@ -12406,22 +13263,26 @@ fn spin_friction_collision_outcome_on_table_with_config(
 ///
 /// - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf`, Section VI "Throw", describes the throw
 ///   term as proportional to `(v sin(φ) - R ω_z)`.
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C6'), (C11), and (C13),
+/// - `whitepapers/the_art_of_billiards_play.html`, Eqs. (C6'), (C11), and (C13),
 ///   express the same contact-patch tangential slip and the equal-sphere no-slip impulse limit.
 /// - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` decomposes
 ///   the contact slip into horizontal throw and vertical follow/draw components.
 /// - `whitepapers/collision_of_billiard_balls_in_3d_with_spin_and_friction.pdf` shows that equal
 ///   contact torques change both identical balls' angular velocities by the same increment.
-/// - `whitepapers/motions_of_a_billiard_ball_after_a_cue_stroke.pdf` adds a first-order
-///   object-ball/table static-friction correction during topspin impacts.
+/// - `whitepapers/collision_of_two_spinning_billiard_balls_and_the_role_of_table_friction.pdf`
+///   derives Kim's first-order object/table term for a stationary, non-spinning object ball.
 ///
 /// The friction impulse is capped by both `mu * Jn` and the equal-solid-sphere no-slip value
-/// `|slip| / 7`, then applied consistently to both balls' horizontal velocity and angular velocity.
-/// With nonzero `object_table_static_friction_coefficient`, Kim's table-coupled normal-speed and
-/// object-spin corrections add an external table impulse, so horizontal momentum is no longer
+/// `|slip| / 7`. Its horizontal and vertical components are applied to both translational and
+/// angular velocities in the immediate free-sphere response. The richer N-ball scheduler then
+/// resolves any supporting-surface contact as a distinct event.
+///
+/// With nonzero `object_table_static_friction_coefficient`, the Kim correction is applied only
+/// when the second input ball is stationary and non-spinning before impact. Other requested inputs
+/// preserve the ordinary ball-ball impulse and report their skip reason in `CollisionDiagnostics`.
+/// When Kim applies, it adds an external table impulse, so horizontal momentum is no longer
 /// conserved by the two-ball subsystem. Reported throw remains the object-ball departure angle
-/// implied by the final on-table velocity. Vertical center-of-mass hop remains outside this on-table
-/// 2D state model.
+/// implied by the immediate response.
 pub fn collide_ball_ball_detailed_on_table_with_config(
     a: &OnTableBallState,
     b: &OnTableBallState,
@@ -12481,7 +13342,7 @@ pub fn collide_ball_ball_on_table_with_config(
     b: &OnTableBallState,
     model: CollisionModel,
     config: &BallBallCollisionConfig,
-) -> (OnTableBallState, OnTableBallState) {
+) -> (BallState, BallState) {
     let outcome = collide_ball_ball_detailed_on_table_with_config(a, b, model, config);
 
     (outcome.a_after, outcome.b_after)
@@ -12493,7 +13354,7 @@ pub fn collide_ball_ball_on_table_with_radius_and_config(
     ball_radius: Inches,
     model: CollisionModel,
     config: &BallBallCollisionConfig,
-) -> (OnTableBallState, OnTableBallState) {
+) -> (BallState, BallState) {
     let outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
         a,
         b,
@@ -12509,7 +13370,7 @@ pub fn collide_ball_ball_on_table(
     a: &OnTableBallState,
     b: &OnTableBallState,
     model: CollisionModel,
-) -> (OnTableBallState, OnTableBallState) {
+) -> (BallState, BallState) {
     collide_ball_ball_on_table_with_config(a, b, model, &BallBallCollisionConfig::ideal())
 }
 
@@ -12522,7 +13383,7 @@ pub fn collide_ball_ball_analyzed_on_table_with_config(
     config: &BallBallCollisionConfig,
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
-) -> CollisionAnalysis {
+) -> Result<CollisionAnalysis, OnTableStateError> {
     collide_ball_ball_detailed_on_table_with_radius_and_config(
         a,
         b,
@@ -12539,7 +13400,7 @@ pub fn collide_ball_ball_analyzed_on_table(
     model: CollisionModel,
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
-) -> CollisionAnalysis {
+) -> Result<CollisionAnalysis, OnTableStateError> {
     collide_ball_ball_analyzed_on_table_with_config(
         a,
         b,
@@ -12757,8 +13618,11 @@ impl CollisionOutcome {
         &self,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> Option<PostContactCueBallBend> {
-        estimate_post_contact_cue_ball_bend_on_table(&self.a_after, ball, motion)
+    ) -> Result<Option<PostContactCueBallBend>, OnTableStateError> {
+        let cue_ball = OnTableBallState::try_from(self.a_after.clone())?;
+        Ok(estimate_post_contact_cue_ball_bend_on_table(
+            &cue_ball, ball, motion,
+        ))
     }
 
     /// Estimate the later side-spin-driven cue-ball curve from this immediate post-collision
@@ -12767,8 +13631,11 @@ impl CollisionOutcome {
         &self,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> Option<PostContactCueBallCurve> {
-        estimate_post_contact_cue_ball_curve_on_table(&self.a_after, ball, motion)
+    ) -> Result<Option<PostContactCueBallCurve>, OnTableStateError> {
+        let cue_ball = OnTableBallState::try_from(self.a_after.clone())?;
+        Ok(estimate_post_contact_cue_ball_curve_on_table(
+            &cue_ball, ball, motion,
+        ))
     }
 
     /// Bundle this outcome with current cue-ball continuation estimates.
@@ -12776,12 +13643,12 @@ impl CollisionOutcome {
         &self,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> CollisionAnalysis {
-        CollisionAnalysis {
+    ) -> Result<CollisionAnalysis, OnTableStateError> {
+        Ok(CollisionAnalysis {
             outcome: self.clone(),
-            cue_ball_bend: self.estimate_post_contact_cue_ball_bend(ball, motion),
-            cue_ball_curve: self.estimate_post_contact_cue_ball_curve(ball, motion),
-        }
+            cue_ball_bend: self.estimate_post_contact_cue_ball_bend(ball, motion)?,
+            cue_ball_curve: self.estimate_post_contact_cue_ball_curve(ball, motion)?,
+        })
     }
 
     /// Bundle this outcome with the current cue-ball bend/curve estimate convenience data.
@@ -12789,7 +13656,7 @@ impl CollisionOutcome {
         &self,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> CollisionAnalysis {
+    ) -> Result<CollisionAnalysis, OnTableStateError> {
         self.with_post_contact_cue_ball_analysis(ball, motion)
     }
 }
@@ -12805,14 +13672,22 @@ impl PostContactContinuation {
         self.source_contact
     }
 
-    /// Return the cue ball's immediate post-contact on-table state.
-    pub fn cue_ball(&self) -> &OnTableBallState {
+    /// Return the cue ball's immediate post-contact full state.
+    pub fn cue_ball(&self) -> &BallState {
         &self.source_contact.a_after
     }
 
-    /// Return the struck ball's immediate post-contact on-table state.
-    pub fn struck_ball(&self) -> &OnTableBallState {
+    /// Return the struck ball's immediate post-contact full state.
+    pub fn struck_ball(&self) -> &BallState {
         &self.source_contact.b_after
+    }
+
+    fn cue_ball_on_table(&self) -> Result<OnTableBallState, OnTableStateError> {
+        OnTableBallState::try_from(self.cue_ball().clone())
+    }
+
+    fn struck_ball_on_table(&self) -> Result<OnTableBallState, OnTableStateError> {
+        OnTableBallState::try_from(self.struck_ball().clone())
     }
 
     /// Predict the next phase-aware ball-ball collision between this post-contact cue ball and a
@@ -12822,12 +13697,12 @@ impl PostContactContinuation {
         other: &OnTableBallState,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> Option<PredictedBallBallCollision> {
-        compute_next_ball_ball_collision_during_current_phases_on_table(
-            self.cue_ball(),
-            other,
-            ball,
-            motion,
+    ) -> Result<Option<PredictedBallBallCollision>, OnTableStateError> {
+        let cue_ball = self.cue_ball_on_table()?;
+        Ok(
+            compute_next_ball_ball_collision_during_current_phases_on_table(
+                &cue_ball, other, ball, motion,
+            ),
         )
     }
 
@@ -12838,12 +13713,15 @@ impl PostContactContinuation {
         other: &OnTableBallState,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> Option<PredictedBallBallCollision> {
-        compute_next_ball_ball_collision_during_current_phases_on_table(
-            self.struck_ball(),
-            other,
-            ball,
-            motion,
+    ) -> Result<Option<PredictedBallBallCollision>, OnTableStateError> {
+        let struck_ball = self.struck_ball_on_table()?;
+        Ok(
+            compute_next_ball_ball_collision_during_current_phases_on_table(
+                &struck_ball,
+                other,
+                ball,
+                motion,
+            ),
         )
     }
 
@@ -12854,8 +13732,12 @@ impl PostContactContinuation {
         other: &OnTableBallState,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
-        compute_next_two_ball_event_on_table(self.cue_ball(), other, ball, motion)
+    ) -> Result<Option<TwoBallOnTableEvent>, PostContactContinuationError> {
+        let cue_ball = self
+            .cue_ball_on_table()
+            .map_err(PostContactContinuationError::NotOnTable)?;
+        compute_next_two_ball_event_on_table(&cue_ball, other, ball, motion)
+            .map_err(PostContactContinuationError::Geometry)
     }
 
     /// Predict the earliest supported next event between the post-contact struck ball and a second
@@ -12865,8 +13747,12 @@ impl PostContactContinuation {
         other: &OnTableBallState,
         ball: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
-    ) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
-        compute_next_two_ball_event_on_table(self.struck_ball(), other, ball, motion)
+    ) -> Result<Option<TwoBallOnTableEvent>, PostContactContinuationError> {
+        let struck_ball = self
+            .struck_ball_on_table()
+            .map_err(PostContactContinuationError::NotOnTable)?;
+        compute_next_two_ball_event_on_table(&struck_ball, other, ball, motion)
+            .map_err(PostContactContinuationError::Geometry)
     }
 
     /// Predict the cue ball's next rail impact under the current table geometry.
@@ -12875,8 +13761,11 @@ impl PostContactContinuation {
         ball: &BallSetPhysicsSpec,
         table: &TableSpec,
         motion: &OnTableMotionConfig,
-    ) -> Option<PredictedBallRailImpact> {
-        compute_next_ball_rail_impact_on_table(self.cue_ball(), ball, table, motion)
+    ) -> Result<Option<PredictedBallRailImpact>, OnTableStateError> {
+        let cue_ball = self.cue_ball_on_table()?;
+        Ok(compute_next_ball_rail_impact_on_table(
+            &cue_ball, ball, table, motion,
+        ))
     }
 
     /// Predict the earliest supported next event between this post-contact cue ball and a second
@@ -12887,8 +13776,12 @@ impl PostContactContinuation {
         ball: &BallSetPhysicsSpec,
         table: &TableSpec,
         motion: &OnTableMotionConfig,
-    ) -> Result<Option<TwoBallOnTableEvent>, NBallGeometryError> {
-        compute_next_two_ball_event_with_rails_on_table(self.cue_ball(), other, ball, table, motion)
+    ) -> Result<Option<TwoBallOnTableEvent>, PostContactContinuationError> {
+        let cue_ball = self
+            .cue_ball_on_table()
+            .map_err(PostContactContinuationError::NotOnTable)?;
+        compute_next_two_ball_event_with_rails_on_table(&cue_ball, other, ball, table, motion)
+            .map_err(PostContactContinuationError::Geometry)
     }
 }
 
@@ -13072,14 +13965,14 @@ fn ideal_ball_rail_collision_velocity(velocity: &Velocity2, rail: Rail) -> Veloc
 // friction term during the short cushion-contact interval, which replaces the earlier heuristic
 // running-english damping helpers.
 const THEORETICAL_CUSHION_CONTACT_HEIGHT_ABOVE_CENTER_RATIO: f64 = 2.0 / 5.0;
-const RAIL_IMPACT_SOLVE_MAX_STEPS: usize = 1_000;
-const RAIL_IMPACT_MIN_IMPULSE_STEP: f64 = 1e-4;
-const RAIL_IMPACT_REFINEMENT_STEPS: usize = 8;
+const RAIL_IMPACT_NOMINAL_IMPULSE_STEPS: usize = 1_000;
+const RAIL_IMPACT_MIN_MASS_NORMALIZED_IMPULSE_STEP_INCHES_PER_SECOND: f64 = 1e-4;
+const RAIL_IMPACT_ROOT_REFINEMENT_STEPS: usize = 48;
 const RAIL_RUNNING_ENGLISH_ROLLING_MIN_SCALE: f64 = 0.10;
 // Smooth the rail-impact friction direction through true no-slip contact. Without this adherence
 // band, `atan2(0, 0)` picked an arbitrary kinetic-friction direction and a mathematically geared
 // cushion/table contact could receive a finite tangential impulse from an infinitesimal slip.
-const RAIL_IMPACT_ADHERENCE_SLIP_SPEED_INCHES_PER_SECOND: f64 = 1e-3;
+const RAIL_IMPACT_ADHERENCE_SLIP_SPEED_INCHES_PER_SECOND: f64 = 0.02;
 const RAIL_ROLLING_REBOUND_HORIZONTAL_SPIN_BLEND: f64 = 0.35;
 const RAIL_ROLLING_REBOUND_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 1.15;
 const RAIL_ROLLING_REBOUND_LOW_ENGLISH_MAX_OUTGOING_CLOTH_SLIP_RATIO: f64 = 0.8;
@@ -13194,11 +14087,12 @@ fn advance_rail_impact_frame_by_impulse_step(
 }
 
 fn rail_impact_work_increment(
-    normal_speed_toward_cushion: f64,
+    normal_speed_before: f64,
+    normal_speed_after: f64,
     cos_theta: f64,
     delta_p: f64,
 ) -> f64 {
-    delta_p * normal_speed_toward_cushion.abs() * cos_theta
+    delta_p * cos_theta * 0.5 * (normal_speed_before + normal_speed_after)
 }
 
 fn solve_rail_impact_compression_phase(
@@ -13208,13 +14102,13 @@ fn solve_rail_impact_compression_phase(
     cos_theta: f64,
     table_friction: f64,
     cushion_friction: f64,
+    nominal_delta_p: f64,
 ) -> (RailImpactFrameState, f64) {
     let mut work = 0.0;
     let mut step_count = 0usize;
-    let delta_p = (state.normal_speed_toward_cushion / RAIL_IMPACT_SOLVE_MAX_STEPS as f64)
-        .max(RAIL_IMPACT_MIN_IMPULSE_STEP);
 
     while state.normal_speed_toward_cushion > f64::EPSILON {
+        let normal_speed_before = state.normal_speed_toward_cushion;
         let next = advance_rail_impact_frame_by_impulse_step(
             state,
             ball_radius,
@@ -13222,44 +14116,57 @@ fn solve_rail_impact_compression_phase(
             cos_theta,
             table_friction,
             cushion_friction,
-            delta_p,
+            nominal_delta_p,
         );
-
-        if next.normal_speed_toward_cushion <= 0.0 {
-            let mut refined = state;
-            let mut refined_work = work;
-            let mut refined_delta_p = delta_p;
-
-            for _ in 0..RAIL_IMPACT_REFINEMENT_STEPS {
-                refined_delta_p *= 0.5;
+        if next.normal_speed_toward_cushion > 0.0 {
+            work += rail_impact_work_increment(
+                normal_speed_before,
+                next.normal_speed_toward_cushion,
+                cos_theta,
+                nominal_delta_p,
+            );
+            state = next;
+        } else {
+            let mut low = 0.0;
+            let mut high = nominal_delta_p;
+            for _ in 0..RAIL_IMPACT_ROOT_REFINEMENT_STEPS {
+                let midpoint = 0.5 * (low + high);
                 let candidate = advance_rail_impact_frame_by_impulse_step(
-                    refined,
+                    state,
                     ball_radius,
                     sin_theta,
                     cos_theta,
                     table_friction,
                     cushion_friction,
-                    refined_delta_p,
+                    midpoint,
                 );
-                if candidate.normal_speed_toward_cushion <= 0.0 {
-                    continue;
+                if candidate.normal_speed_toward_cushion > 0.0 {
+                    low = midpoint;
+                } else {
+                    high = midpoint;
                 }
-                refined = candidate;
-                refined_work += rail_impact_work_increment(
-                    refined.normal_speed_toward_cushion,
-                    cos_theta,
-                    refined_delta_p,
-                );
             }
-
-            return (refined, refined_work);
+            let mut root = advance_rail_impact_frame_by_impulse_step(
+                state,
+                ball_radius,
+                sin_theta,
+                cos_theta,
+                table_friction,
+                cushion_friction,
+                high,
+            );
+            work += rail_impact_work_increment(
+                normal_speed_before,
+                root.normal_speed_toward_cushion,
+                cos_theta,
+                high,
+            );
+            root.normal_speed_toward_cushion = 0.0;
+            return (root, work);
         }
-
-        state = next;
-        work += rail_impact_work_increment(state.normal_speed_toward_cushion, cos_theta, delta_p);
         step_count += 1;
         assert!(
-            step_count <= 10 * RAIL_IMPACT_SOLVE_MAX_STEPS,
+            step_count <= 10 * RAIL_IMPACT_NOMINAL_IMPULSE_STEPS,
             "rail-impact compression phase failed to converge"
         );
     }
@@ -13276,6 +14183,7 @@ fn solve_rail_impact_restitution_phase(
     normal_restitution: f64,
     table_friction: f64,
     cushion_friction: f64,
+    nominal_delta_p: f64,
 ) -> RailImpactFrameState {
     let target_work = normal_restitution * normal_restitution * compression_work;
     if target_work <= f64::EPSILON {
@@ -13284,28 +14192,10 @@ fn solve_rail_impact_restitution_phase(
 
     let mut work = 0.0;
     let mut step_count = 0usize;
-    let delta_p =
-        (target_work / RAIL_IMPACT_SOLVE_MAX_STEPS as f64).max(RAIL_IMPACT_MIN_IMPULSE_STEP);
-
     while work < target_work {
-        let next_work =
-            rail_impact_work_increment(state.normal_speed_toward_cushion, cos_theta, delta_p);
-        if work + next_work > target_work {
-            let remaining_work = target_work - work;
-            let refined_delta_p = remaining_work
-                / (state.normal_speed_toward_cushion.abs() * cos_theta).max(f64::EPSILON);
-            return advance_rail_impact_frame_by_impulse_step(
-                state,
-                ball_radius,
-                sin_theta,
-                cos_theta,
-                table_friction,
-                cushion_friction,
-                refined_delta_p,
-            );
-        }
-
-        state = advance_rail_impact_frame_by_impulse_step(
+        let normal_speed_before = state.normal_speed_toward_cushion;
+        let delta_p = nominal_delta_p;
+        let next = advance_rail_impact_frame_by_impulse_step(
             state,
             ball_radius,
             sin_theta,
@@ -13314,10 +14204,55 @@ fn solve_rail_impact_restitution_phase(
             cushion_friction,
             delta_p,
         );
-        work += rail_impact_work_increment(state.normal_speed_toward_cushion, cos_theta, delta_p);
+        let next_work = -rail_impact_work_increment(
+            normal_speed_before,
+            next.normal_speed_toward_cushion,
+            cos_theta,
+            delta_p,
+        );
+        if work + next_work <= target_work {
+            work += next_work;
+            state = next;
+        } else {
+            let remaining_work = target_work - work;
+            let mut low = 0.0;
+            let mut high = nominal_delta_p;
+            for _ in 0..RAIL_IMPACT_ROOT_REFINEMENT_STEPS {
+                let midpoint = 0.5 * (low + high);
+                let candidate = advance_rail_impact_frame_by_impulse_step(
+                    state,
+                    ball_radius,
+                    sin_theta,
+                    cos_theta,
+                    table_friction,
+                    cushion_friction,
+                    midpoint,
+                );
+                let candidate_work = -rail_impact_work_increment(
+                    normal_speed_before,
+                    candidate.normal_speed_toward_cushion,
+                    cos_theta,
+                    midpoint,
+                );
+                if candidate_work < remaining_work {
+                    low = midpoint;
+                } else {
+                    high = midpoint;
+                }
+            }
+            return advance_rail_impact_frame_by_impulse_step(
+                state,
+                ball_radius,
+                sin_theta,
+                cos_theta,
+                table_friction,
+                cushion_friction,
+                high,
+            );
+        }
         step_count += 1;
         assert!(
-            step_count <= 10 * RAIL_IMPACT_SOLVE_MAX_STEPS,
+            step_count <= 10 * RAIL_IMPACT_NOMINAL_IMPULSE_STEPS,
             "rail-impact restitution phase failed to converge"
         );
     }
@@ -13338,6 +14273,9 @@ fn solve_spin_aware_rail_impact_in_frame(
 
     let sin_theta = cushion_contact_sin_theta();
     let cos_theta = cushion_contact_cos_theta();
+    let nominal_delta_p = ((1.0 + normal_restitution) * state.normal_speed_toward_cushion
+        / RAIL_IMPACT_NOMINAL_IMPULSE_STEPS as f64)
+        .max(RAIL_IMPACT_MIN_MASS_NORMALIZED_IMPULSE_STEP_INCHES_PER_SECOND);
     let (compressed, compression_work) = solve_rail_impact_compression_phase(
         state,
         ball_radius,
@@ -13345,6 +14283,7 @@ fn solve_spin_aware_rail_impact_in_frame(
         cos_theta,
         table_friction,
         cushion_friction,
+        nominal_delta_p,
     );
 
     solve_rail_impact_restitution_phase(
@@ -13356,6 +14295,7 @@ fn solve_spin_aware_rail_impact_in_frame(
         normal_restitution,
         table_friction,
         cushion_friction,
+        nominal_delta_p,
     )
 }
 
@@ -13775,7 +14715,7 @@ fn collide_ball_jaw_on_table_with_radius_and_profile(
 ///
 /// The local rail reference material decomposes the incoming velocity into components tangential and
 /// perpendicular to the cushion and discusses how elasticity and cushion friction modify those
-/// components after impact. See `whitepapers/art_of_billiards_play_files/bil_praa.html`, Figure 6
+/// components after impact. See `whitepapers/the_art_of_billiards_play.html`, Figure 6
 /// and §7.1. `RailModel::Mirror` is the simplest limiting case of that picture: perfectly elastic
 /// in the normal direction, no tangential loss, and no spin change.
 ///
@@ -14095,7 +15035,7 @@ impl Position {
 ///
 /// - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf`, Section VI "Throw", gives a throw term
 ///   proportional to `(v sin(φ) - R ω_z)`, so zero throw occurs when that factor is zero.
-/// - `whitepapers/art_of_billiards_play_files/bil_praa.html`, Eqs. (C6'), (C11), and (C13),
+/// - `whitepapers/the_art_of_billiards_play.html`, Eqs. (C6'), (C11), and (C13),
 ///   defines the relative tangential contact velocity `WCa` and the adherence condition
 ///   `WCi = 0`, which is the same zero-relative-motion condition at impact.
 /// - `whitepapers/non_smooth_modelling_of_billiard_and_superbilliard_ball_collisions.pdf`, Eq. (26), gives the no-slip condition at the

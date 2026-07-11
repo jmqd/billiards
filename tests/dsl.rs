@@ -120,7 +120,6 @@ fn carom_table_dsl_builds_pocketless_table_game_and_carom_balls() {
     }
 }
 
-
 #[test]
 fn given_an_invalid_second_statement_when_parsing_then_the_error_offset_points_at_the_bad_token() {
     let err = parse_dsl("ball cue at center\nball nine nope").expect_err("expected parse failure");

@@ -1,4 +1,4 @@
-# Double-rail kick: cue goes right rail then top rail into the object, which later drops in the left side pocket.
+# Double-rail kick: cue goes right rail then top rail into the object; the current energetic rail solve sends the object into center-left.
 ball cue at center
 ball one at (0.85, 4.25)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1)

@@ -1,4 +1,4 @@
-# Straight follow shot: object goes in the right side pocket, cue follows through and scratches.
+# Straight follow shot: object goes in the right side pocket; current 3-D continuation bounces then pockets the cue in the same pocket.
 ball cue at (1.0, 4.0)
 ball one at (2.6, 4.0)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1)

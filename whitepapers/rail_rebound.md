@@ -118,6 +118,11 @@ The on-table rail state does not explicitly represent:
 That means the current solver is still a **reduced horizontal slice** of the full cushion-impact
 problem.
 
+Airborne balls are not projected into this solver. Before the next ballistic table contact, the
+pocket-aware scheduler suppresses planar rail, jaw, and capture candidates; it preserves the full
+height and vertical-velocity state for the table-contact event. A calibrated three-dimensional
+cushion/jaw response remains outside the current model.
+
 ## What is already covered well enough
 
 At a qualitative level, the current model now captures the most important local rail behaviors:
@@ -150,11 +155,11 @@ At a qualitative level, the current model now captures the most important local 
    `RailCollisionConfig::effective_contact_height_ratio`; it may still want a **speed-dependent**
    model rather than a fixed value.
 3. Should cushion compliance / penetration depth vary with impact speed and rail?
-4. Should the rail model expose an internal trace of:
-   - tangential contact slip,
-   - cloth-contact slip,
-   - compression / restitution work,
-   so scenario debugging can distinguish paper-backed response from guardrail clamps?
+4. The SpinAware solver integrates the mass-normalized impulse with a compression zero-speed root
+   and trapezoidal compression/restitution work. It enforces Mathavan Eq. (16a),
+   `Δw = Δp cos(θ) (q_before + q_after) / 2`, and closes restitution at `w_r = e_e² w_c`.
+   Public rail APIs intentionally continue to return only the resolved state; the frictionless
+   restitution and zero-restitution event regressions provide the observable contract.
 
 ## Pointers into the code
 

@@ -1,4 +1,4 @@
-# Slight cut to the right side pocket with lots of right spin from a near-stun tip height.
+# Slight cut with right spin from a near-stun tip height; current full vertical response pockets the 1 while leaving the cue on the table.
 ball cue at (1.0, 4.0)
 ball one at (2.6, 4.0)
 cue_strike(default).mass_ratio(1.0).energy_loss(0.1)

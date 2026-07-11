@@ -170,6 +170,7 @@ struct ProbeResult {
     cue_impact_speed_ips: f64,
     simulation_elapsed_s: f64,
     cue_post_contact_speed_ips: f64,
+    cue_post_contact_vertical_velocity_ips: f64,
     cue_post_contact_heading_deg: f64,
     throw_angle_deg: Option<f64>,
     cue_bend_deg: Option<f64>,
@@ -362,15 +363,18 @@ fn run_probe_case(
         &collision.object_impact,
         CollisionModel::ThrowAware,
     );
-    let cue_post_contact_speed_ips = outcome.a_after.as_ball_state().speed().as_f64();
+    let cue_post_contact_speed_ips = outcome.a_after.speed().as_f64();
+    let cue_post_contact_vertical_velocity_ips = outcome.a_after.vertical_velocity.as_f64();
     let cue_post_contact_heading_deg = outcome
         .a_after
-        .as_ball_state()
         .velocity
         .angle_from_north()
         .expect("cue should still be moving after collision")
         .as_degrees();
-    let raw_cue_bend = outcome.estimate_post_contact_cue_ball_bend(ball_set, motion);
+    let raw_cue_bend = outcome
+        .estimate_post_contact_cue_ball_bend(ball_set, motion)
+        .ok()
+        .flatten();
     let cue_bend = if cue_post_contact_speed_ips >= MIN_MEANINGFUL_BEND_SPEED_IPS {
         raw_cue_bend.clone()
     } else {
@@ -383,11 +387,11 @@ fn run_probe_case(
             .angle_from_north()
             .map(|angle| angle.as_degrees())
     });
-    let next_rail = outcome.cue_ball_continuation().next_rail_impact(
-        ball_set,
-        &scenario.game_state.table_spec,
-        motion,
-    );
+    let next_rail = outcome
+        .cue_ball_continuation()
+        .next_rail_impact(ball_set, &scenario.game_state.table_spec, motion)
+        .ok()
+        .flatten();
 
     let image_filename = if args.render {
         let render_path = output_dir.join(format!("{}.png", probe.stem));
@@ -423,6 +427,7 @@ fn run_probe_case(
         cue_impact_speed_ips,
         simulation_elapsed_s: trace.simulation.elapsed.as_f64(),
         cue_post_contact_speed_ips,
+        cue_post_contact_vertical_velocity_ips,
         cue_post_contact_heading_deg,
         throw_angle_deg: outcome.throw_angle_degrees,
         cue_bend_deg: cue_bend.as_ref().map(|bend| bend.bend_angle_degrees),
@@ -668,6 +673,11 @@ fn per_case_log(
     );
     let _ = writeln!(
         out,
+        "cue_post_contact_vertical_velocity_ips: {}",
+        format_decimal(result.cue_post_contact_vertical_velocity_ips)
+    );
+    let _ = writeln!(
+        out,
         "cue_post_contact_heading_deg: {}",
         format_decimal(result.cue_post_contact_heading_deg)
     );
@@ -788,12 +798,12 @@ fn summary_csv(results: &[ProbeResult], args: &Args) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "style,side_offset_r,sliding_friction_accel_ips2,rolling_resistance_accel_ips2,spin_decay_radps2,effective_mu_s,effective_mu_r,shot_launch_speed_input_ips,cue_launch_speed_ips,requested_cut_deg,actual_cut_deg,shot_heading_deg,first_collision_time_s,cue_impact_speed_ips,simulation_elapsed_s,cue_post_contact_speed_ips,cue_post_contact_heading_deg,throw_angle_deg,cue_bend_deg,cue_bend_duration_s,cue_heading_after_bend_deg,next_rail,time_to_next_rail_s,cue_rail_hits,cue_path_length_inches,object_final,cue_final,scenario_file,image_file,log_file"
+        "style,side_offset_r,sliding_friction_accel_ips2,rolling_resistance_accel_ips2,spin_decay_radps2,effective_mu_s,effective_mu_r,shot_launch_speed_input_ips,cue_launch_speed_ips,requested_cut_deg,actual_cut_deg,shot_heading_deg,first_collision_time_s,cue_impact_speed_ips,simulation_elapsed_s,cue_post_contact_speed_ips,cue_post_contact_vertical_velocity_ips,cue_post_contact_heading_deg,throw_angle_deg,cue_bend_deg,cue_bend_duration_s,cue_heading_after_bend_deg,next_rail,time_to_next_rail_s,cue_rail_hits,cue_path_length_inches,object_final,cue_final,scenario_file,image_file,log_file"
     );
     for result in results {
         let _ = writeln!(
             out,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22},{23},{24},{25},{26},{27},{28},{29},{30}",
             result.style.label(),
             format_decimal(args.side_offset_r),
             format_decimal(args.sliding_friction_accel_ips2),
@@ -810,6 +820,7 @@ fn summary_csv(results: &[ProbeResult], args: &Args) -> String {
             format_decimal(result.cue_impact_speed_ips),
             format_decimal(result.simulation_elapsed_s),
             format_decimal(result.cue_post_contact_speed_ips),
+            format_decimal(result.cue_post_contact_vertical_velocity_ips),
             format_decimal(result.cue_post_contact_heading_deg),
             format_option(result.throw_angle_deg, 6),
             format_option(result.cue_bend_deg, 6),

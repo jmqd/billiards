@@ -1,5 +1,5 @@
 # Jump-over full-ball showcase.
-# Goal: default 45-degree jump() cue elevation clears a blocker, lands, then contacts the 2.
+# Goal: default 45-degree jump() cue elevation clears a blocker, then exposes the unsupported airborne contact with the 2.
 table brunswick_gc4_9ft
 ball cue at (2.00, 2.00)
 ball one at (2.00, 2.68)

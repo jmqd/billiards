@@ -189,7 +189,7 @@ fn the_scheduler_picks_stop_when_a_rolling_ball_reaches_contact_with_zero_speed(
 }
 
 #[test]
-fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_event() {
+fn a_post_contact_continuation_exposes_full_branches_and_rejects_airborne_scheduling() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let object_ball_1 = on_table(BallState::resting_at(inches2(7.2, 40.0)));
     let object_ball_2 = on_table(BallState::resting_at(inches2(4.0, 36.8)));
@@ -216,34 +216,24 @@ fn a_post_contact_continuation_exposes_the_cue_ball_branch_and_next_event() {
         outcome,
         "continuations should round-trip their source collision outcome"
     );
-
-    assert!(
-        continuation
-            .next_collision_against_ball(&object_ball_2, &BallSetPhysicsSpec::default(), &motion_config())
-            .is_none(),
-        "the current post-contact cue-ball path no longer reaches the second ball during the current sliding phase"
-    );
-
-    match continuation
-        .next_event_against_ball(
+    assert!(matches!(
+        continuation.next_collision_against_ball(
             &object_ball_2,
             &BallSetPhysicsSpec::default(),
             &motion_config(),
-        )
-        .expect("test geometry should validate")
-        .expect("outside english should still produce a next event")
-    {
-        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
-            assert_eq!(ball, TwoBallEventBall::A);
-            assert_eq!(transition.phase_before, MotionPhase::Sliding);
-            assert_eq!(transition.phase_after, MotionPhase::Rolling);
-            assert_close(
-                transition.time_until_transition.as_f64(),
-                0.24875327809825132,
-            );
-        }
-        other => panic!("expected cue-ball motion transition, got {other:?}"),
-    }
+        ),
+        Err(billiards::OnTableStateError::VerticalVelocityPresent { .. })
+    ));
+    assert!(matches!(
+        continuation.next_event_against_ball(
+            &object_ball_2,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        ),
+        Err(billiards::PostContactContinuationError::NotOnTable(
+            billiards::OnTableStateError::VerticalVelocityPresent { .. }
+        ))
+    ));
 }
 
 #[test]
@@ -265,8 +255,9 @@ fn a_post_contact_continuation_can_follow_the_struck_ball_into_a_combo() {
             .next_collision_against_ball(
                 &second_object,
                 &BallSetPhysicsSpec::default(),
-                &motion_config()
+                &motion_config(),
             )
+            .expect("ideal continuation must remain on the table")
             .is_none(),
         "the cue ball should stop after the opening ideal head-on hit"
     );
@@ -277,6 +268,7 @@ fn a_post_contact_continuation_can_follow_the_struck_ball_into_a_combo() {
             &BallSetPhysicsSpec::default(),
             &motion_config(),
         )
+        .expect("ideal continuation must remain on the table")
         .expect("the struck ball should continue into the second object ball");
     assert_close(
         collision.time_until_impact.as_f64(),
@@ -303,19 +295,8 @@ fn a_post_contact_continuation_can_follow_the_struck_ball_into_a_combo() {
 }
 
 #[test]
-fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_after_contact() {
+fn follow_and_english_require_richer_scheduler_after_first_contact() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
-
-    // This staged regression approximates a 3-ball pattern by first resolving CB->OB1 contact,
-    // then asking the existing 2-ball scheduler what happens next between the post-impact cue ball
-    // and OB2. The local references motivating this are:
-    //
-    // - `whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf`
-    //   for the post-impact cue-ball path basis,
-    // - `whitepapers/tp_a_8_the_effects_of_sidespin_on_the_30_degree_rule.pdf` for English on the
-    //   cue-ball departure, and
-    // - `whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf` for the
-    //   combined follow/draw + English slip decomposition used by the current cue-ball seed model.
     let object_ball_1 = on_table(BallState::resting_at(inches2(7.2, 40.0)));
     let object_ball_2 = on_table(BallState::resting_at(inches2(4.0, 36.8)));
     let follow_outside = on_table(BallState::on_table(
@@ -334,59 +315,31 @@ fn follow_and_english_can_change_whether_the_scheduler_reaches_a_second_ball_aft
         Velocity2::new("0", "10"),
         AngularVelocity3::new(-6.0, 0.0, 6.0),
     ));
-    let follow_outside_continuation = collide_ball_ball_detailed_on_table(
-        &follow_outside,
-        &object_ball_1,
-        CollisionModel::ThrowAware,
-    )
-    .into_cue_ball_continuation();
-    let follow_inside_continuation = collide_ball_ball_detailed_on_table(
-        &follow_inside,
-        &object_ball_1,
-        CollisionModel::ThrowAware,
-    )
-    .into_cue_ball_continuation();
 
-    let outside_event = follow_outside_continuation
-        .next_event_against_ball(
-            &object_ball_2,
-            &BallSetPhysicsSpec::default(),
-            &motion_config(),
+    for continuation in [
+        collide_ball_ball_detailed_on_table(
+            &follow_outside,
+            &object_ball_1,
+            CollisionModel::ThrowAware,
         )
-        .expect("test geometry should validate")
-        .expect("outside english should produce a next event");
-    let inside_event = follow_inside_continuation
-        .next_event_against_ball(
-            &object_ball_2,
-            &BallSetPhysicsSpec::default(),
-            &motion_config(),
+        .into_cue_ball_continuation(),
+        collide_ball_ball_detailed_on_table(
+            &follow_inside,
+            &object_ball_1,
+            CollisionModel::ThrowAware,
         )
-        .expect("test geometry should validate")
-        .expect("inside english should produce a next event");
-
-    match outside_event {
-        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
-            assert_eq!(ball, TwoBallEventBall::A);
-            assert_eq!(transition.phase_before, MotionPhase::Sliding);
-            assert_eq!(transition.phase_after, MotionPhase::Rolling);
-            assert_close(
-                transition.time_until_transition.as_f64(),
-                0.24875327809825132,
-            );
-        }
-        other => panic!("expected motion transition before second-ball contact, got {other:?}"),
-    }
-    match inside_event {
-        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
-            assert_eq!(ball, TwoBallEventBall::A);
-            assert_eq!(transition.phase_before, MotionPhase::Sliding);
-            assert_eq!(transition.phase_after, MotionPhase::Rolling);
-            assert_close(
-                transition.time_until_transition.as_f64(),
-                0.27520658498952827,
-            );
-        }
-        other => panic!("expected motion transition before second-ball contact, got {other:?}"),
+        .into_cue_ball_continuation(),
+    ] {
+        assert!(matches!(
+            continuation.next_event_against_ball(
+                &object_ball_2,
+                &BallSetPhysicsSpec::default(),
+                &motion_config(),
+            ),
+            Err(billiards::PostContactContinuationError::NotOnTable(
+                billiards::OnTableStateError::VerticalVelocityPresent { .. }
+            ))
+        ));
     }
 }
 

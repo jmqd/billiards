@@ -1,14 +1,14 @@
 use billiards::{
-    advance_motion_on_table, cloth_contact_velocity_on_table, collide_ball_ball_analyzed_on_table,
-    collide_ball_ball_detailed_on_table, collide_ball_ball_detailed_on_table_with_config,
+    collide_ball_ball_analyzed_on_table, collide_ball_ball_detailed_on_table,
+    collide_ball_ball_detailed_on_table_with_config,
     collide_ball_ball_detailed_on_table_with_radius_and_config, collide_ball_ball_on_table,
-    compute_next_transition_on_table, estimate_post_contact_cue_ball_bend_on_table,
-    estimate_post_contact_cue_ball_curve_on_table, gearing_english, Angle, AngularVelocity3,
-    BallBallCollisionConfig, BallBallFrictionModel, BallSetPhysicsSpec, BallState, CollisionModel,
-    CutAngle, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, PlayingConditions,
-    RadiansPerSecondSq, RollingResistanceModel, Scale, SlidingFrictionModel, SpinDecayModel,
-    Velocity2, TYPICAL_BALL_RADIUS,
+    estimate_post_contact_cue_ball_bend_on_table, estimate_post_contact_cue_ball_curve_on_table,
+    gearing_english, Angle, AngularVelocity3, BallBallCollisionConfig, BallBallFrictionModel,
+    BallSetPhysicsSpec, BallState, CollisionModel, CutAngle, Inches, Inches2, InchesPerSecond,
+    InchesPerSecondSq, KimTableCorrectionStatus, MotionPhase, MotionPhaseConfig,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, OnTableStateError,
+    PlayingConditions, RadiansPerSecondSq, RollingResistanceModel, Scale, SlidingFrictionModel,
+    SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -51,15 +51,6 @@ fn smallest_angle_distance_degrees(a: Angle, b: Angle) -> f64 {
     delta.min(360.0 - delta)
 }
 
-fn signed_angle_difference_degrees(from: Angle, to: Angle) -> f64 {
-    let delta = (to.as_degrees() - from.as_degrees()).rem_euclid(360.0);
-    if delta > 180.0 {
-        delta - 360.0
-    } else {
-        delta
-    }
-}
-
 fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
 }
@@ -74,9 +65,7 @@ fn impact_heading(from: &OnTableBallState, to: &OnTableBallState) -> Angle {
     )
 }
 
-fn collision_basis_for_test(a: &OnTableBallState, b: &OnTableBallState) -> (f64, f64, f64, f64) {
-    let a = a.as_ball_state();
-    let b = b.as_ball_state();
+fn collision_basis_for_test(a: &BallState, b: &BallState) -> (f64, f64, f64, f64) {
     let dx = b.position.x().as_f64() - a.position.x().as_f64();
     let dy = b.position.y().as_f64() - a.position.y().as_f64();
     let distance = dx.hypot(dy);
@@ -87,24 +76,20 @@ fn collision_basis_for_test(a: &OnTableBallState, b: &OnTableBallState) -> (f64,
     (normal_x, normal_y, normal_y, -normal_x)
 }
 
-fn velocity_component_for_test(state: &OnTableBallState, basis_x: f64, basis_y: f64) -> f64 {
-    state.as_ball_state().velocity.x().as_f64() * basis_x
-        + state.as_ball_state().velocity.y().as_f64() * basis_y
+fn velocity_component_for_test(state: &BallState, basis_x: f64, basis_y: f64) -> f64 {
+    state.velocity.x().as_f64() * basis_x + state.velocity.y().as_f64() * basis_y
 }
 
-fn contact_slip_components_for_test(a: &OnTableBallState, b: &OnTableBallState) -> (f64, f64) {
+fn contact_slip_components_for_test(a: &BallState, b: &BallState) -> (f64, f64) {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let (normal_x, normal_y, tangent_x, tangent_y) = collision_basis_for_test(a, b);
-    let a_state = a.as_ball_state();
-    let b_state = b.as_ball_state();
     let tangential_contact_slip = velocity_component_for_test(a, tangent_x, tangent_y)
         - velocity_component_for_test(b, tangent_x, tangent_y)
-        - radius * (a_state.angular_velocity.z().as_f64() + b_state.angular_velocity.z().as_f64());
-    let vertical_contact_slip = radius
-        * (normal_y
-            * (a_state.angular_velocity.x().as_f64() + b_state.angular_velocity.x().as_f64())
-            - normal_x
-                * (a_state.angular_velocity.y().as_f64() + b_state.angular_velocity.y().as_f64()));
+        - radius * (a.angular_velocity.z().as_f64() + b.angular_velocity.z().as_f64());
+    let vertical_contact_slip = (a.vertical_velocity.as_f64() - b.vertical_velocity.as_f64())
+        + radius
+            * (normal_y * (a.angular_velocity.x().as_f64() + b.angular_velocity.x().as_f64())
+                - normal_x * (a.angular_velocity.y().as_f64() + b.angular_velocity.y().as_f64()));
 
     (tangential_contact_slip, vertical_contact_slip)
 }
@@ -131,42 +116,15 @@ fn high_friction_follow_draw_contact_slip_after_collision_for_test() -> (f64, f6
     contact_slip_components_for_test(&outcome.a_after, &outcome.b_after)
 }
 
-fn specific_kinetic_energy_for_test(state: &OnTableBallState, radius: f64) -> f64 {
-    let state = state.as_ball_state();
+fn specific_kinetic_energy_for_test(state: &BallState, radius: f64) -> f64 {
     let vx = state.velocity.x().as_f64();
     let vy = state.velocity.y().as_f64();
+    let vz = state.vertical_velocity.as_f64();
     let wx = state.angular_velocity.x().as_f64();
     let wy = state.angular_velocity.y().as_f64();
     let wz = state.angular_velocity.z().as_f64();
 
-    0.5 * (vx * vx + vy * vy) + radius * radius * (wx * wx + wy * wy + wz * wz) / 5.0
-}
-
-fn assert_domenech_sliding_to_rolling_relation(name: &str, state: &OnTableBallState) {
-    let radius = TYPICAL_BALL_RADIUS.clone();
-    let ball = BallSetPhysicsSpec::default();
-    let motion = motion_config();
-    let state_before = state.as_ball_state();
-    let cloth_slip = cloth_contact_velocity_on_table(state_before, radius.clone());
-
-    assert!(
-        cloth_slip.speed().as_f64() > 1e-9,
-        "{name} should still be sliding immediately after collision"
-    );
-
-    let expected_vx = state_before.velocity.x().as_f64() - (2.0 / 7.0) * cloth_slip.x().as_f64();
-    let expected_vy = state_before.velocity.y().as_f64() - (2.0 / 7.0) * cloth_slip.y().as_f64();
-    let transition = compute_next_transition_on_table(state, &ball, &motion)
-        .expect("post-collision sliding ball should reach natural roll");
-    let settled = advance_motion_on_table(state, transition.time_until_transition, &ball, &motion);
-    let settled_slip = cloth_contact_velocity_on_table(&settled.state, radius);
-
-    assert_eq!(transition.phase_before, MotionPhase::Sliding, "{name}");
-    assert_eq!(transition.phase_after, MotionPhase::Rolling, "{name}");
-    assert_near(settled.state.velocity.x().as_f64(), expected_vx, 1e-9);
-    assert_near(settled.state.velocity.y().as_f64(), expected_vy, 1e-9);
-    assert_near(settled_slip.x().as_f64(), 0.0, 1e-9);
-    assert_near(settled_slip.y().as_f64(), 0.0, 1e-9);
+    0.5 * (vx * vx + vy * vy + vz * vz) + radius * radius * (wx * wx + wy * wy + wz * wz) / 5.0
 }
 
 fn cue_ball_at_cut_angle_degrees(cut_angle_degrees: f64, speed: f64) -> OnTableBallState {
@@ -232,7 +190,7 @@ fn expected_spin_seed_for_north_shot(
 }
 
 #[test]
-fn domenech_post_collision_transition_matches_eq_14_15_for_both_balls() {
+fn domenech_free_sphere_impulse_preserves_full_contact_slip_and_vertical_momentum() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let speed = InchesPerSecond::from_mph(3.0).as_f64();
     let cut_angle_radians = 30.0_f64.to_radians();
@@ -245,18 +203,24 @@ fn domenech_post_collision_transition_matches_eq_14_15_for_both_balls() {
         AngularVelocity3::new(-speed / radius, 0.35 * speed / radius, -3.0),
     ));
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
-    let initial_slip = contact_slip_components_for_test(&cue_ball, &object_ball);
+    let initial_slip =
+        contact_slip_components_for_test(cue_ball.as_ball_state(), object_ball.as_ball_state());
 
-    assert!(
-        initial_slip.1.abs() > 1.0,
-        "fixture should exercise Domenech's vertical ball-ball contact slip term; got {initial_slip:?}"
-    );
-
+    assert!(initial_slip.1.abs() > 1.0);
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let after_slip = contact_slip_components_for_test(&outcome.a_after, &outcome.b_after);
 
-    assert_domenech_sliding_to_rolling_relation("cue ball", &outcome.a_after);
-    assert_domenech_sliding_to_rolling_relation("object ball", &outcome.b_after);
+    assert!(after_slip.0.hypot(after_slip.1) < initial_slip.0.hypot(initial_slip.1));
+    assert_near(
+        outcome.a_after.vertical_velocity.as_f64() + outcome.b_after.vertical_velocity.as_f64(),
+        0.0,
+        1e-9,
+    );
+    assert!(matches!(
+        OnTableBallState::try_from(outcome.a_after),
+        Err(OnTableStateError::VerticalVelocityPresent { .. })
+    ));
 }
 
 #[test]
@@ -268,7 +232,8 @@ fn throw_aware_low_friction_reduces_contact_slip_without_reversal() {
         AngularVelocity3::new(-3.0, 1.0, -4.0),
     ));
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
-    let initial_slip = contact_slip_components_for_test(&cue_ball, &object_ball);
+    let initial_slip =
+        contact_slip_components_for_test(cue_ball.as_ball_state(), object_ball.as_ball_state());
     let initial_slip_speed = initial_slip.0.hypot(initial_slip.1);
 
     assert!(initial_slip_speed > 1.0);
@@ -299,28 +264,14 @@ fn throw_aware_low_friction_reduces_contact_slip_without_reversal() {
 }
 
 #[test]
-fn known_limitation_high_friction_follow_draw_leaves_vertical_slip_residual() {
-    let (tangential_after_slip, vertical_after_slip) =
-        high_friction_follow_draw_contact_slip_after_collision_for_test();
-    let after_slip = tangential_after_slip.hypot(vertical_after_slip);
-
-    // The horizontal throw component reaches the TP A.14/A.24 no-slip cap, but the current 2D
-    // state cannot apply the matching vertical center-of-mass impulse needed to zero the full
-    // follow/draw contact-slip vector.
-    assert_near(tangential_after_slip, 0.0, 1e-9);
-    assert_near(vertical_after_slip, -13.064611805662393, 1e-9);
-    assert_near(after_slip, 13.064611805662393, 1e-9);
-}
-
-#[test]
-#[ignore = "current on-table 2D state model leaves a vertical slip residual because vertical center-of-mass impulse is outside CollisionOutcome"]
 fn peskin_high_friction_no_slip_cap_zeroes_full_contact_slip() {
     // Peskin requires S(t) not to cross below zero; once S reaches zero, static friction
     // governs. TP A.24's Eq. (15) encodes the same equal-sphere no-slip limit as a 1/7 cap.
     let (tangential_after_slip, vertical_after_slip) =
         high_friction_follow_draw_contact_slip_after_collision_for_test();
     let after_slip = tangential_after_slip.hypot(vertical_after_slip);
-
+    assert_near(tangential_after_slip, 0.0, 1e-9);
+    assert_near(vertical_after_slip, 0.0, 1e-9);
     assert_near(after_slip, 0.0, 1e-9);
 }
 
@@ -399,13 +350,11 @@ fn throw_aware_applies_the_contact_impulse_to_a_moving_object_ball() {
 
     let ideal_heading = ideal
         .b_after
-        .as_ball_state()
         .velocity
         .angle_from_north()
         .expect("ideal moving object ball should still have an outgoing heading");
     let throw_aware_heading = throw_aware
         .b_after
-        .as_ball_state()
         .velocity
         .angle_from_north()
         .expect("throw-aware moving object ball should still have an outgoing heading");
@@ -527,10 +476,8 @@ fn throw_aware_impulses_conserve_horizontal_momentum() {
         + object_ball.as_ball_state().velocity.x().as_f64();
     let before_y = cue_ball.as_ball_state().velocity.y().as_f64()
         + object_ball.as_ball_state().velocity.y().as_f64();
-    let after_x = outcome.a_after.as_ball_state().velocity.x().as_f64()
-        + outcome.b_after.as_ball_state().velocity.x().as_f64();
-    let after_y = outcome.a_after.as_ball_state().velocity.y().as_f64()
-        + outcome.b_after.as_ball_state().velocity.y().as_f64();
+    let after_x = outcome.a_after.velocity.x().as_f64() + outcome.b_after.velocity.x().as_f64();
+    let after_y = outcome.a_after.velocity.y().as_f64() + outcome.b_after.velocity.y().as_f64();
 
     assert_close(after_x, before_x);
     assert_close(after_y, before_y);
@@ -556,10 +503,8 @@ fn moving_object_ball_throw_aware_impulses_conserve_horizontal_momentum() {
         + object_ball.as_ball_state().velocity.x().as_f64();
     let before_y = cue_ball.as_ball_state().velocity.y().as_f64()
         + object_ball.as_ball_state().velocity.y().as_f64();
-    let after_x = outcome.a_after.as_ball_state().velocity.x().as_f64()
-        + outcome.b_after.as_ball_state().velocity.x().as_f64();
-    let after_y = outcome.a_after.as_ball_state().velocity.y().as_f64()
-        + outcome.b_after.as_ball_state().velocity.y().as_f64();
+    let after_x = outcome.a_after.velocity.x().as_f64() + outcome.b_after.velocity.x().as_f64();
+    let after_y = outcome.a_after.velocity.y().as_f64() + outcome.b_after.velocity.y().as_f64();
 
     assert_close(after_x, before_x);
     assert_close(after_y, before_y);
@@ -608,8 +553,12 @@ fn throw_aware_impulse_grid_does_not_create_total_kinetic_energy() {
                                 AngularVelocity3::new(1.0, -2.0, 3.0),
                             ));
 
-                            let before = specific_kinetic_energy_for_test(&cue_ball, radius)
-                                + specific_kinetic_energy_for_test(&object_ball, radius);
+                            let before =
+                                specific_kinetic_energy_for_test(cue_ball.as_ball_state(), radius)
+                                    + specific_kinetic_energy_for_test(
+                                        object_ball.as_ball_state(),
+                                        radius,
+                                    );
                             let outcome =
                                 collide_ball_ball_detailed_on_table_with_radius_and_config(
                                     &cue_ball,
@@ -670,11 +619,17 @@ fn throw_aware_impulse_grid_preserves_peskin_contact_invariants() {
                         ),
                         AngularVelocity3::new(1.0, -2.0, 3.0),
                     ));
-                    let (normal_x, normal_y, _, _) =
-                        collision_basis_for_test(&cue_ball, &object_ball);
+                    let (normal_x, normal_y, _, _) = collision_basis_for_test(
+                        cue_ball.as_ball_state(),
+                        object_ball.as_ball_state(),
+                    );
                     let normal_relative_before =
-                        velocity_component_for_test(&cue_ball, normal_x, normal_y)
-                            - velocity_component_for_test(&object_ball, normal_x, normal_y);
+                        velocity_component_for_test(cue_ball.as_ball_state(), normal_x, normal_y)
+                            - velocity_component_for_test(
+                                object_ball.as_ball_state(),
+                                normal_x,
+                                normal_y,
+                            );
                     assert!(
                         normal_relative_before > 0.0,
                         "grid fixture should contain approaching contacts"
@@ -694,18 +649,19 @@ fn throw_aware_impulse_grid_preserves_peskin_contact_invariants() {
                         + object_ball.as_ball_state().velocity.x().as_f64();
                     let before_y = cue_ball.as_ball_state().velocity.y().as_f64()
                         + object_ball.as_ball_state().velocity.y().as_f64();
-                    let after_x = outcome.a_after.as_ball_state().velocity.x().as_f64()
-                        + outcome.b_after.as_ball_state().velocity.x().as_f64();
-                    let after_y = outcome.a_after.as_ball_state().velocity.y().as_f64()
-                        + outcome.b_after.as_ball_state().velocity.y().as_f64();
-                    let angular_delta = |after: &OnTableBallState, before: &OnTableBallState| {
+                    let after_x = outcome.a_after.velocity.x().as_f64()
+                        + outcome.b_after.velocity.x().as_f64();
+                    let after_y = outcome.a_after.velocity.y().as_f64()
+                        + outcome.b_after.velocity.y().as_f64();
+                    let angular_delta = |after: &BallState, before: &OnTableBallState| {
+                        let before = before.as_ball_state();
                         [
-                            after.as_ball_state().angular_velocity.x().as_f64()
-                                - before.as_ball_state().angular_velocity.x().as_f64(),
-                            after.as_ball_state().angular_velocity.y().as_f64()
-                                - before.as_ball_state().angular_velocity.y().as_f64(),
-                            after.as_ball_state().angular_velocity.z().as_f64()
-                                - before.as_ball_state().angular_velocity.z().as_f64(),
+                            after.angular_velocity.x().as_f64()
+                                - before.angular_velocity.x().as_f64(),
+                            after.angular_velocity.y().as_f64()
+                                - before.angular_velocity.y().as_f64(),
+                            after.angular_velocity.z().as_f64()
+                                - before.angular_velocity.z().as_f64(),
                         ]
                     };
                     let cue_spin_delta = angular_delta(&outcome.a_after, &cue_ball);
@@ -750,10 +706,10 @@ fn a_nearly_head_on_rolling_collision_does_not_pick_up_throw_from_tiny_tangent_n
         0.0,
     );
     assert_close(
-        outcome.b_after.as_ball_state().velocity.x().as_f64(),
-        ideal.1.as_ball_state().velocity.x().as_f64(),
+        outcome.b_after.velocity.x().as_f64(),
+        ideal.1.velocity.x().as_f64(),
     );
-    assert_close(outcome.b_after.as_ball_state().velocity.y().as_f64(), 0.0);
+    assert_close(outcome.b_after.velocity.y().as_f64(), 0.0);
 }
 
 #[test]
@@ -812,7 +768,7 @@ fn follow_and_draw_reduce_near_head_on_throw_relative_to_stun() {
 }
 
 #[test]
-fn tp_a24_follow_and_draw_match_half_ball_throw_and_object_ball_curve_anchors() {
+fn tp_a24_follow_and_draw_preserve_airborne_object_ball_state() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let speed = InchesPerSecond::from_mph(2.0).as_f64();
     let cut_angle_radians = 30.0_f64.to_radians();
@@ -825,14 +781,11 @@ fn tp_a24_follow_and_draw_match_half_ball_throw_and_object_ball_curve_anchors() 
         Scale::from_f64(1.0),
         BallBallFrictionModel::marlow_speed_fit(Scale::from_f64(1.0)),
     );
-    let ball = BallSetPhysicsSpec::default();
-    let motion = motion_config();
 
-    // TP A.24 gives these half-ball anchors for v=2 mph with the TP A.14/Marlow friction fit.
-    for (name, omega_x, expected_throw, expected_curve_delta) in [
-        ("stun", 0.0, 4.366, 0.0),
-        ("draw", speed / radius, 1.454, -0.061),
-        ("follow", -speed / radius, 1.454, 0.067),
+    for (name, omega_x, expected_throw) in [
+        ("stun", 0.0, 4.366),
+        ("draw", speed / radius, 1.454),
+        ("follow", -speed / radius, 1.454),
     ] {
         let cue_ball = on_table(BallState::on_table(
             cue_position.clone(),
@@ -845,35 +798,27 @@ fn tp_a24_follow_and_draw_match_half_ball_throw_and_object_ball_curve_anchors() 
             CollisionModel::ThrowAware,
             &config,
         );
-        let immediate_heading = outcome
-            .b_after
-            .as_ball_state()
-            .velocity
-            .angle_from_north()
-            .expect("object ball should move immediately after impact");
-        let transition = compute_next_transition_on_table(&outcome.b_after, &ball, &motion)
-            .expect("object ball should slide before settling to natural roll");
-        let settled = advance_motion_on_table(
-            &outcome.b_after,
-            transition.time_until_transition,
-            &ball,
-            &motion,
-        );
-        let settled_heading = settled
-            .state
-            .velocity
-            .angle_from_north()
-            .expect("object ball should still move after the TP A.24 curve");
-        let throw_angle = outcome
-            .throw_angle_degrees
-            .expect("throw-aware collisions should report a throw angle");
-        let curve_delta = signed_angle_difference_degrees(immediate_heading, settled_heading)
-            * throw_angle.signum();
 
-        assert_eq!(transition.phase_before, MotionPhase::Sliding, "{name}");
-        assert_eq!(transition.phase_after, MotionPhase::Rolling, "{name}");
-        assert_near(throw_angle.abs(), expected_throw, 0.001);
-        assert_near(curve_delta, expected_curve_delta, 0.001);
+        assert_near(
+            outcome
+                .throw_angle_degrees
+                .expect("throw-aware collisions should report a throw angle")
+                .abs(),
+            expected_throw,
+            0.001,
+        );
+
+        match name {
+            "stun" => assert!(OnTableBallState::try_from(outcome.b_after).is_ok()),
+            "draw" | "follow" => assert!(
+                matches!(
+                    OnTableBallState::try_from(outcome.b_after),
+                    Err(OnTableStateError::VerticalVelocityPresent { .. })
+                ),
+                "{name} must not silently discard vertical collision response"
+            ),
+            _ => unreachable!("fixture names are exhaustive"),
+        }
     }
 }
 
@@ -894,38 +839,19 @@ fn a_rolling_cut_shot_with_english_uses_the_tp_a8_style_cue_ball_post_impact_sta
     let (expected_velocity_x, expected_velocity_y, expected_angular_x, expected_angular_y) =
         expected_spin_seed_for_north_shot(radius, phi, speed, -10.0 / radius, 0.0, -6.0);
 
+    assert_close(outcome.a_after.velocity.x().as_f64(), expected_velocity_x);
+    assert_close(outcome.a_after.velocity.y().as_f64(), expected_velocity_y);
     assert_close(
-        outcome.a_after.as_ball_state().velocity.x().as_f64(),
-        expected_velocity_x,
-    );
-    assert_close(
-        outcome.a_after.as_ball_state().velocity.y().as_f64(),
-        expected_velocity_y,
-    );
-    assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .x()
-            .as_f64(),
+        outcome.a_after.angular_velocity.x().as_f64(),
         expected_angular_x,
     );
     assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .y()
-            .as_f64(),
+        outcome.a_after.angular_velocity.y().as_f64(),
         expected_angular_y,
     );
     assert_eq!(
-        outcome
-            .a_after
-            .as_ball_state()
-            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
-        MotionPhase::Sliding
+        outcome.a_after.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Airborne
     );
 }
 
@@ -946,37 +872,12 @@ fn a_sliding_cut_shot_with_english_uses_the_broader_post_impact_english_model() 
     let (expected_velocity_x, expected_velocity_y, _, _) =
         expected_spin_seed_for_north_shot(radius, phi, speed, 0.0, 0.0, -6.0);
 
-    assert_close(
-        outcome.a_after.as_ball_state().velocity.x().as_f64(),
-        expected_velocity_x,
-    );
-    assert_close(
-        outcome.a_after.as_ball_state().velocity.y().as_f64(),
-        expected_velocity_y,
-    );
-    assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .x()
-            .as_f64(),
-        0.0,
-    );
-    assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .y()
-            .as_f64(),
-        0.0,
-    );
+    assert_close(outcome.a_after.velocity.x().as_f64(), expected_velocity_x);
+    assert_close(outcome.a_after.velocity.y().as_f64(), expected_velocity_y);
+    assert_close(outcome.a_after.angular_velocity.x().as_f64(), 0.0);
+    assert_close(outcome.a_after.angular_velocity.y().as_f64(), 0.0);
     assert_eq!(
-        outcome
-            .a_after
-            .as_ball_state()
-            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        outcome.a_after.motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Sliding
     );
 }
@@ -998,30 +899,14 @@ fn a_follow_cut_shot_with_english_uses_the_broader_post_impact_spin_model() {
     let (expected_velocity_x, expected_velocity_y, expected_angular_x, expected_angular_y) =
         expected_spin_seed_for_north_shot(radius, phi, speed, -6.0, 0.0, -6.0);
 
+    assert_close(outcome.a_after.velocity.x().as_f64(), expected_velocity_x);
+    assert_close(outcome.a_after.velocity.y().as_f64(), expected_velocity_y);
     assert_close(
-        outcome.a_after.as_ball_state().velocity.x().as_f64(),
-        expected_velocity_x,
-    );
-    assert_close(
-        outcome.a_after.as_ball_state().velocity.y().as_f64(),
-        expected_velocity_y,
-    );
-    assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .x()
-            .as_f64(),
+        outcome.a_after.angular_velocity.x().as_f64(),
         expected_angular_x,
     );
     assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .y()
-            .as_f64(),
+        outcome.a_after.angular_velocity.y().as_f64(),
         expected_angular_y,
     );
 }
@@ -1043,30 +928,14 @@ fn a_draw_cut_shot_with_english_uses_the_broader_post_impact_spin_model() {
     let (expected_velocity_x, expected_velocity_y, expected_angular_x, expected_angular_y) =
         expected_spin_seed_for_north_shot(radius, phi, speed, 6.0, 0.0, -6.0);
 
+    assert_close(outcome.a_after.velocity.x().as_f64(), expected_velocity_x);
+    assert_close(outcome.a_after.velocity.y().as_f64(), expected_velocity_y);
     assert_close(
-        outcome.a_after.as_ball_state().velocity.x().as_f64(),
-        expected_velocity_x,
-    );
-    assert_close(
-        outcome.a_after.as_ball_state().velocity.y().as_f64(),
-        expected_velocity_y,
-    );
-    assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .x()
-            .as_f64(),
+        outcome.a_after.angular_velocity.x().as_f64(),
         expected_angular_x,
     );
     assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .y()
-            .as_f64(),
+        outcome.a_after.angular_velocity.y().as_f64(),
         expected_angular_y,
     );
 }
@@ -1097,23 +966,10 @@ fn head_on_backspin_transfers_forward_spin_to_the_object_ball() {
     assert_close(transferred_spin.y().as_f64(), 0.0);
     assert_close(transferred_spin.z().as_f64(), 0.0);
     assert_close(
-        outcome
-            .b_after
-            .as_ball_state()
-            .angular_velocity
-            .x()
-            .as_f64(),
+        outcome.b_after.angular_velocity.x().as_f64(),
         transferred_spin.x().as_f64(),
     );
-    assert!(
-        outcome
-            .b_after
-            .as_ball_state()
-            .angular_velocity
-            .x()
-            .as_f64()
-            < 0.0
-    );
+    assert!(outcome.b_after.angular_velocity.x().as_f64() < 0.0);
 }
 
 #[test]
@@ -1144,35 +1000,16 @@ fn frontal_rolling_impact_transfers_spin_and_leaves_object_ball_sliding() {
             .expect("throw-aware collisions should report a throw angle"),
         0.0,
     );
-    assert_close(outcome.a_after.as_ball_state().velocity.y().as_f64(), 0.0);
-    assert_close(outcome.b_after.as_ball_state().velocity.y().as_f64(), 10.0);
+    assert_close(outcome.a_after.velocity.y().as_f64(), 0.0);
+    assert_close(outcome.b_after.velocity.y().as_f64(), 10.0);
     assert_close(transferred_spin.x().as_f64(), 4.0 / 3.0);
     assert_close(transferred_spin.y().as_f64(), 0.0);
     assert_close(transferred_spin.z().as_f64(), 0.0);
-    assert_close(
-        outcome
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .x()
-            .as_f64(),
-        -68.0 / 9.0,
-    );
-    assert_close(
-        outcome
-            .b_after
-            .as_ball_state()
-            .angular_velocity
-            .x()
-            .as_f64(),
-        4.0 / 3.0,
-    );
+    assert_close(outcome.a_after.angular_velocity.x().as_f64(), -68.0 / 9.0);
+    assert_close(outcome.b_after.angular_velocity.x().as_f64(), 4.0 / 3.0);
     assert_eq!(
-        outcome
-            .b_after
-            .as_ball_state()
-            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
-        MotionPhase::Sliding
+        outcome.b_after.motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        MotionPhase::Airborne
     );
 }
 
@@ -1234,12 +1071,16 @@ fn kim_table_coupling_does_not_affect_human_tuned_default_collision() {
         .expect("throw-aware collision should report diagnostics");
 
     assert_close(diagnostics.kim_table_coupled_normal_correction, 0.0);
+    assert_eq!(
+        diagnostics.kim_table_correction_status,
+        KimTableCorrectionStatus::DisabledByConfiguration
+    );
     assert_close(
-        outcome.a_after.as_ball_state().velocity.y().as_f64(),
+        outcome.a_after.velocity.y().as_f64(),
         speed - diagnostics.normal_impulse_per_mass,
     );
     assert_close(
-        outcome.b_after.as_ball_state().velocity.y().as_f64(),
+        outcome.b_after.velocity.y().as_f64(),
         diagnostics.normal_impulse_per_mass,
     );
 }
@@ -1267,33 +1108,33 @@ fn kim_table_coupled_head_on_topspin_impact_recoils_cue_ball_and_reduces_object_
         CollisionModel::ThrowAware,
         &config,
     );
+    let diagnostics = outcome
+        .diagnostics
+        .as_ref()
+        .expect("throw-aware collision should report diagnostics");
+    assert_eq!(
+        diagnostics.kim_table_correction_status,
+        KimTableCorrectionStatus::AppliedStationaryObject
+    );
+    assert_close(diagnostics.kim_object_center_speed_before, 0.0);
+    assert_close(diagnostics.kim_object_spin_surface_speed_before, 0.0);
 
     // Kim 2024 Eqs. (52)-(54) add object-ball/table static friction during the short
     // ball-ball collision. For head-on natural-roll topspin, e=1 and theta_0=-pi/2,
     // the first-order normal-speed correction is mu * mu_s * U_i / 2.
     let normal_speed_correction = 0.5 * ball_ball_friction * object_table_static_friction * speed;
     let kim_cue_spin_delta = ball_ball_friction * speed / (0.4 * radius);
-    let cue_spin_delta = outcome
-        .a_after
-        .as_ball_state()
-        .angular_velocity
-        .x()
-        .as_f64()
+    let cue_spin_delta = outcome.a_after.angular_velocity.x().as_f64()
         - cue_ball.as_ball_state().angular_velocity.x().as_f64();
-    let object_spin_delta = outcome
-        .b_after
-        .as_ball_state()
-        .angular_velocity
-        .x()
-        .as_f64();
+    let object_spin_delta = outcome.b_after.angular_velocity.x().as_f64();
 
     assert_near(
-        outcome.a_after.as_ball_state().velocity.y().as_f64(),
+        outcome.a_after.velocity.y().as_f64(),
         -normal_speed_correction,
         1e-9,
     );
     assert_near(
-        outcome.b_after.as_ball_state().velocity.y().as_f64(),
+        outcome.b_after.velocity.y().as_f64(),
         speed - normal_speed_correction,
         1e-9,
     );
@@ -1305,6 +1146,193 @@ fn kim_table_coupled_head_on_topspin_impact_recoils_cue_ball_and_reduces_object_
     );
 }
 
+#[test]
+fn kim_table_coupling_skips_moving_object_and_reports_domain() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "30"),
+        AngularVelocity3::new(-30.0 / radius, 0.0, 0.0),
+    ));
+    let moving_object = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        Velocity2::new("20", "0"),
+        AngularVelocity3::zero(),
+    ));
+    let baseline = BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.06));
+    let kim = baseline
+        .clone()
+        .with_object_table_static_friction_coefficient(Scale::from_f64(0.30));
+
+    let baseline_outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &moving_object,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &baseline,
+    );
+    let kim_outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &moving_object,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &kim,
+    );
+    let diagnostics = kim_outcome
+        .diagnostics
+        .as_ref()
+        .expect("throw-aware collision should report diagnostics");
+
+    assert_eq!(
+        diagnostics.kim_table_correction_status,
+        KimTableCorrectionStatus::SkippedObjectNotStationary
+    );
+    assert_close(diagnostics.kim_object_center_speed_before, 20.0);
+    assert_close(diagnostics.kim_object_spin_surface_speed_before, 0.0);
+    assert_close(diagnostics.kim_table_coupled_normal_correction, 0.0);
+    assert_near(
+        diagnostics.tangential_impulse_per_mass,
+        -0.998_460_352_255_527_4,
+        1e-9,
+    );
+    assert_near(
+        diagnostics.vertical_impulse_per_mass,
+        -1.497_690_528_383_291,
+        2e-9,
+    );
+
+    for (baseline_state, skipped_state) in [
+        (&baseline_outcome.a_after, &kim_outcome.a_after),
+        (&baseline_outcome.b_after, &kim_outcome.b_after),
+    ] {
+        assert_close(
+            skipped_state.velocity.x().as_f64(),
+            baseline_state.velocity.x().as_f64(),
+        );
+        assert_close(
+            skipped_state.velocity.y().as_f64(),
+            baseline_state.velocity.y().as_f64(),
+        );
+        assert_close(
+            skipped_state.vertical_velocity.as_f64(),
+            baseline_state.vertical_velocity.as_f64(),
+        );
+        assert_close(
+            skipped_state.angular_velocity.x().as_f64(),
+            baseline_state.angular_velocity.x().as_f64(),
+        );
+        assert_close(
+            skipped_state.angular_velocity.y().as_f64(),
+            baseline_state.angular_velocity.y().as_f64(),
+        );
+        assert_close(
+            skipped_state.angular_velocity.z().as_f64(),
+            baseline_state.angular_velocity.z().as_f64(),
+        );
+    }
+    assert_close(
+        kim_outcome.a_after.velocity.y().as_f64() + kim_outcome.b_after.velocity.y().as_f64(),
+        30.0,
+    );
+}
+
+#[test]
+fn kim_table_correction_rejects_spinning_object_and_marks_stationary_inactive_impulses() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let config = BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.06))
+        .with_kim_object_table_static_friction();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::zero(),
+    ));
+    let spinning_object = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        Velocity2::zero(),
+        AngularVelocity3::new(0.0, 0.0, 1.0),
+    ));
+    let spinning_outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &spinning_object,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &config,
+    );
+    assert_eq!(
+        spinning_outcome
+            .diagnostics
+            .expect("throw-aware collision should report diagnostics")
+            .kim_table_correction_status,
+        KimTableCorrectionStatus::SkippedObjectNotStationary
+    );
+
+    let stationary_object = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let inactive_outcome = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &stationary_object,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &config,
+    );
+    let diagnostics = inactive_outcome
+        .diagnostics
+        .expect("throw-aware collision should report diagnostics");
+    assert_eq!(
+        diagnostics.kim_table_correction_status,
+        KimTableCorrectionStatus::InactiveForImpulseDirection
+    );
+    assert_close(diagnostics.kim_table_coupled_normal_correction, 0.0);
+}
+
+#[test]
+fn kim_stationary_object_speed_tolerance_accepts_boundary_noise_and_rejects_motion() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let config = BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.06))
+        .with_kim_object_table_static_friction();
+    let cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let within_tolerance = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        Velocity2::new(Inches::from_f64(0.5e-9), Inches::zero()),
+        AngularVelocity3::zero(),
+    ));
+    let outside_tolerance = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        Velocity2::new(Inches::from_f64(2.0e-9), Inches::zero()),
+        AngularVelocity3::zero(),
+    ));
+
+    let within_diagnostics = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &within_tolerance,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &config,
+    )
+    .diagnostics
+    .expect("throw-aware collision should report diagnostics");
+    assert_eq!(
+        within_diagnostics.kim_table_correction_status,
+        KimTableCorrectionStatus::AppliedStationaryObject
+    );
+
+    let outside_diagnostics = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &cue_ball,
+        &outside_tolerance,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &config,
+    )
+    .diagnostics
+    .expect("throw-aware collision should report diagnostics");
+    assert_eq!(
+        outside_diagnostics.kim_table_correction_status,
+        KimTableCorrectionStatus::SkippedObjectNotStationary
+    );
+}
 #[test]
 fn a_cut_shot_without_side_spin_produces_cut_induced_throw_and_transferred_spin() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
@@ -1320,7 +1348,6 @@ fn a_cut_shot_without_side_spin_produces_cut_induced_throw_and_transferred_spin(
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
     let object_heading = outcome
         .b_after
-        .as_ball_state()
         .velocity
         .angle_from_north()
         .expect("the object ball should move after impact");
@@ -1341,12 +1368,7 @@ fn a_cut_shot_without_side_spin_produces_cut_induced_throw_and_transferred_spin(
     );
     assert!(transferred_spin.z().as_f64().abs() > 1e-9);
     assert_close(
-        outcome
-            .b_after
-            .as_ball_state()
-            .angular_velocity
-            .z()
-            .as_f64(),
+        outcome.b_after.angular_velocity.z().as_f64(),
         transferred_spin.z().as_f64(),
     );
 }
@@ -1366,13 +1388,7 @@ fn a_cut_shot_without_initial_english_does_not_seed_exaggerated_cue_ball_side_sp
 
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
-    let cue_side_spin = outcome
-        .a_after
-        .as_ball_state()
-        .angular_velocity
-        .z()
-        .as_f64()
-        .abs();
+    let cue_side_spin = outcome.a_after.angular_velocity.z().as_f64().abs();
     let gearing_limit = gearing_english(cut_angle, Velocity2::new("0", "10").speed()).as_f64();
 
     assert!(
@@ -1408,20 +1424,20 @@ fn gearing_english_cancels_throw_for_a_stationary_object_ball_cut() {
     );
     assert!(throw_aware.transferred_spin.is_none());
     assert_close(
-        throw_aware.a_after.as_ball_state().velocity.x().as_f64(),
-        ideal.0.as_ball_state().velocity.x().as_f64(),
+        throw_aware.a_after.velocity.x().as_f64(),
+        ideal.0.velocity.x().as_f64(),
     );
     assert_close(
-        throw_aware.a_after.as_ball_state().velocity.y().as_f64(),
-        ideal.0.as_ball_state().velocity.y().as_f64(),
+        throw_aware.a_after.velocity.y().as_f64(),
+        ideal.0.velocity.y().as_f64(),
     );
     assert_close(
-        throw_aware.b_after.as_ball_state().velocity.x().as_f64(),
-        ideal.1.as_ball_state().velocity.x().as_f64(),
+        throw_aware.b_after.velocity.x().as_f64(),
+        ideal.1.velocity.x().as_f64(),
     );
     assert_close(
-        throw_aware.b_after.as_ball_state().velocity.y().as_f64(),
-        ideal.1.as_ball_state().velocity.y().as_f64(),
+        throw_aware.b_after.velocity.y().as_f64(),
+        ideal.1.velocity.y().as_f64(),
     );
 }
 
@@ -1457,28 +1473,23 @@ fn object_ball_side_spin_can_cancel_cut_contact_slip_without_throw_or_spin_trans
     );
     assert!(throw_aware.transferred_spin.is_none());
     assert_close(
-        throw_aware.a_after.as_ball_state().velocity.x().as_f64(),
-        ideal.0.as_ball_state().velocity.x().as_f64(),
+        throw_aware.a_after.velocity.x().as_f64(),
+        ideal.0.velocity.x().as_f64(),
     );
     assert_close(
-        throw_aware.a_after.as_ball_state().velocity.y().as_f64(),
-        ideal.0.as_ball_state().velocity.y().as_f64(),
+        throw_aware.a_after.velocity.y().as_f64(),
+        ideal.0.velocity.y().as_f64(),
     );
     assert_close(
-        throw_aware.b_after.as_ball_state().velocity.x().as_f64(),
-        ideal.1.as_ball_state().velocity.x().as_f64(),
+        throw_aware.b_after.velocity.x().as_f64(),
+        ideal.1.velocity.x().as_f64(),
     );
     assert_close(
-        throw_aware.b_after.as_ball_state().velocity.y().as_f64(),
-        ideal.1.as_ball_state().velocity.y().as_f64(),
+        throw_aware.b_after.velocity.y().as_f64(),
+        ideal.1.velocity.y().as_f64(),
     );
     assert_close(
-        throw_aware
-            .b_after
-            .as_ball_state()
-            .angular_velocity
-            .z()
-            .as_f64(),
+        throw_aware.b_after.angular_velocity.z().as_f64(),
         -geared_spin,
     );
 }
@@ -1517,7 +1528,7 @@ fn over_gearing_flips_the_throw_and_transferred_spin_directions() {
 }
 
 #[test]
-fn the_analyzed_collision_helper_threads_the_post_contact_bend_estimate() {
+fn analyzed_collision_rejects_airborne_cue_ball_response_without_discarding_it() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
         inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
@@ -1527,21 +1538,18 @@ fn the_analyzed_collision_helper_threads_the_post_contact_bend_estimate() {
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let detailed =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
-    let analyzed = collide_ball_ball_analyzed_on_table(
-        &cue_ball,
-        &object_ball,
-        CollisionModel::ThrowAware,
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
-    );
 
-    assert_eq!(analyzed.outcome, detailed);
-    assert_eq!(
-        analyzed.cue_ball_bend,
-        detailed
-            .estimate_post_contact_cue_ball_bend(&BallSetPhysicsSpec::default(), &motion_config())
-    );
-    assert!(analyzed.cue_ball_bend.is_some());
+    assert!(detailed.a_after.vertical_velocity.as_f64().abs() > 1e-9);
+    assert!(matches!(
+        collide_ball_ball_analyzed_on_table(
+            &cue_ball,
+            &object_ball,
+            CollisionModel::ThrowAware,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        ),
+        Err(OnTableStateError::VerticalVelocityPresent { .. })
+    ));
 }
 
 #[test]
@@ -1558,6 +1566,7 @@ fn the_collision_outcome_convenience_method_reports_no_bend_when_the_cue_ball_st
 
     assert!(outcome
         .estimate_post_contact_cue_ball_bend(&BallSetPhysicsSpec::default(), &motion_config())
+        .expect("head-on collision should remain on the table")
         .is_none());
 }
 
@@ -1575,6 +1584,7 @@ fn the_side_spin_curve_estimate_is_none_without_residual_z_spin() {
 
     assert!(outcome
         .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
+        .expect("head-on collision should remain on the table")
         .is_none());
 }
 
@@ -1589,23 +1599,23 @@ fn side_spin_produces_a_post_contact_curve_estimate_after_rolling_develops() {
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
+    let on_table_after = OnTableBallState::try_from(outcome.a_after.clone())
+        .expect("side-spin collision should remain on the table");
 
     assert_eq!(
-        outcome
-            .a_after
-            .as_ball_state()
-            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
+        outcome.a_after.motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Sliding
     );
     let curve = outcome
         .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
+        .expect("side-spin collision should remain on the table")
         .expect("residual side spin should curve once rolling develops");
     assert!(curve.time_until_curve_starts.as_f64() > 0.0);
     assert!(curve.curve_angle_degrees < 0.0);
     assert_eq!(
         Some(curve),
         estimate_post_contact_cue_ball_curve_on_table(
-            &outcome.a_after,
+            &on_table_after,
             &BallSetPhysicsSpec::default(),
             &motion_config(),
         )
@@ -1633,6 +1643,7 @@ fn opposite_english_signs_produce_opposite_post_contact_curve_estimates() {
         CollisionModel::ThrowAware,
     )
     .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
+    .expect("negative English collision should remain on the table")
     .expect("negative English should produce a curve");
     let left_curve = collide_ball_ball_detailed_on_table(
         &left_english,
@@ -1640,6 +1651,7 @@ fn opposite_english_signs_produce_opposite_post_contact_curve_estimates() {
         CollisionModel::ThrowAware,
     )
     .estimate_post_contact_cue_ball_curve(&BallSetPhysicsSpec::default(), &motion_config())
+    .expect("positive English collision should remain on the table")
     .expect("positive English should produce a curve");
 
     assert!(right_curve.curve_angle_degrees < 0.0);
@@ -1649,101 +1661,41 @@ fn opposite_english_signs_produce_opposite_post_contact_curve_estimates() {
 }
 
 #[test]
-fn follow_bends_the_post_contact_cue_ball_path_toward_the_incoming_shot_line() {
+fn follow_collision_reports_that_planar_bend_analysis_is_unsupported() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
         inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
         Velocity2::new("0", "10"),
         AngularVelocity3::new(-6.0, 0.0, 0.0),
     ));
-    let incoming_heading = cue_ball
-        .as_ball_state()
-        .velocity
-        .angle_from_north()
-        .expect("incoming cue ball should be moving");
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
-    let immediate_heading = outcome
-        .a_after
-        .as_ball_state()
-        .velocity
-        .angle_from_north()
-        .expect("cue ball should still be moving after the cut shot");
-    let bend = estimate_post_contact_cue_ball_bend_on_table(
-        &outcome.a_after,
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
-    )
-    .expect("follow should produce a sliding cue-ball bend estimate");
-    let bent_heading = bend
-        .state_after_bend
-        .as_ball_state()
-        .velocity
-        .angle_from_north()
-        .expect("cue ball should still be moving after the bend");
 
-    assert!(bend.time_until_bend_completes.as_f64() > 0.0);
-    assert_eq!(
-        bend.state_after_bend
-            .as_ball_state()
-            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
-        MotionPhase::Rolling
-    );
-    assert!(
-        smallest_angle_distance_degrees(bent_heading, incoming_heading)
-            < smallest_angle_distance_degrees(immediate_heading, incoming_heading),
-        "follow should bend the cue ball toward the incoming shot line"
-    );
+    assert!(matches!(
+        outcome
+            .estimate_post_contact_cue_ball_bend(&BallSetPhysicsSpec::default(), &motion_config(),),
+        Err(OnTableStateError::VerticalVelocityPresent { .. })
+    ));
 }
 
 #[test]
-fn draw_bends_the_post_contact_cue_ball_path_away_from_the_incoming_shot_line() {
+fn draw_collision_reports_that_planar_bend_analysis_is_unsupported() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(
         inches2(-radius * 2.0_f64.sqrt(), -radius * 2.0_f64.sqrt()),
         Velocity2::new("0", "10"),
         AngularVelocity3::new(6.0, 0.0, 0.0),
     ));
-    let incoming_heading = cue_ball
-        .as_ball_state()
-        .velocity
-        .angle_from_north()
-        .expect("incoming cue ball should be moving");
     let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
     let outcome =
         collide_ball_ball_detailed_on_table(&cue_ball, &object_ball, CollisionModel::ThrowAware);
-    let immediate_heading = outcome
-        .a_after
-        .as_ball_state()
-        .velocity
-        .angle_from_north()
-        .expect("cue ball should still be moving after the cut shot");
-    let bend = estimate_post_contact_cue_ball_bend_on_table(
-        &outcome.a_after,
-        &BallSetPhysicsSpec::default(),
-        &motion_config(),
-    )
-    .expect("draw should produce a sliding cue-ball bend estimate");
-    let bent_heading = bend
-        .state_after_bend
-        .as_ball_state()
-        .velocity
-        .angle_from_north()
-        .expect("cue ball should still be moving after the bend");
 
-    assert!(bend.time_until_bend_completes.as_f64() > 0.0);
-    assert_eq!(
-        bend.state_after_bend
-            .as_ball_state()
-            .motion_phase(TYPICAL_BALL_RADIUS.clone()),
-        MotionPhase::Rolling
-    );
-    assert!(
-        smallest_angle_distance_degrees(bent_heading, incoming_heading)
-            > smallest_angle_distance_degrees(immediate_heading, incoming_heading),
-        "draw should bend the cue ball away from the incoming shot line"
-    );
+    assert!(matches!(
+        outcome
+            .estimate_post_contact_cue_ball_bend(&BallSetPhysicsSpec::default(), &motion_config(),),
+        Err(OnTableStateError::VerticalVelocityPresent { .. })
+    ));
 }
 
 #[test]

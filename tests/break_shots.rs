@@ -2,9 +2,8 @@ use std::fs;
 
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTraceEventKind};
 use billiards::{
-    advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
     human_tuned_preview_motion_config, Ball, BallBallCollisionConfig, BallSetPhysicsSpec, BallType,
-    CollisionModel, NBallSystemEvent, NBallSystemState, RailCollisionProfile, RailModel, TableSpec,
+    CollisionModel, NBallSystemState, RailCollisionProfile, RailModel, TableSpec,
 };
 
 fn position_xy(state: &NBallSystemState) -> (f64, f64) {
@@ -97,67 +96,9 @@ fn displaced_object_balls(
 }
 
 #[test]
-fn nine_ball_break_examples_open_the_rack_after_shared_contact() {
+fn nine_ball_break_nonideal_preview_traces_resolve_frozen_racks_and_spread() {
     for scenario_path in [
-        "examples/scenarios/nine_ball_break_head_rail.billiards",
-        "examples/scenarios/nine_ball_break_left_side_rail.billiards",
-    ] {
-        let source = fs::read_to_string(scenario_path).expect("scenario should read");
-        let mut scenario = parse_dsl_to_scenario(&source).expect("scenario should parse");
-        scenario.game_state.resolve_positions();
-        let ball_set = BallSetPhysicsSpec::default();
-        let motion = human_tuned_preview_motion_config();
-        let initial_states = scenario
-            .initial_shot_system_states_on_table(&ball_set)
-            .expect("initial shot states should build")
-            .expect("scenario should contain a shot");
-        let mut states = initial_states.clone();
-        let mut events = Vec::new();
-
-        for _ in 0..32 {
-            let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
-                &states,
-                &ball_set,
-                &scenario.game_state.table_spec,
-                &motion,
-                CollisionModel::ThrowAware,
-                &BallBallCollisionConfig::human_tuned(),
-                RailModel::SpinAware,
-                &RailCollisionProfile::default(),
-            )
-            .expect("break scenario geometry should validate");
-            let Some(event) = advanced.event else {
-                break;
-            };
-            events.push(event);
-            states = advanced.states;
-            if displaced_object_balls(scenario.game_state.balls(), &initial_states, &states) >= 2 {
-                break;
-            }
-        }
-
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event, NBallSystemEvent::SharedBallBallContact { .. }))
-                || events
-                    .iter()
-                    .any(|event| matches!(event, NBallSystemEvent::BallBallCollision { .. })),
-            "{scenario_path}: expected break to enter the shared rack-contact path"
-        );
-
-        let moved_object_balls =
-            displaced_object_balls(scenario.game_state.balls(), &initial_states, &states);
-        assert!(
-            moved_object_balls >= 2,
-            "{scenario_path}: expected multiple object balls to move after bounded break stepping, got {moved_object_balls}"
-        );
-    }
-}
-
-#[test]
-fn nine_ball_break_default_traces_reach_rails_and_table_spread() {
-    for scenario_path in [
+        "examples/scenarios/golden_break_cut_break.billiards",
         "examples/scenarios/nine_ball_break_head_rail.billiards",
         "examples/scenarios/nine_ball_break_left_side_rail.billiards",
     ] {
@@ -199,7 +140,7 @@ fn nine_ball_break_default_traces_reach_rails_and_table_spread() {
             .count();
         assert!(
             rail_impacts >= 3,
-            "{scenario_path}: expected break preview to include balls reaching rails, got {rail_impacts}"
+            "{scenario_path}: expected nonideal break preview to include at least three rail impacts, got {rail_impacts}"
         );
 
         let moved_object_balls = displaced_object_balls(
@@ -209,7 +150,7 @@ fn nine_ball_break_default_traces_reach_rails_and_table_spread() {
         );
         assert!(
             moved_object_balls >= 6,
-            "{scenario_path}: expected broad rack spread in default preview trace, got {moved_object_balls} moved object balls"
+            "{scenario_path}: expected broad rack spread in nonideal preview trace, got {moved_object_balls} moved object balls"
         );
     }
 }

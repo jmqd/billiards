@@ -1,14 +1,17 @@
 use billiards::{
     advance_to_next_n_ball_event_on_table, advance_to_next_n_ball_event_with_rails_on_table,
+    advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
     advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
+    compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
+    compute_next_ball_rail_impact_on_table,
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest,
-    simulate_n_balls_with_rails_on_table_until_rest, AngularVelocity3, BallSetPhysicsSpec,
-    BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq, MotionPhase,
-    MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent, NBallSystemEvent,
+    simulate_n_balls_with_rails_on_table_until_rest, AngularVelocity3, BallBallCollisionConfig,
+    BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent, NBallSystemEvent,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJaw, PocketJawGeometry,
-    PocketShapeSpec, RadiansPerSecondSq, Rail, RailModel, RollingResistanceModel,
+    PocketShapeSpec, RadiansPerSecondSq, Rail, RailModel, RollingResistanceModel, Scale,
     SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT,
     STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
 };
@@ -45,10 +48,57 @@ fn inches2(x: f64, y: f64) -> Inches2 {
 }
 
 #[test]
+fn system_zero_friction_nonideal_shared_contact_matches_coupled_normal_limit() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let states = [
+        NBallSystemState::OnTable(on_table(BallState::on_table(
+            inches2(0.0, -3.0_f64.sqrt() * radius),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::zero(),
+        ))),
+        NBallSystemState::OnTable(on_table(BallState::resting_at(inches2(-radius, 0.0)))),
+        NBallSystemState::OnTable(on_table(BallState::resting_at(inches2(radius, 0.0)))),
+    ];
+    let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        &states,
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+        CollisionModel::ThrowAware,
+        &BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::zero()),
+        RailModel::SpinAware,
+        &billiards::RailCollisionProfile::default(),
+    )
+    .expect("zero-friction nonideal shared contact should use the coupled normal solver");
+
+    match advanced.event.expect("shared contact should be reported") {
+        NBallSystemEvent::SharedBallBallContact {
+            time_until_contact,
+            ball_ball_pairs,
+            resolution,
+            ..
+        } => {
+            assert_close(time_until_contact.as_f64(), 0.0);
+            assert_eq!(ball_ball_pairs, vec![(0, 1), (0, 2)]);
+            assert_eq!(resolution.as_str(), "coupled_normal");
+        }
+        other => panic!("expected coupled shared contact, got {other:?}"),
+    }
+    let cue = advanced.states[0].as_ball_state();
+    let left = advanced.states[1].as_ball_state();
+    let right = advanced.states[2].as_ball_state();
+    assert_close(cue.velocity.y().as_f64(), -2.0);
+    assert_close(left.velocity.x().as_f64(), -2.0 * 3.0_f64.sqrt());
+    assert_close(left.velocity.y().as_f64(), 6.0);
+    assert_close(right.velocity.x().as_f64(), 2.0 * 3.0_f64.sqrt());
+    assert_close(right.velocity.y().as_f64(), 6.0);
+}
+
+#[test]
 fn curved_rolling_ball_reaches_the_center_right_first_jaw() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let state = on_table(BallState::on_table(
-        inches2(48.746_297_922_274_476, 45.000_002_217_026_864),
+        inches2(48.746_297_922_274_48, 45.000_002_217_026_86),
         Velocity2::new("0", "10"),
         AngularVelocity3::new(-10.0 / radius, 0.0, 2.0),
     ));
@@ -64,11 +114,13 @@ fn curved_rolling_ball_reaches_the_center_right_first_jaw() {
 
     assert_eq!(impact.pocket, Pocket::CenterRight);
     assert_eq!(impact.jaw, PocketJaw::First);
-    assert!(direct_time > 0.0 && direct_time < 1.0);
+    assert!(
+        direct_time > 0.0 && direct_time < 1.1,
+        "the physical-jaw contact should remain in the current rolling phase; time={direct_time}"
+    );
     let at_impact = impact.state_at_impact.as_ball_state();
     let dx = at_impact.position.x().as_f64() - 50.0;
-    let dy = at_impact.position.y().as_f64() - 52.5;
-    assert_close(dx.hypot(dy), 1.25);
+    let dy = at_impact.position.y().as_f64() - 52.625;
     assert!(
         dx * at_impact.velocity.x().as_f64() + dy * at_impact.velocity.y().as_f64() < 0.0,
         "jaw contact must be entering"
@@ -97,7 +149,7 @@ fn curved_rolling_ball_reaches_the_center_right_first_jaw() {
 fn opposite_spin_curve_away_does_not_create_a_center_right_jaw_impact() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let state = on_table(BallState::on_table(
-        inches2(48.746_297_922_274_476, 45.000_002_217_026_864),
+        inches2(48.746_297_922_274_48, 45.000_002_217_026_86),
         Velocity2::new("0", "10"),
         AngularVelocity3::new(-10.0 / radius, 0.0, -2.0),
     ));
@@ -338,7 +390,7 @@ fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
 }
 
 #[test]
-fn airborne_ball_rail_impact_is_scheduled_before_later_table_contact() {
+fn airborne_ball_over_a_rail_schedules_its_ballistic_table_contact() {
     let ball = BallSetPhysicsSpec::default();
     let table = TableSpec::default();
     let motion = motion_config();
@@ -358,18 +410,24 @@ fn airborne_ball_rail_impact_is_scheduled_before_later_table_contact() {
     )
     .expect("pocket-aware test geometry should validate");
 
-    let Some(NBallSystemEvent::BallRailImpact { ball_index, impact }) = event else {
-        panic!("expected airborne rail impact before table contact, got {event:?}");
+    let Some(NBallSystemEvent::BallTableBounce {
+        ball_index,
+        contact,
+    }) = event
+    else {
+        panic!("an airborne rail projection must not become an on-table rail impact: {event:?}");
     };
-
     assert_eq!(ball_index, 0);
-    assert_eq!(impact.rail, Rail::Top);
-    let table_contact_time = (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt();
-    assert!(impact.time_until_impact.as_f64() < table_contact_time);
+    assert_close(
+        contact.time_until_contact.as_f64(),
+        (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt(),
+    );
+    assert_close(contact.state_at_contact.height.as_f64(), 0.0);
+    assert!(contact.state_at_contact.vertical_velocity.as_f64() < 0.0);
 }
 
 #[test]
-fn airborne_ball_pocket_capture_is_scheduled_before_later_table_contact() {
+fn airborne_ball_over_a_pocket_schedules_its_ballistic_table_contact() {
     let ball = BallSetPhysicsSpec::default();
     let table = TableSpec::default();
     let motion = motion_config();
@@ -388,22 +446,24 @@ fn airborne_ball_pocket_capture_is_scheduled_before_later_table_contact() {
     )
     .expect("pocket-aware test geometry should validate");
 
-    let Some(NBallSystemEvent::BallPocketCapture {
+    let Some(NBallSystemEvent::BallTableBounce {
         ball_index,
-        capture,
+        contact,
     }) = event
     else {
-        panic!("expected airborne pocket capture before table contact, got {event:?}");
+        panic!("an airborne pocket projection must not become terminal capture: {event:?}");
     };
-
     assert_eq!(ball_index, 0);
-    assert_eq!(capture.pocket, Pocket::TopRight);
-    let table_contact_time = (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt();
-    assert!(capture.time_until_capture.as_f64() < table_contact_time);
+    assert_close(
+        contact.time_until_contact.as_f64(),
+        (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt(),
+    );
+    assert_close(contact.state_at_contact.height.as_f64(), 0.0);
+    assert!(contact.state_at_contact.vertical_velocity.as_f64() < 0.0);
 }
 
 #[test]
-fn airborne_ball_ball_contact_is_reported_before_later_table_contact() {
+fn airborne_ball_ball_collision_is_resolved_before_later_table_contact() {
     let ball = BallSetPhysicsSpec::default();
     let table = TableSpec::default();
     let motion = motion_config();
@@ -425,15 +485,13 @@ fn airborne_ball_ball_contact_is_reported_before_later_table_contact() {
     )
     .expect("pocket-aware test geometry should validate");
 
-    let Some(NBallSystemEvent::UnsupportedAirborneBallBallContact {
+    let Some(NBallSystemEvent::AirborneBallBallCollision {
         first_ball_index,
         second_ball_index,
         contact,
     }) = event
     else {
-        panic!(
-            "expected diagnostic airborne ball-ball contact before table contact, got {event:?}"
-        );
+        panic!("expected airborne ball-ball collision before table contact, got {event:?}");
     };
 
     assert_eq!((first_ball_index, second_ball_index), (0, 1));
@@ -448,10 +506,98 @@ fn airborne_ball_ball_contact_is_reported_before_later_table_contact() {
     let dz = contact.second_at_contact.height.as_f64() - contact.first_at_contact.height.as_f64();
     let center_distance = (dx * dx + dy * dy + dz * dz).sqrt();
     assert_close(center_distance, 2.0 * ball.radius.as_f64());
+
+    let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        &states,
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::ThrowAware,
+        &BallBallCollisionConfig::human_tuned(),
+        RailModel::SpinAware,
+        &billiards::RailCollisionProfile::default(),
+    )
+    .expect("airborne ball-ball collision should resolve");
+    assert!(matches!(
+        advanced.event,
+        Some(NBallSystemEvent::AirborneBallBallCollision { .. })
+    ));
+    assert!(
+        advanced.states[0].as_ball_state().velocity.x().as_f64() < 40.0,
+        "the airborne cue ball should transfer forward momentum"
+    );
+    assert!(
+        advanced.states[1].as_ball_state().velocity.x().as_f64() > 0.0,
+        "the object ball should receive forward momentum"
+    );
+    assert_close(
+        advanced.states[0].as_ball_state().velocity.x().as_f64()
+            + advanced.states[1].as_ball_state().velocity.x().as_f64(),
+        40.0,
+    );
 }
 
 #[test]
-fn airborne_ball_jaw_impact_is_scheduled_before_later_table_contact() {
+fn airborne_collision_prediction_is_independent_of_state_order() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let airborne = BallState::airborne(
+        inches2(20.0, 20.0),
+        Inches::from_f64(2.0),
+        Velocity2::new(Inches::from_f64(40.0), Inches::zero()),
+        Inches::zero(),
+        AngularVelocity3::zero(),
+    );
+    let states = vec![
+        NBallSystemState::OnTable(on_table(BallState::resting_at(inches2(24.0, 20.0)))),
+        NBallSystemState::Airborne(airborne),
+    ];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states, &ball, &table, &motion,
+    )
+    .expect("reversed pocket-aware test geometry should validate");
+
+    let Some(NBallSystemEvent::AirborneBallBallCollision {
+        first_ball_index,
+        second_ball_index,
+        ..
+    }) = event
+    else {
+        panic!("expected reversed airborne pair to collide before table contact, got {event:?}");
+    };
+    assert_eq!((first_ball_index, second_ball_index), (0, 1));
+}
+
+#[test]
+fn numerical_velocity_residue_does_not_schedule_a_zero_time_collision() {
+    let ball = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let radius = ball.radius.as_f64();
+    let first = on_table(BallState::on_table(
+        inches2(20.0, 20.0),
+        Velocity2::new(Inches::from_f64(10.0 + 1e-10), Inches::zero()),
+        AngularVelocity3::zero(),
+    ));
+    let second = on_table(BallState::on_table(
+        inches2(20.0 + 2.0 * radius, 20.0),
+        Velocity2::new(Inches::from_f64(10.0), Inches::zero()),
+        AngularVelocity3::zero(),
+    ));
+
+    let collision = compute_next_ball_ball_collision_during_current_phases_on_table(
+        &first, &second, &ball, &motion,
+    );
+
+    assert!(
+        collision.is_none(),
+        "sub-nanoinch velocity residue must not create a no-progress collision"
+    );
+}
+
+#[test]
+fn airborne_ball_over_a_jaw_schedules_its_ballistic_table_contact() {
     let ball = BallSetPhysicsSpec::default();
     let table = TableSpec::default();
     let motion = motion_config();
@@ -473,14 +619,20 @@ fn airborne_ball_jaw_impact_is_scheduled_before_later_table_contact() {
     )
     .expect("pocket-aware test geometry should validate");
 
-    let Some(NBallSystemEvent::BallJawImpact { ball_index, impact }) = event else {
-        panic!("expected airborne jaw impact before table contact, got {event:?}");
+    let Some(NBallSystemEvent::BallTableBounce {
+        ball_index,
+        contact,
+    }) = event
+    else {
+        panic!("an airborne jaw projection must not become an on-table jaw impact: {event:?}");
     };
-
     assert_eq!(ball_index, 0);
-    assert_eq!(impact.pocket, Pocket::CenterRight);
-    let table_contact_time = (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt();
-    assert!(impact.time_until_impact.as_f64() < table_contact_time);
+    assert_close(
+        contact.time_until_contact.as_f64(),
+        (24.0 / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED).sqrt(),
+    );
+    assert_close(contact.state_at_contact.height.as_f64(), 0.0);
+    assert!(contact.state_at_contact.vertical_velocity.as_f64() < 0.0);
 }
 
 fn shared_three_ball_contact_fixture() -> Vec<OnTableBallState> {
@@ -905,6 +1057,49 @@ fn a_fast_side_pocket_entry_beyond_the_effective_target_angle_is_rejected() {
 }
 
 #[test]
+fn a_rejected_side_pocket_entry_does_not_rebound_from_the_open_rail_mouth() {
+    let table = TableSpec::default();
+    let pocket_center = Pocket::CenterRight.aiming_center();
+    let pocket_x = table.diamond_to_inches(pocket_center.x).as_f64();
+    let pocket_y = table.diamond_to_inches(pocket_center.y).as_f64();
+    let angle_radians = 60.0_f64.to_radians();
+    let distance = 10.0;
+    let speed = 80.0;
+    let state = on_table(BallState::on_table(
+        inches2(
+            pocket_x - distance * angle_radians.cos(),
+            pocket_y - distance * angle_radians.sin(),
+        ),
+        Velocity2::new(
+            Inches::from_f64(speed * angle_radians.cos()),
+            Inches::from_f64(speed * angle_radians.sin()),
+        ),
+        AngularVelocity3::zero(),
+    ));
+
+    assert!(
+        compute_next_ball_pocket_capture_on_table(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .is_none(),
+        "fixture must remain outside the TP 3.7 capture target"
+    );
+    assert!(
+        compute_next_ball_rail_impact_on_table(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .is_none(),
+        "a rejected entry through an open pocket mouth must not hit a phantom full-width rail"
+    );
+}
+
+#[test]
 fn a_ball_aimed_at_a_side_pocket_jaw_predicts_a_jaw_impact() {
     let table = TableSpec::default();
     let state = on_table(BallState::on_table(
@@ -948,12 +1143,43 @@ fn a_fast_ball_entering_a_side_pocket_jaw_between_old_scan_samples_predicts_impa
 }
 
 #[test]
+fn rounded_side_jaws_preserve_the_configured_physical_mouth_clearance() {
+    let table = TableSpec::default();
+    let ball_radius = TYPICAL_BALL_RADIUS.as_f64();
+    let mouth_width = table
+        .diamond_to_inches(table.pocket_spec(Pocket::CenterRight).width.clone())
+        .as_f64();
+    let lateral_offset = 1.3;
+    assert!(
+        lateral_offset < 0.5 * mouth_width - ball_radius,
+        "fixture must fit through the configured physical mouth"
+    );
+    let speed = 200.0;
+    let state = on_table(BallState::on_table(
+        inches2(40.0, 50.0 + lateral_offset),
+        Velocity2::new(Inches::from_f64(speed), Inches::zero()),
+        AngularVelocity3::new(0.0, speed / ball_radius, 0.0),
+    ));
+
+    assert!(
+        compute_next_ball_jaw_impact_on_table(
+            &state,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+        )
+        .is_none(),
+        "rounded jaw curvature must not consume the configured point-to-point mouth width"
+    );
+}
+
+#[test]
 fn a_ball_touching_a_side_pocket_jaw_and_moving_inward_predicts_immediate_impact() {
     let table = TableSpec::default();
     let pocket = Pocket::CenterRight;
     let pocket_center = pocket.aiming_center();
     let jaw_x = table.diamond_to_inches(pocket_center.x).as_f64();
-    let jaw_y = table.diamond_to_inches(pocket_center.y).as_f64()
+    let mouth_tip_y = table.diamond_to_inches(pocket_center.y).as_f64()
         + 0.5
             * table
                 .diamond_to_inches(table.pocket_spec(pocket).width.clone())
@@ -962,6 +1188,8 @@ fn a_ball_touching_a_side_pocket_jaw_and_moving_inward_predicts_immediate_impact
         PocketJawGeometry::PointNoses => 0.0,
         PocketJawGeometry::RoundedNoses { nose_radius } => nose_radius.as_f64(),
     };
+    // A rounded upper jaw's virtual center sits one nose radius beyond its physical mouth tip.
+    let jaw_y = mouth_tip_y + nose_radius;
     let ball_radius = TYPICAL_BALL_RADIUS.as_f64();
     let speed = 10.0;
     let state = on_table(BallState::on_table(
@@ -1084,7 +1312,7 @@ fn a_near_jaw_entry_can_late_drop_on_the_same_jaw_impact_step() {
 fn a_shallow_side_jaw_glance_is_rejected_instead_of_late_dropping() {
     let table = TableSpec::default();
     let state = on_table(BallState::on_table(
-        inches2(40.5, 56.0),
+        inches2(40.5, 56.125),
         Velocity2::new("13", "-6"),
         AngularVelocity3::zero(),
     ));
@@ -1506,6 +1734,242 @@ fn pocket_aware_advancing_also_batches_disjoint_same_time_ball_ball_collisions()
         }
         other => panic!("expected fourth ball to remain on table, got {other:?}"),
     }
+}
+
+fn throw_aware_frozen_line_fixture(downstream_gap: f64) -> Vec<NBallSystemState> {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let first_object_x = 30.0;
+    let y = 30.0;
+
+    vec![
+        NBallSystemState::from(on_table(BallState::on_table(
+            inches2(first_object_x - (2.0 * radius + 7.5), y),
+            Velocity2::new("10", "0"),
+            AngularVelocity3::new(0.0, 10.0 / radius, 4.0),
+        ))),
+        NBallSystemState::from(on_table(BallState::resting_at(inches2(first_object_x, y)))),
+        NBallSystemState::from(on_table(BallState::resting_at(inches2(
+            first_object_x + 2.0 * radius,
+            y,
+        )))),
+        NBallSystemState::from(on_table(BallState::resting_at(inches2(
+            first_object_x + 4.0 * radius + downstream_gap,
+            y,
+        )))),
+    ]
+}
+
+fn advance_throw_aware_system_once(states: &[NBallSystemState]) -> Vec<NBallSystemState> {
+    advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        states,
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+        CollisionModel::ThrowAware,
+        &BallBallCollisionConfig::human_tuned(),
+        RailModel::SpinAware,
+        &billiards::RailCollisionProfile::default(),
+    )
+    .expect("throw-aware system contact should resolve")
+    .states
+}
+
+fn assert_system_states_near_by_position(
+    expected: &[NBallSystemState],
+    actual: &[NBallSystemState],
+) {
+    const TOLERANCE: f64 = 1e-8;
+
+    assert_eq!(actual.len(), expected.len());
+    for expected_system_state in expected {
+        let expected_ball = expected_system_state.as_ball_state();
+        let expected_x = expected_ball.position.x().as_f64();
+        let expected_y = expected_ball.position.y().as_f64();
+        let actual_system_state = actual
+            .iter()
+            .find(|state| {
+                let ball = state.as_ball_state();
+                (ball.position.x().as_f64() - expected_x).abs() <= TOLERANCE
+                    && (ball.position.y().as_f64() - expected_y).abs() <= TOLERANCE
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "no permuted result remained at physical position ({expected_x}, {expected_y})"
+                )
+            });
+        match (expected_system_state, actual_system_state) {
+            (NBallSystemState::OnTable(_), NBallSystemState::OnTable(_))
+            | (NBallSystemState::Airborne(_), NBallSystemState::Airborne(_)) => {}
+            (expected_kind, actual_kind) => panic!(
+                "state classification changed under index permutation at ({expected_x}, {expected_y}): expected {expected_kind:?}, got {actual_kind:?}"
+            ),
+        }
+
+        let actual_ball = actual_system_state.as_ball_state();
+        for (label, expected_value, actual_value) in [
+            (
+                "height",
+                expected_ball.height.as_f64(),
+                actual_ball.height.as_f64(),
+            ),
+            (
+                "velocity x",
+                expected_ball.velocity.x().as_f64(),
+                actual_ball.velocity.x().as_f64(),
+            ),
+            (
+                "velocity y",
+                expected_ball.velocity.y().as_f64(),
+                actual_ball.velocity.y().as_f64(),
+            ),
+            (
+                "vertical velocity",
+                expected_ball.vertical_velocity.as_f64(),
+                actual_ball.vertical_velocity.as_f64(),
+            ),
+            (
+                "angular velocity x",
+                expected_ball.angular_velocity.x().as_f64(),
+                actual_ball.angular_velocity.x().as_f64(),
+            ),
+            (
+                "angular velocity y",
+                expected_ball.angular_velocity.y().as_f64(),
+                actual_ball.angular_velocity.y().as_f64(),
+            ),
+            (
+                "angular velocity z",
+                expected_ball.angular_velocity.z().as_f64(),
+                actual_ball.angular_velocity.z().as_f64(),
+            ),
+        ] {
+            assert!(
+                (actual_value - expected_value).abs() <= TOLERANCE,
+                "{label} changed under index permutation at ({expected_x}, {expected_y}): expected {expected_value}, got {actual_value}"
+            );
+        }
+    }
+}
+
+#[test]
+fn throw_aware_rolling_spin_propagates_through_a_four_ball_frozen_line_in_one_advance() {
+    let states = throw_aware_frozen_line_fixture(0.0);
+    let advanced_states = advance_throw_aware_system_once(&states);
+    let downstream_speed = advanced_states[3].as_ball_state().speed().as_f64();
+
+    assert!(
+        downstream_speed > 1e-6,
+        "the downstream ball in the touching component should move in the impact advance, got speed {downstream_speed}"
+    );
+}
+
+#[test]
+fn throw_aware_contact_component_does_not_cross_a_clear_downstream_gap() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let gap = 1e-4;
+    let states = throw_aware_frozen_line_fixture(gap);
+    let measured_gap = states[3].as_ball_state().position.x().as_f64()
+        - states[2].as_ball_state().position.x().as_f64()
+        - 2.0 * radius;
+    assert!(measured_gap > 1e-7);
+
+    let advanced_states = advance_throw_aware_system_once(&states);
+    let downstream = advanced_states[3].as_ball_state();
+    assert!(
+        downstream.speed().as_f64() <= 1e-10,
+        "a ball beyond the touching tolerance should not receive same-step linear motion"
+    );
+    assert!(
+        downstream.angular_velocity.x().as_f64().abs() <= 1e-10
+            && downstream.angular_velocity.y().as_f64().abs() <= 1e-10
+            && downstream.angular_velocity.z().as_f64().abs() <= 1e-10,
+        "a ball beyond the touching tolerance should not receive same-step spin"
+    );
+    assert!(matches!(advanced_states[3], NBallSystemState::OnTable(_)));
+}
+
+#[test]
+fn throw_aware_frozen_component_resolution_is_invariant_to_ball_index_permutation() {
+    let states = throw_aware_frozen_line_fixture(0.0);
+    let permuted_states = vec![
+        states[3].clone(),
+        states[1].clone(),
+        states[0].clone(),
+        states[2].clone(),
+    ];
+
+    let advanced = advance_throw_aware_system_once(&states);
+    let permuted_advanced = advance_throw_aware_system_once(&permuted_states);
+
+    assert_system_states_near_by_position(&advanced, &permuted_advanced);
+}
+
+#[test]
+fn throw_aware_spin_contact_applies_only_upward_unilateral_table_support() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let states = vec![
+        NBallSystemState::from(on_table(BallState::on_table(
+            inches2(30.0 - (2.0 * radius + 7.5), 30.0),
+            Velocity2::new("10", "0"),
+            AngularVelocity3::new(0.0, 10.0 / radius, 0.0),
+        ))),
+        NBallSystemState::from(on_table(BallState::resting_at(inches2(30.0, 30.0)))),
+    ];
+    let collision_config = BallBallCollisionConfig::human_tuned();
+    let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        &states,
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+        CollisionModel::ThrowAware,
+        &collision_config,
+        RailModel::SpinAware,
+        &billiards::RailCollisionProfile::default(),
+    )
+    .expect("throw-aware spinning pair contact should resolve");
+    let NBallSystemEvent::BallBallCollision {
+        first_ball_index,
+        second_ball_index,
+        collision,
+    } = advanced
+        .event
+        .as_ref()
+        .expect("the spinning incoming ball should produce a pair impact")
+    else {
+        panic!(
+            "expected a ball-ball collision event, got {:?}",
+            advanced.event
+        );
+    };
+    let free = billiards::collide_ball_ball_detailed_on_table_with_config(
+        &collision.a_at_impact,
+        &collision.b_at_impact,
+        CollisionModel::ThrowAware,
+        &collision_config,
+    );
+    assert!(
+        free.a_after.vertical_velocity.as_f64() > 1e-6,
+        "the free pair response should lift the rolling incoming ball"
+    );
+    assert!(
+        free.b_after.vertical_velocity.as_f64() < -1e-6,
+        "the free pair response should drive the object ball downward"
+    );
+
+    let NBallSystemState::Airborne(lifted) = &advanced.states[*first_ball_index] else {
+        panic!(
+            "the upward free response should remain airborne, got {:?}",
+            advanced.states[*first_ball_index]
+        );
+    };
+    assert!(lifted.vertical_velocity.as_f64() > 1e-6);
+    let NBallSystemState::OnTable(supported) = &advanced.states[*second_ball_index] else {
+        panic!(
+            "the downward free response should receive table support, got {:?}",
+            advanced.states[*second_ball_index]
+        );
+    };
+    assert!(supported.as_ball_state().vertical_velocity.as_f64().abs() <= 1e-10);
 }
 
 #[test]

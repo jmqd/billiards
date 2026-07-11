@@ -18,21 +18,28 @@ It includes:
   - `parse_dsl_to_game_state(...)`
   - direct shot-input construction
   - `parse_dsl_to_scenario(...)`
-- specific functions
+- specific functions and branch matrices
+  - `classify_motion_phase(...)` across rest, spin, roll, and slide
   - `compute_next_transition_on_table(...)`
-  - `compute_next_ball_ball_collision_during_current_phases_on_table(...)`
+  - `compute_next_ball_ball_collision_during_current_phases_on_table(...)` across linear, curved, parallel-miss, and grazing-miss paths
   - `compute_next_ball_rail_impact_on_table(...)`
+  - `compute_next_ball_jaw_impact_on_table(...)`
+  - `compute_next_ball_pocket_capture_on_table(...)` across slow/fast hit and target-miss paths
+  - `compute_next_n_ball_system_event_with_rails_and_pockets_on_table(...)`
   - `compute_next_two_ball_event_with_rails_on_table(...)`
   - `collide_ball_ball_detailed_on_table(...)`
+  - shared simultaneous-contact resolution
+  - 216-impact `SpinAware`, restitution-only, and mirror rail-response batches
   - `trace_ball_path_with_rails_on_table(...)`
-- end-to-end flows
+- end-to-end flows and scheduler scaling
   - direct strike + trace until rest
   - DSL parse + trace until rest
   - pre-parsed DSL trace until rest
   - direct strike + two-ball simulate to completion
   - DSL parse + strike + two-ball simulate to completion
-  - pre-parsed three-ball pinball trace to an event limit
-  - direct pocket-aware N-ball simulate until rest, cached and manual schedulers
+  - matched system-only and scenario-trace three-ball pinball runs to an eight-event limit
+  - direct pocket-aware N-ball simulation until rest, cached and manual schedulers
+  - one- and two-ball pocket-aware event loops at one-, two-, and four-event caps
 
 Use this suite when asking questions like:
 
@@ -55,12 +62,34 @@ It includes batched workloads for:
 - end-to-end throughput
   - tracing many seeded single-ball shots until rest
   - simulating many two-ball shots to completion
+- playback scaling
+  - two-ball and three-ball/eight-event traces
+  - 20 ms, 5 ms, and 2.5 ms frame steps
+- rendering stages
+  - traced-layout construction separate from scene construction
+  - render-only SVG, table-background PNG, and transparent PNG
+  - a 1,000-point SVG polyline serialization fixture
 
 Use this suite when asking questions like:
 
 - “How does performance scale with batch size?”
 - “What might planner/search throughput look like?”
 - “Would a CPU-parallel or GPU backend have enough work to amortize overhead?”
+
+## Native Gymnasium batch boundary
+
+`gymnasium/benchmarks/bench_native_batch.py` measures the public prepacked NumPy/PyO3 batch API rather than the core Rust loop alone. It covers boundary-only and mixed-physics workloads at configurable batch sizes and fixed `RAYON_NUM_THREADS` values.
+
+Build/install the extension in release mode first, then inspect or run the harness:
+
+```bash
+cd gymnasium
+maturin develop --release
+python benchmarks/bench_native_batch.py --threads 1
+python benchmarks/bench_native_batch.py --threads 8
+```
+
+The harness emits raw per-sample JSON. Compare baseline and candidate in separate, interleaved processes; do not treat one in-process sample series as a sufficient regression decision.
 
 ---
 

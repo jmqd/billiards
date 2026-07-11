@@ -7,12 +7,17 @@
 - Use `agent_knowledge/whitepapers_formula_candidates.txt` for quick equation/formula skims.
 - Use `agent_knowledge/whitepapers_corpus.txt` for extracted plain text instead of reading raw PDFs/HTML when possible.
 - Raw source documents remain under `whitepapers/`.
+- `whitepapers/authority_manifest.json` is the reviewed retrieval policy; sources marked
+  `exclude` or `quarantine`, including `whitepapers/_archive/disputed/`, MUST NOT be used as
+  implementation or calibration authority.
 
 ## Regeneration
 
 - `agent_knowledge/` is generated. Do not hand-edit its contents unless explicitly asked.
 - To rebuild it, run: `nix develop -c python scripts/build_agent_knowledge.py`
 - If the distillation needs to change, edit `scripts/build_agent_knowledge.py` and regenerate.
+- Change source eligibility, authority, scope exclusions, or quarantine state in
+  `whitepapers/authority_manifest.json`, then regenerate; do not patch derived retrieval output.
 
 ## API / compatibility
 

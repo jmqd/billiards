@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "documents": [
+    {
+      "path": "whitepapers/_archive/disputed/mechanics_of_billiards_and_analysis_of_willie_hoppe_s_stroke.pdf",
+      "retrieval": "exclude",
+      "authority": "disputed",
+      "reason": "Historical manuscript quarantined for its invalid homogeneous-sphere gyroscopic-precession mechanism; see plans/cull-moore-gyroscopic-source.md."
+    },
+    {
+      "path": "whitepapers/the_art_of_billiards_play.html",
+      "retrieval": "scope_limited",
+      "authority": "secondary",
+      "excluded_scopes": ["cue_squirt", "off_center_cue_impact", "cue_end_mass_calibration"],
+      "reason": "Section 7.2 Eq. (C27) is not authority for cue-impact or squirt claims; collision, cloth-motion, spin-decay, and gearing sections remain retrievable."
+    },
+    {
+      "path": "whitepapers/publications_presentations_and_software_index.html",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Bibliography and software index, not physics evidence."
+    },
+    {
+      "path": "whitepapers/integrating_mechatronics_into_a_mechanical_engineering_curriculum.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Engineering-education paper outside billiards physics."
+    },
+    {
+      "path": "whitepapers/tinkering_makes_comeback_amid_crisis.html",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "General news article outside billiards physics."
+    },
+    {
+      "path": "whitepapers/websights_physics_of_sports.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Web-links column, not billiards physics evidence."
+    },
+    {
+      "path": "whitepapers/modified_pipe_friction_diagrams_that_eliminate_trial_and_error_from_traditional_problem_solution_methods.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain pipe-friction source with no usable billiards evidence."
+    },
+    {
+      "path": "whitepapers/a_heuristic_application_specific_path_planner_for_robot_motion_planning.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain robot motion-planning source."
+    },
+    {
+      "path": "whitepapers/robot_can_read_terrain_and_adjust.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain robotics article."
+    },
+    {
+      "path": "whitepapers/security_robot_roams_shrieks_at_intruders.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain robotics article."
+    },
+    {
+      "path": "whitepapers/simulation_of_multiple_nozzle_surface_finishing_operations.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain manufacturing simulation."
+    },
+    {
+      "path": "whitepapers/a_winding_number_and_point_in_polygon_algorithm.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain computational geometry source."
+    },
+    {
+      "path": "whitepapers/closed_form_solution_of_the_general_three_dimensional_radiation_configuration_factor_problem_with_microcomputer_solution.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain radiation configuration-factor source."
+    },
+    {
+      "path": "whitepapers/computer_graphics_modeling_of_anatomy_from_2d_data_acquisition_to_3d_sculpting.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain anatomy/graphics source."
+    },
+    {
+      "path": "whitepapers/importing_and_reshaping_digitized_data_for_use_in_rapid_prototyping_a_system_for_sculpting_polygonal_mesh_surfaces.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain rapid-prototyping source."
+    },
+    {
+      "path": "whitepapers/matrix_solution_of_digitized_planar_human_body_dynamics_for_biomechanics_laboratory_instruction.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain biomechanics instruction."
+    },
+    {
+      "path": "whitepapers/model_development_and_control_implementation_for_a_magnetic_levitation_apparatus.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain magnetic-levitation source."
+    },
+    {
+      "path": "whitepapers/multipulley_belt_drive_mechanics_creep_theory_vs_shear_theory.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain belt-drive mechanics source."
+    },
+    {
+      "path": "whitepapers/the_best_least_squares_line_fit.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Generic statistics source, not billiards evidence."
+    },
+    {
+      "path": "whitepapers/variable_focus_three_dimensional_laser_digitizing_system.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain laser-digitizing source."
+    },
+    {
+      "path": "whitepapers/ryan_pooh_poohed_those_low_carb_diets.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain news article."
+    },
+    {
+      "path": "whitepapers/ryan_demonstrated_the_basics_of_torsion_mechanics.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain mechanics article."
+    },
+    {
+      "path": "whitepapers/richard_and_jen_ace_stochastics.pdf",
+      "retrieval": "exclude",
+      "authority": "none",
+      "reason": "Off-domain stochastic-process source."
+    },
+    {
+      "path": "whitepapers/pool_mythology_what_you_accept_as_truth_just_might_deserve_a_second_look.pdf",
+      "retrieval": "quarantine",
+      "authority": "none",
+      "reason": "Billiards-relevant scan retained pending usable extraction and review."
+    },
+    {
+      "path": "whitepapers/racking_up_the_physics_of_pool.pdf",
+      "retrieval": "quarantine",
+      "authority": "none",
+      "reason": "Billiards-relevant scan retained pending usable extraction and review."
+    },
+    {
+      "path": "whitepapers/big_shot_with_the_help_of_physics_a_teenage_pool_player_goes_pro.pdf",
+      "retrieval": "quarantine",
+      "authority": "none",
+      "reason": "Billiards-relevant scan retained pending usable extraction and review."
+    },
+    {
+      "path": "whitepapers/rolling_friction_intro.pdf",
+      "retrieval": "quarantine",
+      "authority": "none",
+      "reason": "No extracted text; retained pending usable extraction and review."
+    }
+  ]
+}

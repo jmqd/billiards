@@ -1,66 +1,92 @@
 ## 10 000 BU Exam Challenge
 path: whitepapers/10_000_bu_exam_challenge.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 10 Secrets Of A Good Stroke
 path: whitepapers/10_secrets_of_a_good_stroke.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 10 Useful Game Winning Shots Part 1
 path: whitepapers/10_useful_game_winning_shots_part_1.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 10 Useful Game Winning Shots Part 2
 path: whitepapers/10_useful_game_winning_shots_part_2.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 10 Ways To Avoid A Double Hit Foul
 path: whitepapers/10_ways_to_avoid_a_double_hit_foul.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 30-Degree Rule for Caroms - December 2009
 path: whitepapers/30_degree_rule_for_caroms.html
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 8 Ball Break Stats
 path: whitepapers/8_ball_break_stats.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 90/30 Degree Rule Follow-up - Part I
 path: whitepapers/90_degree_and_30_degree_rule_follow_up_part_i.pdf
+retrieval: include
+authority: contextual
 - triangle width = 1 foot (30 cm)
 - triangle height = 7 inches (17 cm)
 
 ## 90° and 30° Rule Follow-up - Part II: speed effects
 path: whitepapers/90_degree_and_30_degree_rule_follow_up_part_ii_speed_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 90 degree And 30 degree Rule Follow Up Part Iii Inelasticity And Friction Effects
 path: whitepapers/90_degree_and_30_degree_rule_follow_up_part_iii_inelasticity_and_friction_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 90° and 30° Rule Follow-up - Part IV: English effects
 path: whitepapers/90_degree_and_30_degree_rule_follow_up_part_iv_english_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 90° and 30° Rule Follow-up - Part V: The Final Chapter
 path: whitepapers/90_degree_and_30_degree_rule_follow_up_part_v_the_final_chapter.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 90º and 30º Rule Review
 path: whitepapers/90_degree_and_30_degree_rule_review.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## 9 Ball Break Strategy
 path: whitepapers/9_ball_break_strategy.pdf
-- [no formula-like lines detected]
-
-## A Heuristic Application Specific Path Planner For Robot Motion Planning
-path: whitepapers/a_heuristic_application_specific_path_planner_for_robot_motion_planning.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## A Theoretical Analysis Of Billiard Ball Dynamics Under Cushion Impacts
 path: whitepapers/a_theoretical_analysis_of_billiard_ball_dynamics_under_cushion_impacts.pdf
+retrieval: include
+authority: contextual
 - a velocity of ee V0 sin α normal to the cushion, and a the ball will start to ‘sink’ more into the rubber cushion.
 - velocity V0 cos α along the cushion respectively, where
 - Ball spin, both sidespin ω0S and topspin ω0T , as shown
@@ -102,44 +128,58 @@ path: whitepapers/a_theoretical_analysis_of_billiard_ball_dynamics_under_cushion
 - PC = {sin θ + μw sin[(PI )] cos θ}PI (8)
 - Using the earlier argument, for the impact at C, the ẋI = ẋG + θ̇y R sin θ − θ̇z R cos θ (12a)
 
-## A Winding Number And Point In Polygon Algorithm
-path: whitepapers/a_winding_number_and_point_in_polygon_algorithm.pdf
-- [no formula-like lines detected]
-
 ## Additional Parts Required Duct Tape And Baling Wire
 path: whitepapers/additional_parts_required_duct_tape_and_baling_wire.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Aim, Align, Sight - Part I: Introduction and Ghost Ball Systems
 path: whitepapers/aim_align_sight_part_i_introduction_and_ghost_ball_systems.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Aim Align Sight Part Ii Visual Alignment
 path: whitepapers/aim_align_sight_part_ii_visual_alignment.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Aim Align Sight Part Iii Sighting
 path: whitepapers/aim_align_sight_part_iii_sighting.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Aim Visualization Techniques
 path: whitepapers/aim_visualization_techniques.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Air Aiming Techniques
 path: whitepapers/air_aiming_techniques.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Air Peace Sign
 path: whitepapers/air_peace_sign.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## All Ball Fouls
 path: whitepapers/all_ball_fouls.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## APAPP 4 of 4
 path: whitepapers/amateur_physics_for_the_amateur_pool_player.pdf
+retrieval: include
+authority: contextual
 - V= ∫ ∫ ∫ r 2 sin drd d = ( 13 R3 )(2)(2 ) = 43 R3
 - radius is Rmin=1.1225" and the maximum radius is Rmax=1.1275". The volume of a
 - standard pool ball is between 43 R3min =5.924in3=97.08cm3 and
@@ -183,14 +223,20 @@ path: whitepapers/amateur_physics_for_the_amateur_pool_player.pdf
 
 ## Amazing Frozen Kiss Shots
 path: whitepapers/amazing_frozen_kiss_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## An Update on Tom Ross Cue Times Billiards News, August, 2014
 path: whitepapers/an_update_on_tom_ross.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Analysis of a Winning Computational Billiards Player
 path: whitepapers/analysis_of_a_winning_computational_billiards_player.pdf
+retrieval: include
+authority: contextual
 - randomly assigning feasible values to a, b and θ .
 - A shot is represented by ﬁve real numbers: v, ϕ , θ , a, and tion, allowing the calculation of an average score
 - represents the cue orientation, θ represents the angle of the evaluation function as P ICK P OCKET, which is de-
@@ -201,6 +247,8 @@ path: whitepapers/analysis_of_a_winning_computational_billiards_player.pdf
 
 ## Application of high-speed imaging to determine the dynamics of billiards
 path: whitepapers/application_of_high_speed_imaging_to_determine_the_dynamics_of_billiards.pdf
+retrieval: include
+authority: contextual
 - to the image plane 共see Fig. 3兲. The equation for the trans-
 - = Rcⴱx + Tc, where Rc and Tc are the rotation and translation the snooker table in Fig. 4. The spatial separation between
 - ball, V and ⍀, respectively, satisfy the relation V = R⍀, with table at their point of contact, the ball is said to slip on the
@@ -218,14 +266,20 @@ path: whitepapers/application_of_high_speed_imaging_to_determine_the_dynamics_of
 
 ## Avoiding Scratches - November 2010
 path: whitepapers/avoiding_scratches.html
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Back Of The Ball Aiming
 path: whitepapers/back_of_the_ball_aiming.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Ball Colors And Numbers
 path: whitepapers/ball_colors_and_numbers.pdf
+retrieval: include
+authority: contextual
 - the yellow 1 (9 = 1 + 8), the blue 10 is 8 more than the blue 2 (10 = 2 + 8), etc. An interesting mathematical
 - 1+9=10, 2+10=12, 3+11=14, 4+12=16, 5+13=18, 6+14=20, 7+15=22.
 - secondary colors since they are combinations of the primary colors: purple = red + blue, orange = red +
@@ -238,50 +292,68 @@ path: whitepapers/ball_colors_and_numbers.pdf
 
 ## Ball Weight And Size Difference Effects Part I
 path: whitepapers/ball_weight_and_size_difference_effects_part_i.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Ball Weight And Size Difference Effects Part Ii
 path: whitepapers/ball_weight_and_size_difference_effects_part_ii.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Bank Shot Reference Tracks
 path: whitepapers/bank_shot_reference_tracks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Bar Rules And Dirty Pool
 path: whitepapers/bar_rules_and_dirty_pool.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Beer-goggle Effects
 path: whitepapers/beer_goggle_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Bending Twisting And Stiffening Kicks And Banks
 path: whitepapers/bending_twisting_and_stiffening_kicks_and_banks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Big Impact Technique Changes
 path: whitepapers/big_impact_technique_changes.pdf
-- [no formula-like lines detected]
-
-## Big Shot With The Help Of Physics A Teenage Pool Player Goes Pro
-path: whitepapers/big_shot_with_the_help_of_physics_a_teenage_pool_player_goes_pro.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part I Introduction
 path: whitepapers/billiard_university_bu_part_i_introduction.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part Ii Skills Exam
 path: whitepapers/billiard_university_bu_part_ii_skills_exam.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part Iii Player Rating
 path: whitepapers/billiard_university_bu_part_iii_player_rating.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part Iv Table Difficulty
 path: whitepapers/billiard_university_bu_part_iv_table_difficulty.pdf
+retrieval: include
+authority: contextual
 - TDF=1, the table has an average level of difficulty; if TDF>1, the table plays more difficult than average; and if
 - ≤ 3 3/8“ > 5 1/4”
 - size ≤ 3 1/2” ≤ 3 5/8” ≤ 3 3/4” ≤ 3 7/8” ≤ 4” ≤ 4 1/8” ≤ 4 1/4” ≤ 4 3/8” ≤ 4 1/2” ≤ 4 3/4” ≤ 5” ≤ 5 1/4”
@@ -307,70 +379,98 @@ path: whitepapers/billiard_university_bu_part_iv_table_difficulty.pdf
 
 ## Billiard University BU Part Ix Kicks
 path: whitepapers/billiard_university_bu_part_ix_kicks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part V Stun Shots
 path: whitepapers/billiard_university_bu_part_v_stun_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part Vi 9 Ball Drills
 path: whitepapers/billiard_university_bu_part_vi_9_ball_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part Vii 8 Ball Drills
 path: whitepapers/billiard_university_bu_part_vii_8_ball_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part Viii Safeties
 path: whitepapers/billiard_university_bu_part_viii_safeties.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiard University BU Part X The Break Shot
 path: whitepapers/billiard_university_bu_part_x_the_break_shot.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiards on the Big Screen - Pool Hall Junkies
 path: whitepapers/billiards_on_the_big_screen_pool_hall_junkies.pdf
+retrieval: include
+authority: contextual
 - I present the standard numbering and formula system along with a revised method that I use.
 
 ## Billiards on the Big Screen - The Color of Money
 path: whitepapers/billiards_on_the_big_screen_the_color_of_money.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Billiards on the Big Screen - The Hustler
 path: whitepapers/billiards_on_the_big_screen_the_hustler.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Bridge Length Effects
 path: whitepapers/bridge_length_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## CB Control Everything You Need To Know
 path: whitepapers/cb_control_everything_you_need_to_know.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## CB Control Subtleties
 path: whitepapers/cb_control_subtleties.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Chalk Testing Sequel
 path: whitepapers/chalk_testing_sequel.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Christina And The Dangerous Duck Slalom
 path: whitepapers/christina_and_the_dangerous_duck_slalom.pdf
-- [no formula-like lines detected]
-
-## Closed Form Solution Of The General Three Dimensional Radiation Configuration Factor Problem With Microcomputer Solution
-path: whitepapers/closed_form_solution_of_the_general_three_dimensional_radiation_configuration_factor_problem_with_microcomputer_solution.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Coin Proposition Shots
 path: whitepapers/coin_proposition_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Collision of Billiard Balls in 3D with Spin and Friction Charles S. Peskin
 path: whitepapers/collision_of_billiard_balls_in_3d_with_spin_and_friction.pdf
+retrieval: include
+authority: contextual
 - radius r, and scalar moment of inertia αmr 2 , where α is a dimensionless constant
 - collision, with the center of ball A at x = −r and the center of ball B at x = +r.
 - of contact at the moment of collision is the plane x = 0.
@@ -414,6 +514,8 @@ path: whitepapers/collision_of_billiard_balls_in_3d_with_spin_and_friction.pdf
 
 ## Collision of two spinning billiard balls and the role of table
 path: whitepapers/collision_of_two_spinning_billiard_balls_and_the_role_of_table_friction.pdf
+retrieval: include
+authority: contextual
 - 0.03 ≤ µ ≤ 0.08. (1)
 - 0.92 ≤ e∗ ≤ 0.98. (2)
 - impulse imparted to the cue ball by this frictional force is approximately f ∆t ∼ µF⊥ ∆t = µM Ui , and
@@ -457,10 +559,14 @@ path: whitepapers/collision_of_two_spinning_billiard_balls_and_the_role_of_table
 
 ## Come For The Donuts Stay For The Drills
 path: whitepapers/come_for_the_donuts_stay_for_the_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Computational pool: an OR-optimization point of view
 path: whitepapers/computational_pool_an_or_optimization_point_of_view.pdf
+retrieval: include
+authority: contextual
 - table. The trajectory of the balls is described by a piecewise quadratic parametric equation.
 - • θ the elevation of the queue stick;
 - • φ the orientation of the queue stick on the table;
@@ -491,52 +597,70 @@ path: whitepapers/computational_pool_an_or_optimization_point_of_view.pdf
 - As shown in Figure 2, both the angle and distance factor result in a calculable angle θ
 - If we now divide our billiard table into a 50x100 grid, we can take the value of maxni=0 θi at
 
-## Computer Graphics Modeling Of Anatomy From 2D Data Acquisition To 3D Sculpting
-path: whitepapers/computer_graphics_modeling_of_anatomy_from_2d_data_acquisition_to_3d_sculpting.pdf
-- [no formula-like lines detected]
-
 ## Corey Deuel S Famous Draw Shot
 path: whitepapers/corey_deuel_s_famous_draw_shot.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Coriolis was brilliant ... but he didn't have a high-speed camera
 path: whitepapers/coriolis_was_brilliant_but_he_didn_t_have_a_high_speed_camera_part_i_introduction.pdf
+retrieval: include
+authority: contextual
 - a pool ball (D = 2 1/4 inches, R = 1 1/8 inches), the contact point should be off center
 
 ## Coriolis was brilliant ... but he didn't have a high-speed camera
 path: whitepapers/coriolis_was_brilliant_but_he_didn_t_have_a_high_speed_camera_part_ii_high_speed_video.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Coriolis was brilliant ... but he didn't have a high-speed camera
 path: whitepapers/coriolis_was_brilliant_but_he_didn_t_have_a_high_speed_camera_part_iii_cue_ball_paths_are_like_satellite_dishes.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Coriolis was brilliant ... but he didn't have a high-speed camera
 path: whitepapers/coriolis_was_brilliant_but_he_didn_t_have_a_high_speed_camera_part_iv_maximum_cue_tip_offset.pdf
+retrieval: include
+authority: contextual
 - x = 0.5R
 
 ## Coriolis was brilliant ... but he didn't have a high-speed camera
 path: whitepapers/coriolis_was_brilliant_but_he_didn_t_have_a_high_speed_camera_part_v_masse_shot_aiming.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Coriolis was brilliant ... but he didn't have a high-speed camera
 path: whitepapers/coriolis_was_brilliant_but_he_didn_t_have_a_high_speed_camera_part_vi_maximum_rolling_deflection.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Cross Table CB Control
 path: whitepapers/cross_table_cb_control.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Cue Tip Size And Shape Effects
 path: whitepapers/cue_tip_size_and_shape_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Cue Tip Squirt Testing
 path: whitepapers/cue_tip_squirt_testing.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Design, Fabrication, and Implementation of Jump-Cue Testing Machine
 path: whitepapers/design_fabrication_and_implementation_of_jump_cue_testing_machine.pdf
+retrieval: include
+authority: contextual
 - ΔKE = ΔPE spring (1) cues are tested and ranked on both qualitative and quantitative
 - ΔPE = (2) laid on the table in the direction of the trajectory of the cue ball.
 - ΔKE = (3) cue could elevate a cue ball over another ball. This is quantified
@@ -549,90 +673,132 @@ path: whitepapers/design_fabrication_and_implementation_of_jump_cue_testing_mach
 
 ## Determining Manipulator Workspace Boundaries Using The Monte Carlo Method And Least Squares Segmentation
 path: whitepapers/determining_manipulator_workspace_boundaries_using_the_monte_carlo_method_and_least_squares_segmentation.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Diy Tip Replacement
 path: whitepapers/diy_tip_replacement.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Does The Brand Of Chalk Really Matter
 path: whitepapers/does_the_brand_of_chalk_really_matter.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Dr Dave S Best Youtube Vids
 path: whitepapers/dr_dave_s_best_youtube_vids.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Dr Dave Schools Neil Degrasse Tyson
 path: whitepapers/dr_dave_schools_neil_degrasse_tyson.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw For Show Follow For Dough
 path: whitepapers/draw_for_show_follow_for_dough.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Control
 path: whitepapers/draw_shot_control.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Cue Ball Directions
 path: whitepapers/draw_shot_cue_ball_directions.pdf
+retrieval: include
+authority: contextual
 - because aiming center to edge creates a ½-ball hit, which is a 30˚ cut angle, and 3 × 30˚ = 90˚. As shown in
 - predicts that the CB would head straight down the tangent line [30˚ – 1/3(90˚) = 0˚].
 
 ## Draw Shot Physics - Part III: spin ratio
 path: whitepapers/draw_shot_physic_part_iii_spin_ratio.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Physics - Part I: basics
 path: whitepapers/draw_shot_physics_part_i_basics.pdf
+retrieval: include
+authority: contextual
 - approach speed of the CB (OB speed 2 = CB speed 2) and the CB remains spinning in place
 - distance (“total draw distance” = “skid distance” + “roll distance”). It is easier to draw the CB on a
 - (overspin) = CB speed 2
 
 ## Draw Shot Physics - Part II: examples
 path: whitepapers/draw_shot_physics_part_ii_examples.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Physics - Part IV: cue elevation effects
 path: whitepapers/draw_shot_physics_part_iv_cue_elevation_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Primer - Part I: physics
 path: whitepapers/draw_shot_primer_part_i_physics.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Primer - Part II: aiming
 path: whitepapers/draw_shot_primer_part_ii_aiming.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Primer - Part III: using the trisect system
 path: whitepapers/draw_shot_primer_part_iii_using_the_trisect_system.pdf
+retrieval: include
+authority: contextual
 - three-times the cut angle (3A = A + 2A). The impact line trisects (divides by one third) the total
 
 ## Draw Shot Primer - Part IV: game examples
 path: whitepapers/draw_shot_primer_part_iv_game_examples.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Primer Part V How To Achieve Good Draw Action
 path: whitepapers/draw_shot_primer_part_v_how_to_achieve_good_draw_action.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Draw Shot Primer - Part VI: Draw Shot Practice Drill
 path: whitepapers/draw_shot_primer_part_vi_draw_shot_practice_drill.pdf
+retrieval: include
+authority: contextual
 - observed on the CB (C), but the CB ended up past the target (G = long), so the score is
 
 ## Draw Shot Primer - Part VII: Tips of English
 path: whitepapers/draw_shot_primer_part_vii_tips_of_english.pdf
+retrieval: include
+authority: contextual
 - 1/8” (R = D/2); therefore, the maximum recommended cue tip offset is 9/16” (R/2 or 0.5R). Notice
 - R = 1/2 (2 1/4") = 1 1/8" 0.5R = 9/16"
 
 ## Dynamics In Carom Three Cushion
 path: whitepapers/dynamics_in_carom_three_cushion.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## JSME-TJ
 path: whitepapers/effects_of_material_properties_of_cue_on_ball_trajectory_in_billiards.pdf
+retrieval: include
+authority: contextual
 - an inclined direction φ as shown in Fig.1. ϕ
 - α (t )
 - β (t )
@@ -676,22 +842,32 @@ path: whitepapers/effects_of_material_properties_of_cue_on_ball_trajectory_in_bi
 
 ## End-of-game frozen-rail shots
 path: whitepapers/end_of_game_frozen_rail_shots_part_i.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## End-of-game frozen-rail shots - part II
 path: whitepapers/end_of_game_frozen_rail_shots_part_ii.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Equipment Care
 path: whitepapers/equipment_care.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## European Open Push Shot Controversy
 path: whitepapers/european_open_push_shot_controversy.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Everything You Always Wanted to Know About Cue Ball Squirt, But Were Afraid to Ask
 path: whitepapers/everything_you_always_wanted_to_know_about_cue_ball_squirt_but_were_afraid_to_ask.pdf
+retrieval: include
+authority: contextual
 - The squirt angle α
 - left sidespin. The squirt angle α is exaggerated in Figure 1 to make the drawing clear; as
 - axis of length b=RSin(θ). This force does two things. At any moment in time t during
@@ -735,30 +911,44 @@ path: whitepapers/everything_you_always_wanted_to_know_about_cue_ball_squirt_but
 
 ## Everything You Need To Know About Throw
 path: whitepapers/everything_you_need_to_know_about_throw.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Eye Pattern Best Practices
 path: whitepapers/eye_pattern_best_practices.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Fast Speed Banks
 path: whitepapers/fast_speed_banks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## by DR. GEORGE ONODA Faster Than
 path: whitepapers/faster_than_a_speeding_bullet.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Finding Your Perfect Stance
 path: whitepapers/finding_your_perfect_stance.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Follow Control
 path: whitepapers/follow_control.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Phys Educ 1(1(1991) PrintedintheUK Frontal impact of rolling spheres
 path: whitepapers/frontal_impact_of_rolling_spheres.pdf
+retrieval: include
+authority: contextual
 - crlbed makes posslble dlred eslfmates of the If we denote by v, (j=1,2) the velocities of the
 - as examoles of the laws of conservation: in oar- mlui + m 2 u 2 = m l v +m2v2
 - ticular, frontal and oblique collisions between where m, (j=1,2) are the masses of the spheres. On
@@ -796,248 +986,326 @@ path: whitepapers/frontal_impact_of_rolling_spheres.pdf
 
 ## Frozen Proposition Shot
 path: whitepapers/frozen_proposition_shot.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Fundamentals - Part I: MOFUDAT
 path: whitepapers/fundamentals_part_i_mofudat.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Fundamentals - Part II: Aiming
 path: whitepapers/fundamentals_part_ii_aiming.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Fundamentals - Part III: The DAM Aiming System
 path: whitepapers/fundamentals_part_iii_dam_aiming_system.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Fundamentals - Part IV: Bridge Length
 path: whitepapers/fundamentals_part_iv_bridge_length.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Fundamentals - Part V: CB position control
 path: whitepapers/fundamentals_part_v_cb_position_control.pdf
+retrieval: include
+authority: contextual
 - from (i.e., perpendicular to) the original CB direction (90º = 3 X 30º). For fuller hits, the angle will
 
 ## Fundamentals - Part VI: CB control examples
 path: whitepapers/fundamentals_part_vi_cb_control_examples.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Fundamentals - Part VII: speed control
 path: whitepapers/fundamentals_part_vii_speed_control.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Gadget Cares For Your Best Friend
 path: whitepapers/gadget_cares_for_your_best_friend.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Gadget Keeps Suspension Even
 path: whitepapers/gadget_keeps_suspension_even.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Gender in Pool ... The "Battle of the Trans Sexes Harriet Haynes, a professional English pool
 path: whitepapers/gender_in_pool_battle_of_the_trans_sexes.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Golden Break
 path: whitepapers/golden_break.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Good Timing In Pool
 path: whitepapers/good_timing_in_pool.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Got English
 path: whitepapers/got_english.pdf
+retrieval: include
+authority: contextual
 - 13. Squerve (net effect of squirt and swerve = net CB deflection) can be zero with certain speeds and
 
 ## Half Ball Hit Magic
 path: whitepapers/half_ball_hit_magic.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## HAPS Part I Fractional Ball Aiming
 path: whitepapers/haps_part_i_fractional_ball_aiming.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## HAPS Part Ii BHE And FHE
 path: whitepapers/haps_part_ii_bhe_and_fhe.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## HAPS Part Iii Gearing Outside English
 path: whitepapers/haps_part_iii_gearing_outside_english.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## HAPS Part Iv Draw Carom Shot Aiming
 path: whitepapers/haps_part_iv_draw_carom_shot_aiming.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## HAPS Part V Combination Shot Throw
 path: whitepapers/haps_part_v_combination_shot_throw.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## HAPS Part Vi Rail Cut Shots
 path: whitepapers/haps_part_vi_rail_cut_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## HAPS Part Vii Kick Shots
 path: whitepapers/haps_part_vii_kick_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## HAPS Part Viii Bank Shots
 path: whitepapers/haps_part_viii_bank_shots.pdf
+retrieval: include
+authority: contextual
 - of aim heads through the 1.5 (3/8 * 4 = 3/2) diamond point on the top rail. As is clear in the diagram, the two
 
 ## Hold The Line
 path: whitepapers/hold_the_line.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## How High Or Low Should You Hit The Cue Ball
 path: whitepapers/how_high_or_low_should_you_hit_the_cue_ball.pdf
+retrieval: include
+authority: contextual
 - R 11 0.5D = R
 
 ## How Pros Aim
 path: whitepapers/how_pros_aim.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## How To Break In 3 Ball
 path: whitepapers/how_to_break_in_3_ball.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## How to Break Like a Pro FEATURE ARTICLE
 path: whitepapers/how_to_break_like_a_pro.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## How To Easily Find Your Vision Center
 path: whitepapers/how_to_easily_find_your_vision_center.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## How To Get A Tight Rack
 path: whitepapers/how_to_get_a_tight_rack.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## How To Rack And Break 9 Ball Like A Pro
 path: whitepapers/how_to_rack_and_break_9_ball_like_a_pro.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## How To Reach Shots Tough To Reach
 path: whitepapers/how_to_reach_shots_tough_to_reach.pdf
-- [no formula-like lines detected]
-
-## Importing And Reshaping Digitized Data For Use In Rapid Prototyping A System For Sculpting Polygonal Mesh Surfaces
-path: whitepapers/importing_and_reshaping_digitized_data_for_use_in_rapid_prototyping_a_system_for_sculpting_polygonal_mesh_surfaces.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Improved 2 To 1 System
 path: whitepapers/improved_2_to_1_system.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Inelastic collision and the Hertz theory of impact
 path: whitepapers/inelastic_collision_and_the_hertz_theory_of_impact.html
+retrieval: include
+authority: contextual
 - Fig. 3. Energy loss, K(U) = (1-e(U)2), vs U0.4 for the Jaques ball on steel and on wood.
-
-## Enhancing a Mechanical Engineering Curriculum with a Mechatronics Theme
-path: whitepapers/integrating_mechatronics_into_a_mechanical_engineering_curriculum.pdf
-- [no formula-like lines detected]
 
 ## Intentional Fouls
 path: whitepapers/intentional_fouls.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Is A Pool Ball Smoother Than The Earth
 path: whitepapers/is_a_pool_ball_smoother_than_the_earth.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Is Elbow Drop Bad
 path: whitepapers/is_elbow_drop_bad.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Is Ld Better
 path: whitepapers/is_ld_better.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Jared S Ride Isn T Fly But The Steering S Perfect
 path: whitepapers/jared_s_ride_isn_t_fly_but_the_steering_s_perfect.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Jump Shots Made Simple
 path: whitepapers/jump_shots_made_simple.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Jump Stop Draw Follow
 path: whitepapers/jump_stop_draw_follow.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Jumping Back Drawing More Conclusions With The Help Of Video
 path: whitepapers/jumping_back_drawing_more_conclusions_with_the_help_of_video.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Just How Big are the Pockets, Anyway? - Part I
 path: whitepapers/just_how_big_are_the_pockets_anyway_part_i.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Just How Big are the Pockets, Anyway? - Part II
 path: whitepapers/just_how_big_are_the_pockets_anyway_part_ii.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Just How Big are the Pockets, Anyway? - Part III
 path: whitepapers/just_how_big_are_the_pockets_anyway_part_iii.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Kicking Safe - February 2010
 path: whitepapers/kicking_safe.html
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Kiss Shot Direction Control
 path: whitepapers/kiss_shot_direction_control.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Large Angle Banks
 path: whitepapers/large_angle_banks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Legal Fouls
 path: whitepapers/legal_fouls.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Luckily Dimitri Never Inhaled
 path: whitepapers/luckily_dimitri_never_inhaled.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Magic Spot Kicks
 path: whitepapers/magic_spot_kicks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
-
-## Matrix Solution Of Digitized Planar Human Body Dynamics For Biomechanics Laboratory Instruction
-path: whitepapers/matrix_solution_of_digitized_planar_human_body_dynamics_for_biomechanics_laboratory_instruction.pdf
-- [no formula-like lines detected]
-
-## MECHANICS OF BILLIARDS, AND ANALYSIS OF WILLIE HOPPE'S STROKE
-path: whitepapers/mechanics_of_billiards_and_analysis_of_willie_hoppe_s_stroke.pdf
-- a leather tip ahead of that. If wood is at e = 0.5, and if leather
-- u1 = 1.00, v1 = 0.54, v2 = 1.35, a suitable value of e is found by ..
-- cued at a point anywhere between dead center (h = zero) to a usual
-- extreme of 0.6 inches from center (h = 0.6). The distance from
-- Take the case of a ball cued at h = 0.48 (Section II). If ball
-- Cue the ball at h = 0.48, right side, and at about 3 feet per second:
-- the ball is being cued with considerable english (apparently h = 0.5)
 
 ## Mental Game
 path: whitepapers/mental_game.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Miscue And Scoop Non Fouls
 path: whitepapers/miscue_and_scoop_non_fouls.pdf
-- [no formula-like lines detected]
-
-## Model Development And Control Implementation For A Magnetic Levitation Apparatus
-path: whitepapers/model_development_and_control_implementation_for_a_magnetic_levitation_apparatus.pdf
-- [no formula-like lines detected]
-
-## Modified Pipe Friction Diagrams That Eliminate Trial And Error From Traditional Problem Solution Methods
-path: whitepapers/modified_pipe_friction_diagrams_that_eliminate_trial_and_error_from_traditional_problem_solution_methods.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Motions of a billiard ball after a cue stroke Hyeong-Chan Kim1
 path: whitepapers/motions_of_a_billiard_ball_after_a_cue_stroke.pdf
+retrieval: include
+authority: contextual
 - In the presence of an impact parameter b 6= 0, the ball can be given top/back-spin or side-spin by striking it
 - µstatic ≥ tan φ = p ,
 - 1 We refine this formula later in this work.
@@ -1081,6 +1349,8 @@ path: whitepapers/motions_of_a_billiard_ball_after_a_cue_stroke.pdf
 
 ## Movement Variability of Professional Pool Billiards Players on Selected Tasks
 path: whitepapers/movement_variability_of_professional_pool_billiards_players_on_selected_tasks.pdf
+retrieval: include
+authority: contextual
 - 2. φimpact…Elevation angle of the cue at ball impact
 - φimpact and himpact were determined using the motion analysis system, timpact from the high speed video recordings and
 - CV for vimpact were lowest (8 % on average) whilst largest CV values were observed for φimpact (33 % on average).
@@ -1088,16 +1358,16 @@ path: whitepapers/movement_variability_of_professional_pool_billiards_players_on
 - of himpact and φimpact do not significantly differ from normal distributions for all types of shots, those of vimpact only in
 - differ in their cue stick motion at impact. The mean values of vimpact, himpact and φimpact might well characterize the
 
-## Multipulley Belt Drive Mechanics Creep Theory Vs Shear Theory
-path: whitepapers/multipulley_belt_drive_mechanics_creep_theory_vs_shear_theory.pdf
-- [no formula-like lines detected]
-
 ## New Pool Rules
 path: whitepapers/new_pool_rules.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Non Smooth Modelling Of Billiard And Superbilliard Ball Collisions
 path: whitepapers/non_smooth_modelling_of_billiard_and_superbilliard_ball_collisions.pdf
+retrieval: include
+authority: contextual
 - vertical plane taking M ¼ 0. m2 Ro2x ¼ ð5=2ÞF fy , (11)
 - in Fig. 1 and taking M ¼ m1 =m2 , Eqs. (1) and (2) can be m2 Ro2y ¼ ð5=2ÞðF tv  F fx Þ. (12)
 - Mðvo sin c  v1 sin d1 Þ ¼ v2 sin d2 . (6) m2 Roz2 ¼ m1 ðRoz1  Rozo Þ ¼ ð5=2ÞF th . (13)
@@ -1141,6 +1411,8 @@ path: whitepapers/non_smooth_modelling_of_billiard_and_superbilliard_ball_collis
 
 ## Numerical Simulations Of The Frictional Collisions Of Solid Balls On A Rough Surface
 path: whitepapers/numerical_simulations_of_the_frictional_collisions_of_solid_balls_on_a_rough_surface.pdf
+retrieval: include
+authority: contextual
 - ω T0 θ Y ωy
 - C ω S0 FI
 - important to note that ball C does not spin about its frontal table interface, as shown in Fig. 3. In Eq. (1a), superscripts
@@ -1167,38 +1439,56 @@ path: whitepapers/numerical_simulations_of_the_frictional_collisions_of_solid_ba
 
 ## Optimal Cue Weight
 path: whitepapers/optimal_cue_weight.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Outside Vs Inside
 path: whitepapers/outside_vs_inside.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pattern Play Principles
 path: whitepapers/pattern_play_principles.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Peace Baby - October 2009
 path: whitepapers/peace_baby.html
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Peace Sign Subtleties
 path: whitepapers/peace_sign_subtleties.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Placement Pool Challenge
 path: whitepapers/placement_pool_challenge.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Player Ratings
 path: whitepapers/player_ratings.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Please Fix League Rules
 path: whitepapers/please_fix_league_rules.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pool and Billiards Physics Principles by Coriolis and Others
 path: whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf
+retrieval: include
+authority: contextual
 - the derivation of Equation 10 in TP A.4). The relative slip speed gradually slows to zero and
 - angle (θ c)
 - angle θc as a function of cut angle φ is given by (see Equation 38 in TP A.4):
@@ -1226,78 +1516,86 @@ path: whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.p
 
 ## Pool By Numbers
 path: whitepapers/pool_by_numbers.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pool Friendly Eyeglasses
 path: whitepapers/pool_friendly_eyeglasses.pdf
-- [no formula-like lines detected]
-
-## Pool Mythology What You Accept As Truth Just Might Deserve A Second Look
-path: whitepapers/pool_mythology_what_you_accept_as_truth_just_might_deserve_a_second_look.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pool Myths Part 1 The List
 path: whitepapers/pool_myths_part_1_the_list.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pool Myths Part 2 The Rest Of The List
 path: whitepapers/pool_myths_part_2_the_rest_of_the_list.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pool Myths Part 3 Open Vs Closed Bridge
 path: whitepapers/pool_myths_part_3_open_vs_closed_bridge.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pool Myths Part 4 Ld Shafts
 path: whitepapers/pool_myths_part_4_ld_shafts.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pool Quizzes
 path: whitepapers/pool_quizzes.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pool Vs Cats
 path: whitepapers/pool_vs_cats.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pre Stance Routine
 path: whitepapers/pre_stance_routine.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Pro Foul Confusion
 path: whitepapers/pro_foul_confusion.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
-
-## Publications, Presentations, and Software - Dr. David G. Alciatore
-path: whitepapers/publications_presentations_and_software_index.html
-- Weiner, M. and Alciatore, D., “Modeling and Analysis of a Composite Formula SAE Chassis,” Technical Paper, Department of Mechanical Engineering, Colorado State University, 1999.
 
 ## Put A Bounce In Your Step
 path: whitepapers/put_a_bounce_in_your_step.pdf
-- [no formula-like lines detected]
-
-## Racking Up The Physics Of Pool
-path: whitepapers/racking_up_the_physics_of_pool.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Rail Cut Shot CB Control
 path: whitepapers/rail_cut_shot_cb_control.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Return of the Squirt Robot
 path: whitepapers/return_of_the_squirt_robot.pdf
-- [no formula-like lines detected]
-
-## Richard And Jen Ace Stochastics
-path: whitepapers/richard_and_jen_ace_stochastics.pdf
-- [no formula-like lines detected]
-
-## Robot Can Read Terrain And Adjust
-path: whitepapers/robot_can_read_terrain_and_adjust.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Robotic Billiards: Understanding Humans in Order to Counter Them
 path: whitepapers/robotic_billiards_understanding_humans_in_order_to_counter_them.pdf
+retrieval: include
+authority: contextual
 - A{r,h} = fn A∗{r,h} . (2)
 - The remainder of this paper is organized as follows. assumed that Ah = A.
 - A0,r = argmax Q St , At,{r,h} , t = 0, 1, . . . , n (1)
@@ -1341,6 +1639,8 @@ path: whitepapers/robotic_billiards_understanding_humans_in_order_to_counter_the
 
 ## Robotic Pool An Experiment In Automatic Potting
 path: whitepapers/robotic_pool_an_experiment_in_automatic_potting.pdf
+retrieval: include
+authority: contextual
 - then solring the pool table plane equation in the robot
 - homography and table plane equation are lhen estimated
 - and let R be the robot frame. A point ‘$=“(z, y: z ) in C
@@ -1365,18 +1665,20 @@ path: whitepapers/robotic_pool_an_experiment_in_automatic_potting.pdf
 
 ## Rolling Carom Angle Systems
 path: whitepapers/rolling_carom_angle_systems.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Rolling Cue Ball Deflection Angle Approximations
 path: whitepapers/rolling_cue_ball_deflection_angle_approximations.pdf
+retrieval: include
+authority: contextual
 - CB deflection angle =
-
-## Rolling Friction Intro
-path: whitepapers/rolling_friction_intro.pdf
-- [no formula-like lines detected]
 
 ## Rolling motion of a ball spinning about a near vertical axis
 path: whitepapers/rolling_motion_of_a_ball_spinning_about_a_near_vertical_axis.pdf
+retrieval: include
+authority: contextual
 - and it acts to increase the rotation speed, ω. When v = Rω, where R is the ball radius,
 - axis inclined at an angle θ to the horizontal, as viewed front–on with the ball approaching
 - therefore rotates at speed rω away from the viewer, relative to the center of mass, while
@@ -1417,78 +1719,92 @@ path: whitepapers/rolling_motion_of_a_ball_spinning_about_a_near_vertical_axis.p
 
 ## Rules Part I Introduction
 path: whitepapers/rules_part_i_introduction.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Rules - Part II: double hits
 path: whitepapers/rules_part_ii_double_hits.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Rules - Part III: rail cut shots
 path: whitepapers/rules_part_iii_rail_cut_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Rules - Part IV: Which ball did you hit first?
 path: whitepapers/rules_part_iv_which_ball_did_you_hit_first.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Rules - Part V: Miscellaneous fouls
 path: whitepapers/rules_part_v_miscellaneous_fouls.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Runout Drill System RDS
 path: whitepapers/runout_drill_system_rds.pdf
-- [no formula-like lines detected]
-
-## Ryan Demonstrated The Basics Of Torsion Mechanics
-path: whitepapers/ryan_demonstrated_the_basics_of_torsion_mechanics.pdf
-- [no formula-like lines detected]
-
-## Ryan Pooh Poohed Those Low Carb Diets
-path: whitepapers/ryan_pooh_poohed_those_low_carb_diets.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Safeties You Must Master
 path: whitepapers/safeties_you_must_master.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## SAWS Part 1 CB Deflection
 path: whitepapers/saws_part_1_cb_deflection.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## SAWS Part 2 Sidespin Terminology
 path: whitepapers/saws_part_2_sidespin_terminology.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## SAWS Part 3 Throw Effects
 path: whitepapers/saws_part_3_throw_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## SAWS Part 4 Throw Examples
 path: whitepapers/saws_part_4_throw_examples.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## SAWS Part 5 BHE FHE Calibration
 path: whitepapers/saws_part_5_bhe_fhe_calibration.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## SAWS Part 6 Shot Examples
 path: whitepapers/saws_part_6_shot_examples.pdf
-- [no formula-like lines detected]
-
-## Security Robot Roams Shrieks At Intruders
-path: whitepapers/security_robot_roams_shrieks_at_intruders.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Sidespin Mythbuster
 path: whitepapers/sidespin_mythbuster.pdf
-- [no formula-like lines detected]
-
-## Simulation Of Multiple Nozzle Surface Finishing Operations
-path: whitepapers/simulation_of_multiple_nozzle_surface_finishing_operations.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Sliding and rolling: the physics of a rolling ball
 path: whitepapers/sliding_and_rolling_the_physics_of_a_rolling_ball.pdf
+retrieval: include
+authority: contextual
 - f= wag (3)
 - XF = Ma, - f=Ma, (1) the two surfaces. From equations ( l ) , (2) and (3) we
 - Z T =/,cy fr =,/ a (2) angular acceleration of the sphere:
@@ -1513,120 +1829,178 @@ path: whitepapers/sliding_and_rolling_the_physics_of_a_rolling_ball.pdf
 
 ## Sliding Bank Spot On The Wall System
 path: whitepapers/sliding_bank_spot_on_the_wall_system.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Small Gap Combos
 path: whitepapers/small_gap_combos.pdf
+retrieval: include
+authority: contextual
 - (gap size = 0), a direct hit on the 12 (incoming angle = 0) would send the 12 straight up table (outgoing angle
 - = 0). At close to a ½-ball hit between the 11 and 12, again with no gap, where the center of the 11 is aimed at
 - as 1/3 the radius of a ball (1/3 * 1/2 * 2 ¼” = 1/3 * 1/2 * 9/4” = 1/3 * 9/8" = 3/8"). Alternatively, you can
 
 ## Soft Vs Hard Tip Myth Buster
 path: whitepapers/soft_vs_hard_tip_myth_buster.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Speed Control
 path: whitepapers/speed_control.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Spin Transfer Throw
 path: whitepapers/spin_transfer_throw.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Squirt Part I Introduction
 path: whitepapers/squirt_part_i_introduction.pdf
+retrieval: include
+authority: contextual
 - sideways force. That's how low-squirt cues work: less end-mass = less sideways force = less
 
 ## Squirt - Part II: experimental results
 path: whitepapers/squirt_part_ii_experimental_results.pdf
+retrieval: include
+authority: contextual
 - CB deflection =
 
 ## Squirt - Part III: follow/draw squirt and swerve
 path: whitepapers/squirt_part_iii_follow_draw_squirt_and_swerve.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Squirt Part Iv BHE FHE And Pivot Length Calibration
 path: whitepapers/squirt_part_iv_bhe_fhe_and_pivot_length_calibration.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Squirt - Part V: low-squirt cues
 path: whitepapers/squirt_part_v_low_squirt_cues.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Squirt - Part VI: tip shape
 path: whitepapers/squirt_part_vi_tip_shape.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Squirt - Part VII: cue test machine results
 path: whitepapers/squirt_part_vii_cue_test_machine_results.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Squirt - Part VIII: squerve effects
 path: whitepapers/squirt_part_viii_squerve_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Squirt, Swerve, and Throw Wrap-up
 path: whitepapers/squirt_swerve_and_throw_wrap_up.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Stalemate Or Smart Way Out
 path: whitepapers/stalemate_or_smart_way_out.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Straight Rail Shots
 path: whitepapers/straight_rail_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Stroke Align Aim Drills
 path: whitepapers/stroke_align_aim_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## MAY_StrokeTuneup.indd
 path: whitepapers/stroke_tuneup_bd_coaching_bonus.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Stroke Video Analysis
 path: whitepapers/stroke_video_analysis.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Swoop Experiment
 path: whitepapers/swoop_experiment.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Table of Contents
 path: whitepapers/table_of_contents.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Technical Proof (TP) - Dr. Dave Pool Info
 path: whitepapers/technical_proof_index.html
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The 30° rule Part I - The Basics
 path: whitepapers/the_30_degree_rule_part_i_the_basics.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The 30° rule: Part II - Examples
 path: whitepapers/the_30_degree_rule_part_ii_examples.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The 30° rule: Part III - Carom vs. Cut
 path: whitepapers/the_30_degree_rule_part_iii_carom_vs_cut.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The 90° rule Part I - the basics
 path: whitepapers/the_90_degree_rule_part_i_the_basics.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The 90° rule Part II - Breakup and Avoidance Shots
 path: whitepapers/the_90_degree_rule_part_ii_breakup_and_avoidance_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The 90° rule Part III - Carom and Billiards Shots
 path: whitepapers/the_90_degree_rule_part_iii_carom_and_billiard_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The Amazing World of Billiards Physics May, 2007
 path: whitepapers/the_amazing_world_of_billiards_physics.pdf
+retrieval: include
+authority: contextual
 -   − c (v sin(φ ) − Rω z )2 + ( Rω x cos(φ ) )2    
 -     aµ + bµ e µ v cos(φ )   
 - θ throw = tan min , 1 7 (v sin(φ ) − Rω z ) v cos(φ )
@@ -1638,6 +2012,8 @@ path: whitepapers/the_amazing_world_of_billiards_physics.pdf
 
 ## The Art of Billiards Play
 path: whitepapers/the_art_of_billiards_play.html
+retrieval: scope_limited
+authority: secondary
 - Sliding movement : Ω horizontal, Wc, tc, W and WE
 - Rolling movement without sliding : W, t translation_stop and Ω horizontal
 - z-spin vector when sliding or rolling : Ω vertical and t rotation_stop
@@ -1679,24 +2055,28 @@ path: whitepapers/the_art_of_billiards_play.html
 - collision (WCa = 0).
 - between the two bodies, body 2 is stationary (W'a = Ω'a = 0), and body
 
-## The Best Least Squares Line Fit
-path: whitepapers/the_best_least_squares_line_fit.pdf
-- [no formula-like lines detected]
-
 ## The Carbon Fiber Shaft Craze
 path: whitepapers/the_carbon_fiber_shaft_craze.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The French Fryin Legion S New Secret Weapon
 path: whitepapers/the_french_fryin_legion_s_new_secret_weapon.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The Lag Shot
 path: whitepapers/the_lag_shot.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## The Physics Of Billiards
 path: whitepapers/the_physics_of_billiards.html
+retrieval: include
+authority: contextual
 - For the two colliding balls, the general vector equation for conservation of linear momentum is:
 - Since the masses mA and mB are assumed equal, this equation simplifies to:
 - For an elastic collision kinetic energy is conserved, and the equation is:
@@ -1728,6 +2108,8 @@ path: whitepapers/the_physics_of_billiards.html
 
 ## Théorie mathématique des effets du jeu de billard / par G. Coriolis
 path: whitepapers/theorie_mathematique_des_effets_du_jeu_de_billard_par_g_coriolis.pdf
+retrieval: include
+authority: contextual
 - zontal, on a rt'r=a(R /)'+ h\
 - trouvé par expérience quef=o,25 sur un tapis or-
 - réunies au point E, placé de manière qu'on ait EB=
@@ -1771,26 +2153,38 @@ path: whitepapers/theorie_mathematique_des_effets_du_jeu_de_billard_par_g_coriol
 
 ## Throw Follow Up Part I Cling
 path: whitepapers/throw_follow_up_part_i_cling.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw Follow Up Part Ii More Results
 path: whitepapers/throw_follow_up_part_ii_more_results.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw Follow Up Part Iii Frozen Throw
 path: whitepapers/throw_follow_up_part_iii_frozen_throw.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw Follow Up Part Iv Follow Cling
 path: whitepapers/throw_follow_up_part_iv_follow_cling.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw Part I Introduction
 path: whitepapers/throw_part_i_introduction.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part II: results
 path: whitepapers/throw_part_ii_results.pdf
+retrieval: include
+authority: contextual
 -   − c (v sin(φ ) − Rω z )2 + ( Rω x cos(φ ) )2    
 -     aµ + bµ e µ  v cos(φ )   
 - θ throw = tan −1 min   , 1 7 (v sin(φ ) − Rω z ) v cos(φ )
@@ -1808,88 +2202,124 @@ path: whitepapers/throw_part_ii_results.pdf
 
 ## Throw - Part III: follow and draw effects
 path: whitepapers/throw_part_iii_follow_and_draw_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part IV: spin-induced throw
 path: whitepapers/throw_part_iv_spin_induced_throw.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part IX: spin transfer follow-up
 path: whitepapers/throw_part_ix_spin_transfer_follow_up.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part V: SIT speed effects
 path: whitepapers/throw_part_v_sit_speed_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part VI: inside/outside English
 path: whitepapers/throw_part_vi_inside_outside_english.pdf
+retrieval: include
+authority: contextual
 - CIT = SIT 3
 
 ## Throw - Part VII: CIT/SIT combo
 path: whitepapers/throw_part_vii_cit_sit_combo.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part VIII: spin transfer
 path: whitepapers/throw_part_viii_spin_transfer.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part X: the big picture
 path: whitepapers/throw_part_x_the_big_picture.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part XI: everything you ever wanted to know about throw
 path: whitepapers/throw_part_xi_everything_you_ever_wanted_to_know_about_throw.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Throw - Part XII: calibration, and hold shots
 path: whitepapers/throw_part_xii_calibration_and_hold_shots.pdf
+retrieval: include
+authority: contextual
 - above, d = 65 inches = 65/12 feet = 5.4 feet. Therefore, the throw amount is about 1 inch per foot
 - (6 inches / 5.4 feet = 1.1 inches/foot). This is a fairly common value under typical ball conditions.
 
 ## Throw Shots You Need To Know
 path: whitepapers/throw_shots_you_need_to_know.pdf
-- [no formula-like lines detected]
-
-## Tinkering Makes Comeback Amid Crisis
-path: whitepapers/tinkering_makes_comeback_amid_crisis.html
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Top 10 Draw Shot Tips
 path: whitepapers/top_10_draw_shot_tips.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Top 10 Reasons For Missing
 path: whitepapers/top_10_reasons_for_missing.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Top 10 Reasons To Use An Open Bridge
 path: whitepapers/top_10_reasons_to_use_an_open_bridge.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Top 10 Series Part 1 Shots You Must Know
 path: whitepapers/top_10_series_part_1_shots_you_must_know.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Top 10 Series Part 2 Things Players Do Wrong
 path: whitepapers/top_10_series_part_2_things_players_do_wrong.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Top 10 Series Part 3 Shots Played Wrong
 path: whitepapers/top_10_series_part_3_shots_played_wrong.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Top 10 Series Part 4 Strategy Errors
 path: whitepapers/top_10_series_part_4_strategy_errors.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## C O V E R F E AT U R E Toward a
 path: whitepapers/toward_a_competitive_pool_playing_robot.pdf
+retrieval: include
+authority: contextual
 - tinuous domain, predicting the times of pending events determine the outcome of a shot: two angles (θ,φ), two
 - balls as a function of time. The resulting equation is a similar to that of advanced human play. When planning
 
 ## TP 2.1 - Minimum cue tip friction required for no-slip horizontal impact
 path: whitepapers/tp_2_1_minimum_cue_tip_friction_required_for_no_slip_horizontal_impact.pdf
+retrieval: include
+authority: contextual
 - F' n = F' cos ( α)
 - F' t = F'  sin( α)
 - On the verge of slip, using Equation 1:
@@ -1902,6 +2332,8 @@ path: whitepapers/tp_2_1_minimum_cue_tip_friction_required_for_no_slip_horizonta
 
 ## TP 3.1 - 90 degree Rule
 path: whitepapers/tp_3_1_90_degree_rule.pdf
+retrieval: include
+authority: contextual
 - v'1t = v 1t = v 1 sin ( ϕ) the t component of ball 1's velocity remains constant
 - v'2t = v 2t = 0 ball 2 has no t component of velocity before or after impact
 - v'1n  v'2n = v 1n = v 1 cos ( ϕ) ( 1)
@@ -1922,6 +2354,8 @@ path: whitepapers/tp_3_1_90_degree_rule.pdf
 
 ## TP 3.2 - Ball speeds and distances after stun-shot impact
 path: whitepapers/tp_3_2_ball_speeds_and_distances_after_stun_shot_impact.pdf
+retrieval: include
+authority: contextual
 - d o ( φ)    v o ( φ)  d c( φ)   v c( φ) 
 - of its speed; and with a full hit (BHF=1), it loses all of its speed:
 - = sin( ϕ) = 1  f ( ϕ)
@@ -1939,6 +2373,8 @@ path: whitepapers/tp_3_2_ball_speeds_and_distances_after_stun_shot_impact.pdf
 
 ## TP 3.3 - 30° rule
 path: whitepapers/tp_3_3_30_degree_rule.pdf
+retrieval: include
+authority: contextual
 - φ( f )  asin( 1  f )
 - sin( φ)  cos( φ) 
 - θ( φ)  atan
@@ -1958,6 +2394,8 @@ path: whitepapers/tp_3_3_30_degree_rule.pdf
 
 ## TP 3.4 - Margin of error based on distance and cut angle
 path: whitepapers/tp_3_4_margin_of_error_based_on_distance_and_cut_angle.pdf
+retrieval: include
+authority: contextual
 - d  sin( Δϕ) = 2  R sin( Δθ  ϕ  Δϕ)  2  R sin( ϕ  Δϕ)
 - Δθ( d ϕ Δϕ)  ϕ  Δϕ  asin  sin( Δϕ)  sin( ϕ  Δϕ) 
 - The following plot shows how the angular error in OB motion (∆θ) varies with distance between the CB
@@ -1984,6 +2422,8 @@ path: whitepapers/tp_3_4_margin_of_error_based_on_distance_and_cut_angle.pdf
 
 ## TP 3.5 - Effective Target Sizes For Slow Shots Into A Side Pocket At Different Angles
 path: whitepapers/tp_3_5_effective_target_sizes_for_slow_shots_into_a_side_pocket_at_different_angles.pdf
+retrieval: include
+authority: contextual
 - θ: angle to the pocket
 - direction of βl
 - R := 1.125 p: mouth width α: wall angle Rhole: hole radius b:shelf depth to hole
@@ -2027,6 +2467,8 @@ path: whitepapers/tp_3_5_effective_target_sizes_for_slow_shots_into_a_side_pocke
 
 ## TP 3.6 - Effective Target Sizes For Slow Shots Into A Corner Pocket At Different Angles
 path: whitepapers/tp_3_6_effective_target_sizes_for_slow_shots_into_a_corner_pocket_at_different_angles.pdf
+retrieval: include
+authority: contextual
 - θwall
 - R := 1.125 p: mouth width α: wall angle Rhole: hole radius b:shelf depth to hole
 - p := 4.5875 α := 7 ⋅ deg Rhole := 2.75 b := 1.125
@@ -2070,6 +2512,8 @@ path: whitepapers/tp_3_6_effective_target_sizes_for_slow_shots_into_a_corner_poc
 
 ## TP 3.7 - Effective Target Sizes For Fast Shots Into A Side Pocket At Different Angles
 path: whitepapers/tp_3_7_effective_target_sizes_for_fast_shots_into_a_side_pocket_at_different_angles.pdf
+retrieval: include
+authority: contextual
 - R := 1.125 p: mouth width α: wall angle Rhole: hole radius b:shelf depth to hole
 - p := 5.0625 α := 14⋅ deg Rhole := 3 b := 0.1875
 - sleft_point ( p , r , θ) := ⋅ cos( θ) − r
@@ -2113,6 +2557,8 @@ path: whitepapers/tp_3_7_effective_target_sizes_for_fast_shots_into_a_side_pocke
 
 ## TP 3.8 - Effective Target Sizes For Fast Shots Into A Corner Pocket At Different Angles
 path: whitepapers/tp_3_8_effective_target_sizes_for_fast_shots_into_a_corner_pocket_at_different_angles.pdf
+retrieval: include
+authority: contextual
 - R := 1.125 p: mouth width α: wall angle Rhole: hole radius b:shelf depth to hole
 - p := 4.58125 α := 7 ⋅ deg Rhole := 2.75 b := 1.125
 - sleft_point ( p , r , θ) := ⋅ cos( θ) − r
@@ -2156,6 +2602,8 @@ path: whitepapers/tp_3_8_effective_target_sizes_for_fast_shots_into_a_corner_poc
 
 ## TP_4-1
 path: whitepapers/tp_4_1_distance_required_for_stun_and_normal_roll_to_develop.pdf
+retrieval: include
+authority: contextual
 - ω: ball angular speed ω < 0: bottom spin ω > 0: topspin ω = 0: stun
 - The direction of the friction force is as shown when the CB has "overspin" (where ω
 - a ＝ −sign ⎜―− ω⎟ ⋅ ―＝ −sign ⎜―− ω⎟ ⋅ μ ⋅ g ＝ −± ⋅ μ ⋅ g
@@ -2199,6 +2647,8 @@ path: whitepapers/tp_4_1_distance_required_for_stun_and_normal_roll_to_develop.p
 
 ## TP 4.2 - Center of percussion of the cue ball
 path: whitepapers/tp_4_2_center_of_percussion_of_the_cue_ball.pdf
+retrieval: include
+authority: contextual
 - v = ωR
 - ball mass: m ball moment of inertia about its center: I := ⋅ m⋅ R
 - F' = mv ( 1)
@@ -2212,6 +2662,8 @@ path: whitepapers/tp_4_2_center_of_percussion_of_the_cue_ball.pdf
 
 ## TP 4.3 - English-induced throw effects
 path: whitepapers/tp_4_3_spin_induced_throw_effects.pdf
+retrieval: include
+authority: contextual
 - F' = m v'n
 - m v't = μ F' = μ m v'n
 - v't = μ v'n
@@ -2221,6 +2673,8 @@ path: whitepapers/tp_4_3_spin_induced_throw_effects.pdf
 
 ## TP 4.4 - Relationship between the amount of throw and cut angle
 path: whitepapers/tp_4_4_relationship_between_the_amount_of_throw_and_cut_angle.pdf
+retrieval: include
+authority: contextual
 - throw angle: θt
 - cut angle: θ
 - v'n = e⋅ v ⋅ cos( θ )
@@ -2233,14 +2687,20 @@ path: whitepapers/tp_4_4_relationship_between_the_amount_of_throw_and_cut_angle.
 
 ## TP 6.1 - Parallel midpoint line banking method geometry
 path: whitepapers/tp_6_1_parallel_midpoint_line_banking_method_geometry.pdf
+retrieval: include
+authority: contextual
 - (x = y) from
 
 ## TP 6.2 - Mirror image kick shot method geometry
 path: whitepapers/tp_6_2_mirror_image_kick_shot_method_geometry.pdf
+retrieval: include
+authority: contextual
 - α = 90° − θ
 
 ## TP 6.3 - Increase in bank rebound angle due to the rail coefficient of restitution
 path: whitepapers/tp_6_3_increase_in_bank_rebound_angle_due_to_the_rail_coefficient_of_restitution.pdf
+retrieval: include
+authority: contextual
 - vn v'n = evn
 - θa θr
 - v't = v t
@@ -2250,10 +2710,14 @@ path: whitepapers/tp_6_3_increase_in_bank_rebound_angle_due_to_the_rail_coeffici
 
 ## TP 7.1 - Two-rail parallel line kick shot geometry
 path: whitepapers/tp_7_1_two_rail_parallel_line_kick_shot_geometry.pdf
+retrieval: include
+authority: contextual
 - θin θin
 
 ## TP 7.2 - Corner-5 three-rail diamond system formulas
 path: whitepapers/tp_7_2_corner_5_three_rail_diamond_system_formulas.pdf
+retrieval: include
+authority: contextual
 - The Corner-5 diamond system is a formula-based method that can be used to aim multiple-
 - The formula for the traditional numbering system is:
 - T=D−F
@@ -2267,6 +2731,8 @@ path: whitepapers/tp_7_2_corner_5_three_rail_diamond_system_formulas.pdf
 
 ## TP 7.3 - Ball-rail interaction and the effects on vertical plane spin
 path: whitepapers/tp_7_3_ball_rail_interaction_and_the_effects_on_vertical_plane_spin.pdf
+retrieval: include
+authority: contextual
 - v' = e v
 - F' = m( v'  v ) = m ( 1  e)  v
 - μ  F' R  F' a = Io  ( ω'  ω)
@@ -2288,6 +2754,8 @@ path: whitepapers/tp_7_3_ball_rail_interaction_and_the_effects_on_vertical_plane
 
 ## TP A.10 - The effect of bridge length on contact point accuracy
 path: whitepapers/tp_a_10_the_effect_of_bridge_length_on_contact_point_accuracy.pdf
+retrieval: include
+authority: contextual
 - ∆φ ∆x
 - ∆φ/2
 -  ∆φ 
@@ -2302,15 +2770,21 @@ path: whitepapers/tp_a_10_the_effect_of_bridge_length_on_contact_point_accuracy.
 
 ## TP A.11 - Analysis of a common fractional-ball aiming system
 path: whitepapers/tp_a_11_analysis_of_a_common_fractional_ball_aiming_system.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## TP A.12 - The relationship between cue ball spin and cue tip offset
 path: whitepapers/tp_a_12_the_relationship_between_cue_ball_spin_and_cue_tip_offset.pdf
+retrieval: include
+authority: contextual
 - The term on the left side of Equation 3 is the spin rate factor (SRF), expressed as a percentage
 - which, from Equation 3, corresponds to an offset factor (b/R) of:
 
 ## TP A.13 - Number of lines of aim required for different types of shots
 path: whitepapers/tp_a_13_number_of_lines_of_aim_required_for_different_types_of_shots.pdf
+retrieval: include
+authority: contextual
 - ∆θ ( p , d p ) := 2 ⋅ atan
 - Nmin( ∆θ ) :=
 - p := 3 ⋅ in
@@ -2335,6 +2809,8 @@ path: whitepapers/tp_a_13_number_of_lines_of_aim_required_for_different_types_of
 
 ## TP A.14 - The effects of cut angle, speed, and spin on object ball throw
 path: whitepapers/tp_a_14_the_effects_of_cut_angle_speed_and_spin_on_object_ball_throw.pdf
+retrieval: include
+authority: contextual
 - From Equation 8 in TP A.5, the normal impulse between the cue ball and object ball, assuming a perfectly
 - From TP A.5 and impulse-momentum principles, the terms in Equation 9 can be expressed as:
 - Substituting Equations 10 through 13 into Equation 9 yields the maximum possible friction impulse component
@@ -2378,6 +2854,8 @@ path: whitepapers/tp_a_14_the_effects_of_cut_angle_speed_and_spin_on_object_ball
 
 ## TP A.15 - Controlling the cue ball direction in a frozen cue ball shot
 path: whitepapers/tp_a_15_controlling_the_cue_ball_direction_in_a_frozen_cue_ball_shot.pdf
+retrieval: include
+authority: contextual
 - v t = v  sin( ϕ) ( 1)
 - vn =  v  cos( ϕ) ( 2)
 - From Equations 1 and 2 and the illustration above, the angle to the target line (α) is given by:
@@ -2393,6 +2871,8 @@ path: whitepapers/tp_a_15_controlling_the_cue_ball_direction_in_a_frozen_cue_bal
 
 ## TP A.16 - Final ball speeds, distances, and directions for natural roll shots
 path: whitepapers/tp_a_16_final_ball_speeds_distances_and_directions_for_natural_roll_shots.pdf
+retrieval: include
+authority: contextual
 - v OB( v ϕ) = v CB( v ϕ)
 - d OB( v φ)  v OB( v φ) 2 
 - d CB( v φ)  v CB( v φ) 2 d max  d CB( v 90 deg)
@@ -2433,6 +2913,8 @@ path: whitepapers/tp_a_16_final_ball_speeds_distances_and_directions_for_natural
 
 ## TP A.17 - The effect of the amount of friction on throw
 path: whitepapers/tp_a_17_the_effect_of_the_amount_of_friction_on_throw.pdf
+retrieval: include
+authority: contextual
 - µ := 0.06 average coefficient of friction between the balls
 - R := ball radius converted to meters R = 0.029
 - v := average cue ball speed converted to meters/sec v = 1.341
@@ -2461,6 +2943,8 @@ path: whitepapers/tp_a_17_the_effect_of_the_amount_of_friction_on_throw.pdf
 
 ## TP A.18 - Distance required for stun and natural roll to develop for different tip offsets
 path: whitepapers/tp_a_18_distance_required_for_stun_and_natural_roll_to_develop_for_different_tip_offsets.pdf
+retrieval: include
+authority: contextual
 - μ  0.2 typical sliding friction between ball and table cloth
 - ω( b v ) 
 - ω 2 R ( ω)
@@ -2503,6 +2987,8 @@ path: whitepapers/tp_a_18_distance_required_for_stun_and_natural_roll_to_develop
 
 ## TP A.19 - Masse shot aiming method, and curved cue ball paths
 path: whitepapers/tp_a_19_masse_shot_aiming_method_and_curved_cue_ball_paths.pdf
+retrieval: include
+authority: contextual
 - Equation number references and background information.
 - Therefore, the initial spin components, using Equation 2, can be written as:
 - We can now find the final cue ball direction from Equation 23 in TP A.4:
@@ -2534,6 +3020,8 @@ path: whitepapers/tp_a_19_masse_shot_aiming_method_and_curved_cue_ball_paths.pdf
 
 ## TP A.1 - Half-ball hit, foot-spot carom shot
 path: whitepapers/tp_a_1_half_ball_hit_foot_spot_carom_shot.pdf
+retrieval: include
+authority: contextual
 - D := 2.25⋅ in ball diameter
 - D⋅ sin( 60⋅ deg) = ⋅ cos( θ ) − ⋅ sin( θ )
 - This equation can be written as:
@@ -2558,6 +3046,8 @@ path: whitepapers/tp_a_1_half_ball_hit_foot_spot_carom_shot.pdf
 
 ## TP A.20 - The effect of spin, speed, and cut angle on draw shots
 path: whitepapers/tp_a_20_the_effect_of_spin_speed_and_cut_angle_on_draw_shots.pdf
+retrieval: include
+authority: contextual
 - D := R := D = 0.057 R = 0.029
 - µ := 0.2
 - g :=
@@ -2601,6 +3091,8 @@ path: whitepapers/tp_a_20_the_effect_of_spin_speed_and_cut_angle_on_draw_shots.p
 
 ## TP A.21 - Comparison of bisector-point and double-angle-bisect draw systems
 path: whitepapers/tp_a_21_comparison_of_bisector_point_and_double_angle_bisect_draw_systems.pdf
+retrieval: include
+authority: contextual
 - line of θ+β
 - angle aiming θ
 - (φ) line P
@@ -2626,6 +3118,8 @@ path: whitepapers/tp_a_21_comparison_of_bisector_point_and_double_angle_bisect_d
 
 ## TP A.22 - Tips Of English
 path: whitepapers/tp_a_22_tips_of_english.pdf
+retrieval: include
+authority: contextual
 - cue stick elevation (θ) cue tip offset (x)
 - t/2 θ R
 - 2.25⋅ in tmin := 11⋅ mm rdime :=
@@ -2669,12 +3163,16 @@ path: whitepapers/tp_a_22_tips_of_english.pdf
 
 ## TP A.23 - Ball-hit fraction vs. cut angle
 path: whitepapers/tp_a_23_ball_hit_fraction_vs_cut_angle.pdf
+retrieval: include
+authority: contextual
 - xd=R
 - d = 2R sin( ϕ)
 - f = = = = 1  sin( ϕ)
 
 ## TP A.24 - The effects of follow and draw on throw
 path: whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.pdf
+retrieval: include
+authority: contextual
 - θthrow
 - The cue ball (CB) strikes the object ball (OB) with velocity v in the y direction with cut angle φ.
 - The OB gets thrown amount θthrow, and spin imparted about the t axis (due to draw or follow)
@@ -2718,6 +3216,8 @@ path: whitepapers/tp_a_24_the_effects_of_follow_and_draw_on_throw_and_ob_swerve.
 
 ## TP A.25 - The relationship between spin-rate-factor and percent-English
 path: whitepapers/tp_a_25_the_relationship_between_spin_rate_factor_and_percent_english.pdf
+retrieval: include
+authority: contextual
 - From TP A.12, defining the "natural roll" rate as ωr = v/R, the spin rate factor (SRF) is defined by:
 - ω 5 x  2.25⋅ in 5 x
 - SRF = =  R := SRF( x ) := ⋅
@@ -2730,6 +3230,8 @@ path: whitepapers/tp_a_25_the_relationship_between_spin_rate_factor_and_percent_
 
 ## TP A.26 - The Amount Of Sidespin Required For Gearing Outside English
 path: whitepapers/tp_a_26_the_amount_of_sidespin_required_for_gearing_outside_english.pdf
+retrieval: include
+authority: contextual
 - v C = v  sin ( ϕ)  ω R = 0 ( 1)
 - SRF = = sin ( ϕ)
 - PE =  SRF 100 % =  sin( ϕ)  100 % ( 3)
@@ -2739,6 +3241,8 @@ path: whitepapers/tp_a_26_the_amount_of_sidespin_required_for_gearing_outside_en
 
 ## TP A.27 - Spin Transfer
 path: whitepapers/tp_a_27_spin_transfer.pdf
+retrieval: include
+authority: contextual
 - From Equation 8 in TP A.5, the normal impulse (transferred linear momentum) between the CB and
 - Fn = mv
 - Ft = Fn tan θ =
@@ -2782,6 +3286,8 @@ path: whitepapers/tp_a_27_spin_transfer.pdf
 
 ## TP A.28 - Throw plots for all types of shots
 path: whitepapers/tp_a_28_throw_plots_for_all_types_of_shots.pdf
+retrieval: include
+authority: contextual
 - vd  .1 sin ( 45 deg ) μd  0.11
 - vd  1 sin ( 45 deg ) μd  0.06
 - vd  10 sin ( 45 deg ) μd  0.01
@@ -2807,6 +3313,8 @@ path: whitepapers/tp_a_28_throw_plots_for_all_types_of_shots.pdf
 
 ## technical proof TP A.29 technical proof Using throw to limit cue ball motion
 path: whitepapers/tp_a_29_using_throw_to_limit_cue_ball_motion.pdf
+retrieval: include
+authority: contextual
 - Therefore, using Equation 2, the change tangential speed of both balls can be expressed as:
 - For the remainder of the analysis, I will assume a perfectly elastic collision (i.e., e=1, which
 - e=1, this can be expressed as:
@@ -2842,6 +3350,8 @@ path: whitepapers/tp_a_29_using_throw_to_limit_cue_ball_motion.pdf
 
 ## TP A.2 - Carom shot vs. cut shot example
 path: whitepapers/tp_a_2_carom_shot_vs_cut_shot_example.pdf
+retrieval: include
+authority: contextual
 -  T  D cos( β)  ( x  D sin( β) ) 2
 - d ( β)   
 - β  45 deg d cut  d ( β) d cut  3.914 ft
@@ -2865,6 +3375,8 @@ path: whitepapers/tp_a_2_carom_shot_vs_cut_shot_example.pdf
 
 ## TP A.30 - The effect of cue tip offset, cue weight, and cue speed
 path: whitepapers/tp_a_30_the_effects_of_cue_tip_offset_cue_weight_and_cue_speed_on_cue_ball_speed_and_spin.pdf
+retrieval: include
+authority: contextual
 - From Equation 1, the final stick speed can be expressed as:
 - Substituting Equations 5 and 6 into Equation 2, and solving for the final ball speed gives:
 - Substituting Equation 7 into Equation 6 gives the ball spin rate:
@@ -2891,6 +3403,8 @@ path: whitepapers/tp_a_30_the_effects_of_cue_tip_offset_cue_weight_and_cue_speed
 
 ## TP A.31 - The physics of squirt
 path: whitepapers/tp_a_31_the_physics_of_squirt.pdf
+retrieval: include
+authority: contextual
 - It is important to note that Equation 4 assumes the tip grips the ball. The tip is assumed to
 - Substituting Equation 7 into Equation 4 and equating this to Equation 2 gives:
 - Solving this equation for the cue ball angular speed gives:
@@ -2920,6 +3434,8 @@ path: whitepapers/tp_a_31_the_physics_of_squirt.pdf
 
 ## TP A.3 - Minimum Cue Elevation Required For A Head Spot To Foot Spot Center Ball Hit Shot
 path: whitepapers/tp_a_3_minimum_cue_elevation_required_for_a_head_spot_to_foot_spot_center_ball_hit_shot.pdf
+retrieval: include
+authority: contextual
 - ball diameter: D := 2.25⋅ in
 - table size: T := 8 ⋅ ft
 - H :=  1 +
@@ -2932,6 +3448,8 @@ path: whitepapers/tp_a_3_minimum_cue_elevation_required_for_a_head_spot_to_foot_
 
 ## TP A.4 - Post-impact cue ball trajectory for any cut angle, speed, and spin
 path: whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed_and_spin.pdf
+retrieval: include
+authority: contextual
 - cue ball θc cue ball
 - cue ball cut angle (φ)
 - The translational equation of motion for the cue ball (after impact) is:
@@ -2975,6 +3493,8 @@ path: whitepapers/tp_a_4_post_impact_cue_ball_trajectory_for_any_cut_angle_speed
 
 ## TP_A-5
 path: whitepapers/tp_a_5_the_effects_of_ball_inelasticity_and_friction_on_the_90_degree_rule.pdf
+retrieval: include
+authority: contextual
 - From Equation 1, we can write:
 - Using this in Equation 3, with Equation 5, gives:
 - Substituting this back into Equation 1 gives:
@@ -2998,6 +3518,8 @@ path: whitepapers/tp_a_5_the_effects_of_ball_inelasticity_and_friction_on_the_90
 
 ## TP A.6 - The effects of ball inelasticity and friction on the 30° rule
 path: whitepapers/tp_a_6_the_effects_of_ball_inelasticity_and_friction_on_the_30_degree_rule.pdf
+retrieval: include
+authority: contextual
 - From Equation 7 in TP A.5, the normal component of the post-impact cue ball velocity is:
 - Using Equation 4 in TP A.5, and eliminating the normal component of this velocity, we can express the relative
 - From Equation 8 in TP A.5, the normal impulse is given by:
@@ -3041,6 +3563,8 @@ path: whitepapers/tp_a_6_the_effects_of_ball_inelasticity_and_friction_on_the_30
 
 ## TP A.7 - The effects of English on the 90° rule
 path: whitepapers/tp_a_7_the_effects_of_sidespin_on_the_90_degree_rule.pdf
+retrieval: include
+authority: contextual
 - assuming a perfect coefficient of restitution (e = 1).
 - zero if v Ct = 0 (when outside English exactly cancels the tangential sliding motion). Therefore,
 - so the final angle between the balls, from Equation 15, is:
@@ -3055,6 +3579,8 @@ path: whitepapers/tp_a_7_the_effects_of_sidespin_on_the_90_degree_rule.pdf
 
 ## TP A.8 - The effects of English on the 30° rule
 path: whitepapers/tp_a_8_the_effects_of_sidespin_on_the_30_degree_rule.pdf
+retrieval: include
+authority: contextual
 - assuming a perfect coefficient of restitution (e = 1). The Equation numbers
 - ω=− i + ωkˆ (1)
 - vB = v + ω × rB / O = vˆj + (− iˆ + ωkˆ) × R (− sin (φ )iˆ + cos(φ ) ˆj ) = − Rω cos(φ )iˆ + (v − Rω sin (φ )) ˆj − v cos(φ )kˆ
@@ -3098,10 +3624,14 @@ path: whitepapers/tp_a_8_the_effects_of_sidespin_on_the_30_degree_rule.pdf
 
 ## TP A.9 - Cue stick accelerometer measurements
 path: whitepapers/tp_a_9_cue_accelerometer_measurements.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## TP B.10 - Draw shot cue elevation effects
 path: whitepapers/tp_b_10_draw_shot_cue_elevation_effects.pdf
+retrieval: include
+authority: contextual
 - R := 1.125 in ball radius
 - b max := generally accepted miscue limit
 - μs := 0.2 typical ball-cloth coefficient of sliding friction
@@ -3145,6 +3675,8 @@ path: whitepapers/tp_b_10_draw_shot_cue_elevation_effects.pdf
 
 ## TP B.11 - Shallow-angle contact-point mirror kick system
 path: whitepapers/tp_b_11_shallow_angle_contact_point_mirror_kick_system.pdf
+retrieval: include
+authority: contextual
 - x θin m φ  
 - tan θin
 - x = d  cos θout  R cos( φ)
@@ -3169,6 +3701,8 @@ path: whitepapers/tp_b_11_shallow_angle_contact_point_mirror_kick_system.pdf
 
 ## TP B.12 - Optimal Tip Height for Speed/Distance Control
 path: whitepapers/tp_b_12_optimal_tip_height_for_speed_distance_control.pdf
+retrieval: include
+authority: contextual
 - vr = rR
 - vb r v==0
 - μs  0.2 typical ball-cloth coefficient of sliding friction
@@ -3210,6 +3744,8 @@ path: whitepapers/tp_b_12_optimal_tip_height_for_speed_distance_control.pdf
 
 ## TP B.13 - Rolling CB Carom Angle Approximations
 path: whitepapers/tp_b_13_rolling_cue_ball_carom_angle_approximations.pdf
+retrieval: include
+authority: contextual
 - φ  0  deg 1  deg  90 deg cut angle range
 - φf ( f )  asin( 1  f ) fφ( φ)  1  sin( φ)
 - sin ( φ)  cos ( φ) 
@@ -3253,6 +3789,8 @@ path: whitepapers/tp_b_13_rolling_cue_ball_carom_angle_approximations.pdf
 
 ## TP B.14 - Draw shot cue ball angle approximations
 path: whitepapers/tp_b_14_draw_shot_cue_ball_angle_approximations.pdf
+retrieval: include
+authority: contextual
 - φ  0  deg 1  deg  90 deg cut angle range
 - φf ( f )  asin( 1  f ) fφ( φ)  1  sin( φ)
 - ω = 0.625 
@@ -3290,6 +3828,8 @@ path: whitepapers/tp_b_14_draw_shot_cue_ball_angle_approximations.pdf
 
 ## TP B.15 - Pocket geometry calculations
 path: whitepapers/tp_b_15_pocket_geometry_calculations.pdf
+retrieval: include
+authority: contextual
 - β = 180 deg  α
 - θ = α  135 deg
 - β = 45 deg  θ
@@ -3314,12 +3854,16 @@ path: whitepapers/tp_b_15_pocket_geometry_calculations.pdf
 
 ## TP_B-16
 path: whitepapers/tp_b_16_cb_ob_distance_for_follow_cling.pdf
+retrieval: include
+authority: contextual
 - α ≔ acos ⎜―⎟ = 66.422
 - d (n) ≔ R ⋅ ((α + 90°) + n ⋅ 360°) n≔0‥2
 - n=⎢1⎥ d (n) = ⎢ 10.1 ⎥ b (n) = ⎢ 4.5 ⎥
 
 ## TP_B-17
 path: whitepapers/tp_b_17_maximum_drag_enhanced_sidespin_tip_contact_point.pdf
+retrieval: include
+authority: contextual
 - ωy ＝ ―――
 - ωx ＝ ―――
 - v' ＝ ―⋅ v - ―⋅ R ⋅ ωx ＝ ―⋅ v - ―⋅ R ⋅ ⎜――― 2 ⎟
@@ -3328,6 +3872,8 @@ path: whitepapers/tp_b_17_maximum_drag_enhanced_sidespin_tip_contact_point.pdf
 
 ## TP_B-18
 path: whitepapers/tp_b_18_pendulum_stroke_cue_tip_trajectory.pdf
+retrieval: include
+authority: contextual
 - d ⋅ cos ((ϕ)) ＝ c - l ⋅ sin ((θ)) ((1))
 - d ⋅ sin ((ϕ)) ＝ l - l ⋅ cos ((θ)) ((2))
 - d ((θ)) ≔ ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
@@ -3354,6 +3900,8 @@ path: whitepapers/tp_b_18_pendulum_stroke_cue_tip_trajectory.pdf
 
 ## TP_B-19
 path: whitepapers/tp_b_19_comparison_of_cue_ball_deflection_squirt_endmass_and_stiffness_effects.pdf
+retrieval: include
+authority: contextual
 - kshaft ≔ ―――― = 2.214 ――
 - Fimp ≔ m ⋅ v = 0.085 ⋅
 - Δt ≔ 1 ⋅ = 0.001
@@ -3370,6 +3918,8 @@ path: whitepapers/tp_b_19_comparison_of_cue_ball_deflection_squirt_endmass_and_s
 
 ## TP B.1 - Squirt angle, pivot length, and tip shape
 path: whitepapers/tp_b_1_squirt_angle_pivot_length_and_tip_size.pdf
+retrieval: include
+authority: contextual
 - (α) ball
 - β R := mb := 6 ⋅ oz
 - rdime :=
@@ -3413,6 +3963,8 @@ path: whitepapers/tp_b_1_squirt_angle_pivot_length_and_tip_size.pdf
 
 ## TP_B-20
 path: whitepapers/tp_b_20_peak_forces_and_tip_contact_distance_during_a_break_shot.pdf
+retrieval: include
+authority: contextual
 - vb_avg ≔ ―= 15
 - Δx ≔ vb_avg ⋅ Δttip = 0.211 Δx = 5.364
 - Fpeak ≔ ―――= 1282
@@ -3422,6 +3974,8 @@ path: whitepapers/tp_b_20_peak_forces_and_tip_contact_distance_during_a_break_sh
 
 ## TP B.21 - Small Gap Combination Throw Effects
 path: whitepapers/tp_b_21_small_gap_combination_throw_effects.pdf
+retrieval: include
+authority: contextual
 - cut angle , and impact line-of-centers angle γ. Cut-induced throw (CIT)  results in the second OB
 - sin( α) sin( 180  deg  α  γ) sin( α  γ) sin( ϕ)
 - = = =
@@ -3465,6 +4019,8 @@ path: whitepapers/tp_b_21_small_gap_combination_throw_effects.pdf
 
 ## TP B.22 - How peak tip contact force and contact patch size
 path: whitepapers/tp_b_22_how_peak_tip_contact_force_and_contact_patch_size_vary_with_shot_speed_and_drop_tests.pdf
+retrieval: include
+authority: contextual
 - We can approximate the Hertz equation constant c for both phenolic and leather tips using the data above:
 - cphenolic ≔ c ⎛⎝vfast , Δtphenolic , cpsphenolic⎞⎠ = 0.242 ――
 - cleather ≔ c ⎝vfast , Δtleather , cpsleather⎠ = 0.37 ――
@@ -3480,6 +4036,8 @@ path: whitepapers/tp_b_22_how_peak_tip_contact_force_and_contact_patch_size_vary
 
 ## TP B.23 - Cue Pivot Point Required for Known CB Carom Angle
 path: whitepapers/tp_b_23_cue_pivot_point_required_for_known_cb_carom_angle.pdf
+retrieval: include
+authority: contextual
 - The CB deflection angle (θc) is related to the pivot point (x) and cue length (c) with:
 - tan θc =
 - x θc 
@@ -3495,6 +4053,8 @@ path: whitepapers/tp_b_23_cue_pivot_point_required_for_known_cb_carom_angle.pdf
 
 ## TP B.24 - Estimating Rolling CB Carom Angle with 1/4 Cue Point
 path: whitepapers/tp_b_24_estimating_rolling_cb_carom_angle_with_1_4_cue_point.pdf
+retrieval: include
+authority: contextual
 - tan( ϕ) = tan( α) = θc = 90 deg  ϕ  α
 - θca ( ϕ f )  90 deg  ϕ  atan
 - e  0.94 μballs  0.06 v  2 2.25
@@ -3518,6 +4078,8 @@ path: whitepapers/tp_b_24_estimating_rolling_cb_carom_angle_with_1_4_cue_point.p
 
 ## TP B.25 - Percentage Outside Spin Required for Maximum SIT at Any Cut Angle
 path: whitepapers/tp_b_25_percentage_outside_spin_required_for_maximum_sit_at_any_cut_angle.pdf
+retrieval: include
+authority: contextual
 - 1.125 in  b  :=
 - R :=  0.108  - c v
 - m   μ ( v) := a + b  e
@@ -3555,6 +4117,8 @@ path: whitepapers/tp_b_25_percentage_outside_spin_required_for_maximum_sit_at_an
 
 ## TP B.26 - BHE/FHE Pivot Percentage Relation to Cue Natural Pivot Length
 path: whitepapers/tp_b_26_bhe_fhe_pivot_percentage_relation_to_cue_natural_pivot_length.pdf
+retrieval: include
+authority: contextual
 - If the bridge is at the natural pivot length (N) of the shaft, with a total tip offset of x and cue pivot of θ, for
 - small angles (where tan θ = sin θ = θ),
 - The BHE pivot with tip offset xB and cue pivot angle θB is defined by:
@@ -3568,6 +4132,8 @@ path: whitepapers/tp_b_26_bhe_fhe_pivot_percentage_relation_to_cue_natural_pivot
 
 ## TP B.27 - Sliding Bank System Comparison
 path: whitepapers/tp_b_27_sliding_bank_system_comparison.pdf
+retrieval: include
+authority: contextual
 - aim := ( .5 1 1.5 2 2.5 3 )
 - cue := ( 1.38 2.72 3.89 5.07 6.38 7.74 )
 - one_more( x) := 2 x + 1
@@ -3584,6 +4150,8 @@ path: whitepapers/tp_b_27_sliding_bank_system_comparison.pdf
 
 ## TP B.28 - Sliding Bank Shot Table Comparisons From Careful Measurements
 path: whitepapers/tp_b_28_sliding_bank_shot_table_comparisons_from_careful_measurements.pdf
+retrieval: include
+authority: contextual
 - 9' Olhaussen (Dr. Dave's video table) Bank Reference Lines: aim := ( .5 1 1.5 2 2.5 3 ) meas := ( 1.38 2.72 3.89 5.07 6.38 7.74 )
 - 9' "Red Label" Diamond: measRD := ( 1.40 2.93 4.52 5.60 6.92 8.30 )
 - 7' Valley Bar Box: measV := ( 1.51 2.74 4.12 5.19 6.52 7.54 )
@@ -3596,6 +4164,8 @@ path: whitepapers/tp_b_28_sliding_bank_shot_table_comparisons_from_careful_measu
 
 ## TP B.29 - Simulation of a CB striking two frozen OBs along their line of centers
 path: whitepapers/tp_b_29_simulation_of_a_cb_striking_two_frozen_obs_along_their_line_of_centers.pdf
+retrieval: include
+authority: contextual
 - a=  ( c F)
 - F=  
 - The constant "c" can be found from this equation if the force and compression are known:
@@ -3625,6 +4195,8 @@ path: whitepapers/tp_b_29_simulation_of_a_cb_striking_two_frozen_obs_along_their
 
 ## TP B.2 - Rolling resistance, spin resistance, and "ball turn
 path: whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf
+retrieval: include
+authority: contextual
 - The translational equation of motion is:
 - ΣFx = m ax
 - μr m g = m ( a)
@@ -3668,6 +4240,8 @@ path: whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf
 
 ## TP B.30 - Outside vs. Inside Spin Margins for Error
 path: whitepapers/tp_b_30_outside_vs_inside_spin_margins_for_error.pdf
+retrieval: include
+authority: contextual
 - R := d short := d long := Δφ := 2  deg
 - sin( 180  deg  φ) sin( φ  θ)
 - Solving for the shot angle for a given shot distance d and cut angle φ gives:
@@ -3711,6 +4285,8 @@ path: whitepapers/tp_b_30_outside_vs_inside_spin_margins_for_error.pdf
 
 ## TP B.31 - Percentage Sidespin Required for Maximum CIT at Any Cut Angle
 path: whitepapers/tp_b_31_percentage_inside_spin_required_for_maximum_cit_at_any_cut_angle.pdf
+retrieval: include
+authority: contextual
 - 1.125 in  b  :=
 - R :=  0.108  - c v
 - m   μ ( v) := a + b  e
@@ -3748,6 +4324,8 @@ path: whitepapers/tp_b_31_percentage_inside_spin_required_for_maximum_cit_at_any
 
 ## TP B.3 - Throw Calibration and Contour Plots for Various
 path: whitepapers/tp_b_3_throw_calibration_and_contour_plots_for_various_cut_angles_speeds_english_and_roll.pdf
+retrieval: include
+authority: contextual
 - v rel v ωx ωz ϕ  v sin(ϕ)  R ωz2  R ωx cos( ϕ) 2
 -   c vrel  v ω x ω z ϕ  
 -    v  sin( ϕ)  R ωz
@@ -3791,6 +4369,8 @@ path: whitepapers/tp_b_3_throw_calibration_and_contour_plots_for_various_cut_ang
 
 ## TP B.4 - Stroke speed and acceleration vs. distance
 path: whitepapers/tp_b_4_stroke_speed_and_acceleration_vs_distance.pdf
+retrieval: include
+authority: contextual
 - a= =  = v cue acceleration
 - F = mc a = mc v  force on cue
 - ap = v p ( x )  v f  ap ( x ) 
@@ -3833,6 +4413,8 @@ path: whitepapers/tp_b_4_stroke_speed_and_acceleration_vs_distance.pdf
 
 ## TP B.5 - Rolling CB, direct-hit hop and ball travel distances
 path: whitepapers/tp_b_5_rolling_cb_direct_hit_hop_and_ball_travel_distances.pdf
+retrieval: include
+authority: contextual
 - F' n =  m v
 - F' t = μb  F' n
 - μb  1  eb  v 
@@ -3856,6 +4438,8 @@ path: whitepapers/tp_b_5_rolling_cb_direct_hit_hop_and_ball_travel_distances.pdf
 
 ## TP B.6 - CB table lengths of travel for different speeds
 path: whitepapers/tp_b_6_cue_ball_table_lengths_of_travel_for_different_speeds_accounting_for_rail_rebound_and_drag_losses.pdf
+retrieval: include
+authority: contextual
 - vtouch := 1.5 mph vslow := 3  mph vmedium_soft := 5  mph vmedium := 7  mph
 - vmedium_fast := 8  mph vfast := 12 mph vpower := 20 mph
 - μs := 0.2 typical ball-cloth coefficient of sliding friction
@@ -3895,6 +4479,8 @@ path: whitepapers/tp_b_6_cue_ball_table_lengths_of_travel_for_different_speeds_a
 
 ## TP B.7 - Effect of squirt on the amount of spin
 path: whitepapers/tp_b_7_effect_of_squirt_on_the_amount_of_spin.pdf
+retrieval: include
+authority: contextual
 - From the diagram above, the effective offset, for a cue with a squirt angle "α" and actual
 - b eff = R sin( β  α) = R sin asin
 -   α
@@ -3907,6 +4493,8 @@ path: whitepapers/tp_b_7_effect_of_squirt_on_the_amount_of_spin.pdf
 
 ## TP B.8 - Draw shot physics
 path: whitepapers/tp_b_8_draw_shot_physics.pdf
+retrieval: include
+authority: contextual
 - ’’’=v’’’/R ’’ vOB
 - In the analysis below, I will begin by assuming the balls and tip are perfect (e b =1.0, μb =0,
 - ηtip =100%), but I will account for these effects later. With perfect balls, v''=0, ω''=-ω', and
@@ -3950,6 +4538,8 @@ path: whitepapers/tp_b_8_draw_shot_physics.pdf
 
 ## TP B.9 - Draw shot spin vs. spin ratio
 path: whitepapers/tp_b_9_draw_shot_spin_vs_spin_ratio.pdf
+retrieval: include
+authority: contextual
 - amount of CB spin at contact with the OB (-ω'). This is the topic of TP B.8. Here we want to
 - also look at the spin-to-speed ratio (-ω'R/v'). For some cases, it is more important to maximum
 - μs  0.2 typical ball-cloth coefficient of sliding friction
@@ -3993,6 +4583,8 @@ path: whitepapers/tp_b_9_draw_shot_spin_vs_spin_ratio.pdf
 
 ## Trajectory of a Billiard Ball and Recovery of Its Initial Velocities
 path: whitepapers/trajectory_of_a_billiard_ball_and_recovery_of_its_initial_velocities.pdf
+retrieval: include
+authority: contextual
 - angular velocity ω 0 . Assume no bouncing of the ball. It will first slide from its initial location x0
 - ω angular inertia Q is 52 mR2 times the identity matrix.
 - trajectory u Let v and ω be the velocity and angular velocity
@@ -4036,190 +4628,278 @@ path: whitepapers/trajectory_of_a_billiard_ball_and_recovery_of_its_initial_velo
 
 ## Twice Plus Tenths
 path: whitepapers/twice_plus_tenths.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Using Your Cue To Aim
 path: whitepapers/using_your_cue_to_aim.pdf
-- [no formula-like lines detected]
-
-## Variable Focus Three Dimensional Laser Digitizing System
-path: whitepapers/variable_focus_three_dimensional_laser_digitizing_system.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part I Pocket Blockers
 path: whitepapers/veeb_part_i_pocket_blockers.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part Ii Selecting Key Balls
 path: whitepapers/veeb_part_ii_selecting_key_balls.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part Iii Drag Enhanced Sidespin
 path: whitepapers/veeb_part_iii_drag_enhanced_sidespin.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part Iv Throw Hold Shots
 path: whitepapers/veeb_part_iv_throw_hold_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part Ix Run Out Examples
 path: whitepapers/veeb_part_ix_run_out_examples.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part V Coming Into The Line Of Blockers
 path: whitepapers/veeb_part_v_coming_into_the_line_of_blockers.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part Vi Straight In Shot Options
 path: whitepapers/veeb_part_vi_straight_in_shot_options.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part Vii End Game Situations
 path: whitepapers/veeb_part_vii_end_game_situations.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEEB Part Viii The Break
 path: whitepapers/veeb_part_viii_the_break.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part I Corey S 9 Ball Soft Break
 path: whitepapers/vent_part_i_corey_s_9_ball_soft_break.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part Ii How To Train Your Table
 path: whitepapers/vent_part_ii_how_to_train_your_table.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part Iii Creative Shot Options
 path: whitepapers/vent_part_iii_creative_shot_options.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part Iv Defensive Strategy
 path: whitepapers/vent_part_iv_defensive_strategy.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part Ix Rail Cut Shot Effects
 path: whitepapers/vent_part_ix_rail_cut_shot_effects.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part V Two Rail Position Plays
 path: whitepapers/vent_part_v_two_rail_position_plays.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part Vi End Game Patterns
 path: whitepapers/vent_part_vi_end_game_patterns.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part Vii Safety Play
 path: whitepapers/vent_part_vii_safety_play.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part Viii Ball In Hand Options
 path: whitepapers/vent_part_viii_ball_in_hand_options.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VENT Part X Herd And Compress
 path: whitepapers/vent_part_x_herd_and_compress.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part I Introduction And Fundamentals
 path: whitepapers/vepp_part_i_introduction_and_fundamentals.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Ii Progressive Practice And Draw Drills
 path: whitepapers/vepp_part_ii_progressive_practice_and_draw_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Iii Wagon Wheel Drills
 path: whitepapers/vepp_part_iii_wagon_wheel_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Iv Target Practice Card Trick
 path: whitepapers/vepp_part_iv_target_practice_card_trick.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Ix Safety Drills
 path: whitepapers/vepp_part_ix_safety_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part V Hanger Table Center Drills
 path: whitepapers/vepp_part_v_hanger_table_center_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Vi Line Of Balls Drill
 path: whitepapers/vepp_part_vi_line_of_balls_drill.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Vii 9 Ball Pattern Drills
 path: whitepapers/vepp_part_vii_9_ball_pattern_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Viii 8 Ball Pattern Drills
 path: whitepapers/vepp_part_viii_8_ball_pattern_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part X Shallow One Rail Kicks
 path: whitepapers/vepp_part_x_shallow_one_rail_kicks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Xi Bank Shots
 path: whitepapers/vepp_part_xi_bank_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Xii Jump Shots
 path: whitepapers/vepp_part_xii_jump_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Xiii Safety And Carom Challenge Drills
 path: whitepapers/vepp_part_xiii_safety_and_carom_challenge_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPP Part Xiv Custom Drills
 path: whitepapers/vepp_part_xiv_custom_drills.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS Gems Part I Introduction
 path: whitepapers/veps_gems_part_i_introduction.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS Gems Part Ii Basic Shot Making And Position
 path: whitepapers/veps_gems_part_ii_basic_shot_making_and_position.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part III: English and Position Control
 path: whitepapers/veps_gems_part_iii_english_and_position_control.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part IV: Safety Play and Strategy
 path: whitepapers/veps_gems_part_iv_safety_play_and_strategy.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part IX: Plus System Adjustments
 path: whitepapers/veps_gems_part_ix_plus_system_adjustments.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part V: Banks and Kicks
 path: whitepapers/veps_gems_part_v_banks_and_kicks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part VI: One-Rail Kicks
 path: whitepapers/veps_gems_part_vi_one_rail_kicks.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part VII: Contact-Point Mirror Kick
 path: whitepapers/veps_gems_part_vii_contact_point_mirror_kick.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part VIII: Plus System Intro
 path: whitepapers/veps_gems_part_viii_plus_system_intro.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part X: Plus System Examples
 path: whitepapers/veps_gems_part_x_plus_system_examples.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part XI: Corner-5 System Intro
 path: whitepapers/veps_gems_part_xi_corner_5_system_intro.pdf
+retrieval: include
+authority: contextual
 - used with the system, along with the formula that relates them. The first set of numbers, shown
 - The Corner-5 System is based on the formula: T = D – F. That is, the diamond the CB will
 - the origination direction number (D). In the example, with D=5 and F=3, the system correctly
@@ -4236,6 +4916,8 @@ path: whitepapers/veps_gems_part_xi_corner_5_system_intro.pdf
 
 ## VEPS GEMS - Part XII: Corner-5 System Example and Benchmark
 path: whitepapers/veps_gems_part_xii_corner_5_system_example_and_benchmark.pdf
+retrieval: include
+authority: contextual
 - the first-rail number (F) using the following simple formula: T = D – F. Last month, we saw
 - number target (T). For this shot, T = 3.2. Now we need to find a track through the CB that takes
 - direction-number (D) minus the 1st-rail number (F) yields the desired 3 -rail target (D – F = T =
@@ -4258,6 +4940,8 @@ path: whitepapers/veps_gems_part_xii_corner_5_system_example_and_benchmark.pdf
 
 ## VEPS GEMS - Part XIII: Corner-5 System Adjustments
 path: whitepapers/veps_gems_part_xiii_corner_5_system_adjustments.pdf
+retrieval: include
+authority: contextual
 - number (D) and the first-rail number (F) using the following simple formula: T = D – F. If you
 - the 3 rail, just as the Corner-5 system predicts (3 = 5 – 2). This is because the speed-related
 - 3=5-2
@@ -4270,29 +4954,37 @@ path: whitepapers/veps_gems_part_xiii_corner_5_system_adjustments.pdf
 
 ## VEPS GEMS - Part XIV: 'Spot-on-the-Wall' System
 path: whitepapers/veps_gems_part_xiv_spot_on_the_wall_system.pdf
+retrieval: include
+authority: contextual
 - the Plus System, and the Corner-5 System. This month, we’ll look at a visual, non-formula-based
 
 ## VEPS GEMS - Part XV: The Jump Shot
 path: whitepapers/veps_gems_part_xv_the_jump_shot.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part XVI: The Massé Shot
 path: whitepapers/veps_gems_part_xvi_the_masse_shot.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## VEPS GEMS - Part XVII: Trick and Proposition Shots
 path: whitepapers/veps_gems_part_xvii_trick_and_proposition_shots.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Walker
 path: whitepapers/walker.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 
 ## Waxgate Effects
 path: whitepapers/waxgate_effects.pdf
-- [no formula-like lines detected]
-
-## tptnov06_final.indd
-path: whitepapers/websights_physics_of_sports.pdf
+retrieval: include
+authority: contextual
 - [no formula-like lines detected]
 

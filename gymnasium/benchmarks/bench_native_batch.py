@@ -122,8 +122,8 @@ def measure_case(
         started = time.perf_counter_ns()
         for _ in range(iterations):
             output = simulate_shots_batch(*inputs)
-            checksum ^= int(np.asarray(output["event_count"], dtype=np.int64).sum())
         elapsed_ns = time.perf_counter_ns() - started
+        checksum ^= int(np.asarray(output["event_count"], dtype=np.int64).sum())
         nanoseconds_per_call.append(elapsed_ns / iterations)
 
     median_ns = statistics.median(nanoseconds_per_call)

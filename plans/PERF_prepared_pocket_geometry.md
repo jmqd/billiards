@@ -31,7 +31,7 @@ All symbols below are currently in `src/lib.rs`.
 
 ### Hypothesis to test
 
-Preparing the six immutable pocket records once at predictor entry will remove synchronization, hashing, and decimal conversion from the gap/refinement/scan loops. The source-level work removal is certain. A steady-state latency improvement of at least 10% for a slow-corner miss is the acceptance hypothesis, not a claim established by the existing profile.
+Preparing the six immutable pocket records once at predictor entry will remove synchronization, hashing, and pocket/table-geometry decimal conversion from the gap/refinement/scan loops. The source-level work removal is certain. Pre-existing motion/configuration conversions reached through `raw_advance_within_phase_on_table` are outside this plan. A steady-state latency improvement of at least 10% for a slow-corner miss is the acceptance hypothesis, not a claim established by the existing profile.
 
 ## Scope
 
@@ -246,12 +246,12 @@ A faster holistic benchmark cannot rescue a failed isolated gate, and an isolate
 
 ### Work-removal corroboration
 
-Profile an equal fixed number of warmed target-miss invocations before and after with Instruments Time Profiler plus Points of Contention/Locks; use Allocations if `BigDecimal` frames are allocation-visible. Setup and the first warm-up call are excluded.
+Profile an equal fixed number of warmed target-miss invocations before and after with Instruments Time Profiler plus Points of Contention/Locks; use Allocations if pocket/table-geometry `BigDecimal` frames are allocation-visible. Setup and the first warm-up call are excluded.
 
 After the change require:
 
 - no `Mutex<HashMap>` lock/hash lookup beneath the prepared gap, scan, or refinement stack;
-- no `TableSpec::diamond_to_inches`, `BigDecimal` multiplication/conversion, `pocket_center_in_inches`, `pocket_jaw_reference_point_in_inches`, or geometry-constructor frame beneath the prepared gap stack;
+- no `TableSpec::diamond_to_inches`, pocket/table-geometry `BigDecimal` multiplication/conversion, `pocket_center_in_inches`, `pocket_jaw_reference_point_in_inches`, or geometry-constructor frame beneath the prepared gap stack; pre-existing motion/configuration conversions beneath `raw_advance_within_phase_on_table` are explicitly outside this gate;
 - at most one global slow-corner transition lookup per distinct exact six-field key during a predictor invocation, including custom tables with more than four corner-typed pockets, confirmed by an instrumented debug run or debugger breakpoint count; and
 - no new heap allocation for the six-record prepared query or its six-entry key scratch.
 
@@ -289,7 +289,7 @@ For public predictions, require exact `Option<PredictedBallPocketCapture>` signa
 
 ## Stop, rejection, and rollback
 
-Reject or revise the implementation if exact-output tests drift, any cache key/table/radius lifetime invariant is violated, six-entry custom corner coverage fails, the prepared gap still reaches the mutex or decimal conversion path, the 10% primary latency threshold is missed, or an adjacent-path upper confidence bound exceeds +2%.
+Reject or revise the implementation if exact-output tests drift, any cache key/table/radius lifetime invariant is violated, six-entry custom corner coverage fails, the prepared gap still reaches the mutex or any pocket/table-geometry decimal conversion path, the 10% primary latency threshold is missed, or an adjacent-path upper confidence bound exceeds +2%.
 
 Rollback is a single independent production change: restore table-shaped capture helpers and remove the private preparation records. Keep the committed `pocket_predictors` benchmarks; they predate the implementation and remain useful hotspot fixtures. Remove only a future slow-corner extension if it is misleading or cannot be made deterministic.
 

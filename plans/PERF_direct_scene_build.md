@@ -156,12 +156,12 @@ Fixture definitions:
 - `overlays_only_1000_points`: no balls and one deterministic 1,000-point smooth polyline plus event/text strings. This isolates redundant nested overlay cloning.
 - `empty`: empty state guard; it should not allocate ball/element vectors and must not regress materially.
 
-Before saving this plan's baseline, correct the known `render_stages/backend/png_transparent_rich_trace` fixture on unchanged production code: build a separate scene with `transparent_options`, use it for both the control and timed render, and save a new baseline. The recorded 13.36 ms result is table-backed because `PngBackend::render` reads `scene.background`; it must not be reported as transparent evidence.
+The committed `render_stages/backend/png_transparent_rich_trace` fixture now builds a separate scene with `transparent_options` and uses it for both the control and timed render. Its corrected `--quick` result is 14.34-14.48 ms. Treat the old table-backed 13.36 ms number as invalid for this workload, and save a formal immediate-parent baseline before evaluating this candidate.
 
 Retain these adjacent cases:
 
 - `render_stages/backend/svg_rich_trace`, using a prebuilt scene; its quick baseline is approximately 482 us and it proves scene work has not leaked into backend timing.
-- Corrected `render_stages/backend/png_transparent_rich_trace`, using a genuinely transparent prebuilt scene; treat the old 13.36 ms number as invalid for this workload.
+- `render_stages/backend/png_transparent_rich_trace`, using a genuinely transparent prebuilt scene; its corrected quick result is 14.34-14.48 ms.
 - `throughput_rendering/trace_final_layout_svg`, retained as the end-to-end guard.
 
 There is no cache or one-time initialization in this candidate, so a fresh-process cold harness would not measure a distinct contract. Use the ordinary paired-process Criterion protocol below; keep all source/fixture construction outside the timed closures.
@@ -180,7 +180,7 @@ The destination ball/element vectors and one owned copy of every nested scene pa
 
 ## Statistical acceptance
 
-Use the same Rust toolchain, release profile, host, power mode and Criterion configuration for baseline and candidate. Correct/rebaseline the transparent PNG fixture first, then save a baseline from the immediate parent; the quick 150.75 us scene snapshot is orientation, not a saved paired baseline. Run at least three independent paired process runs, alternating baseline/candidate order. Record Criterion median, full 95% bootstrap confidence interval and significance result for each filter, plus the allocation metrics.
+Use the same Rust toolchain, release profile, host, power mode and Criterion configuration for baseline and candidate. Retain the corrected transparent PNG fixture and save a baseline from the immediate parent; its 14.34-14.48 ms quick result and the 150.75 us scene snapshot are orientation, not saved paired baselines. Run at least three independent paired process runs, alternating baseline/candidate order. Record Criterion median, full 95% bootstrap confidence interval and significance result for each filter, plus the allocation metrics.
 
 Accept only when all conditions hold:
 

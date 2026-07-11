@@ -361,6 +361,7 @@ fn bench_rendering_throughput(c: &mut Criterion) {
         scale_factor: 1,
         background: DiagramBackground::Transparent,
     };
+    let transparent_scene = rendered.to_diagram_scene(&transparent_options);
     let long_polyline_points = (0..1_000)
         .map(|index| {
             let t = index as f64 / 999.0;
@@ -377,7 +378,14 @@ fn bench_rendering_throughput(c: &mut Criterion) {
     let long_polyline_scene = long_polyline_state.to_diagram_scene(&transparent_options);
     let svg_control = render_scene_to_bytes(&scene, DiagramOutputFormat::Svg, &render_options);
     let png_control = render_scene_to_bytes(&scene, DiagramOutputFormat::Png, &render_options);
-    assert!(!svg_control.is_empty() && !png_control.is_empty());
+    let transparent_png_control = render_scene_to_bytes(
+        &transparent_scene,
+        DiagramOutputFormat::Png,
+        &transparent_options,
+    );
+    assert!(
+        !svg_control.is_empty() && !png_control.is_empty() && !transparent_png_control.is_empty()
+    );
     let long_polyline_svg_control = render_scene_to_bytes(
         &long_polyline_scene,
         DiagramOutputFormat::Svg,
@@ -423,7 +431,7 @@ fn bench_rendering_throughput(c: &mut Criterion) {
     stage_group.bench_function("backend/png_transparent_rich_trace", |b| {
         b.iter(|| {
             black_box(render_scene_to_bytes(
-                black_box(&scene),
+                black_box(&transparent_scene),
                 black_box(DiagramOutputFormat::Png),
                 black_box(&transparent_options),
             ));

@@ -2,8 +2,9 @@ use std::fs;
 
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTraceEventKind};
 use billiards::{
-    human_tuned_preview_motion_config, Ball, BallBallCollisionConfig, BallSetPhysicsSpec, BallType,
-    CollisionModel, NBallSystemState, RailCollisionProfile, RailModel, TableSpec,
+    classify_motion_phase, human_tuned_preview_motion_config, Ball, BallBallCollisionConfig,
+    BallSetPhysicsSpec, BallType, CollisionModel, MotionPhase, NBallSystemState,
+    RailCollisionProfile, RailModel, TableSpec,
 };
 
 fn position_xy(state: &NBallSystemState) -> (f64, f64) {
@@ -96,7 +97,7 @@ fn displaced_object_balls(
 }
 
 #[test]
-fn nine_ball_break_nonideal_preview_traces_resolve_frozen_racks_and_spread() {
+fn nine_ball_break_nonideal_traces_reach_rest_and_spread_frozen_racks() {
     for scenario_path in [
         "examples/scenarios/golden_break_cut_break.billiards",
         "examples/scenarios/nine_ball_break_head_rail.billiards",
@@ -105,9 +106,10 @@ fn nine_ball_break_nonideal_preview_traces_resolve_frozen_racks_and_spread() {
         let source = fs::read_to_string(scenario_path).expect("scenario should read");
         let mut scenario = parse_dsl_to_scenario(&source).expect("scenario should parse");
         scenario.game_state.resolve_positions();
-        let trace_max_events = scenario
-            .trace_max_events
-            .expect("break scenario should declare a preview trace length");
+        assert!(
+            scenario.trace_max_events.is_none(),
+            "{scenario_path}: a complete break trace must not declare an event cap"
+        );
         let ball_set = BallSetPhysicsSpec::default();
         let motion = human_tuned_preview_motion_config();
         let initial_states = scenario
@@ -116,14 +118,13 @@ fn nine_ball_break_nonideal_preview_traces_resolve_frozen_racks_and_spread() {
             .expect("scenario should contain a shot");
 
         let trace = scenario
-            .simulate_shot_trace_with_physics_on_table_until_event_limit(
+            .simulate_shot_trace_with_physics_on_table_until_rest(
                 &ball_set,
                 &motion,
                 CollisionModel::ThrowAware,
                 &BallBallCollisionConfig::human_tuned(),
                 RailModel::SpinAware,
                 &RailCollisionProfile::default(),
-                trace_max_events,
             )
             .expect("scenario should simulate")
             .expect("scenario should contain a shot");
@@ -140,7 +141,7 @@ fn nine_ball_break_nonideal_preview_traces_resolve_frozen_racks_and_spread() {
             .count();
         assert!(
             rail_impacts >= 3,
-            "{scenario_path}: expected nonideal break preview to include at least three rail impacts, got {rail_impacts}"
+            "{scenario_path}: expected complete nonideal break trace to include at least three rail impacts, got {rail_impacts}"
         );
 
         let moved_object_balls = displaced_object_balls(
@@ -150,7 +151,18 @@ fn nine_ball_break_nonideal_preview_traces_resolve_frozen_racks_and_spread() {
         );
         assert!(
             moved_object_balls >= 6,
-            "{scenario_path}: expected broad rack spread in nonideal preview trace, got {moved_object_balls} moved object balls"
+            "{scenario_path}: expected broad rack spread in complete nonideal trace, got {moved_object_balls} moved object balls"
+        );
+        assert!(
+            trace.simulation.states.iter().all(|state| match state {
+                NBallSystemState::OnTable(state) => matches!(
+                    classify_motion_phase(state.as_ball_state(), &ball_set, &motion.phase),
+                    MotionPhase::Rest
+                ),
+                NBallSystemState::Pocketed { .. } => true,
+                NBallSystemState::Airborne(_) => false,
+            }),
+            "{scenario_path}: uncapped break trace must finish with every live ball at rest"
         );
     }
 }

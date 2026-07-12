@@ -305,6 +305,33 @@ fn cue_rail_sequence(trace: &ScenarioShotTrace) -> Vec<Rail> {
         .collect()
 }
 
+#[derive(Debug, PartialEq)]
+enum CueCaromStep {
+    Object(BallType),
+    Rail(Rail),
+}
+
+fn cue_carom_sequence(trace: &ScenarioShotTrace) -> Vec<CueCaromStep> {
+    trace
+        .event_log
+        .iter()
+        .filter_map(|event| match &event.kind {
+            ScenarioShotTraceEventKind::BallBallCollision {
+                first_ball,
+                second_ball,
+            } if first_ball == &BallType::Cue => Some(CueCaromStep::Object(second_ball.clone())),
+            ScenarioShotTraceEventKind::BallBallCollision {
+                first_ball,
+                second_ball,
+            } if second_ball == &BallType::Cue => Some(CueCaromStep::Object(first_ball.clone())),
+            ScenarioShotTraceEventKind::BallRailImpact { ball, rail } if ball == &BallType::Cue => {
+                Some(CueCaromStep::Rail(*rail))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 fn has_ball_rail_impact(trace: &ScenarioShotTrace, ball_type: BallType, rail_type: Rail) -> bool {
     trace.event_log.iter().any(|event| {
         matches!(
@@ -786,6 +813,12 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
         "examples/scenarios/three_cushion_three_rails_first_score.billiards",
         "examples/scenarios/three_cushion_hako_dama_long_box_behind_score.billiards",
         "examples/scenarios/three_cushion_hako_dama_short_side_check_score.billiards",
+        "examples/scenarios/three_cushion_natural_angle_standard_score.billiards",
+        "examples/scenarios/three_cushion_short_angle_running_score.billiards",
+        "examples/scenarios/three_cushion_reverse_english_hold_score.billiards",
+        "examples/scenarios/three_cushion_five_cushion_double_around_score.billiards",
+        "examples/scenarios/three_cushion_two_rails_first_umbrella_score.billiards",
+        "examples/scenarios/three_cushion_ticky_repeated_rail_score.billiards",
     ] {
         let (scenario, trace) = trace_scenario(scenario_path, 8);
         assert_eq!(
@@ -814,6 +847,83 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
         let svg = String::from_utf8(svg).expect("carom SVG should be UTF-8");
         assert!(svg.contains("class=\"carom-table\""));
         assert_eq!(svg.matches("data-pocket=").count(), 0);
+    }
+}
+
+#[test]
+fn source_backed_three_cushion_repertoire_scores_under_umb_event_order() {
+    use CueCaromStep::{Object, Rail as Cushion};
+
+    for (scenario_path, expected) in [
+        (
+            "examples/scenarios/three_cushion_natural_angle_standard_score.billiards",
+            vec![
+                Object(BallType::YellowCue),
+                Cushion(Rail::Right),
+                Cushion(Rail::Bottom),
+                Cushion(Rail::Left),
+                Object(BallType::Red),
+            ],
+        ),
+        (
+            "examples/scenarios/three_cushion_short_angle_running_score.billiards",
+            vec![
+                Object(BallType::YellowCue),
+                Cushion(Rail::Right),
+                Cushion(Rail::Top),
+                Cushion(Rail::Left),
+                Object(BallType::Red),
+            ],
+        ),
+        (
+            "examples/scenarios/three_cushion_reverse_english_hold_score.billiards",
+            vec![
+                Object(BallType::YellowCue),
+                Cushion(Rail::Left),
+                Cushion(Rail::Bottom),
+                Cushion(Rail::Right),
+                Object(BallType::Red),
+            ],
+        ),
+        (
+            "examples/scenarios/three_cushion_five_cushion_double_around_score.billiards",
+            vec![
+                Object(BallType::YellowCue),
+                Cushion(Rail::Right),
+                Cushion(Rail::Top),
+                Cushion(Rail::Left),
+                Cushion(Rail::Bottom),
+                Cushion(Rail::Right),
+                Object(BallType::Red),
+            ],
+        ),
+        (
+            "examples/scenarios/three_cushion_two_rails_first_umbrella_score.billiards",
+            vec![
+                Cushion(Rail::Right),
+                Cushion(Rail::Top),
+                Object(BallType::YellowCue),
+                Cushion(Rail::Left),
+                Object(BallType::Red),
+            ],
+        ),
+        (
+            "examples/scenarios/three_cushion_ticky_repeated_rail_score.billiards",
+            vec![
+                Cushion(Rail::Left),
+                Object(BallType::YellowCue),
+                Cushion(Rail::Left),
+                Cushion(Rail::Bottom),
+                Object(BallType::Red),
+            ],
+        ),
+    ] {
+        let (_, trace) = trace_scenario(scenario_path, 0);
+        let actual = cue_carom_sequence(&trace);
+        assert!(
+            actual.starts_with(&expected),
+            "{scenario_path}: expected scoring prefix {expected:?}, got {actual:?}"
+        );
     }
 }
 

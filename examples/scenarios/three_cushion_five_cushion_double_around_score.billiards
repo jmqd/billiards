@@ -1,0 +1,22 @@
+# Five-cushion Double-Around: yellow, right/top/left/bottom/right cushions, then red.
+# Source: https://store.kozoom.com/de/ducking-kisses-in-three-cushion-vol-2-double-around-solutions.html
+# Pattern reference: https://books.google.com/books/about/Billiards_Manual_Three_Cushion.html?id=5kuNr6dCUCsC
+# Goal: expose accumulated spin decay and rail-angle error over a source-backed five-cushion extension.
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (3.095802, 1.592497)
+ball yellow at (3.164982, 5.626226)
+ball red at (0.181831, 6.484901)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(60)
+trace(max_events: 60)
+shot(cue).heading(0.780940deg).speed(224.209264ips).tip(side: -0.287562R, height: 0.143476R).using(default)

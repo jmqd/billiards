@@ -192,6 +192,50 @@ Expected flavor:
 - cue -> yellow first
 - opposite-spin hako-dama route starts left, bottom, right and checks into red from the short side
 
+### Source-backed advanced scoring repertoire
+
+The following six fixtures are asserted as legal UMB scores: the cue ball contacts both object
+balls and records at least three cushion contacts before the second object ball. Their source URLs
+and exact expected event orders are embedded in each scenario.
+
+### `three_cushion_natural_angle_standard_score.billiards`
+Expected scoring order:
+- cue -> yellow
+- right, bottom, left cushions
+- cue -> red
+
+### `three_cushion_short_angle_running_score.billiards`
+Expected scoring order:
+- cue -> yellow
+- right, top, left cushions with near-limit running English
+- cue -> red
+
+### `three_cushion_reverse_english_hold_score.billiards`
+Expected scoring order:
+- cue -> yellow
+- left, bottom, right cushions with heavy reverse English
+- cue -> red
+
+### `three_cushion_five_cushion_double_around_score.billiards`
+Expected scoring order:
+- cue -> yellow
+- right, top, left, bottom, right cushions
+- cue -> red after the fifth cushion
+
+### `three_cushion_two_rails_first_umbrella_score.billiards`
+Expected scoring order:
+- right and top cushions before the first object ball
+- cue -> yellow
+- left cushion
+- cue -> red
+
+### `three_cushion_ticky_repeated_rail_score.billiards`
+Expected scoring order:
+- left cushion, cue -> yellow, then the left cushion again
+- bottom cushion
+- cue -> red
+- the two left-cushion impacts remain separate events and both count under UMB Article 83
+
 ### Professional / practice-book manual checks
 
 These scenarios are source-grounded layouts for manual physics review. They intentionally favor

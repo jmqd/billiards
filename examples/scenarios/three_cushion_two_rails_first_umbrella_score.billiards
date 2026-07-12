@@ -1,0 +1,22 @@
+# Tournament umbrella score: right/top cushions, yellow, left cushion, then red.
+# Source: https://www.youtube.com/watch?v=8Q2A2hQ_sJI&t=85s
+# Pattern reference: https://books.google.com/books/about/Billiards_Manual_Three_Cushion.html?id=5kuNr6dCUCsC
+# Goal: validate the canonical rail-rail-ball-rail-ball scoring topology under full event ordering.
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (0.303893, 3.932668)
+ball yellow at (1.124646, 5.680237)
+ball red at (1.432000, 1.868200)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(50)
+trace(max_events: 50)
+shot(cue).heading(40.718787deg).speed(155.855661ips).tip(side: -0.448525R, height: 0.093645R).using(default)

@@ -6,14 +6,15 @@ use billiards::{
     compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
     compute_next_ball_rail_impact_on_table,
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
+    resolve_n_ball_system_event_with_physics_and_pockets_on_table,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest,
     simulate_n_balls_with_rails_on_table_until_rest, AngularVelocity3, BallBallCollisionConfig,
     BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq,
     MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent, NBallSystemEvent,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJaw, PocketJawGeometry,
-    PocketShapeSpec, RadiansPerSecondSq, Rail, RailModel, RollingResistanceModel, Scale,
-    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT,
-    STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
+    PocketShapeSpec, PredictedAirborneBallBallCollision, RadiansPerSecondSq, Rail, RailModel,
+    RollingResistanceModel, Scale, Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec,
+    Velocity2, CENTER_SPOT, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -21,6 +22,14 @@ fn assert_close(actual: f64, expected: f64) {
     assert!(
         delta < 1e-9,
         "expected {expected}, got {actual} (delta {delta})"
+    );
+}
+
+fn assert_near(actual: f64, expected: f64, tolerance: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= tolerance,
+        "expected {expected}, got {actual} (delta {delta}, tolerance {tolerance})"
     );
 }
 
@@ -87,11 +96,11 @@ fn system_zero_friction_nonideal_shared_contact_matches_coupled_normal_limit() {
     let cue = advanced.states[0].as_ball_state();
     let left = advanced.states[1].as_ball_state();
     let right = advanced.states[2].as_ball_state();
-    assert_close(cue.velocity.y().as_f64(), -2.0);
-    assert_close(left.velocity.x().as_f64(), -2.0 * 3.0_f64.sqrt());
-    assert_close(left.velocity.y().as_f64(), 6.0);
-    assert_close(right.velocity.x().as_f64(), 2.0 * 3.0_f64.sqrt());
-    assert_close(right.velocity.y().as_f64(), 6.0);
+    assert_near(cue.velocity.y().as_f64(), -2.0, 1e-5);
+    assert_near(left.velocity.x().as_f64(), -2.0 * 3.0_f64.sqrt(), 1e-5);
+    assert_near(left.velocity.y().as_f64(), 6.0, 1e-5);
+    assert_near(right.velocity.x().as_f64(), 2.0 * 3.0_f64.sqrt(), 1e-5);
+    assert_near(right.velocity.y().as_f64(), 6.0, 1e-5);
 }
 
 #[test]
@@ -535,6 +544,219 @@ fn airborne_ball_ball_collision_is_resolved_before_later_table_contact() {
             + advanced.states[1].as_ball_state().velocity.x().as_f64(),
         40.0,
     );
+}
+
+fn resolve_table_height_airborne_pair_with_base_vz(
+    vertical_velocity: f64,
+) -> Vec<NBallSystemState> {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let radius = ball.radius.as_f64();
+    let airborne = BallState::airborne(
+        inches2(20.0, 20.0),
+        Inches::zero(),
+        Velocity2::new("10", "0"),
+        Inches::from_f64(vertical_velocity),
+        AngularVelocity3::zero(),
+    );
+    let object = BallState::resting_at(inches2(20.0 + 2.0 * radius, 20.0));
+    let states = vec![
+        NBallSystemState::Airborne(airborne.clone()),
+        NBallSystemState::OnTable(on_table(object.clone())),
+    ];
+    let event = NBallSystemEvent::AirborneBallBallCollision {
+        first_ball_index: 0,
+        second_ball_index: 1,
+        contact: PredictedAirborneBallBallCollision {
+            time_until_contact: Seconds::zero(),
+            first_at_contact: airborne,
+            second_at_contact: object,
+        },
+    };
+    resolve_n_ball_system_event_with_physics_and_pockets_on_table(
+        &states,
+        &event,
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        &BallBallCollisionConfig::ideal(),
+        RailModel::Mirror,
+        &billiards::RailCollisionProfile::default(),
+    )
+    .expect("the recorded table-height airborne collision should replay")
+}
+
+#[test]
+fn subresolution_vertical_launch_is_supported_but_force_follow_hop_remains_airborne() {
+    let tiny_launch = resolve_table_height_airborne_pair_with_base_vz(1e-6);
+    assert!(
+        matches!(tiny_launch[0], NBallSystemState::OnTable(_)),
+        "a launch whose ballistic apex is below airborne_height must be supported"
+    );
+    assert_close(
+        tiny_launch[0].as_ball_state().vertical_velocity.as_f64(),
+        0.0,
+    );
+
+    let downward = resolve_table_height_airborne_pair_with_base_vz(-1.0);
+    assert!(
+        matches!(downward[0], NBallSystemState::OnTable(_)),
+        "downward table-height motion must clamp to unilateral support"
+    );
+
+    let force_follow_vertical_speed = 4.2536;
+    let force_follow = resolve_table_height_airborne_pair_with_base_vz(force_follow_vertical_speed);
+    assert!(matches!(force_follow[0], NBallSystemState::Airborne(_)));
+    assert_close(
+        force_follow[0].as_ball_state().vertical_velocity.as_f64(),
+        force_follow_vertical_speed,
+    );
+    let next = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &force_follow,
+        &BallSetPhysicsSpec::default(),
+        &TableSpec::default(),
+        &motion_config(),
+    )
+    .expect("force-follow post-collision state should schedule");
+    match next {
+        Some(NBallSystemEvent::BallTableBounce {
+            ball_index,
+            contact,
+        }) => {
+            assert_eq!(ball_index, 0);
+            assert!(
+                contact.time_until_contact.as_f64() > 1e-3,
+                "the physical force-follow hop must not collapse into a nanosecond bounce"
+            );
+        }
+        other => panic!("expected a real force-follow table contact, got {other:?}"),
+    }
+}
+
+#[test]
+fn recorded_airborne_preliminary_event_replays_exactly_from_the_same_prestate() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let radius = ball.radius.as_f64();
+    let states = vec![
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0, 20.0),
+            Inches::zero(),
+            Velocity2::new("10", "0"),
+            Inches::from_f64(4.2536),
+            AngularVelocity3::zero(),
+        )),
+        NBallSystemState::OnTable(on_table(BallState::resting_at(inches2(
+            20.0 + 2.0 * radius,
+            20.0,
+        )))),
+    ];
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states, &ball, &table, &motion,
+    )
+    .expect("preliminary event should compute")
+    .expect("the pair should collide immediately");
+    assert!(matches!(
+        event,
+        NBallSystemEvent::AirborneBallBallCollision { .. }
+    ));
+
+    let replayed = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
+        &states,
+        &event,
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        &BallBallCollisionConfig::ideal(),
+        RailModel::Mirror,
+        &billiards::RailCollisionProfile::default(),
+    )
+    .expect("recorded event should replay");
+    let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        &states,
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        &BallBallCollisionConfig::ideal(),
+        RailModel::Mirror,
+        &billiards::RailCollisionProfile::default(),
+    )
+    .expect("scheduler should resolve the same event");
+    assert_eq!(advanced.event, Some(event));
+    assert_eq!(replayed, advanced.states);
+}
+
+#[test]
+fn geometrically_separated_pair_can_reenter_and_receive_restitution_again() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+    let radius = ball.radius.as_f64();
+    let mut states = vec![
+        NBallSystemState::OnTable(on_table(BallState::on_table(
+            inches2(35.0, 30.0),
+            Velocity2::new("40", "0"),
+            AngularVelocity3::zero(),
+        ))),
+        NBallSystemState::OnTable(on_table(BallState::resting_at(inches2(
+            35.0 + 2.0 * radius,
+            30.0,
+        )))),
+    ];
+    let mut elapsed_since_first_collision = 0.0;
+    let mut collision_count = 0usize;
+    for _ in 0..32 {
+        let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+            &states,
+            &ball,
+            &table,
+            &motion,
+            CollisionModel::Ideal,
+            &BallBallCollisionConfig::ideal(),
+            RailModel::Mirror,
+            &billiards::RailCollisionProfile::default(),
+        )
+        .expect("the separated pair should continue through its rail return");
+        let Some(event) = advanced.event else {
+            break;
+        };
+        if collision_count > 0 {
+            elapsed_since_first_collision += advanced.elapsed.as_f64();
+        }
+        if matches!(event, NBallSystemEvent::BallBallCollision { .. }) {
+            collision_count += 1;
+            if collision_count == 2 {
+                assert!(
+                    elapsed_since_first_collision > 0.2,
+                    "the second response must follow actual geometric separation: elapsed={}, states={:?}",
+                    elapsed_since_first_collision,
+                    advanced.states
+                );
+                assert!(
+                    advanced.states[0].as_ball_state().velocity.x().as_f64() < -1.0,
+                    "the returning ball should transfer a new restitutive impulse"
+                );
+                assert!(
+                    advanced.states[1]
+                        .as_ball_state()
+                        .velocity
+                        .x()
+                        .as_f64()
+                        .abs()
+                        < 1.0,
+                    "the isolated equal-mass re-collision should again transfer most normal speed"
+                );
+                return;
+            }
+        }
+        states = advanced.states;
+    }
+    panic!("the pair did not separate and re-collide within the focused event window");
 }
 
 #[test]

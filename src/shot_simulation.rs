@@ -617,7 +617,6 @@ pub enum UnsupportedPhysicsReason {
 pub enum BallBallContactResolution {
     Pairwise,
     SharedCoupledCausalityUnresolved,
-    TpB29CoupledCausalityUnresolved,
 }
 
 /// One applied, rule-facing physical effect using stable ball identity.
@@ -1035,24 +1034,6 @@ fn map_applied_effects(
                 layout,
                 BallBallContactResolution::Pairwise,
             )),
-            NBallSystemAppliedEffect::TpB29ThreeBallLine {
-                incoming_ball_index,
-                middle_ball_index,
-                outgoing_ball_index,
-            } => {
-                resolved.push(map_pair(
-                    incoming_ball_index,
-                    middle_ball_index,
-                    layout,
-                    BallBallContactResolution::TpB29CoupledCausalityUnresolved,
-                ));
-                resolved.push(map_pair(
-                    middle_ball_index,
-                    outgoing_ball_index,
-                    layout,
-                    BallBallContactResolution::TpB29CoupledCausalityUnresolved,
-                ));
-            }
             NBallSystemAppliedEffect::SharedBallBallContact { ball_ball_pairs } => {
                 for (first, second) in ball_ball_pairs {
                     resolved.push(map_pair(
@@ -1364,9 +1345,9 @@ mod applied_effect_tests {
     use super::*;
     use crate::{
         compute_next_n_ball_system_event_with_rails_and_pockets_on_table, AngularVelocity3,
-        InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
-        RadiansPerSecondSq, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel,
-        Velocity2, TYPICAL_BALL_RADIUS,
+        InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent,
+        OnTableBallState, RadiansPerSecondSq, RollingResistanceModel, SlidingFrictionModel,
+        SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
     };
 
     fn motion() -> OnTableMotionConfig {
@@ -1463,7 +1444,7 @@ mod applied_effect_tests {
     }
 
     #[test]
-    fn detailed_resolution_marks_tp_b29_coupling_and_unresolved_causality() {
+    fn detailed_resolution_marks_compliant_shared_coupling_and_unresolved_causality() {
         let radius = TYPICAL_BALL_RADIUS.as_f64();
         let states = [
             on_table(BallState::on_table(
@@ -1486,10 +1467,8 @@ mod applied_effect_tests {
         );
         assert_eq!(
             resolved.effects.first(),
-            Some(&NBallSystemAppliedEffect::TpB29ThreeBallLine {
-                incoming_ball_index: 0,
-                middle_ball_index: 1,
-                outgoing_ball_index: 2,
+            Some(&NBallSystemAppliedEffect::SharedBallBallContact {
+                ball_ball_pairs: vec![(0, 1), (1, 2)],
             })
         );
     }
@@ -1579,5 +1558,299 @@ mod applied_effect_tests {
                 "each contacted object ball should receive forward momentum"
             );
         }
+    }
+    #[test]
+    fn airborne_seed_materializes_the_complete_mixed_table_height_contact_component() {
+        let ball = BallSetPhysicsSpec::default();
+        let radius = ball.radius.as_f64();
+        let sqrt_three = 3.0_f64.sqrt();
+        let one = BallState::airborne(
+            position(30.0, 30.0 - 2.0 * radius),
+            Inches::zero(),
+            Velocity2::new("0", "20"),
+            Inches::from_f64(4.2536),
+            AngularVelocity3::zero(),
+        );
+        let nine = BallState::on_table(
+            position(30.0, 30.0),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::zero(),
+        );
+        let six = BallState::resting_at(position(30.0 - radius, 30.0 + sqrt_three * radius));
+        let seven = BallState::resting_at(position(30.0 + radius, 30.0 + sqrt_three * radius));
+        let states = vec![
+            NBallSystemState::Airborne(one.clone()),
+            NBallSystemState::OnTable(on_table(nine.clone())),
+            NBallSystemState::OnTable(on_table(six)),
+            NBallSystemState::OnTable(on_table(seven)),
+        ];
+        let event = NBallSystemEvent::AirborneBallBallCollision {
+            first_ball_index: 0,
+            second_ball_index: 1,
+            contact: crate::PredictedAirborneBallBallCollision {
+                time_until_contact: Seconds::zero(),
+                first_at_contact: one,
+                second_at_contact: nine,
+            },
+        };
+        let motion = motion();
+        let resolved = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+            &states,
+            &event,
+            &ball,
+            &TableSpec::default(),
+            &motion,
+            CollisionModel::Ideal,
+            &BallBallCollisionConfig::ideal(),
+            RailModel::Mirror,
+            &RailCollisionProfile::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolved.effects,
+            vec![NBallSystemAppliedEffect::SharedBallBallContact {
+                ball_ball_pairs: vec![(0, 1), (1, 2), (1, 3), (2, 3)],
+            }]
+        );
+        assert!(matches!(resolved.states[0], NBallSystemState::Airborne(_)));
+        assert!(
+            (resolved.states[0]
+                .as_ball_state()
+                .vertical_velocity
+                .as_f64()
+                - 4.2536)
+                .abs()
+                <= 1e-12,
+            "the transactional island update must preserve the airborne endpoint's base vz"
+        );
+
+        let scheduled_event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+            &states,
+            &ball,
+            &TableSpec::default(),
+            &motion,
+        )
+        .unwrap()
+        .expect("the mixed closing component should schedule");
+        let scheduled = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+            &states,
+            &scheduled_event,
+            &ball,
+            &TableSpec::default(),
+            &motion,
+            CollisionModel::Ideal,
+            &BallBallCollisionConfig::ideal(),
+            RailModel::Mirror,
+            &RailCollisionProfile::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            scheduled.effects,
+            vec![NBallSystemAppliedEffect::SharedBallBallContact {
+                ball_ball_pairs: vec![(0, 1), (1, 2), (1, 3), (2, 3)],
+            }]
+        );
+        let replayed = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+            &states,
+            &scheduled_event,
+            &ball,
+            &TableSpec::default(),
+            &motion,
+            CollisionModel::Ideal,
+            &BallBallCollisionConfig::ideal(),
+            RailModel::Mirror,
+            &RailCollisionProfile::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            scheduled.states, replayed.states,
+            "recorded preliminary event replay must remain exact while topology is materialized internally"
+        );
+        assert_eq!(scheduled.effects, replayed.effects);
+
+        for base_vertical_velocity in [-1.0, 1e-6] {
+            let mut supported_states = states.clone();
+            let mut endpoint = supported_states[0].as_ball_state().clone();
+            endpoint.vertical_velocity =
+                crate::InchesPerSecond::new(Inches::from_f64(base_vertical_velocity));
+            supported_states[0] = NBallSystemState::Airborne(endpoint.clone());
+            let support_event = NBallSystemEvent::AirborneBallBallCollision {
+                first_ball_index: 0,
+                second_ball_index: 1,
+                contact: crate::PredictedAirborneBallBallCollision {
+                    time_until_contact: Seconds::zero(),
+                    first_at_contact: endpoint,
+                    second_at_contact: supported_states[1].as_ball_state().clone(),
+                },
+            };
+            let supported = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+                &supported_states,
+                &support_event,
+                &ball,
+                &TableSpec::default(),
+                &motion,
+                CollisionModel::Ideal,
+                &BallBallCollisionConfig::ideal(),
+                RailModel::Mirror,
+                &RailCollisionProfile::default(),
+            )
+            .unwrap();
+            assert!(
+                matches!(supported.states[0], NBallSystemState::OnTable(_)),
+                "mixed table support must clamp base vz={base_vertical_velocity}"
+            );
+            assert_eq!(
+                supported.states[0]
+                    .as_ball_state()
+                    .vertical_velocity
+                    .as_f64(),
+                0.0
+            );
+        }
+
+        let permuted_states = vec![
+            states[3].clone(),
+            states[0].clone(),
+            states[2].clone(),
+            states[1].clone(),
+        ];
+        let permuted_event = NBallSystemEvent::AirborneBallBallCollision {
+            first_ball_index: 1,
+            second_ball_index: 3,
+            contact: crate::PredictedAirborneBallBallCollision {
+                time_until_contact: Seconds::zero(),
+                first_at_contact: permuted_states[1].as_ball_state().clone(),
+                second_at_contact: permuted_states[3].as_ball_state().clone(),
+            },
+        };
+        let permuted = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+            &permuted_states,
+            &permuted_event,
+            &ball,
+            &TableSpec::default(),
+            &motion,
+            CollisionModel::Ideal,
+            &BallBallCollisionConfig::ideal(),
+            RailModel::Mirror,
+            &RailCollisionProfile::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            permuted.effects,
+            vec![NBallSystemAppliedEffect::SharedBallBallContact {
+                ball_ball_pairs: vec![(0, 2), (0, 3), (1, 3), (2, 3)],
+            }]
+        );
+        for (original_index, permuted_index) in [(0, 1), (1, 3), (2, 2), (3, 0)] {
+            let original = resolved.states[original_index].as_ball_state();
+            let reordered = permuted.states[permuted_index].as_ball_state();
+            for (expected, actual) in [
+                (
+                    original.velocity.x().as_f64(),
+                    reordered.velocity.x().as_f64(),
+                ),
+                (
+                    original.velocity.y().as_f64(),
+                    reordered.velocity.y().as_f64(),
+                ),
+                (
+                    original.vertical_velocity.as_f64(),
+                    reordered.vertical_velocity.as_f64(),
+                ),
+                (
+                    original.angular_velocity.x().as_f64(),
+                    reordered.angular_velocity.x().as_f64(),
+                ),
+                (
+                    original.angular_velocity.y().as_f64(),
+                    reordered.angular_velocity.y().as_f64(),
+                ),
+                (
+                    original.angular_velocity.z().as_f64(),
+                    reordered.angular_velocity.z().as_f64(),
+                ),
+            ] {
+                assert!(
+                    (actual - expected).abs() <= 1e-7,
+                    "physical output changed under index permutation: expected={expected}, actual={actual}"
+                );
+            }
+        }
+
+        let frictional = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+            &states,
+            &event,
+            &ball,
+            &TableSpec::default(),
+            &motion,
+            CollisionModel::ThrowAware,
+            &BallBallCollisionConfig::human_tuned(),
+            RailModel::Mirror,
+            &RailCollisionProfile::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            frictional.effects,
+            vec![NBallSystemAppliedEffect::SharedBallBallContact {
+                ball_ball_pairs: vec![(0, 1), (1, 2), (1, 3), (2, 3)],
+            }]
+        );
+        let specific_energy = |states: &[NBallSystemState]| {
+            states
+                .iter()
+                .map(|state| {
+                    let state = state.as_ball_state();
+                    let linear = state.velocity.x().as_f64().powi(2)
+                        + state.velocity.y().as_f64().powi(2)
+                        + state.vertical_velocity.as_f64().powi(2);
+                    let angular = state.angular_velocity.x().as_f64().powi(2)
+                        + state.angular_velocity.y().as_f64().powi(2)
+                        + state.angular_velocity.z().as_f64().powi(2);
+                    0.5 * linear + radius * radius * angular / 5.0
+                })
+                .sum::<f64>()
+        };
+        let energy_before = specific_energy(&states);
+        let energy_after = specific_energy(&frictional.states);
+        assert!(
+            energy_after.is_finite() && energy_after <= energy_before + 1e-8 * energy_before,
+            "mixed coupled friction must be finite and passive: before={energy_before}, after={energy_after}"
+        );
+        for (first, second) in [(0, 1), (1, 2), (1, 3), (2, 3)] {
+            let first_state = frictional.states[first].as_ball_state();
+            let second_state = frictional.states[second].as_ball_state();
+            let dx = second_state.position.x().as_f64() - first_state.position.x().as_f64();
+            let dy = second_state.position.y().as_f64() - first_state.position.y().as_f64();
+            let distance = dx.hypot(dy);
+            let relative_normal =
+                (second_state.velocity.x().as_f64() - first_state.velocity.x().as_f64()) * dx
+                    / distance
+                    + (second_state.velocity.y().as_f64() - first_state.velocity.y().as_f64()) * dy
+                        / distance;
+            assert!(
+                relative_normal >= -1e-7,
+                "mixed onset edge {first}-{second} remains closing at {relative_normal}"
+            );
+        }
+
+        let next = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+            &resolved.states,
+            &ball,
+            &TableSpec::default(),
+            &motion,
+        )
+        .unwrap();
+        assert!(
+            !matches!(
+                next,
+                Some(NBallSystemEvent::AirborneBallBallCollision {
+                    first_ball_index: 0,
+                    second_ball_index: 1,
+                    ref contact,
+                }) if contact.time_until_contact.as_f64() <= 1e-12
+            ),
+            "the resolved One-Nine edge must not remain as an immediate collision"
+        );
     }
 }

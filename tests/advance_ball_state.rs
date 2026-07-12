@@ -5,8 +5,8 @@ use billiards::{
     try_advance_ball_state, try_compute_next_transition, AngularVelocity3, BallSetPhysicsSpec,
     BallState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
     MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, OnTableStateError,
-    RadiansPerSecondSq, RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
-    Velocity2, TYPICAL_BALL_RADIUS,
+    RadiansPerSecond, RadiansPerSecondSq, RollingResistanceModel, Seconds, SlidingFrictionModel,
+    SlidingToRollingModel, SpinDecayModel, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -319,6 +319,36 @@ fn advance_within_phase_on_table_clamps_at_the_phase_boundary() {
         advanced.as_ball_state().motion_phase(radius),
         MotionPhase::Rolling
     );
+}
+
+#[test]
+fn advance_within_sliding_phase_advances_every_nonzero_slip() {
+    let slip = f64::EPSILON / 2.0;
+    let state = on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::from_components(
+            InchesPerSecond::new(Inches::from_f64(slip)),
+            InchesPerSecond::zero(),
+        ),
+        AngularVelocity3::zero(),
+    ));
+    let mut config = motion_config();
+    config.phase.thresholds.rest_linear_speed = InchesPerSecond::zero();
+    config.phase.thresholds.rest_angular_speed = RadiansPerSecond::zero();
+    config.phase.sliding_to_rolling = SlidingToRollingModel::Thresholded {
+        contact_speed_epsilon: InchesPerSecond::zero(),
+    };
+
+    let advanced = advance_within_phase_on_table(
+        &state,
+        MotionPhase::Sliding,
+        Seconds::new(1.0),
+        &BallSetPhysicsSpec::default(),
+        &config,
+    );
+
+    assert!(advanced.as_ball_state().velocity.x().as_f64() < slip);
+    assert!(advanced.as_ball_state().angular_velocity.y().as_f64() > 0.0);
 }
 
 #[test]

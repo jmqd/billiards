@@ -4990,9 +4990,6 @@ fn raw_advance_within_phase_on_table(
         MotionPhase::Rest => state,
         MotionPhase::Sliding => {
             let contact_speed = state.cloth_contact_speed(radius);
-            if contact_speed <= f64::EPSILON {
-                return state;
-            }
 
             let transition_time =
                 (2.0 / 7.0) * contact_speed / sliding_friction_acceleration(config);

@@ -2579,7 +2579,6 @@ pub struct MotionPhaseThresholds {
     pub airborne_height: Inches,
     pub airborne_vertical_speed: InchesPerSecond,
     pub rest_linear_speed: InchesPerSecond,
-    pub rest_vertical_speed: InchesPerSecond,
     pub rest_angular_speed: RadiansPerSecond,
 }
 
@@ -2589,7 +2588,6 @@ impl Default for MotionPhaseThresholds {
             airborne_height: Inches::from_f64(1e-9),
             airborne_vertical_speed: InchesPerSecond::new(Inches::from_f64(1e-9)),
             rest_linear_speed: InchesPerSecond::new(Inches::from_f64(1e-9)),
-            rest_vertical_speed: InchesPerSecond::new(Inches::from_f64(1e-9)),
             rest_angular_speed: RadiansPerSecond::new(1e-9),
         }
     }
@@ -3275,7 +3273,6 @@ fn exact_resting_thresholds() -> MotionPhaseThresholds {
         airborne_height: Inches::zero(),
         airborne_vertical_speed: InchesPerSecond::zero(),
         rest_linear_speed: InchesPerSecond::zero(),
-        rest_vertical_speed: InchesPerSecond::zero(),
         rest_angular_speed: RadiansPerSecond::zero(),
     }
 }
@@ -5268,17 +5265,12 @@ pub fn classify_motion_phase(
     }
 
     let linear_speed = ball_speed(state).as_f64();
-    let vertical_speed = state.vertical_velocity.as_f64();
     let wx = state.angular_velocity.x().as_f64();
     let wy = state.angular_velocity.y().as_f64();
     let wz = state.angular_velocity.z().as_f64();
     let angular_threshold = config.thresholds.rest_angular_speed.as_f64();
 
     if near_zero(linear_speed, config.thresholds.rest_linear_speed.as_f64())
-        && near_zero(
-            vertical_speed,
-            config.thresholds.rest_vertical_speed.as_f64(),
-        )
         && near_zero(wx, angular_threshold)
         && near_zero(wy, angular_threshold)
         && near_zero(wz, angular_threshold)

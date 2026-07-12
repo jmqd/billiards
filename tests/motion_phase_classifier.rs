@@ -1,7 +1,7 @@
 use billiards::{
     classify_motion_phase, cloth_contact_speed_on_table, projected_position, AngularVelocity3,
-    BallSetPhysicsSpec, BallState, Inches2, MotionPhase, MotionPhaseConfig, Position,
-    SlidingToRollingModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    BallSetPhysicsSpec, BallState, Inches2, InchesPerSecond, MotionPhase, MotionPhaseConfig,
+    Position, SlidingToRollingModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -154,6 +154,24 @@ fn tiny_vertical_noise_below_the_airborne_threshold_is_still_classified_from_on_
             &MotionPhaseConfig::default()
         ),
         MotionPhase::Rolling
+    );
+}
+
+#[test]
+fn tolerated_vertical_noise_does_not_make_a_stationary_ball_roll() {
+    let state = BallState::new(
+        Inches2::new("1", "2"),
+        "0",
+        Velocity2::zero(),
+        "0.5",
+        AngularVelocity3::zero(),
+    );
+    let mut config = MotionPhaseConfig::default();
+    config.thresholds.airborne_vertical_speed = InchesPerSecond::new("1");
+
+    assert_eq!(
+        classify_motion_phase(&state, &BallSetPhysicsSpec::default(), &config),
+        MotionPhase::Rest
     );
 }
 

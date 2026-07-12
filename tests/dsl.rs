@@ -1529,6 +1529,17 @@ fn rejects_missing_required_shot_methods() {
 }
 
 #[test]
+fn rejects_duplicate_position_aliases() {
+    let err = parse_dsl_to_scenario("pos spot = center\npos spot = rack\n")
+        .expect_err("an alias may only be defined once");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::DuplicateAlias(name)) if name == "spot"
+    ));
+}
+
+#[test]
 fn rejects_duplicate_ball_placements() {
     let err = parse_dsl_to_scenario("ball cue at center\nball cue frozen left (4)\n")
         .expect_err("a ball may only be placed once");

@@ -1851,6 +1851,7 @@ pub enum PhysicsConfigKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DslBuildError {
     UnknownAlias(String),
+    DuplicateAlias(String),
     DuplicateBallPlacement(BallRef),
     CoordinateOutOfRange {
         axis: CoordinateAxis,
@@ -1959,6 +1960,9 @@ impl std::fmt::Display for DslBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownAlias(name) => write!(f, "unknown alias '{name}'"),
+            Self::DuplicateAlias(name) => {
+                write!(f, "alias '{name}' was defined more than once")
+            }
             Self::DuplicateBallPlacement(ball) => {
                 write!(f, "ball '{ball}' was placed more than once")
             }
@@ -2167,6 +2171,9 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
     for entry in &doc.entries {
         match entry {
             DslEntry::Alias(alias) => {
+                if aliases.contains_key(&alias.name) {
+                    return Err(DslBuildError::DuplicateAlias(alias.name.clone()));
+                }
                 let resolved = resolve_position_expr(&aliases, &alias.position)?;
                 aliases.insert(alias.name.clone(), resolved);
             }

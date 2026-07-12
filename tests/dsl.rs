@@ -516,6 +516,23 @@ fn shot_scenarios_can_derive_heading_with_cut_left_and_cut_right_aliases() {
 }
 
 #[test]
+fn rejects_cut_angles_outside_the_geometric_range() {
+    for (method, degrees) in [("cut_left", -1.0), ("cut_right", 90.01)] {
+        let input = format!(
+            "ball cue at center\nball nine at (2.0, 6.0)\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).{method}(nine, {degrees}).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)\n"
+        );
+
+        let err = parse_dsl_to_scenario(&input).expect_err("invalid cut angle should be rejected");
+
+        assert!(matches!(
+            err,
+            DslError::Build(DslBuildError::CutAngleOutOfRange { degrees: actual })
+                if actual == degrees
+        ));
+    }
+}
+
+#[test]
 fn shot_scenarios_can_report_human_speed_validation() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at center\n\

@@ -1941,6 +1941,9 @@ pub enum DslBuildError {
     ShotTargetBallNotPlaced(BallRef),
     ShotAimingBallMustNotBeCueBall(BallRef),
     ShotAimingBallNotPlaced(BallRef),
+    CutAngleOutOfRange {
+        degrees: f64,
+    },
     InvalidCueStrikeConfig {
         name: String,
         error: ShotError,
@@ -2085,6 +2088,10 @@ impl std::fmt::Display for DslBuildError {
             Self::ShotAimingBallNotPlaced(ball) => {
                 write!(f, "shot aiming ball '{ball}' is not present in the layout")
             }
+            Self::CutAngleOutOfRange { degrees } => write!(
+                f,
+                "cut angle {degrees}deg is out of bounds; expected 0..=90"
+            ),
             Self::InvalidCueStrikeConfig { name, error } => {
                 write!(f, "cue_strike '{name}' is invalid: {error:?}")
             }
@@ -2770,6 +2777,10 @@ fn resolve_shot_heading(aim: ShotAimSpec, game_state: &GameState) -> Result<Angl
             direction,
             degrees,
         } => {
+            if !degrees.is_finite() || !(0.0..=90.0).contains(&degrees) {
+                return Err(DslBuildError::CutAngleOutOfRange { degrees });
+            }
+
             let object_ball = resolve_shot_aiming_ball(game_state, object_ball)?;
             let base_heading = cue_ball
                 .position

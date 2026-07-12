@@ -224,6 +224,54 @@ fn domenech_free_sphere_impulse_preserves_full_contact_slip_and_vertical_momentu
 }
 
 #[test]
+fn default_radius_collision_is_invariant_to_contact_refinement_overlap() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let cut = 30.0_f64.to_radians();
+    let cue_ball_at_separation = |separation: f64| {
+        on_table(BallState::on_table(
+            inches2(-separation * cut.sin(), -separation * cut.cos()),
+            Velocity2::new("0", "50"),
+            AngularVelocity3::new(0.0, 0.0, 10.0),
+        ))
+    };
+    let exact_contact = cue_ball_at_separation(2.0 * radius);
+    let refined_contact = cue_ball_at_separation(2.0 * radius - 0.01);
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+    let config = BallBallCollisionConfig::human_tuned();
+
+    let exact = collide_ball_ball_detailed_on_table_with_config(
+        &exact_contact,
+        &object_ball,
+        CollisionModel::ThrowAware,
+        &config,
+    );
+    let refined = collide_ball_ball_detailed_on_table_with_config(
+        &refined_contact,
+        &object_ball,
+        CollisionModel::ThrowAware,
+        &config,
+    );
+    let explicit = collide_ball_ball_detailed_on_table_with_radius_and_config(
+        &refined_contact,
+        &object_ball,
+        TYPICAL_BALL_RADIUS.clone(),
+        CollisionModel::ThrowAware,
+        &config,
+    );
+
+    assert_close(
+        refined
+            .a_after
+            .as_ball_state()
+            .angular_velocity
+            .z()
+            .as_f64(),
+        exact.a_after.as_ball_state().angular_velocity.z().as_f64(),
+    );
+    assert_eq!(refined, explicit);
+}
+
+#[test]
 fn throw_aware_low_friction_reduces_contact_slip_without_reversal() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

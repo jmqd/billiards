@@ -5595,15 +5595,6 @@ fn advance_on_table_with_constant_velocity(
     .expect("constant-velocity advance should preserve on-table invariants")
 }
 
-fn center_distance_squared(a: &OnTableBallState, b: &OnTableBallState) -> f64 {
-    let a = a.as_ball_state();
-    let b = b.as_ball_state();
-    let dx = b.position.x().as_f64() - a.position.x().as_f64();
-    let dy = b.position.y().as_f64() - a.position.y().as_f64();
-
-    dx * dx + dy * dy
-}
-
 fn raw_ball_ball_collision_search_horizon(
     state: RawOnTableBallState,
     phase: MotionPhase,
@@ -15155,11 +15146,10 @@ pub fn collide_ball_ball_detailed_on_table_with_config(
     model: CollisionModel,
     config: &BallBallCollisionConfig,
 ) -> CollisionOutcome {
-    let inferred_ball_radius = Inches::from_f64(0.5 * center_distance_squared(a, b).sqrt());
     collide_ball_ball_detailed_on_table_with_radius_and_config(
         a,
         b,
-        inferred_ball_radius,
+        TYPICAL_BALL_RADIUS.clone(),
         model,
         config,
     )
@@ -15167,10 +15157,10 @@ pub fn collide_ball_ball_detailed_on_table_with_config(
 
 /// Resolve an instantaneous ball-ball collision using an explicit physical ball radius.
 ///
-/// Prefer this helper when a caller already has a `BallSetPhysicsSpec`. Inferring the radius from
-/// the instantaneous center separation is convenient for ad-hoc direct calls, but event refiners can
-/// intentionally land a tiny amount inside the contact boundary. The friction and spin-transfer
-/// terms should use the physical ball radius, not that numerical separation artifact.
+/// Use [`collide_ball_ball_detailed_on_table_with_config`] for standard pool balls. Prefer this
+/// helper when a caller has a custom [`BallSetPhysicsSpec`], such as three-cushion carom balls.
+/// Friction and spin transfer depend on the physical radius and must not depend on numerical
+/// overlap or separation in an event-refined contact state.
 pub fn collide_ball_ball_detailed_on_table_with_radius_and_config(
     a: &OnTableBallState,
     b: &OnTableBallState,

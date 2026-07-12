@@ -3025,15 +3025,20 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
         trace_max_events: None,
         entries: Vec::new(),
     };
+    let mut duplicate_singleton = false;
 
     repeat(0.., statement)
         .fold(
             || (),
             |(), entry| match entry {
-                DslStatement::Table(table) => doc.table = Some(table),
-                DslStatement::Game(game) => doc.game = Some(game),
+                DslStatement::Table(table) => {
+                    duplicate_singleton |= doc.table.replace(table).is_some();
+                }
+                DslStatement::Game(game) => {
+                    duplicate_singleton |= doc.game.replace(game).is_some();
+                }
                 DslStatement::TraceMaxEvents(max_events) => {
-                    doc.trace_max_events = Some(max_events);
+                    duplicate_singleton |= doc.trace_max_events.replace(max_events).is_some();
                 }
                 DslStatement::Alias(alias) => doc.entries.push(DslEntry::Alias(alias)),
                 DslStatement::Ball(placement) => doc.entries.push(DslEntry::Ball(placement)),
@@ -3047,6 +3052,10 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
             },
         )
         .parse_next(input)?;
+
+    if duplicate_singleton {
+        return Err(ErrMode::Cut(InputError::at(*input)));
+    }
 
     let _ = terminated(hws0, eof).parse_next(input)?;
 

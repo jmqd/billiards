@@ -66,6 +66,17 @@ fn parse_dsl_returns_a_crate_owned_error_with_a_byte_offset() {
 }
 
 #[test]
+fn rejects_repeated_singleton_declarations() {
+    for input in [
+        "table brunswick_gc4_9ft\ntable three_cushion_carom_10ft\n",
+        "game nine_ball\ngame three_cushion\n",
+        "trace(max_events: 1)\ntrace(max_events: 2)\n",
+    ] {
+        parse_dsl(input).expect_err("singleton declarations may only appear once");
+    }
+}
+
+#[test]
 fn given_comments_blank_lines_aliases_and_frozen_balls_when_building_then_positions_match_table_space(
 ) {
     let state = parse_dsl_to_game_state(

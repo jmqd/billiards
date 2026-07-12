@@ -6105,6 +6105,10 @@ fn ideal_ball_ball_collision_velocities(
     let b_normal = project(b, normal_x, normal_y);
     let b_tangent = project(b, tangent_x, tangent_y);
 
+    if a_normal <= b_normal {
+        return (a.clone(), b.clone());
+    }
+
     let rebuild = |normal_component: f64, tangent_component: f64| {
         Velocity2::new(
             Inches::from_f64(normal_component * normal_x + tangent_component * tangent_x),

@@ -146,6 +146,26 @@ fn a_head_on_ideal_collision_transfers_forward_motion_without_transferring_spin(
 }
 
 #[test]
+fn an_ideal_collision_does_not_attract_separating_balls() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let a = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        velocity2(0.0, -3.0),
+        AngularVelocity3::new(1.0, 2.0, 3.0),
+    ));
+    let b = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        velocity2(0.0, 4.0),
+        AngularVelocity3::new(4.0, 5.0, 6.0),
+    ));
+
+    let (a_after, b_after) = collide_ball_ball_on_table(&a, &b, CollisionModel::Ideal);
+
+    assert_eq!(a_after, a);
+    assert_eq!(b_after, b);
+}
+
+#[test]
 #[ignore = "requires per-ball mass/radius collision model"]
 fn heavy_and_light_cue_balls_change_head_on_stun_stop_sign() {
     let incident_speed = 10.0;

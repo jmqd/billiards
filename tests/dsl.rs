@@ -90,6 +90,22 @@ fn given_comments_blank_lines_aliases_and_frozen_balls_when_building_then_positi
 }
 
 #[test]
+fn center_side_named_positions_parse_without_matching_center_prefix() {
+    let state = parse_dsl_to_game_state(
+        "ball cue at center-left\n\
+         ball one at center-right\n",
+    )
+    .expect("center-side named positions should parse");
+
+    let cue = state.select_ball(BallType::Cue).expect("cue ball");
+    let one = state.select_ball(BallType::One).expect("one ball");
+    assert_close(cue.position.x.magnitude.to_f64().expect("cue x"), 0.0);
+    assert_close(cue.position.y.magnitude.to_f64().expect("cue y"), 4.0);
+    assert_close(one.position.x.magnitude.to_f64().expect("one x"), 4.0);
+    assert_close(one.position.y.magnitude.to_f64().expect("one y"), 4.0);
+}
+
+#[test]
 fn carom_table_dsl_builds_pocketless_table_game_and_carom_balls() {
     let scenario = parse_dsl_to_scenario(
         "table three_cushion_carom_10ft\n\

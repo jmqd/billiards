@@ -3733,14 +3733,14 @@ fn coordinate<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, f64)> {
 
 fn named_position<'a>(input: &mut Stream<'a>) -> ParseResult<'a, NamedPosition> {
     alt((
+        "center-left".map(|_| NamedPosition::CenterLeft),
+        "center-right".map(|_| NamedPosition::CenterRight),
         "center".map(|_| NamedPosition::Center),
         "rack".map(|_| NamedPosition::Rack),
         "top-left".map(|_| NamedPosition::TopLeft),
         "top-right".map(|_| NamedPosition::TopRight),
         "bottom-left".map(|_| NamedPosition::BottomLeft),
         "bottom-right".map(|_| NamedPosition::BottomRight),
-        "center-left".map(|_| NamedPosition::CenterLeft),
-        "center-right".map(|_| NamedPosition::CenterRight),
     ))
     .parse_next(input)
 }

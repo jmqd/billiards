@@ -1,8 +1,8 @@
 use billiards::{
     advance_motion_on_table, compute_next_transition_on_table, human_tuned_preview_motion_config,
     AngularVelocity3, BallSetPhysicsSpec, BallState, Inches, Inches2, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2,
+    MotionPhase, MotionPhaseConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecond,
+    RadiansPerSecondSq, RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, Velocity2,
     STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
 };
 
@@ -295,6 +295,26 @@ fn a_spinning_ball_predicts_the_time_until_rest_using_constant_angular_decelerat
     assert_eq!(transition.phase_before, MotionPhase::Spinning);
     assert_eq!(transition.phase_after, MotionPhase::Rest);
     assert_close(transition.time_until_transition.as_f64(), 3.0);
+}
+
+#[test]
+fn configured_zero_spin_threshold_predicts_sub_epsilon_spin_stop() {
+    let spin = f64::EPSILON / 2.0;
+    let state = on_table(BallState::on_table(
+        Inches2::new("10", "20"),
+        Velocity2::zero(),
+        AngularVelocity3::new(0.0, 0.0, spin),
+    ));
+    let mut config = transition_config();
+    config.phase.thresholds.rest_angular_speed = RadiansPerSecond::zero();
+
+    let transition =
+        compute_next_transition_on_table(&state, &BallSetPhysicsSpec::default(), &config)
+            .expect("non-zero spin should predict a rest transition");
+
+    assert_eq!(transition.phase_before, MotionPhase::Spinning);
+    assert_eq!(transition.phase_after, MotionPhase::Rest);
+    assert_eq!(transition.time_until_transition.as_f64(), spin / 2.0);
 }
 
 #[test]

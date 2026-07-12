@@ -4920,8 +4920,7 @@ fn time_until_vertical_axis_spin_stops_f64(
     initial_spin: f64,
     config: &OnTableMotionConfig,
 ) -> Option<f64> {
-    (initial_spin.abs() > f64::EPSILON)
-        .then_some(initial_spin.abs() / spin_angular_deceleration(config))
+    (initial_spin != 0.0).then_some(initial_spin.abs() / spin_angular_deceleration(config))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -482,7 +482,7 @@ fn draw_raster_elements_for_layer(
                     center,
                     scene
                         .viewport
-                        .ball_diameter_px(&scene.table_spec, &BallSpec::default()),
+                        .ball_diameter_px(&scene.table_spec, &scene.table_spec.default_ball_spec()),
                     style.fill_color,
                     style.outline_color,
                 );

@@ -1,4 +1,4 @@
-use billiards::diagram::{DiagramLayerId, DiagramOutputFormat};
+use billiards::diagram::{DiagramLayerId, DiagramOutputFormat, DiagramViewport};
 use billiards::{
     trace_ball_path_with_rails_on_table,
     visualization::{
@@ -907,6 +907,27 @@ fn adding_a_ghost_ball_renders_a_ball_sized_overlay_centered_on_the_requested_po
     assert_eq!(max_y - min_y + 1, 39);
     assert_eq!((min_x + max_x) / 2, 539);
     assert_eq!((min_y + max_y) / 2, 969);
+}
+
+#[test]
+fn carom_ghost_ball_uses_the_table_ball_size() {
+    let table_spec = TableSpec::three_cushion_carom_10ft();
+    let empty = render(&GameState::new(table_spec.clone()));
+    let mut ghosted = GameState::new(table_spec.clone());
+    ghosted.add_ghost_ball(
+        &Position::new(2u8, 4u8),
+        ghost_fill_color(),
+        ghost_outline_color(),
+    );
+
+    let (min_x, min_y, max_x, max_y) =
+        diff_bbox(&empty, &render(&ghosted)).expect("ghost ball diff bbox");
+    let expected_diameter = (2.0
+        * DiagramViewport::default().ball_radius_px(&table_spec, &table_spec.default_ball_spec()))
+    .round() as u32;
+
+    assert_eq!(max_x - min_x + 1, expected_diameter);
+    assert_eq!(max_y - min_y + 1, expected_diameter);
 }
 
 #[test]

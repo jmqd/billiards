@@ -3652,7 +3652,7 @@ fn usize_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, usize> {
 
 fn shot_speed_preset_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotSpeedPreset> {
     let checkpoint = *input;
-    let name = alt((identifier, "0", "1", "2", "3", "4")).parse_next(input)?;
+    let name = identifier.parse_next(input)?;
     name.parse::<ShotSpeedPreset>()
         .map_err(|_| ErrMode::Backtrack(InputError::at(checkpoint)))
 }

@@ -1851,6 +1851,7 @@ pub enum PhysicsConfigKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DslBuildError {
     UnknownAlias(String),
+    DuplicateBallPlacement(BallRef),
     CoordinateOutOfRange {
         axis: CoordinateAxis,
         value: f64,
@@ -1958,6 +1959,9 @@ impl std::fmt::Display for DslBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownAlias(name) => write!(f, "unknown alias '{name}'"),
+            Self::DuplicateBallPlacement(ball) => {
+                write!(f, "ball '{ball}' was placed more than once")
+            }
             Self::CoordinateOutOfRange {
                 axis,
                 value,
@@ -2166,30 +2170,43 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
                 let resolved = resolve_position_expr(&aliases, &alias.position)?;
                 aliases.insert(alias.name.clone(), resolved);
             }
-            DslEntry::Ball(placement) => match placement {
-                BallPlacement::At { ball, position } => {
-                    let pos = resolve_position_expr(&aliases, position)?;
-                    game_state.add_ball(Ball {
-                        ty: ball.to_ball_type(),
-                        position: pos,
-                        spec: default_ball_spec.clone(),
-                    });
+            DslEntry::Ball(placement) => {
+                let ball = match placement {
+                    BallPlacement::At { ball, .. } | BallPlacement::Frozen { ball, .. } => ball,
+                };
+                if game_state
+                    .balls()
+                    .iter()
+                    .any(|placed| placed.ty == ball.to_ball_type())
+                {
+                    return Err(DslBuildError::DuplicateBallPlacement(*ball));
                 }
-                BallPlacement::Frozen { ball, rail, coord } => {
-                    validate_frozen_coordinate(*rail, *coord)?;
-                    let rail = rail.to_rail();
-                    let diamond = Diamond::from(coord.to_string().as_str());
-                    game_state.freeze_to_rail(
-                        rail,
-                        diamond,
-                        Ball {
+
+                match placement {
+                    BallPlacement::At { ball, position } => {
+                        let pos = resolve_position_expr(&aliases, position)?;
+                        game_state.add_ball(Ball {
                             ty: ball.to_ball_type(),
+                            position: pos,
                             spec: default_ball_spec.clone(),
-                            ..Default::default()
-                        },
-                    );
+                        });
+                    }
+                    BallPlacement::Frozen { ball, rail, coord } => {
+                        validate_frozen_coordinate(*rail, *coord)?;
+                        let rail = rail.to_rail();
+                        let diamond = Diamond::from(coord.to_string().as_str());
+                        game_state.freeze_to_rail(
+                            rail,
+                            diamond,
+                            Ball {
+                                ty: ball.to_ball_type(),
+                                spec: default_ball_spec.clone(),
+                                ..Default::default()
+                            },
+                        );
+                    }
                 }
-            },
+            }
             DslEntry::CueStrike(def) => {
                 let name = def.name.clone();
                 let cue_strike = build_cue_strike(def)?;

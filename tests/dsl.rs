@@ -1,8 +1,8 @@
 use bigdecimal::ToPrimitive;
 use billiards::dsl::{
-    parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, CoordinateAxis, DslBuildError,
-    DslError, DslParseError, RailSide, ScenarioBallTimelineSegment, ScenarioBallTrace,
-    ScenarioShotTrace, ScenarioTraceRenderOptions,
+    parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, BallRef, CoordinateAxis,
+    DslBuildError, DslError, DslParseError, RailSide, ScenarioBallTimelineSegment,
+    ScenarioBallTrace, ScenarioShotTrace, ScenarioTraceRenderOptions,
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
@@ -1525,6 +1525,17 @@ fn rejects_missing_required_shot_methods() {
     assert!(matches!(
         err,
         DslError::Build(DslBuildError::MissingShotMethod { method }) if method == "using"
+    ));
+}
+
+#[test]
+fn rejects_duplicate_ball_placements() {
+    let err = parse_dsl_to_scenario("ball cue at center\nball cue frozen left (4)\n")
+        .expect_err("a ball may only be placed once");
+
+    assert!(matches!(
+        err,
+        DslError::Build(DslBuildError::DuplicateBallPlacement(BallRef::Cue))
     ));
 }
 

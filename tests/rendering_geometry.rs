@@ -333,6 +333,20 @@ fn drawing_with_scale_factor_two_doubles_the_output_dimensions() {
 }
 
 #[test]
+fn svg_scale_factor_changes_intrinsic_dimensions_without_changing_view_box() {
+    let svg = render_svg_with_options(
+        &cue_ball_at("2", "4"),
+        &DiagramRenderOptions {
+            scale_factor: 2,
+            ..DiagramRenderOptions::default()
+        },
+    );
+
+    assert!(svg.contains("viewBox=\"0 0 1938 1089\""));
+    assert!(svg.contains("width=\"3876\" height=\"2178\""));
+}
+
+#[test]
 fn drawing_with_a_transparent_background_leaves_an_empty_table_fully_transparent() {
     let rendered = render_with_options(
         &GameState::default(),

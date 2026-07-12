@@ -311,16 +311,17 @@ pub struct SvgBackend;
 impl DiagramBackend for SvgBackend {
     type Output = String;
 
-    fn render(scene: &DiagramScene, _options: &DiagramRenderOptions) -> Self::Output {
+    fn render(scene: &DiagramScene, options: &DiagramRenderOptions) -> Self::Output {
         let mut svg = String::new();
         let unrotated_width_px = scene.viewport.width_px;
         let unrotated_height_px = scene.viewport.height_px;
+        let scale_factor = options.scale_factor.max(1) as f32;
         svg.push_str(&format!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {:.0} {:.0}\" width=\"{:.0}\" height=\"{:.0}\" role=\"img\" aria-label=\"Billiards diagram\" preserveAspectRatio=\"xMidYMid meet\" data-orientation=\"clockwise\">\n",
             unrotated_height_px,
             unrotated_width_px,
-            unrotated_height_px,
-            unrotated_width_px
+            unrotated_height_px * scale_factor,
+            unrotated_width_px * scale_factor
         ));
         svg.push_str("<style>\n");
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");

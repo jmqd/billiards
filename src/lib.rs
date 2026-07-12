@@ -13128,7 +13128,7 @@ where
     let mut remaining = dt.as_f64();
     let mut events = Vec::new();
 
-    while remaining > f64::EPSILON {
+    while remaining > 0.0 {
         let Some(next_event) = find_next_event(&a_state, &b_state)? else {
             let (a_after, b_after) = advance_two_on_table_balls_without_event(
                 &a_state,
@@ -14361,7 +14361,7 @@ pub fn trace_ball_path_with_rail_profile_on_table(
     };
 
     loop {
-        if remaining_time.is_some_and(|time| time <= f64::EPSILON)
+        if remaining_time.is_some_and(|time| time <= 0.0)
             || remaining_rail_impacts == Some(0)
             || classify_motion_phase(current.as_ball_state(), ball, &motion.phase)
                 == MotionPhase::Rest

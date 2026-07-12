@@ -70,6 +70,33 @@ fn simulating_for_less_than_the_next_event_advances_both_balls_without_recording
 }
 
 #[test]
+fn sub_epsilon_duration_still_advances_two_ball_state() {
+    let config = motion_config();
+    let dt = Seconds::new(f64::EPSILON / 2.0);
+    let a = on_table(BallState::on_table(
+        inches2(0.0, 0.0),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::zero(),
+    ));
+    let b = on_table(BallState::resting_at(inches2(20.0, 20.0)));
+    let expected_a = advance_motion_on_table(&a, dt, &BallSetPhysicsSpec::default(), &config);
+
+    let simulated = simulate_two_on_table_balls(
+        &a,
+        &b,
+        dt,
+        &BallSetPhysicsSpec::default(),
+        &config,
+        CollisionModel::Ideal,
+    );
+
+    assert_eq!(simulated.elapsed, dt);
+    assert!(simulated.events.is_empty());
+    assert_eq!(simulated.a.as_ball_state(), &expected_a.state);
+    assert_ne!(simulated.a, a);
+}
+
+#[test]
 fn simulating_past_one_event_records_it_and_consumes_the_remaining_time_afterward() {
     let config = motion_config();
     let dt = Seconds::new(0.6);

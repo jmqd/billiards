@@ -1,12 +1,12 @@
 use bigdecimal::ToPrimitive;
 use billiards::{
-    human_tuned_preview_motion_config, trace_ball_path_with_rail_profile_on_table,
-    trace_ball_path_with_rails_on_table, AngularVelocity3, BallPathStop, BallSetPhysicsSpec,
-    BallState, Diamond, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail,
-    RailAngleReference, RailCollisionProfile, RailModel, RailTangentDirection,
-    RollingResistanceModel, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    advance_motion_on_table, human_tuned_preview_motion_config,
+    trace_ball_path_with_rail_profile_on_table, trace_ball_path_with_rails_on_table,
+    AngularVelocity3, BallPathStop, BallSetPhysicsSpec, BallState, Diamond, Inches, Inches2,
+    InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
+    OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail, RailAngleReference,
+    RailCollisionProfile, RailModel, RailTangentDirection, RollingResistanceModel,
+    SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -115,6 +115,28 @@ fn tracing_a_thirty_degree_mirror_bank_produces_a_two_segment_path() {
         outgoing > 90.0 && outgoing < 180.0,
         "the post-bank segment should head back into the table on the reflected side"
     );
+}
+
+#[test]
+fn sub_epsilon_duration_still_advances_a_ball_path() {
+    let table = TableSpec::default();
+    let ball = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let state = thirty_degree_top_rail_bank_state(&table);
+    let dt = billiards::Seconds::new(f64::EPSILON / 2.0);
+    let expected = advance_motion_on_table(&state, dt, &ball, &motion);
+
+    let path = trace_ball_path_with_rails_on_table(
+        &state,
+        BallPathStop::Duration(dt),
+        &ball,
+        &table,
+        &motion,
+        RailModel::Mirror,
+    );
+
+    assert_eq!(path.elapsed, dt);
+    assert_eq!(path.final_state.as_ball_state(), &expected.state);
 }
 
 #[test]

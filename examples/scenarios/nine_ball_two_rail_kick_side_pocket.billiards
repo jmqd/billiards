@@ -1,0 +1,12 @@
+# Advanced 9-ball two-rail kick: clear the blockers, hit the legal 5, and pocket it in the side.
+# Instructional source: https://drdavepoolinfo.com/tutorial/bank-kick/
+# Validation contract: cue contacts right then top cushion, contacts 5 first, pockets 5 center-left, and never contacts a blocker.
+table brunswick_gc4_9ft
+game nine_ball
+ball cue at center
+ball five at (0.8500, 4.2500)
+ball six at (1.5500, 4.1000)
+ball eight at (1.5500, 3.8500)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 30)
+shot(cue).heading(33deg).speed(120ips).tip(side: 0.0R, height: 0.0R).using(default)

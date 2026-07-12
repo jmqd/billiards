@@ -1,0 +1,12 @@
+# Advanced 9-ball jump: clear the 8, contact the legal 6 while airborne, pocket it, and land the cue.
+# Instructional source: https://drdavepoolinfo.com/faq/jump/technique/
+# Validation contract: cue does not contact 8, collides airborne with 6, pockets 6 top-right, and bounces afterward.
+table brunswick_gc4_9ft
+game nine_ball
+ball cue at (1.2000, 1.5000)
+ball six at (3.2000, 6.5000)
+ball eight at (1.5850, 2.4680)
+ball seven at (1.1000, 6.8000)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+trace(max_events: 30)
+shot(cue).to_pocket(six, top-right).speed(185ips).tip(side: 0.0R, height: 0.0R).jump(32deg).using(default)

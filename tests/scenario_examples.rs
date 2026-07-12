@@ -8,8 +8,8 @@ use billiards::dsl::{
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     advance_motion_on_table, human_tuned_preview_motion_config, BallType, CollisionModel,
-    DiagramBackground, DiagramRenderOptions, NBallSystemEvent, OnTableBallState, Pocket, Rail,
-    RailModel, Seconds, TableKind, TYPICAL_BALL_RADIUS,
+    DiagramBackground, DiagramRenderOptions, NBallSystemEvent, NBallSystemState, OnTableBallState,
+    Pocket, Rail, RailModel, Seconds, TableKind, TYPICAL_BALL_RADIUS,
 };
 
 fn trace_scenario(
@@ -303,6 +303,49 @@ fn cue_rail_sequence(trace: &ScenarioShotTrace) -> Vec<Rail> {
             _ => None,
         })
         .collect()
+}
+
+fn ball_rail_sequence(trace: &ScenarioShotTrace, ball_type: BallType) -> Vec<Rail> {
+    trace
+        .event_log
+        .iter()
+        .filter_map(|event| match &event.kind {
+            ScenarioShotTraceEventKind::BallRailImpact { ball, rail } if ball == &ball_type => {
+                Some(*rail)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn final_pocket(trace: &ScenarioShotTrace, ball_type: BallType) -> Option<Pocket> {
+    trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == ball_type)
+        .and_then(|ball_trace| match &ball_trace.final_state {
+            NBallSystemState::Pocketed { pocket, .. } => Some(*pocket),
+            NBallSystemState::OnTable(_) | NBallSystemState::Airborne(_) => None,
+        })
+}
+
+fn final_position_inches(trace: &ScenarioShotTrace, ball_type: BallType) -> (f64, f64) {
+    let state = trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == ball_type)
+        .unwrap_or_else(|| panic!("{ball_type:?} trace should exist"))
+        .final_state
+        .as_ball_state();
+    (state.position.x().as_f64(), state.position.y().as_f64())
+}
+
+fn angle_between_degrees(first: (f64, f64), second: (f64, f64)) -> f64 {
+    let first_length = first.0.hypot(first.1);
+    let second_length = second.0.hypot(second.1);
+    let cosine = ((first.0 * second.0 + first.1 * second.1) / (first_length * second_length))
+        .clamp(-1.0, 1.0);
+    cosine.acos().to_degrees()
 }
 
 #[derive(Debug, PartialEq)]
@@ -1022,4 +1065,199 @@ fn three_cushion_score_examples_preserve_planned_leading_cushion_order() {
             );
         }
     }
+}
+
+#[test]
+fn advanced_two_rail_kick_routes_around_blockers_and_pockets_the_legal_ball() {
+    let (_, trace) = trace_scenario(
+        "examples/scenarios/nine_ball_two_rail_kick_side_pocket.billiards",
+        0,
+    );
+    let route = cue_carom_sequence(&trace);
+    assert!(
+        route.starts_with(&[
+            CueCaromStep::Rail(Rail::Right),
+            CueCaromStep::Rail(Rail::Top),
+            CueCaromStep::Object(BallType::Five),
+        ]),
+        "two-rail kick should contact right, top, then the legal 5; got {route:?}"
+    );
+    assert!(has_pocket(&trace, BallType::Five, Pocket::CenterLeft));
+    assert!(!has_collision(&trace, BallType::Cue, BallType::Six));
+    assert!(!has_collision(&trace, BallType::Cue, BallType::Eight));
+    assert!(!has_any_pocket(&trace, BallType::Cue));
+}
+
+#[test]
+fn advanced_three_rail_bank_pockets_the_eight_after_bottom_right_top() {
+    let (_, trace) = trace_scenario(
+        "examples/scenarios/nine_ball_three_rail_bank_side_pocket.billiards",
+        0,
+    );
+    assert!(
+        cue_carom_sequence(&trace).starts_with(&[CueCaromStep::Object(BallType::Eight)]),
+        "three-rail bank should contact the legal 8 first"
+    );
+    let rails = ball_rail_sequence(&trace, BallType::Eight);
+    assert!(
+        rails.starts_with(&[Rail::Bottom, Rail::Right, Rail::Top]),
+        "8 should bank bottom-right-top before entering the side; got {rails:?}"
+    );
+    assert_eq!(
+        final_pocket(&trace, BallType::Eight),
+        Some(Pocket::CenterLeft)
+    );
+    assert!(!has_collision(&trace, BallType::Eight, BallType::Nine));
+}
+
+#[test]
+fn advanced_rail_first_safety_hides_the_cue_behind_the_eight() {
+    let (_, trace) = trace_scenario(
+        "examples/scenarios/nine_ball_rail_first_hide_safety.billiards",
+        0,
+    );
+    let route = cue_carom_sequence(&trace);
+    assert!(
+        route.starts_with(&[
+            CueCaromStep::Rail(Rail::Right),
+            CueCaromStep::Object(BallType::Six),
+        ]),
+        "safety should contact a cushion before the legal 6; got {route:?}"
+    );
+    for ball in [BallType::Cue, BallType::Six, BallType::Eight] {
+        assert!(
+            !has_any_pocket(&trace, ball.clone()),
+            "{ball:?} should remain on the table"
+        );
+    }
+    assert!(!has_collision(&trace, BallType::Cue, BallType::Eight));
+
+    let cue = final_position_inches(&trace, BallType::Cue);
+    let object = final_position_inches(&trace, BallType::Six);
+    let blocker = final_position_inches(&trace, BallType::Eight);
+    let line = (object.0 - cue.0, object.1 - cue.1);
+    let cue_to_blocker = (blocker.0 - cue.0, blocker.1 - cue.1);
+    let line_length_squared = line.0 * line.0 + line.1 * line.1;
+    let blocker_projection =
+        (cue_to_blocker.0 * line.0 + cue_to_blocker.1 * line.1) / line_length_squared;
+    let closest = (
+        cue.0 + blocker_projection * line.0,
+        cue.1 + blocker_projection * line.1,
+    );
+    let blocker_distance = (blocker.0 - closest.0).hypot(blocker.1 - closest.1);
+    assert!(
+        (0.0..=1.0).contains(&blocker_projection)
+            && blocker_distance < 2.0 * TYPICAL_BALL_RADIUS.as_f64(),
+        "8 should geometrically block the final cue-to-6 line; projection={blocker_projection:.3}, distance={blocker_distance:.3} in"
+    );
+}
+
+#[test]
+fn advanced_z_route_pockets_the_eight_and_finishes_on_the_nine_line() {
+    let (scenario, trace) = trace_scenario(
+        "examples/scenarios/nine_ball_two_rail_z_position.billiards",
+        0,
+    );
+    assert!(has_collision(&trace, BallType::Cue, BallType::Eight));
+    assert!(has_pocket(&trace, BallType::Eight, Pocket::TopRight));
+    let rails = cue_rail_sequence(&trace);
+    assert!(
+        rails.starts_with(&[Rail::Right, Rail::Left]),
+        "Z route should cross the table from right to left; got {rails:?}"
+    );
+    assert_eq!(final_pocket(&trace, BallType::Cue), None);
+
+    let cue = final_position_inches(&trace, BallType::Cue);
+    let nine = final_position_inches(&trace, BallType::Nine);
+    let target = Pocket::TopLeft.aiming_center();
+    let target = (
+        scenario
+            .game_state
+            .table_spec
+            .diamond_to_inches(target.x.clone())
+            .as_f64(),
+        scenario
+            .game_state
+            .table_spec
+            .diamond_to_inches(target.y.clone())
+            .as_f64(),
+    );
+    let position_error = angle_between_degrees(
+        (nine.0 - cue.0, nine.1 - cue.1),
+        (target.0 - nine.0, target.1 - nine.1),
+    );
+    assert!(
+        position_error < 2.0,
+        "cue should finish on the 9-to-top-left position line; angular error={position_error:.3}°"
+    );
+}
+
+#[test]
+fn advanced_jump_clears_the_blocker_pockets_the_six_and_lands() {
+    let (_, trace) = trace_scenario(
+        "examples/scenarios/nine_ball_jump_over_blocker_top_right.billiards",
+        0,
+    );
+    let airborne_contact = trace
+        .event_log
+        .iter()
+        .position(|event| {
+            matches!(
+                &event.kind,
+                ScenarioShotTraceEventKind::AirborneBallBallCollision {
+                    first_ball,
+                    second_ball,
+                } if (first_ball == &BallType::Cue && second_ball == &BallType::Six)
+                    || (first_ball == &BallType::Six && second_ball == &BallType::Cue)
+            )
+        })
+        .expect("jump should contact the legal 6 while airborne");
+    assert!(
+        !trace.event_log.iter().any(|event| {
+            matches!(
+                &event.kind,
+                ScenarioShotTraceEventKind::BallBallCollision {
+                    first_ball,
+                    second_ball,
+                } | ScenarioShotTraceEventKind::AirborneBallBallCollision {
+                    first_ball,
+                    second_ball,
+                } if (first_ball == &BallType::Cue && second_ball == &BallType::Eight)
+                    || (first_ball == &BallType::Eight && second_ball == &BallType::Cue)
+            )
+        }),
+        "jump should clear the blocking 8"
+    );
+    assert!(has_pocket(&trace, BallType::Six, Pocket::TopRight));
+    assert!(
+        trace
+            .event_log
+            .iter()
+            .skip(airborne_contact + 1)
+            .any(|event| matches!(
+                &event.kind,
+                ScenarioShotTraceEventKind::BallTableBounce { ball }
+                    if ball == &BallType::Cue
+            )),
+        "cue should return to the cloth after the airborne object-ball contact"
+    );
+    assert_eq!(final_pocket(&trace, BallType::Cue), None);
+}
+
+#[test]
+fn advanced_stun_carom_contacts_one_then_nine_and_wins_the_rack() {
+    let (_, trace) = trace_scenario(
+        "examples/scenarios/nine_ball_stun_carom_nine_top_right.billiards",
+        0,
+    );
+    let route = cue_carom_sequence(&trace);
+    assert!(
+        route.starts_with(&[
+            CueCaromStep::Object(BallType::One),
+            CueCaromStep::Object(BallType::Nine),
+        ]),
+        "stun carom should contact the legal 1 then the 9 without an intervening rail; got {route:?}"
+    );
+    assert!(has_pocket(&trace, BallType::Nine, Pocket::TopRight));
+    assert!(!has_any_pocket(&trace, BallType::Cue));
 }

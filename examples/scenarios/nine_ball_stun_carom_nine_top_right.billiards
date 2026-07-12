@@ -1,0 +1,11 @@
+# Advanced 9-ball stun carom: contact the legal 1 first, carom the cue into the 9, and pocket the 9.
+# Instructional source: https://drdavepoolinfo.com/resource_files/trcd/CueTimes%20PDFs/501%20Carom%20Shots.pdf
+# Validation contract: cue contacts 1 then 9, and 9 is pocketed top-right without a cue-ball rail between contacts.
+table brunswick_gc4_9ft
+game nine_ball
+ball cue at (1.4329, 5.5953)
+ball one at (3.0890, 5.6613)
+ball nine at (3.1900, 6.1910)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 30)
+shot(cue).heading(84.6deg).speed(80ips).tip(side: 0.0R, height: -0.15R).using(default)

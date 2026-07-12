@@ -236,6 +236,42 @@ Expected scoring order:
 - cue -> red
 - the two left-cushion impacts remain separate events and both count under UMB Article 83
 
+### Source-backed advanced nine-ball repertoire
+
+These fixtures turn published instructional patterns into deterministic simulation contracts.
+Each scenario embeds its primary source URL and asserts the intended contact order, rail route,
+pocket, landing, or safety geometry in `tests/scenario_examples.rs`.
+
+### `nine_ball_two_rail_kick_side_pocket.billiards`
+Expected outcome:
+- cue clears the 6/8 blockers via the right and top cushions
+- cue contacts the legal 5 first and pockets it center-left
+
+### `nine_ball_three_rail_bank_side_pocket.billiards`
+Expected outcome:
+- cue contacts the legal 8 first
+- 8 banks bottom, right, top and drops center-left
+
+### `nine_ball_rail_first_hide_safety.billiards`
+Expected outcome:
+- cue contacts the right cushion before the legal 6
+- all balls remain up, with the 8 occluding the final cue-to-6 line
+
+### `nine_ball_two_rail_z_position.billiards`
+Expected outcome:
+- 8 drops top-right
+- cue crosses from the right cushion to the left cushion and finishes on the 9-to-top-left line
+
+### `nine_ball_jump_over_blocker_top_right.billiards`
+Expected outcome:
+- cue clears the 8 and contacts the legal 6 while airborne
+- 6 drops top-right and the cue returns to the cloth
+
+### `nine_ball_stun_carom_nine_top_right.billiards`
+Expected outcome:
+- cue contacts the legal 1, then caroms directly into the 9
+- 9 drops top-right
+
 ### Professional / practice-book manual checks
 
 These scenarios are source-grounded layouts for manual physics review. They intentionally favor

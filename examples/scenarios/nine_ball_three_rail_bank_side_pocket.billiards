@@ -1,0 +1,11 @@
+# Advanced 9-ball three-rail bank: send the legal 8 bottom-right-top into the center-left pocket.
+# Instructional source: https://drdavepoolinfo.com/resource_files/trcd/CueTimes%20PDFs/209%20Safety%20Second.pdf
+# Validation contract: cue contacts 8 first; 8 contacts bottom, right, and top cushions in order before center-left capture.
+table brunswick_gc4_9ft
+game nine_ball
+ball cue at (0.5040, 6.3940)
+ball eight at (1.0000, 5.0000)
+ball nine at (0.5000, 7.0000)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 40)
+shot(cue).heading(160.40deg).speed(200ips).tip(side: 0.0R, height: 0.0R).using(default)

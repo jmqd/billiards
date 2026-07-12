@@ -1,0 +1,11 @@
+# Advanced 9-ball Z-position route: pocket the 8 and send the cue twice across the table for the 9.
+# Instructional source: https://drdavepoolinfo.com/bd_articles/2018/feb18.pdf
+# Validation contract: cue pockets 8 top-right, then contacts right and left cushions in order and finishes on-table.
+table brunswick_gc4_9ft
+game nine_ball
+ball cue at (2.887364, 4.227535)
+ball eight at (3.446044, 4.849680)
+ball nine at (0.7500, 6.8000)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 40)
+shot(cue).to_pocket(eight, top-right).speed(110.282999ips).tip(side: -0.057807R, height: 0.148863R).using(default)

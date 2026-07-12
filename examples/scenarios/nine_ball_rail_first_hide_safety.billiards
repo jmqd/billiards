@@ -1,0 +1,11 @@
+# Advanced 9-ball rail-first safety: contact the legal 6 after a cushion and hide the cue behind the 8.
+# Instructional source: https://drdavepoolinfo.com/cb_articles/2018/april18.pdf
+# Validation contract: cue contacts right cushion before 6; no ball drops; 8 blocks the final cue-to-6 line.
+table brunswick_gc4_9ft
+game nine_ball
+ball cue at (2.4000, 3.2000)
+ball six at (3.7500, 5.5000)
+ball eight at (2.3000, 7.2700)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+trace(max_events: 30)
+shot(cue).heading(40deg).speed(58ips).tip(side: 0.0R, height: 0.05R).using(default)

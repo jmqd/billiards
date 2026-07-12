@@ -6396,6 +6396,20 @@ fn raw_rail_gap_derivative_at_state(state: RawOnTableBallState, rail: Rail) -> f
         Rail::Left => state.vx,
         Rail::Right => -state.vx,
     }
+
+fn snap_raw_state_to_rail_contact(
+    mut state: RawOnTableBallState,
+    rail: Rail,
+    radius: f64,
+    table: &TableSpec,
+) -> RawOnTableBallState {
+    match rail {
+        Rail::Top => state.y = table.diamond_to_inches(Diamond::eight()).as_f64() - radius,
+        Rail::Right => state.x = table.diamond_to_inches(Diamond::four()).as_f64() - radius,
+        Rail::Bottom => state.y = radius,
+        Rail::Left => state.x = radius,
+    }
+    state
 }
 
 fn first_rail_collision_time_during_current_phase_raw(
@@ -6500,12 +6514,17 @@ pub fn compute_next_ball_rail_impact_on_table(
         ) else {
             continue;
         };
-        let state_at_impact = raw_advance_within_phase_on_table(
-            raw_state,
-            phase.clone(),
-            time_until_impact.as_f64(),
+        let state_at_impact = snap_raw_state_to_rail_contact(
+            raw_advance_within_phase_on_table(
+                raw_state,
+                phase.clone(),
+                time_until_impact.as_f64(),
+                radius,
+                config,
+            ),
+            rail,
             radius,
-            config,
+            table,
         )
         .into_on_table_state();
         if rail_contact_lies_within_pocket_aperture(rail, &state_at_impact, table) {

@@ -106,6 +106,19 @@ fn center_side_named_positions_parse_without_matching_center_prefix() {
 }
 
 #[test]
+fn position_aliases_may_begin_with_named_position_keywords() {
+    let state = parse_dsl_to_game_state(
+        "pos centerpiece = (1.25, 3.5)\n\
+         ball cue at centerpiece\n",
+    )
+    .expect("keyword-prefix position alias should parse");
+
+    let cue = state.select_ball(BallType::Cue).expect("cue ball");
+    assert_close(cue.position.x.magnitude.to_f64().expect("cue x"), 1.25);
+    assert_close(cue.position.y.magnitude.to_f64().expect("cue y"), 3.5);
+}
+
+#[test]
 fn carom_table_dsl_builds_pocketless_table_game_and_carom_balls() {
     let scenario = parse_dsl_to_scenario(
         "table three_cushion_carom_10ft\n\

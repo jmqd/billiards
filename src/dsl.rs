@@ -3714,8 +3714,17 @@ fn position_expr<'a>(input: &mut Stream<'a>) -> ParseResult<'a, PositionExpr> {
     let _ = hws0.parse_next(input)?;
     let expr = alt((
         coordinate.map(|(x, y)| PositionExpr::Diamond { x, y }),
-        named_position.map(PositionExpr::Named),
-        identifier.map(|name| PositionExpr::Alias(name.to_string())),
+        identifier.map(|name| match name {
+            "center" => PositionExpr::Named(NamedPosition::Center),
+            "rack" => PositionExpr::Named(NamedPosition::Rack),
+            "top-left" => PositionExpr::Named(NamedPosition::TopLeft),
+            "top-right" => PositionExpr::Named(NamedPosition::TopRight),
+            "bottom-left" => PositionExpr::Named(NamedPosition::BottomLeft),
+            "bottom-right" => PositionExpr::Named(NamedPosition::BottomRight),
+            "center-left" => PositionExpr::Named(NamedPosition::CenterLeft),
+            "center-right" => PositionExpr::Named(NamedPosition::CenterRight),
+            _ => PositionExpr::Alias(name.to_string()),
+        }),
     ))
     .parse_next(input)?;
     let _ = hws0.parse_next(input)?;
@@ -3728,20 +3737,6 @@ fn coordinate<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, f64)> {
         delimited(hws0, (terminated(float, (hws0, ',', hws0)), float), hws0),
         ')',
     )
-    .parse_next(input)
-}
-
-fn named_position<'a>(input: &mut Stream<'a>) -> ParseResult<'a, NamedPosition> {
-    alt((
-        "center-left".map(|_| NamedPosition::CenterLeft),
-        "center-right".map(|_| NamedPosition::CenterRight),
-        "center".map(|_| NamedPosition::Center),
-        "rack".map(|_| NamedPosition::Rack),
-        "top-left".map(|_| NamedPosition::TopLeft),
-        "top-right".map(|_| NamedPosition::TopRight),
-        "bottom-left".map(|_| NamedPosition::BottomLeft),
-        "bottom-right".map(|_| NamedPosition::BottomRight),
-    ))
     .parse_next(input)
 }
 

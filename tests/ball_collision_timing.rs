@@ -174,6 +174,44 @@ fn touching_balls_moving_inward_predict_an_immediate_constant_velocity_collision
 }
 
 #[test]
+fn constant_velocity_prediction_honors_sub_epsilon_closing_speed() {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let speed = 1e-9;
+    let separated_cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -4.0 * radius),
+        velocity2(0.0, speed),
+        AngularVelocity3::zero(),
+    ));
+    let touching_cue_ball = on_table(BallState::on_table(
+        inches2(0.0, -2.0 * radius),
+        velocity2(0.0, speed),
+        AngularVelocity3::zero(),
+    ));
+    let object_ball = on_table(BallState::resting_at(inches2(0.0, 0.0)));
+
+    let future = compute_next_ball_ball_collision_on_table(
+        &separated_cue_ball,
+        &object_ball,
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("sub-epsilon closing speed should predict a finite impact");
+    let immediate = compute_next_ball_ball_collision_on_table(
+        &touching_cue_ball,
+        &object_ball,
+        &BallSetPhysicsSpec::default(),
+    )
+    .expect("touching balls with sub-epsilon closing speed should collide immediately");
+
+    assert!(future.time_until_impact.as_f64().is_finite());
+    assert!(future.time_until_impact.as_f64() > 0.0);
+    assert_close(
+        center_distance(&future.a_at_impact, &future.b_at_impact),
+        2.0 * radius,
+    );
+    assert_close(immediate.time_until_impact.as_f64(), 0.0);
+}
+
+#[test]
 fn an_off_line_trajectory_that_misses_returns_none() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let cue_ball = on_table(BallState::on_table(

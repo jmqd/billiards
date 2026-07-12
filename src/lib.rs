@@ -6160,7 +6160,7 @@ pub fn compute_next_ball_ball_collision_on_table(
     let quadratic_c = rx * rx + ry * ry - contact_distance * contact_distance;
 
     if quadratic_c <= 0.0 {
-        if quadratic_a <= f64::EPSILON || quadratic_b >= 0.0 {
+        if quadratic_a == 0.0 || quadratic_b >= 0.0 {
             return None;
         }
 
@@ -6172,7 +6172,7 @@ pub fn compute_next_ball_ball_collision_on_table(
         });
     }
 
-    if quadratic_a <= f64::EPSILON || quadratic_b >= 0.0 {
+    if quadratic_a == 0.0 || quadratic_b >= 0.0 {
         return None;
     }
 

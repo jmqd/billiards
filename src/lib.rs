@@ -1767,6 +1767,18 @@ fn predict_airborne_ball_ball_collision(
         first_continuous_entry_time_adaptive(horizon, gap_at, speed_bound, derivative_at)
     }?;
 
+    if contact_time == 0.0 {
+        let center_distance = vector_norm_3d(center_offset);
+        let closing_speed = if center_distance <= f64::EPSILON {
+            0.0
+        } else {
+            -dot_product_3d(center_offset, relative_velocity) / center_distance
+        };
+        if closing_speed <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+            return None;
+        }
+    }
+
     let states_at_contact = advance_n_ball_system_without_event(
         &[first.clone(), second.clone()],
         Seconds::new(contact_time),

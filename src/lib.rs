@@ -1484,7 +1484,109 @@ pub struct PredictedAirborneBallBallCollision {
     pub second_at_contact: BallState,
 }
 
-const AIRBORNE_BALL_BALL_DIAGNOSTIC_SAMPLE_SECONDS: f64 = 0.001;
+fn vector_norm_3d(vector: [f64; 3]) -> f64 {
+    vector[0].hypot(vector[1]).hypot(vector[2])
+}
+
+fn first_linear_sphere_entry_time(
+    center_offset: [f64; 3],
+    relative_velocity: [f64; 3],
+    contact_distance: f64,
+) -> Option<f64> {
+    let center_distance = vector_norm_3d(center_offset);
+    let relative_speed = vector_norm_3d(relative_velocity);
+    if !center_distance.is_finite()
+        || !relative_speed.is_finite()
+        || !contact_distance.is_finite()
+        || contact_distance < 0.0
+    {
+        return None;
+    }
+    if center_distance == 0.0 || relative_speed == 0.0 {
+        return None;
+    }
+
+    let center_direction = center_offset.map(|component| component / center_distance);
+    let velocity_direction = relative_velocity.map(|component| component / relative_speed);
+    let radial_direction = dot_product_3d(center_direction, velocity_direction).clamp(-1.0, 1.0);
+    if center_distance <= contact_distance {
+        return (radial_direction < 0.0).then_some(0.0);
+    }
+    if radial_direction >= 0.0 {
+        return None;
+    }
+
+    let cross = [
+        center_direction[1] * velocity_direction[2]
+            - center_direction[2] * velocity_direction[1],
+        center_direction[2] * velocity_direction[0]
+            - center_direction[0] * velocity_direction[2],
+        center_direction[0] * velocity_direction[1]
+            - center_direction[1] * velocity_direction[0],
+    ];
+    let perpendicular_ratio = vector_norm_3d(cross);
+    let contact_ratio = contact_distance / center_distance;
+    if perpendicular_ratio > contact_ratio {
+        return None;
+    }
+
+    let perpendicular_distance = (perpendicular_ratio * center_distance).min(contact_distance);
+    let distance_from_closest_approach =
+        (contact_distance * contact_distance - perpendicular_distance * perpendicular_distance)
+            .max(0.0)
+            .sqrt();
+    let travel_distance =
+        -center_distance * radial_direction - distance_from_closest_approach;
+    if travel_distance < 0.0 {
+        return None;
+    }
+    let time = travel_distance / relative_speed;
+    (time.is_finite() && time >= 0.0).then_some(time)
+}
+
+
+fn first_continuous_entry_time_adaptive<F, D>(
+    horizon: f64,
+    gap_at: F,
+    gap_rate_bound: f64,
+    derivative_at: D,
+) -> Option<f64>
+where
+    F: Fn(f64) -> f64,
+    D: Fn(f64) -> f64,
+{
+    let initial_gap = gap_at(0.0);
+    if initial_gap <= 0.0 {
+        return (derivative_at(0.0) < 0.0).then_some(0.0);
+    }
+    if !gap_rate_bound.is_finite() || gap_rate_bound <= 0.0 {
+        return None;
+    }
+
+    let horizon_gap = gap_at(horizon);
+    let mut pending = vec![(0.0, horizon, initial_gap, horizon_gap)];
+    while let Some((left, right, left_gap, right_gap)) = pending.pop() {
+        let midpoint = left + 0.5 * (right - left);
+        if midpoint == left || midpoint == right {
+            if left_gap > 0.0 && right_gap <= 0.0 && derivative_at(right) < 0.0 {
+                return Some(right);
+            }
+            continue;
+        }
+        let midpoint_gap = gap_at(midpoint);
+        if midpoint_gap > gap_rate_bound * (0.5 * (right - left)) {
+            continue;
+        }
+
+        // A sign-changing outer bracket can contain more than one contact window. Subdivide it
+        // rather than bisecting under a false monotonicity assumption, and visit the left half
+        // first so the returned representable bracket is the earliest one.
+        pending.push((midpoint, right, midpoint_gap, right_gap));
+        pending.push((left, midpoint, left_gap, midpoint_gap));
+    }
+
+    None
+}
 
 fn predict_airborne_ball_ball_collision(
     first: &NBallSystemState,
@@ -1505,35 +1607,16 @@ fn predict_airborne_ball_ball_collision(
         .into_iter()
         .filter_map(|state| match state {
             NBallSystemState::Airborne(airborne) => {
-                settle_airborne_ball_on_next_table_contact(airborne, ball)
-                    .map(|contact| contact.time_until_contact.as_f64())
+                time_until_airborne_ball_reaches_table(airborne).map(|time| time.as_f64())
             }
             NBallSystemState::OnTable(_) | NBallSystemState::Pocketed { .. } => None,
         })
         .fold(f64::INFINITY, f64::min);
-    if !horizon.is_finite() || horizon <= f64::EPSILON {
+    if !horizon.is_finite() || horizon <= 0.0 {
         return None;
     }
 
     let contact_distance = 2.0 * ball.radius.as_f64();
-    let contact_distance_squared = contact_distance * contact_distance;
-    let gap_squared_at = |t: f64| {
-        let states = advance_n_ball_system_without_event(
-            &[first.clone(), second.clone()],
-            Seconds::new(t),
-            ball,
-            motion,
-        );
-        let first = states[0].as_ball_state();
-        let second = states[1].as_ball_state();
-        let dx = second.position.x().as_f64() - first.position.x().as_f64();
-        let dy = second.position.y().as_f64() - first.position.y().as_f64();
-        let dz = second.height.as_f64() - first.height.as_f64();
-        dx * dx + dy * dy + dz * dz - contact_distance_squared
-    };
-
-    let mut lower_time = 0.0;
-    let initial_gap = gap_squared_at(lower_time);
     let first_state = first.as_ball_state();
     let second_state = second.as_ball_state();
     let center_offset = [
@@ -1546,66 +1629,84 @@ fn predict_airborne_ball_ball_collision(
         second_state.velocity.y().as_f64() - first_state.velocity.y().as_f64(),
         second_state.vertical_velocity.as_f64() - first_state.vertical_velocity.as_f64(),
     ];
-    let gap_rate = 2.0 * dot_product_3d(center_offset, relative_velocity);
-    let gap_rate_tolerance = 1e-10
-        * (contact_distance * dot_product_3d(relative_velocity, relative_velocity).sqrt()).max(1.0);
-    let diagnostic_sample = AIRBORNE_BALL_BALL_DIAGNOSTIC_SAMPLE_SECONDS.min(horizon);
-    let diagnostic_gap = gap_squared_at(diagnostic_sample);
-    let materially_inward =
-        diagnostic_gap < initial_gap - 1e-12 * contact_distance_squared.max(1.0);
-    let closing_through_sample = gap_rate < -gap_rate_tolerance && diagnostic_gap <= 0.0;
-    let accelerating_inward = gap_rate.abs() <= gap_rate_tolerance && materially_inward;
-    if initial_gap <= 0.0 && (closing_through_sample || accelerating_inward) {
-        return Some(PredictedAirborneBallBallCollision {
-            time_until_contact: Seconds::zero(),
-            first_at_contact: first_state.clone(),
-            second_at_contact: second_state.clone(),
-        });
-    }
 
-    // A ball leaving a zero-time contact can later re-enter while it remains airborne.
-    let mut awaiting_free_flight = initial_gap <= 0.0;
-
-    let sample_count = (horizon / AIRBORNE_BALL_BALL_DIAGNOSTIC_SAMPLE_SECONDS)
-        .ceil()
-        .clamp(1.0, 10_000.0) as usize;
-    for sample_index in 1..=sample_count {
-        let upper_time = horizon * sample_index as f64 / sample_count as f64;
-        let upper_gap = gap_squared_at(upper_time);
-        if awaiting_free_flight {
-            if upper_gap > 0.0 {
-                lower_time = upper_time;
-                awaiting_free_flight = false;
-            }
-            continue;
-        }
-        if upper_gap <= 0.0 {
-            let mut lo = lower_time;
-            let mut hi = upper_time;
-            for _ in 0..48 {
-                let mid = 0.5 * (lo + hi);
-                if gap_squared_at(mid) <= 0.0 {
-                    hi = mid;
-                } else {
-                    lo = mid;
-                }
-            }
-            let states_at_contact = advance_n_ball_system_without_event(
+    let contact_time = if matches!(first, NBallSystemState::Airborne(_))
+        && matches!(second, NBallSystemState::Airborne(_))
+    {
+        // Gravity cancels from the relative trajectory of two airborne balls, leaving an exact
+        // linear sphere-entry problem rather than a sampled ballistic curve.
+        first_linear_sphere_entry_time(center_offset, relative_velocity, contact_distance)
+            .filter(|time| *time <= horizon)
+    } else {
+        let states_at = |time| {
+            advance_n_ball_system_without_event(
                 &[first.clone(), second.clone()],
-                Seconds::new(hi),
+                Seconds::new(time),
                 ball,
                 motion,
-            );
-            return Some(PredictedAirborneBallBallCollision {
-                time_until_contact: Seconds::new(hi),
-                first_at_contact: states_at_contact[0].as_ball_state().clone(),
-                second_at_contact: states_at_contact[1].as_ball_state().clone(),
-            });
-        }
-        lower_time = upper_time;
-    }
+            )
+        };
+        let gap_at = |time| {
+            let states = states_at(time);
+            let first = states[0].as_ball_state();
+            let second = states[1].as_ball_state();
+            let dx = second.position.x().as_f64() - first.position.x().as_f64();
+            let dy = second.position.y().as_f64() - first.position.y().as_f64();
+            let dz = second.height.as_f64() - first.height.as_f64();
+            vector_norm_3d([dx, dy, dz]) - contact_distance
+        };
+        let derivative_at = |time| {
+            let states = states_at(time);
+            let first = states[0].as_ball_state();
+            let second = states[1].as_ball_state();
+            let offset = [
+                second.position.x().as_f64() - first.position.x().as_f64(),
+                second.position.y().as_f64() - first.position.y().as_f64(),
+                second.height.as_f64() - first.height.as_f64(),
+            ];
+            let distance = vector_norm_3d(offset);
+            if distance == 0.0 {
+                0.0
+            } else {
+                let velocity = [
+                    second.velocity.x().as_f64() - first.velocity.x().as_f64(),
+                    second.velocity.y().as_f64() - first.velocity.y().as_f64(),
+                    second.vertical_velocity.as_f64() - first.vertical_velocity.as_f64(),
+                ];
+                dot_product_3d(offset, velocity) / distance
+            }
+        };
+        let speed_bound = [first, second]
+            .into_iter()
+            .map(|state| match state {
+                NBallSystemState::Airborne(state) => {
+                    let planar_speed = state.velocity.speed().as_f64();
+                    planar_speed.hypot(
+                        state.vertical_velocity.as_f64().abs()
+                            + STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * horizon,
+                    )
+                }
+                NBallSystemState::OnTable(state) => {
+                    state.as_ball_state().velocity.speed().as_f64()
+                        + sliding_friction_acceleration(motion) * horizon
+                }
+                NBallSystemState::Pocketed { .. } => 0.0,
+            })
+            .sum();
+        first_continuous_entry_time_adaptive(horizon, gap_at, speed_bound, derivative_at)
+    }?;
 
-    None
+    let states_at_contact = advance_n_ball_system_without_event(
+        &[first.clone(), second.clone()],
+        Seconds::new(contact_time),
+        ball,
+        motion,
+    );
+    Some(PredictedAirborneBallBallCollision {
+        time_until_contact: Seconds::new(contact_time),
+        first_at_contact: states_at_contact[0].as_ball_state().clone(),
+        second_at_contact: states_at_contact[1].as_ball_state().clone(),
+    })
 }
 
 /// A predicted future impact between one on-table ball and a table rail.
@@ -4735,16 +4836,20 @@ pub fn advance_airborne_ball(state: &BallState, dt: Seconds) -> BallState {
 pub fn time_until_airborne_ball_reaches_table(state: &BallState) -> Option<Seconds> {
     let height = state.height.as_f64();
     let vertical_velocity = state.vertical_velocity.as_f64();
-    let discriminant = vertical_velocity * vertical_velocity
-        + 2.0 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * height;
-
-    if discriminant < 0.0 {
+    let gravity = STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED;
+    let discriminant_root = vertical_velocity.hypot(height.sqrt() * (2.0 * gravity).sqrt());
+    if !discriminant_root.is_finite() {
         return None;
     }
 
-    let time =
-        (vertical_velocity + discriminant.sqrt()) / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED;
-    Some(Seconds::new(time.max(0.0)))
+    let time = if vertical_velocity < 0.0 {
+        // The ordinary positive-root formula subtracts nearly equal magnitudes for a fast downward
+        // ball. Its conjugate form preserves the small, positive contact time.
+        height / (0.5 * discriminant_root - 0.5 * vertical_velocity)
+    } else {
+        (0.5 * discriminant_root + 0.5 * vertical_velocity) / (0.5 * gravity)
+    };
+    (time.is_finite() && time >= 0.0).then(|| Seconds::new(time))
 }
 
 /// A ballistic airborne segment ending at the next table contact.
@@ -4917,7 +5022,16 @@ fn time_until_vertical_axis_spin_stops_f64(
     initial_spin: f64,
     config: &OnTableMotionConfig,
 ) -> Option<f64> {
-    (initial_spin != 0.0).then_some(initial_spin.abs() / spin_angular_deceleration(config))
+    if initial_spin == 0.0 {
+        return None;
+    }
+
+    let stop_time = initial_spin.abs() / spin_angular_deceleration(config);
+    if stop_time == 0.0 {
+        Some(f64::from_bits(1))
+    } else {
+        stop_time.is_finite().then_some(stop_time)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -4991,7 +5105,7 @@ fn raw_advance_within_phase_on_table(
             let transition_time =
                 (2.0 / 7.0) * contact_speed / sliding_friction_acceleration(config);
             let advance_time = dt_seconds.min(transition_time);
-            let alpha = if transition_time <= f64::EPSILON {
+            let alpha = if transition_time == 0.0 {
                 1.0
             } else {
                 advance_time / transition_time
@@ -5176,14 +5290,13 @@ fn raw_compute_next_transition_on_table(
                 time_until_transition,
             })
         }
-        MotionPhase::Spinning => Some(NextTransition {
-            phase_before: MotionPhase::Spinning,
-            phase_after: MotionPhase::Rest,
-            time_until_transition: Seconds::new(
-                time_until_vertical_axis_spin_stops_f64(state.wz, config)
-                    .expect("spinning balls should have non-zero z-spin"),
-            ),
-        }),
+        MotionPhase::Spinning => time_until_vertical_axis_spin_stops_f64(state.wz, config).map(
+            |time_until_transition| NextTransition {
+                phase_before: MotionPhase::Spinning,
+                phase_after: MotionPhase::Rest,
+                time_until_transition: Seconds::new(time_until_transition),
+            },
+        ),
         MotionPhase::Airborne => {
             unreachable!("on-table motion helpers cannot predict airborne transitions")
         }
@@ -6159,37 +6272,11 @@ pub fn compute_next_ball_ball_collision_on_table(
     let vx = b_state.velocity.x().as_f64() - a_state.velocity.x().as_f64();
     let vy = b_state.velocity.y().as_f64() - a_state.velocity.y().as_f64();
     let contact_distance = 2.0 * ball.radius.as_f64();
-    let quadratic_a = vx * vx + vy * vy;
-    let quadratic_b = 2.0 * (rx * vx + ry * vy);
-    let quadratic_c = rx * rx + ry * ry - contact_distance * contact_distance;
-
-    if quadratic_c <= 0.0 {
-        if quadratic_a == 0.0 || quadratic_b >= 0.0 {
-            return None;
-        }
-
-        let time_until_impact = Seconds::new(0.0);
-        return Some(PredictedBallBallCollision {
-            time_until_impact,
-            a_at_impact: advance_on_table_with_constant_velocity(a, time_until_impact),
-            b_at_impact: advance_on_table_with_constant_velocity(b, time_until_impact),
-        });
-    }
-
-    if quadratic_a == 0.0 || quadratic_b >= 0.0 {
-        return None;
-    }
-
-    let discriminant = quadratic_b * quadratic_b - 4.0 * quadratic_a * quadratic_c;
-    if discriminant < -f64::EPSILON {
-        return None;
-    }
-
-    let impact_time = (-quadratic_b - discriminant.max(0.0).sqrt()) / (2.0 * quadratic_a);
-    if impact_time < 0.0 {
-        return None;
-    }
-
+    let impact_time = first_linear_sphere_entry_time(
+        [rx, ry, 0.0],
+        [vx, vy, 0.0],
+        contact_distance,
+    )?;
     let time_until_impact = Seconds::new(impact_time);
 
     Some(PredictedBallBallCollision {

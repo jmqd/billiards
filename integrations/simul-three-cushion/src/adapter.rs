@@ -556,7 +556,13 @@ mod tests {
     #[test]
     fn bounded_worker_count_respects_all_limits() {
         let cases = [
-            ("huge request capped by availability", usize::MAX, 1_024, 8, 8),
+            (
+                "huge request capped by availability",
+                usize::MAX,
+                1_024,
+                8,
+                8,
+            ),
             ("request capped by fewer specs", 12, 3, 8, 3),
             ("ordinary request below both limits", 4, 12, 8, 4),
             ("zero availability normalized to one", 8, 12, 0, 1),

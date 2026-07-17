@@ -1481,7 +1481,11 @@ fn playback_uses_the_post_event_state_at_an_exact_segment_boundary() {
     };
 
     let sampled = trace
-        .state_at_elapsed(Seconds::new(1.0), &BallSetPhysicsSpec::default(), &motion_config())
+        .state_at_elapsed(
+            Seconds::new(1.0),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
         .expect("ball should remain visible after the event");
 
     assert_eq!(sampled, post_event);

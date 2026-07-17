@@ -201,8 +201,7 @@ fn physics_profile_rejects_every_negative_phase_tolerance() {
             InchesPerSecond::new(Inches::from_f64(-1.0));
     });
     let negative_rest_linear_speed = canonical_profile_with(|_, motion, _, _| {
-        motion.phase.thresholds.rest_linear_speed =
-            InchesPerSecond::new(Inches::from_f64(-1.0));
+        motion.phase.thresholds.rest_linear_speed = InchesPerSecond::new(Inches::from_f64(-1.0));
     });
     let negative_rest_angular_speed = canonical_profile_with(|_, motion, _, _| {
         motion.phase.thresholds.rest_angular_speed = RadiansPerSecond::new(-1.0);

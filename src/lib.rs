@@ -1544,9 +1544,7 @@ fn first_linear_sphere_entry_time(
     (time.is_finite() && time >= 0.0).then_some(time)
 }
 
-
-const CONTINUOUS_EVENT_GAP_TOLERANCE_INCHES: f64 =
-    N_BALL_GEOMETRY_RECOVERY_TOLERANCE_INCHES;
+const CONTINUOUS_EVENT_GAP_TOLERANCE_INCHES: f64 = N_BALL_GEOMETRY_RECOVERY_TOLERANCE_INCHES;
 
 fn first_continuous_entry_time_adaptive<F, D>(
     horizon: f64,
@@ -1566,8 +1564,7 @@ where
         return None;
     }
 
-    let time_tolerance =
-        2.0 * CONTINUOUS_EVENT_GAP_TOLERANCE_INCHES / gap_rate_bound;
+    let time_tolerance = 2.0 * CONTINUOUS_EVENT_GAP_TOLERANCE_INCHES / gap_rate_bound;
 
     let horizon_gap = gap_at(horizon);
     let mut pending = vec![(0.0, horizon, initial_gap, horizon_gap)];
@@ -1623,12 +1620,7 @@ fn continuous_entry_search_spatial_tolerance_bounds_subresolution_near_miss() {
         1.2e-12 + 2.4998 * time * time
     };
 
-    let entry = first_continuous_entry_time_adaptive(
-        7.2e-5,
-        gap_at,
-        200.0,
-        |time| 4.9996 * time,
-    );
+    let entry = first_continuous_entry_time_adaptive(7.2e-5, gap_at, 200.0, |time| 4.9996 * time);
 
     assert_eq!(entry, None);
     assert!(

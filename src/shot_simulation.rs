@@ -249,15 +249,12 @@ impl PhysicsProfile {
                     .to_f64()
                     .is_some_and(|magnitude| magnitude >= 0.0)
         };
-        let valid_restitution = |value: &Scale| {
-            finite_scale(value) && (0.0..=1.0).contains(&value.as_f64())
-        };
-        let valid_lossy_restitution = |value: &Scale| {
-            finite_scale(value) && (0.0..1.0).contains(&value.as_f64())
-        };
-        let valid_unit_interval_scale = |value: &Scale| {
-            finite_scale(value) && (0.0..=1.0).contains(&value.as_f64())
-        };
+        let valid_restitution =
+            |value: &Scale| finite_scale(value) && (0.0..=1.0).contains(&value.as_f64());
+        let valid_lossy_restitution =
+            |value: &Scale| finite_scale(value) && (0.0..1.0).contains(&value.as_f64());
+        let valid_unit_interval_scale =
+            |value: &Scale| finite_scale(value) && (0.0..=1.0).contains(&value.as_f64());
         if !finite_inches(&table.diamond_length) || table.diamond_length.as_f64() <= 0.0 {
             return Err(ShotSimulationError::InvalidPhysicsProfile(
                 "table diamond length must be finite and positive",

@@ -330,19 +330,18 @@ fn subthreshold_touching_airborne_pair_does_not_stall_event_loop_at_zero_time() 
         )),
     ];
 
-    let simulation =
-        simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
-            &states,
-            &ball,
-            &TableSpec::default(),
-            &zero_threshold_motion(),
-            CollisionModel::Ideal,
-            &BallBallCollisionConfig::default(),
-            RailModel::Mirror,
-            &RailCollisionProfile::default(),
-            Some(4),
-        )
-        .expect("the exactly touching airborne fixture should remain valid");
+    let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+        &states,
+        &ball,
+        &TableSpec::default(),
+        &zero_threshold_motion(),
+        CollisionModel::Ideal,
+        &BallBallCollisionConfig::default(),
+        RailModel::Mirror,
+        &RailCollisionProfile::default(),
+        Some(4),
+    )
+    .expect("the exactly touching airborne fixture should remain valid");
 
     let zero_time_airborne_contacts = simulation
         .events

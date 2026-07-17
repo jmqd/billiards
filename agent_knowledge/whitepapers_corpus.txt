@@ -4,7 +4,7 @@ title: 10 000 BU Exam Challenge
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “$10,000 BU Exam Challenge”                                               ILLUSTRATED PRINCIPLES
@@ -101,7 +101,7 @@ title: 10 Secrets Of A Good Stroke
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “10 Secrets of a Good Stroke”                                               ILLUSTRATED PRINCIPLES
@@ -235,7 +235,7 @@ title: 10 Useful Game Winning Shots Part 1
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “10 Useful Game Winning Shots – Part 1”                                    ILLUSTRATED PRINCIPLES
@@ -332,7 +332,7 @@ title: 10 Useful Game Winning Shots Part 2
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “10 Useful Game Winning Shots – Part 2”                                          ILLUSTRATED PRINCIPLES
@@ -467,7 +467,7 @@ title: 10 Ways To Avoid A Double Hit Foul
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “10 Ways to AVOID A DOUBLE HIT Foul”                                        ILLUSTRATED PRINCIPLES
@@ -599,7 +599,7 @@ title: 30-Degree Rule for Caroms - December 2009
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 30-Degree Rule for Caroms - December 2009 - Tom Ross
@@ -757,7 +757,7 @@ title: 8 Ball Break Stats
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 8-Ball Break Stats                                                               ILLUSTRATED PRINCIPLES
@@ -892,7 +892,7 @@ title: 90/30 Degree Rule Follow-up - Part I
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                        ILLUSTRATED PRINCIPLES
@@ -1143,7 +1143,7 @@ title: 90° and 30° Rule Follow-up - Part II: speed effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                         ILLUSTRATED PRINCIPLES
@@ -1313,7 +1313,7 @@ title: 90 degree And 30 degree Rule Follow Up Part Iii Inelasticity And Friction
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                          ILLUSTRATED PRINCIPLES
@@ -1486,7 +1486,7 @@ title: 90° and 30° Rule Follow-up - Part IV: English effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                         ILLUSTRATED PRINCIPLES
@@ -1678,7 +1678,7 @@ title: 90° and 30° Rule Follow-up - Part V: The Final Chapter
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                         ILLUSTRATED PRINCIPLES
@@ -1854,7 +1854,7 @@ title: 90º and 30º Rule Review
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                  ILLUSTRATED PRINCIPLES
@@ -2090,7 +2090,7 @@ title: 9 Ball Break Strategy
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “9-Ball Break Strategy”                                                      ILLUSTRATED PRINCIPLES
@@ -2209,7 +2209,7 @@ title: A Theoretical Analysis Of Billiard Ball Dynamics Under Cushion Impacts
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, robotics_and_computation, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 1863
@@ -2801,7 +2801,7 @@ title: Additional Parts Required Duct Tape And Baling Wire
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -2812,7 +2812,7 @@ title: Aim, Align, Sight - Part I: Introduction and Ghost Ball Systems
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                    ILLUSTRATED PRINCIPLES
@@ -3036,7 +3036,7 @@ title: Aim Align Sight Part Ii Visual Alignment
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Aim, Align, Sight - Part II: Visual Alignment”                                ILLUSTRATED PRINCIPLES
@@ -3219,7 +3219,7 @@ title: Aim Align Sight Part Iii Sighting
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Aim, Align, Sight - Part III: Sighting”                                     ILLUSTRATED PRINCIPLES
@@ -3389,7 +3389,7 @@ title: Aim Visualization Techniques
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Aim Visualization Techniques”                                                  ILLUSTRATED PRINCIPLES
@@ -3511,7 +3511,7 @@ title: Air Aiming Techniques
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Air Aiming Techniques”                                                   ILLUSTRATED PRINCIPLES
@@ -3589,7 +3589,7 @@ title: Air Peace Sign
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Air Peace Sign”                                                               ILLUSTRATED PRINCIPLES
@@ -3669,7 +3669,7 @@ title: All Ball Fouls
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “All Ball Fouls”                                                               ILLUSTRATED PRINCIPLES
@@ -3854,7 +3854,7 @@ title: APAPP 4 of 4
 topics: collisions_and_impacts, cue_ball_motion_and_spin, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Amateur Physics
@@ -4858,9 +4858,9 @@ between these two extremes.
 relation between T0 and the cue ball energy Tb. The combination of these relations gives
         Tb             4Mb Ms2                      4 2s
              =                           =
-         T                  (            )
+         T               2
+                            (            )
                (Mb + Ms ) Ms + 1 M f (1 + s ) s + 1 f
-                         2
                                      3
                                                    2
                                                      (     3    )
@@ -6209,11 +6209,9 @@ angle (neglecting collision induced throw).
 Problem 4.16: What is the maximum deflection angle œ for a natural-roll cue ball
 collision?
 Answer: Substitution of ( max ) gives
-
-                         (
-         max = arctan 2 tan
                       7
-                              ((   max )   )) − (   max )
+                         (
+         max = arctan 2 tan   ((   max )   )) − (   max )
 
                  = − 2 ( max ) = 0.58903 =          [= 33.749 deg]
                 2                           5.3335
@@ -8069,9 +8067,9 @@ v 0 =  0 , v1 =  q  , v 2 =  10 2  , v 3 = 
         0          0             q1 p2              q1 p2              q p (1 + q q )
                                                                             1 2        1 2
                                              p1 
-          (
+      1   (
     p 1 + q q + ( q q )2 
-      1     1 2       1 2       )            1 − q1q2 
+            1 2       1 2       )            1 − q1q2 
  5             0                 ∞   ∞ 0       0 .
 v =                        , and v = M v =
                 3
@@ -8735,7 +8733,7 @@ title: Amazing Frozen Kiss Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Amazing Frozen Kiss Shots”                                                     ILLUSTRATED PRINCIPLES
@@ -8828,7 +8826,7 @@ title: An Update on Tom Ross Cue Times Billiards News, August, 2014
 topics: cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “An Update on Tom Ross”
@@ -8905,7 +8903,7 @@ title: Analysis of a Winning Computational Billiards Player
 topics: cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Analysis of a Winning Computational Billiards Player ∗
@@ -9291,7 +9289,7 @@ title: Application of high-speed imaging to determine the dynamics of billiards
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, robotics_and_computation, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Application of high-speed imaging to determine the dynamics of billiards
@@ -9741,7 +9739,7 @@ title: Avoiding Scratches - November 2010
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Avoiding Scratches - November 2010 - Tom Ross
@@ -9893,7 +9891,7 @@ title: Back Of The Ball Aiming
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Back-of-the-Ball Aiming”                                                   ILLUSTRATED PRINCIPLES
@@ -9977,7 +9975,7 @@ title: Ball Colors And Numbers
 topics: technical_proofs, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Ball Colors and Numbers”                                                  ILLUSTRATED PRINCIPLES
@@ -10075,7 +10073,7 @@ title: Ball Weight And Size Difference Effects Part I
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Ball Weight and Size Difference Effects – Part I”                          ILLUSTRATED PRINCIPLES
@@ -10251,7 +10249,7 @@ title: Ball Weight And Size Difference Effects Part Ii
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Ball Weight and Size Difference Effects – Part II”                             ILLUSTRATED PRINCIPLES
@@ -10371,7 +10369,7 @@ title: Bank Shot Reference Tracks
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 “Bank Shot Reference Tracks”                                                  ILLUSTRATED PRINCIPLES
@@ -10462,7 +10460,7 @@ title: Bar Rules And Dirty Pool
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Bar Rules and Dirty Pool”                                                      ILLUSTRATED PRINCIPLES
@@ -10644,7 +10642,7 @@ title: Beer-goggle Effects
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                              ILLUSTRATED PRINCIPLES
@@ -10764,7 +10762,7 @@ title: Bending Twisting And Stiffening Kicks And Banks
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Bending, Twisting, and Stiffening Kicks and Banks”                         ILLUSTRATED PRINCIPLES
@@ -10887,7 +10885,7 @@ title: Big Impact Technique Changes
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Big-Impact Technique Changes”                                            ILLUSTRATED PRINCIPLES
@@ -11012,7 +11010,7 @@ title: Billiard University BU Part I Introduction
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part I: Introduction”                           ILLUSTRATED PRINCIPLES
@@ -11180,7 +11178,7 @@ title: Billiard University BU Part Ii Skills Exam
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part II: Skills Exam”                             ILLUSTRATED PRINCIPLES
@@ -11316,7 +11314,7 @@ title: Billiard University BU Part Iii Player Rating
 topics: technical_proofs, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part III: Player Rating”                          ILLUSTRATED PRINCIPLES
@@ -11466,7 +11464,7 @@ title: Billiard University BU Part Iv Table Difficulty
 topics: technical_proofs, collisions_and_impacts, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 “Billiard University (BU) – Part IV: Table Difficulty”                       ILLUSTRATED PRINCIPLES
@@ -11713,7 +11711,7 @@ title: Billiard University BU Part Ix Kicks
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part IX: Kicks”                                ILLUSTRATED PRINCIPLES
@@ -11842,7 +11840,7 @@ title: Billiard University BU Part V Stun Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part V: Stun Shots”                              ILLUSTRATED PRINCIPLES
@@ -11973,7 +11971,7 @@ title: Billiard University BU Part Vi 9 Ball Drills
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part VI: 9-Ball Drills”                        ILLUSTRATED PRINCIPLES
@@ -12081,7 +12079,7 @@ title: Billiard University BU Part Vii 8 Ball Drills
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part VII: 8-Ball Drills”                         ILLUSTRATED PRINCIPLES
@@ -12201,7 +12199,7 @@ title: Billiard University BU Part Viii Safeties
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part VIII: Safeties”                             ILLUSTRATED PRINCIPLES
@@ -12316,7 +12314,7 @@ title: Billiard University BU Part X The Break Shot
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Billiard University (BU) – Part X: The Break Shot”                          ILLUSTRATED PRINCIPLES
@@ -12461,7 +12459,7 @@ title: Billiards on the Big Screen - Pool Hall Junkies
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                        ILLUSTRATED PRINCIPLES
@@ -12670,7 +12668,7 @@ title: Billiards on the Big Screen - The Color of Money
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                        ILLUSTRATED PRINCIPLES
@@ -12896,7 +12894,7 @@ title: Billiards on the Big Screen - The Hustler
 topics: technical_proofs, collisions_and_impacts, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 David Alciatore (“Dr. Dave”)                                     ILLUSTRATED PRINCIPLES
@@ -13150,7 +13148,7 @@ title: Bridge Length Effects
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Bridge Length Effects”                                                     ILLUSTRATED PRINCIPLES
@@ -13286,7 +13284,7 @@ title: CB Control Everything You Need To Know
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “CB CONTROL … Everything You Need to Know”                                  ILLUSTRATED PRINCIPLES
@@ -13402,7 +13400,7 @@ title: CB Control Subtleties
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “CB Control Subtleties”                                                     ILLUSTRATED PRINCIPLES
@@ -13498,7 +13496,7 @@ title: Chalk Testing Sequel
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Chalk Testing Sequel”                                                      ILLUSTRATED PRINCIPLES
@@ -13676,7 +13674,7 @@ title: Christina And The Dangerous Duck Slalom
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -13687,7 +13685,7 @@ title: Coin Proposition Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Coin Proposition Shots”                                                        ILLUSTRATED PRINCIPLES
@@ -13813,7 +13811,7 @@ title: Collision of Billiard Balls in 3D with Spin and Friction Charles S. Peski
 topics: collisions_and_impacts, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Collision of Billiard Balls in 3D with Spin and Friction
@@ -14409,7 +14407,7 @@ title: Collision of two spinning billiard balls and the role of table
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, robotics_and_computation, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Collision of two spinning billiard balls and the role of table
@@ -15366,7 +15364,7 @@ title: Come For The Donuts Stay For The Drills
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Come for the Donuts, Stay for the Drills”                                    ILLUSTRATED PRINCIPLES
@@ -15471,7 +15469,7 @@ title: Computational pool: an OR-optimization point of view
 topics: strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Computational pool: an OR-optimization point of view
@@ -16166,7 +16164,7 @@ title: Corey Deuel S Famous Draw Shot
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 “Corey Deuel’s Famous Draw Shot”                                          ILLUSTRATED PRINCIPLES
@@ -16259,7 +16257,7 @@ title: Coriolis was brilliant ... but he didn't have a high-speed camera
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                         ILLUSTRATED PRINCIPLES
@@ -16451,7 +16449,7 @@ title: Coriolis was brilliant ... but he didn't have a high-speed camera
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                        ILLUSTRATED PRINCIPLES
@@ -16603,7 +16601,7 @@ title: Coriolis was brilliant ... but he didn't have a high-speed camera
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                         ILLUSTRATED PRINCIPLES
@@ -16789,7 +16787,7 @@ title: Coriolis was brilliant ... but he didn't have a high-speed camera
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                         ILLUSTRATED PRINCIPLES
@@ -16950,7 +16948,7 @@ title: Coriolis was brilliant ... but he didn't have a high-speed camera
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                        ILLUSTRATED PRINCIPLES
@@ -17111,7 +17109,7 @@ title: Coriolis was brilliant ... but he didn't have a high-speed camera
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                         ILLUSTRATED PRINCIPLES
@@ -17258,7 +17256,7 @@ title: Cross Table CB Control
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Cross-Table CB Control”                                                      ILLUSTRATED PRINCIPLES
@@ -17355,7 +17353,7 @@ title: Cue Tip Size And Shape Effects
 topics: technical_proofs, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Cue Tip Size and Shape Effects”                                              ILLUSTRATED PRINCIPLES
@@ -17462,7 +17460,7 @@ title: Cue Tip Squirt Testing
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Cue Tip Squirt Testing”                                                     ILLUSTRATED PRINCIPLES
@@ -17572,7 +17570,7 @@ title: Design, Fabrication, and Implementation of Jump-Cue Testing Machine
 topics: cue_ball_motion_and_spin, strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 University of North Florida
@@ -17903,7 +17901,7 @@ title: Determining Manipulator Workspace Boundaries Using The Monte Carlo Method
 topics: robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -17914,7 +17912,7 @@ title: Diy Tip Replacement
 topics: technical_proofs, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “DIY Tip Replacement”                                                         ILLUSTRATED PRINCIPLES
@@ -18055,7 +18053,7 @@ title: Does The Brand Of Chalk Really Matter
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Does the Brand of Chalk Really Matter?”                                      ILLUSTRATED PRINCIPLES
@@ -18214,7 +18212,7 @@ title: Dr Dave S Best Youtube Vids
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Dr. Dave’s Best YouTube Vids”                                              ILLUSTRATED PRINCIPLES
@@ -18343,7 +18341,7 @@ title: Dr Dave Schools Neil Degrasse Tyson
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Dr. Dave Schools Neil deGrasse Tyson”                                      ILLUSTRATED PRINCIPLES
@@ -18462,7 +18460,7 @@ title: Draw For Show Follow For Dough
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Draw for Show, Follow for Dough”                                            ILLUSTRATED PRINCIPLES
@@ -18580,7 +18578,7 @@ title: Draw Shot Control
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Draw Shot Control”                                                            ILLUSTRATED PRINCIPLES
@@ -18686,7 +18684,7 @@ title: Draw Shot Cue Ball Directions
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Draw Shot Cue Ball Directions”                                             ILLUSTRATED PRINCIPLES
@@ -18812,7 +18810,7 @@ title: Draw Shot Physics - Part III: spin ratio
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 David Alciatore, PhD (“Dr. Dave”)                              ILLUSTRATED PRINCIPLES
@@ -19010,7 +19008,7 @@ title: Draw Shot Physics - Part I: basics
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 David Alciatore, PhD (“Dr. Dave”)                                ILLUSTRATED PRINCIPLES
@@ -19291,7 +19289,7 @@ title: Draw Shot Physics - Part II: examples
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                                         ILLUSTRATED PRINCIPLES
@@ -19508,7 +19506,7 @@ title: Draw Shot Physics - Part IV: cue elevation effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                    ILLUSTRATED PRINCIPLES
@@ -19714,7 +19712,7 @@ title: Draw Shot Primer - Part I: physics
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                    ILLUSTRATED PRINCIPLES
@@ -19881,7 +19879,7 @@ title: Draw Shot Primer - Part II: aiming
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                     ILLUSTRATED PRINCIPLES
@@ -20067,7 +20065,7 @@ title: Draw Shot Primer - Part III: using the trisect system
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                          ILLUSTRATED PRINCIPLES
@@ -20312,7 +20310,7 @@ title: Draw Shot Primer - Part IV: game examples
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                   ILLUSTRATED PRINCIPLES
@@ -20519,7 +20517,7 @@ title: Draw Shot Primer Part V How To Achieve Good Draw Action
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                      ILLUSTRATED PRINCIPLES
@@ -20745,7 +20743,7 @@ title: Draw Shot Primer - Part VI: Draw Shot Practice Drill
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                      ILLUSTRATED PRINCIPLES
@@ -20990,7 +20988,7 @@ title: Draw Shot Primer - Part VII: Tips of English
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                       ILLUSTRATED PRINCIPLES
@@ -21212,7 +21210,7 @@ title: Dynamics In Carom Three Cushion
 topics: collisions_and_impacts
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 [NO_EXTRACTED_TEXT]
@@ -21223,7 +21221,7 @@ title: JSME-TJ
 topics: collisions_and_impacts, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Journal of Solid Mechanics                                                                                                       Vol. 3, No. 7, 2009
@@ -21956,7 +21954,7 @@ title: End-of-game frozen-rail shots
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -22120,7 +22118,7 @@ title: End-of-game frozen-rail shots - part II
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -22258,7 +22256,7 @@ title: Equipment Care
 topics: technical_proofs, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Equipment Care”                                                            ILLUSTRATED PRINCIPLES
@@ -22411,7 +22409,7 @@ title: European Open Push Shot Controversy
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “European Open Push Shot Controversy”                                       ILLUSTRATED PRINCIPLES
@@ -22579,7 +22577,7 @@ title: Everything You Always Wanted to Know About Cue Ball Squirt, But Were Afra
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Everything You Always Wanted to Know About Cue Ball
@@ -22975,9 +22973,8 @@ the tip (i.e. as (L–B) increases), a trend that agrees with intuition and the 
 moving mass from the tip end of the cue to the butt end.
          The total sideways tip speed is the sum of the center of mass speed and the
 rotational speed at the moment after the collision
-                     ′ + ( L − B)ω s
+         Vtip        ′ + ( L − B)ω s
            ′ , y = Vsy
-         Vtip
                                                                          ′ , y = M sVsy
 The effective endmass parameter Mtip is defined from the relation M tipVtip           ′ .
      ′ is the actual impulse of the stick, and M tipVtip
@@ -23215,9 +23212,8 @@ center of mass (i.e. the balance point) B measured from the butt end is
            M 0 0 0                4 1+ β + β 2           (                  )
 The moment of inertia about this balance point around the vertical axis is
                                                              2 π L R( z )
-                      (
+              V       (
         I s = ∫ ρ y + ( z − B) dV = ρ ∫ ∫
-              V
                           2              2
                                              )                0 0
                                                                      ∫ (r 3Sin 2θ + r(z − B)2 ) dr dz dθ
@@ -23250,9 +23246,10 @@ cue would be about 21 inches from the end of the butt. Actual pool cues have a b
 model and also the kind of deviations to expect when compared to actual cue sticks.
         These expressions for the balance point and moment of inertia may be used to
 predict (Ms/Mtip) ratios.
+
+              =
                  (           2     3
         M s 8 6 + 9β + 10β + 4 β + β
-              =
                                      4
                                             )                   (rigid cone approximation)
         M tip
@@ -23447,7 +23444,7 @@ title: Everything You Need To Know About Throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Everything You Need to Know About Throw”                                     ILLUSTRATED PRINCIPLES
@@ -23616,7 +23613,7 @@ title: Eye Pattern Best Practices
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Eye Pattern “Best Practices”                                                 ILLUSTRATED PRINCIPLES
@@ -23765,7 +23762,7 @@ title: Fast Speed Banks
 topics: technical_proofs, collisions_and_impacts, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Fast Speed Banks”                                                        ILLUSTRATED PRINCIPLES
@@ -23892,7 +23889,7 @@ title: by DR. GEORGE ONODA Faster Than
 topics: cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 by DR. GEORGE ONODA
@@ -24779,7 +24776,7 @@ title: Finding Your Perfect Stance
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Finding Your Perfect Stance”                                              ILLUSTRATED PRINCIPLES
@@ -24909,7 +24906,7 @@ title: Follow Control
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 “Follow Control”                                                              ILLUSTRATED PRINCIPLES
@@ -24999,7 +24996,7 @@ title: Phys Educ 1(1(1991) PrintedintheUK Frontal impact of rolling spheres
 topics: collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Phys Educ 1(1(1991) PrintedintheUK
@@ -25253,7 +25250,7 @@ title: Frozen Proposition Shot
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 “Frozen Proposition Shot”                                                    ILLUSTRATED PRINCIPLES
@@ -25356,7 +25353,7 @@ title: Fundamentals - Part I: MOFUDAT
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                              ILLUSTRATED PRINCIPLES
@@ -25573,7 +25570,7 @@ title: Fundamentals - Part II: Aiming
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -25803,7 +25800,7 @@ title: Fundamentals - Part III: The DAM Aiming System
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)              ILLUSTRATED PRINCIPLES
@@ -26049,7 +26046,7 @@ title: Fundamentals - Part IV: Bridge Length
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                 ILLUSTRATED PRINCIPLES
@@ -26238,7 +26235,7 @@ title: Fundamentals - Part V: CB position control
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                         ILLUSTRATED PRINCIPLES
@@ -26468,7 +26465,7 @@ title: Fundamentals - Part VI: CB control examples
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                 ILLUSTRATED PRINCIPLES
@@ -26648,7 +26645,7 @@ title: Fundamentals - Part VII: speed control
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                 ILLUSTRATED PRINCIPLES
@@ -26819,7 +26816,7 @@ title: Gadget Cares For Your Best Friend
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -26830,7 +26827,7 @@ title: Gadget Keeps Suspension Even
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -26841,7 +26838,7 @@ title: Gender in Pool ... The "Battle of the Trans Sexes Harriet Haynes, a profe
 topics: cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Gender in Pool … The “Battle of the Trans Sexes”
@@ -27360,7 +27357,7 @@ title: Golden Break
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 “Golden Break!”                                                              ILLUSTRATED PRINCIPLES
@@ -27448,7 +27445,7 @@ title: Good Timing In Pool
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Good Timing in Pool”                                                     ILLUSTRATED PRINCIPLES
@@ -27559,7 +27556,7 @@ title: Got English
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Got English?”                                                               ILLUSTRATED PRINCIPLES
@@ -27755,7 +27752,7 @@ title: Half Ball Hit Magic
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Half-Ball Hit Magic”                                                        ILLUSTRATED PRINCIPLES
@@ -27876,7 +27873,7 @@ title: HAPS Part I Fractional Ball Aiming
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “HAPS: Part I: Fractional-Ball Aiming”                                      ILLUSTRATED PRINCIPLES
@@ -27977,7 +27974,7 @@ title: HAPS Part Ii BHE And FHE
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “HAPS – Part II: BHE and FHE”                                               ILLUSTRATED PRINCIPLES
@@ -28117,7 +28114,7 @@ title: HAPS Part Iii Gearing Outside English
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “HAPS – Part III: Gearing Outside English”                                 ILLUSTRATED PRINCIPLES
@@ -28236,7 +28233,7 @@ title: HAPS Part Iv Draw Carom Shot Aiming
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “HAPS – Part IV: Draw Carom Shot Aiming”                                     ILLUSTRATED PRINCIPLES
@@ -28319,7 +28316,7 @@ title: HAPS Part V Combination Shot Throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “HAPS – Part V: Combination-Shot Throw”                                    ILLUSTRATED PRINCIPLES
@@ -28437,7 +28434,7 @@ title: HAPS Part Vi Rail Cut Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “HAPS – Part VI: Rail Cut Shots”                                             ILLUSTRATED PRINCIPLES
@@ -28571,7 +28568,7 @@ title: HAPS Part Vii Kick Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “HAPS – Part VII: Kick Shots”                                                    ILLUSTRATED PRINCIPLES
@@ -28703,7 +28700,7 @@ title: HAPS Part Viii Bank Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “HAPS – Part VIII: Bank Shots”                                               ILLUSTRATED PRINCIPLES
@@ -28828,7 +28825,7 @@ title: Hold The Line
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Hold the Line”                                                            ILLUSTRATED PRINCIPLES
@@ -28909,7 +28906,7 @@ title: How High Or Low Should You Hit The Cue Ball
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “How High or Low Should You Hit the Cue Ball?”                                ILLUSTRATED PRINCIPLES
@@ -29051,7 +29048,7 @@ title: How Pros Aim
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “How Pros Aim”                                                               ILLUSTRATED PRINCIPLES
@@ -29195,7 +29192,7 @@ title: How To Break In 3 Ball
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “How to Break in 3-Ball”                                                     ILLUSTRATED PRINCIPLES
@@ -29300,7 +29297,7 @@ title: How to Break Like a Pro FEATURE ARTICLE
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 How to Break Like a Pro                                                                   FEATURE ARTICLE
@@ -29532,7 +29529,7 @@ title: How To Easily Find Your Vision Center
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “How to Easily Find Your Vision Center”                                       ILLUSTRATED PRINCIPLES
@@ -29640,7 +29637,7 @@ title: How To Get A Tight Rack
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “How to Get a Tight Rack”                                                     ILLUSTRATED PRINCIPLES
@@ -29751,7 +29748,7 @@ title: How To Rack And Break 9 Ball Like A Pro
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “How to Rack and Break 9-ball Like a Pro”                                  ILLUSTRATED PRINCIPLES
@@ -30011,7 +30008,7 @@ title: How To Reach Shots Tough To Reach
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “How to Reach Shots Tough to Reach”                                              ILLUSTRATED PRINCIPLES
@@ -30130,7 +30127,7 @@ title: Improved 2 To 1 System
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Improved 2-to-1 System”                                                    ILLUSTRATED PRINCIPLES
@@ -30236,7 +30233,7 @@ title: Inelastic collision and the Hertz theory of impact
 topics: collisions_and_impacts, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Technical - Inelastic collision and the Hertz theory of impact
@@ -30431,7 +30428,7 @@ title: Intentional Fouls
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Intentional Fouls”                                                             ILLUSTRATED PRINCIPLES
@@ -30557,7 +30554,7 @@ title: Is A Pool Ball Smoother Than The Earth
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Is a Pool Ball Smoother Than the Earth?”                                 ILLUSTRATED PRINCIPLES
@@ -30672,7 +30669,7 @@ title: Is Elbow Drop Bad
 topics: technical_proofs, cue_ball_motion_and_spin, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Is Elbow Drop Bad?”                                                       ILLUSTRATED PRINCIPLES
@@ -30810,7 +30807,7 @@ title: Is Ld Better
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Is LD Better?”                                                           ILLUSTRATED PRINCIPLES
@@ -30935,7 +30932,7 @@ title: Jared S Ride Isn T Fly But The Steering S Perfect
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -30946,7 +30943,7 @@ title: Jump Shots Made Simple
 topics: technical_proofs, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Jump Shots Made Simple”                                                       ILLUSTRATED PRINCIPLES
@@ -31057,7 +31054,7 @@ title: Jump Stop Draw Follow
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Jump Stun/Draw/Follow”                                                     ILLUSTRATED PRINCIPLES
@@ -31153,7 +31150,7 @@ title: Jumping Back Drawing More Conclusions With The Help Of Video
 topics: cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -31164,7 +31161,7 @@ title: Just How Big are the Pockets, Anyway? - Part I
 topics: technical_proofs, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 David Alciatore, PhD (“Dr. Dave”)                        ILLUSTRATED PRINCIPLES
@@ -31484,7 +31481,7 @@ title: Just How Big are the Pockets, Anyway? - Part II
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                           ILLUSTRATED PRINCIPLES
@@ -31703,7 +31700,7 @@ title: Just How Big are the Pockets, Anyway? - Part III
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                         ILLUSTRATED PRINCIPLES
@@ -31919,7 +31916,7 @@ title: Kicking Safe - February 2010
 topics: cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Kicking Safe - February 2010 - Tom Ross
@@ -32073,7 +32070,7 @@ title: Kiss Shot Direction Control
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Kiss Shot Direction Control”                                                  ILLUSTRATED PRINCIPLES
@@ -32189,7 +32186,7 @@ title: Large Angle Banks
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Large-Angle Banks”                                                           ILLUSTRATED PRINCIPLES
@@ -32275,7 +32272,7 @@ title: Legal Fouls
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Legal Fouls”                                                                 ILLUSTRATED PRINCIPLES
@@ -32408,7 +32405,7 @@ title: Luckily Dimitri Never Inhaled
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -32419,7 +32416,7 @@ title: Magic Spot Kicks
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 “Magic Spot Kicks”                                                            ILLUSTRATED PRINCIPLES
@@ -32511,7 +32508,7 @@ title: Mental Game
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Mental Game”                                                              ILLUSTRATED PRINCIPLES
@@ -32625,7 +32622,7 @@ execute one shot at a time. That should be your only goal.
 
 8. Be Aware of Your Mental and Physical State
 
-    Do not try to deny your fears or insecurities. Instead acknowledge and accept them and do your best to
+   Do not try to deny your fears or insecurities. Instead acknowledge and accept them and do your best to
 address and manage them. Take deep breaths and use supportive and nurturing self-talk to help calm them.
 Process and work on the root causes when not playing, maybe with the help of a sports psychologist. And
 have faith and trust in your pre-shot routine, abilities, and skills. “Without trust, your game goes bust.”
@@ -32699,7 +32696,7 @@ title: Miscue And Scoop Non Fouls
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Miscue and Scoop Non-Fouls”                                                  ILLUSTRATED PRINCIPLES
@@ -32829,7 +32826,7 @@ title: Motions of a billiard ball after a cue stroke Hyeong-Chan Kim1
 topics: collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills, robotics_and_computation, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Motions of a billiard ball after a cue stroke
@@ -33967,7 +33964,7 @@ title: Movement Variability of Professional Pool Billiards Players on Selected T
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Available online at www.sciencedirect.com
@@ -34159,7 +34156,7 @@ title: New Pool Rules
 topics: technical_proofs, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “New Pool Rules!”                                                             ILLUSTRATED PRINCIPLES
@@ -34271,7 +34268,7 @@ title: Non Smooth Modelling Of Billiard And Superbilliard Ball Collisions
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 ARTICLE IN PRESS
@@ -34962,7 +34959,7 @@ title: Numerical Simulations Of The Frictional Collisions Of Solid Balls On A Ro
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Sports Eng
@@ -35694,7 +35691,7 @@ title: Optimal Cue Weight
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Optimal Cue Weight”                                                         ILLUSTRATED PRINCIPLES
@@ -35830,7 +35827,7 @@ title: Outside Vs Inside
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Outside vs. Inside”                                                               ILLUSTRATED PRINCIPLES
@@ -35954,7 +35951,7 @@ title: Pattern Play Principles
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pattern Play Principles”                                                   ILLUSTRATED PRINCIPLES
@@ -36092,7 +36089,7 @@ title: Peace Baby - October 2009
 topics: cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Peace Baby - October 2009 - Tom Ross
@@ -36188,7 +36185,7 @@ title: Peace Sign Subtleties
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Peace Sign Subtleties”                                                        ILLUSTRATED PRINCIPLES
@@ -36294,7 +36291,7 @@ title: Placement Pool Challenge
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Placement Pool Challenge”                                                      ILLUSTRATED PRINCIPLES
@@ -36398,7 +36395,7 @@ title: Player Ratings
 topics: technical_proofs, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Player Ratings”                                                         ILLUSTRATED PRINCIPLES
@@ -36521,7 +36518,7 @@ title: Please Fix League Rules
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Please Fix League Rules”                                                   ILLUSTRATED PRINCIPLES
@@ -36675,7 +36672,7 @@ title: Pool and Billiards Physics Principles by Coriolis and Others
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 http://billiards.colostate.edu/physics/Alciatore_pool_physics_article.pdf
@@ -37476,7 +37473,7 @@ title: Pool By Numbers
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pool by Numbers”                                                             ILLUSTRATED PRINCIPLES
@@ -37617,7 +37614,7 @@ title: Pool Friendly Eyeglasses
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pool Friendly Eyeglasses”                                                ILLUSTRATED PRINCIPLES
@@ -37712,7 +37709,7 @@ title: Pool Myths Part 1 The List
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pool Myths – Part 1: The List”                                                     ILLUSTRATED PRINCIPLES
@@ -38085,7 +38082,7 @@ title: Pool Myths Part 2 The Rest Of The List
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pool Myths – Part 2: The Rest of the List”                                           ILLUSTRATED PRINCIPLES
@@ -38428,7 +38425,7 @@ title: Pool Myths Part 3 Open Vs Closed Bridge
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pool Myths – Part 3: Open Vs. Closed Bridge”                                 ILLUSTRATED PRINCIPLES
@@ -38567,7 +38564,7 @@ title: Pool Myths Part 4 Ld Shafts
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pool Myths – Part 4: LD Shafts”                                            ILLUSTRATED PRINCIPLES
@@ -38744,7 +38741,7 @@ title: Pool Quizzes
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pool Quizzes”                                                            ILLUSTRATED PRINCIPLES
@@ -38837,7 +38834,7 @@ title: Pool Vs Cats
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pool vs. Cats”                                                              ILLUSTRATED PRINCIPLES
@@ -38932,7 +38929,7 @@ title: Pre Stance Routine
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pre-Stance Routine”                                                          ILLUSTRATED PRINCIPLES
@@ -39079,7 +39076,7 @@ title: Pro Foul Confusion
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Pro Foul Confusion”                                                        ILLUSTRATED PRINCIPLES
@@ -39186,7 +39183,7 @@ title: Put A Bounce In Your Step
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -39197,7 +39194,7 @@ title: Rail Cut Shot CB Control
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Rail Cut Shot CB Control”                                                  ILLUSTRATED PRINCIPLES
@@ -39288,7 +39285,7 @@ title: Return of the Squirt Robot
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                ILLUSTRATED PRINCIPLES
@@ -39470,7 +39467,7 @@ title: Robotic Billiards: Understanding Humans in Order to Counter Them
 topics: strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 This article has been accepted for inclusion in a future issue of this journal. Content is final as presented, with the exception of pagination.
@@ -40237,7 +40234,7 @@ title: Robotic Pool An Experiment In Automatic Potting
 topics: collisions_and_impacts, aiming_and_potting, strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Proceedings 01 2004 IEEE/RSI tnternational Conference on
@@ -40592,7 +40589,7 @@ title: Rolling Carom Angle Systems
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Rolling Carom Angle Systems”                                             ILLUSTRATED PRINCIPLES
@@ -40722,7 +40719,7 @@ title: Rolling Cue Ball Deflection Angle Approximations
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Rolling Cue Ball Deflection Angle Approximations”                                      ILLUSTRATED PRINCIPLES
@@ -40861,7 +40858,7 @@ title: Rolling motion of a ball spinning about a near vertical axis
 topics: collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Rolling motion of a ball spinning about a near vertical axis
@@ -41091,7 +41088,7 @@ title: Rules Part I Introduction
 topics: technical_proofs, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                 ILLUSTRATED PRINCIPLES
@@ -41298,7 +41295,7 @@ title: Rules - Part II: double hits
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -41482,7 +41479,7 @@ title: Rules - Part III: rail cut shots
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                  ILLUSTRATED PRINCIPLES
@@ -41651,7 +41648,7 @@ title: Rules - Part IV: Which ball did you hit first?
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                ILLUSTRATED PRINCIPLES
@@ -41785,7 +41782,7 @@ title: Rules - Part V: Miscellaneous fouls
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -41990,7 +41987,7 @@ title: Runout Drill System RDS
 topics: technical_proofs, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Runout Drill System (RDS)”                                                  ILLUSTRATED PRINCIPLES
@@ -42102,7 +42099,7 @@ title: Safeties You Must Master
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Safeties You Must Master”                                                  ILLUSTRATED PRINCIPLES
@@ -42236,7 +42233,7 @@ title: SAWS Part 1 CB Deflection
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “SAWS – Part 1: CB Deflection”                                               ILLUSTRATED PRINCIPLES
@@ -42345,7 +42342,7 @@ title: SAWS Part 2 Sidespin Terminology
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “SAWS – Part 2: Sidespin Terminology”                                      ILLUSTRATED PRINCIPLES
@@ -42425,7 +42422,7 @@ title: SAWS Part 3 Throw Effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “SAWS – Part 3: Throw Effects”                                              ILLUSTRATED PRINCIPLES
@@ -42569,7 +42566,7 @@ title: SAWS Part 4 Throw Examples
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “SAWS – Part 4: Throw Examples”                                              ILLUSTRATED PRINCIPLES
@@ -42692,7 +42689,7 @@ title: SAWS Part 5 BHE FHE Calibration
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “SAWS – Part 5: BHE/FHE Calibration”                                         ILLUSTRATED PRINCIPLES
@@ -42842,7 +42839,7 @@ title: SAWS Part 6 Shot Examples
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “SAWS – Part 6: Shot Examples”                                              ILLUSTRATED PRINCIPLES
@@ -42972,7 +42969,7 @@ title: Sidespin Mythbuster
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Sidespin MythBuster”                                                         ILLUSTRATED PRINCIPLES
@@ -43093,7 +43090,7 @@ title: Sliding and rolling: the physics of a rolling ball
 topics: collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Sliding and rolling: the physics of
@@ -43362,7 +43359,7 @@ title: Sliding Bank Spot On The Wall System
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Sliding Bank Spot on the Wall System”                                       ILLUSTRATED PRINCIPLES
@@ -43451,7 +43448,7 @@ title: Small Gap Combos
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Small-Gap Combos”                                                            ILLUSTRATED PRINCIPLES
@@ -43575,7 +43572,7 @@ title: Soft Vs Hard Tip Myth Buster
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Soft vs. Hard Tip Myth Buster”                                                 ILLUSTRATED PRINCIPLES
@@ -43711,7 +43708,7 @@ title: Speed Control
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Speed Control”                                                             ILLUSTRATED PRINCIPLES
@@ -43871,7 +43868,7 @@ title: Spin Transfer Throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Spin Transfer Throw”                                                        ILLUSTRATED PRINCIPLES
@@ -43980,7 +43977,7 @@ title: Squirt Part I Introduction
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                     ILLUSTRATED PRINCIPLES
@@ -44165,7 +44162,7 @@ title: Squirt - Part II: experimental results
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                  ILLUSTRATED PRINCIPLES
@@ -44346,7 +44343,7 @@ title: Squirt - Part III: follow/draw squirt and swerve
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                  ILLUSTRATED PRINCIPLES
@@ -44533,7 +44530,7 @@ title: Squirt Part Iv BHE FHE And Pivot Length Calibration
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                  ILLUSTRATED PRINCIPLES
@@ -44819,7 +44816,7 @@ title: Squirt - Part V: low-squirt cues
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -45027,7 +45024,7 @@ title: Squirt - Part VI: tip shape
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                             ILLUSTRATED PRINCIPLES
@@ -45218,7 +45215,7 @@ title: Squirt - Part VII: cue test machine results
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                ILLUSTRATED PRINCIPLES
@@ -45416,7 +45413,7 @@ title: Squirt - Part VIII: squerve effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                  ILLUSTRATED PRINCIPLES
@@ -45584,7 +45581,7 @@ title: Squirt, Swerve, and Throw Wrap-up
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                              ILLUSTRATED PRINCIPLES
@@ -45765,7 +45762,7 @@ title: Stalemate Or Smart Way Out
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Stalemate, or Smart Way Out?”                                              ILLUSTRATED PRINCIPLES
@@ -45867,7 +45864,7 @@ title: Straight Rail Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Straight Rail Shots”                                                       ILLUSTRATED PRINCIPLES
@@ -45972,7 +45969,7 @@ title: Stroke Align Aim Drills
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Stroke/Align/Aim Drills”                                                 ILLUSTRATED PRINCIPLES
@@ -46149,7 +46146,7 @@ title: MAY_StrokeTuneup.indd
 topics: cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 INSTRUCTION SPECIAL
@@ -46439,7 +46436,7 @@ title: Stroke Video Analysis
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Stroke Video Analysis”                                                        ILLUSTRATED PRINCIPLES
@@ -46579,7 +46576,7 @@ title: Swoop Experiment
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Swoop Experiment”                                                          ILLUSTRATED PRINCIPLES
@@ -46715,7 +46712,7 @@ title: Table of Contents
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Table of Contents
@@ -46807,7 +46804,7 @@ title: Technical Proof (TP) - Dr. Dave Pool Info
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Technical Proof (TP) - Dr. Dave Pool Info
@@ -47109,7 +47106,7 @@ title: The 30° rule Part I - The Basics
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                       ILLUSTRATED PRINCIPLES
@@ -47396,7 +47393,7 @@ title: The 30° rule: Part II - Examples
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                        ILLUSTRATED PRINCIPLES
@@ -47603,7 +47600,7 @@ title: The 30° rule: Part III - Carom vs. Cut
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                     ILLUSTRATED PRINCIPLES
@@ -47824,7 +47821,7 @@ title: The 90° rule Part I - the basics
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                  ILLUSTRATED PRINCIPLES
@@ -47953,7 +47950,7 @@ title: The 90° rule Part II - Breakup and Avoidance Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                ILLUSTRATED PRINCIPLES
@@ -48140,7 +48137,7 @@ title: The 90° rule Part III - Carom and Billiards Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                                   ILLUSTRATED PRINCIPLES
@@ -48315,7 +48312,7 @@ title: The Amazing World of Billiards Physics May, 2007
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “The Amazing World of Billiards Physics”
@@ -49655,7 +49652,7 @@ title: The Carbon Fiber Shaft Craze
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “The Carbon Fiber Shaft Craze”                                              ILLUSTRATED PRINCIPLES
@@ -49814,7 +49811,7 @@ title: The French Fryin Legion S New Secret Weapon
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -49825,7 +49822,7 @@ title: The Lag Shot
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “The Lag Shot”                                                               ILLUSTRATED PRINCIPLES
@@ -49957,7 +49954,7 @@ title: The Physics Of Billiards
 topics: collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Physics Of Billiards
@@ -50132,7 +50129,7 @@ title: Théorie mathématique des effets du jeu de billard / par G. Coriolis
 topics: history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 Théorie mathématique des
@@ -51478,9 +51475,9 @@ au centre de la bille du joueur au moment du choc;
 point H a été remis sur la courbe décrits les diffé-
 rentes marches finales de la bille du joueurdevrontêtre
 
-                     aux
+menées des points    aux
 dirigées suivant des parallèles aux rayons vecteurs
-menées des points                     cercles ayant AD
+                                      cercles ayant AD
 AlDI, A"Dn, A"'D'n pour diamètres, et dont'les
                                                     som-
 mets D, D', D", D"' seront sur la courbe DD'D"D"'
@@ -52260,9 +52257,11 @@ ment de ces vitesses.
 pour dU et dV les mêmes signes que pour U            U
 et Vi V, on en conclut que les vitesses U et V iront
 toujours en s'approchant de U, et V,, jusqu'à ce que
+
+même, jusqu'à ce
                          =
 l'on ait enfin U = U" V V,, ou, ce qui revient au
-même, jusqu'à ce   qu'on ait,
+                   qu'on ait,
 
    Alors la vitesse au point d'appui devenant nulle,
 le frottement disparaît; on a/=   o, et le mouvement
@@ -52592,10 +52591,9 @@ la distancey est représentée par l'ordonnée d'une pa-
 rabole dont la distance focale est–             et dont le som-
 
 metest à une distance Y ou         du point de départ de la
-                                       \wt > o, comme
+                                   soi \wt > o, comme
                                        W,
                                   bille,
-                                   soi
                                     tdevant
                                       joueur
                                        quand
@@ -52824,9 +52822,9 @@ et w. Or, on a
    Dans la figure 6, AD représente la vitesse de trans-
 lation W lorsque la bille, partie de M avec une vitesse
 
-                                         •
+l'horizontale PE à la hauteur MP =       •
 égale à MC:= Wt, est arrivée en D. On mènera donc
-l'horizontale PE à la hauteur MP =             c'est à-dire
+                                               c'est à-dire
 de manière que si MC représente le rayon de la bille,
 MP représente la hauteur      du choc au-dessus du ta-
 pis. Les distances de la parabole à cette droite repré-
@@ -53454,9 +53452,9 @@ sliculaire au rayon RT; cette corde
 le choc, c'est-à-dire la première tangente à la para-
 bole décrite par la bille. En se servant ensuite de la
 
-    =
+AF  =
 vitesse AB et de la vitesse AH, et de son opposée
-AF          AH = Wr, on construira tous les élémens
+            AH = Wr, on construira tous les élémens
 du mouvement après le choc.
    Ainsi, la direction de la vitesse finale sera celle
 de la sécante menée de H au point B du cercle. Pour
@@ -55335,7 +55333,7 @@ title: Throw Follow Up Part I Cling
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Throw Follow-up: Part I: Cling”                                              ILLUSTRATED PRINCIPLES
@@ -55491,7 +55489,7 @@ title: Throw Follow Up Part Ii More Results
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Throw Follow-up: Part II: More Results”                                    ILLUSTRATED PRINCIPLES
@@ -55623,7 +55621,7 @@ title: Throw Follow Up Part Iii Frozen Throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Throw Follow-up: Part III: Frozen Throw”                                   ILLUSTRATED PRINCIPLES
@@ -55725,7 +55723,7 @@ title: Throw Follow Up Part Iv Follow Cling
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Throw Follow-up: Part IV: Follow Cling”                                  ILLUSTRATED PRINCIPLES
@@ -55857,7 +55855,7 @@ title: Throw Part I Introduction
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                      ILLUSTRATED PRINCIPLES
@@ -56015,7 +56013,7 @@ title: Throw - Part II: results
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                                         ILLUSTRATED PRINCIPLES
@@ -56264,7 +56262,7 @@ title: Throw - Part III: follow and draw effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                           ILLUSTRATED PRINCIPLES
@@ -56456,7 +56454,7 @@ title: Throw - Part IV: spin-induced throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David G. Alciatore, PhD (“Dr. Dave”)                                  ILLUSTRATED PRINCIPLES
@@ -56647,7 +56645,7 @@ title: Throw - Part IX: spin transfer follow-up
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David G. Alciatore, PhD (“Dr. Dave”)                            ILLUSTRATED PRINCIPLES
@@ -56800,7 +56798,7 @@ title: Throw - Part V: SIT speed effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David G. Alciatore, PhD (“Dr. Dave”)                                   ILLUSTRATED PRINCIPLES
@@ -56947,7 +56945,7 @@ title: Throw - Part VI: inside/outside English
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David G. Alciatore, PhD (“Dr. Dave”)                              ILLUSTRATED PRINCIPLES
@@ -57128,7 +57126,7 @@ title: Throw - Part VII: CIT/SIT combo
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David G. Alciatore, PhD (“Dr. Dave”)                           ILLUSTRATED PRINCIPLES
@@ -57411,7 +57409,7 @@ title: Throw - Part VIII: spin transfer
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David G. Alciatore, PhD (“Dr. Dave”)                           ILLUSTRATED PRINCIPLES
@@ -57572,7 +57570,7 @@ title: Throw - Part X: the big picture
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                   ILLUSTRATED PRINCIPLES
@@ -57803,7 +57801,7 @@ title: Throw - Part XI: everything you ever wanted to know about throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                      ILLUSTRATED PRINCIPLES
@@ -58130,7 +58128,7 @@ title: Throw - Part XII: calibration, and hold shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore (“Dr. Dave”)                                        ILLUSTRATED PRINCIPLES
@@ -58312,7 +58310,7 @@ title: Throw Shots You Need To Know
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Throw Shots You Need to Know”                                               ILLUSTRATED PRINCIPLES
@@ -58407,7 +58405,7 @@ title: Top 10 Draw Shot Tips
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Top 10 Draw Shot Tips”                                                     ILLUSTRATED PRINCIPLES
@@ -58598,7 +58596,7 @@ title: Top 10 Reasons For Missing
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Top 10 Reasons for Missing”                                                ILLUSTRATED PRINCIPLES
@@ -58738,7 +58736,7 @@ title: Top 10 Reasons To Use An Open Bridge
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Top 10 Reasons to Use an Open Bridge”                                      ILLUSTRATED PRINCIPLES
@@ -58880,7 +58878,7 @@ title: Top 10 Series Part 1 Shots You Must Know
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Top 10 Series – Part 1: Shots You Must Know”                                    ILLUSTRATED PRINCIPLES
@@ -59032,7 +59030,7 @@ title: Top 10 Series Part 2 Things Players Do Wrong
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Top 10 Series – Part 2: Things Players Do Wrong”                            ILLUSTRATED PRINCIPLES
@@ -59191,7 +59189,7 @@ title: Top 10 Series Part 3 Shots Played Wrong
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Top 10 Series – Part 3: Shots Played Wrong”                                ILLUSTRATED PRINCIPLES
@@ -59330,7 +59328,7 @@ title: Top 10 Series Part 4 Strategy Errors
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Top 10 Series – Part 4: Strategy Errors”                                   ILLUSTRATED PRINCIPLES
@@ -59454,7 +59452,7 @@ title: C O V E R F E AT U R E Toward a
 topics: collisions_and_impacts, aiming_and_potting, strategy_rules_drills, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 C O V E R F E AT U R E
@@ -59919,7 +59917,7 @@ title: TP 2.1 - Minimum cue tip friction required for no-slip horizontal impact
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                               technical proof
@@ -59990,7 +59988,7 @@ title: TP 3.1 - 90 degree Rule
 topics: technical_proofs, collisions_and_impacts, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                           technical proof
@@ -60089,7 +60087,7 @@ title: TP 3.2 - Ball speeds and distances after stun-shot impact
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                          technical proof
@@ -60337,7 +60335,7 @@ title: TP 3.3 - 30° rule
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                     technical proof
@@ -60463,7 +60461,7 @@ title: TP 3.4 - Margin of error based on distance and cut angle
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                 technical proof
@@ -60680,7 +60678,7 @@ title: TP 3.5 - Effective Target Sizes For Slow Shots Into A Side Pocket At Diff
 topics: technical_proofs, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                             technical proof
@@ -60758,10 +60756,9 @@ General equations for the size of left portion of target area assuming point def
           (                          )               ( )           (                 ) (                  )                (                   )
    polyβ α , p , b , Rhole , βl , θ := R⋅ sin βl + A α , p , b , Rhole , βl , θ ⋅ sin 4 ⋅ βl − 2 ⋅ θ − 2 ⋅ α + Rhole⋅ cos 4 ⋅ βl − 2 ⋅ θ − 2 ⋅ α ...
                                          p
-                                                       (               ) (          ) (
-                                       + ⋅ cos 2 ⋅ βl − θ + Rhole + b ⋅ sin 2 ⋅ βl − θ
                                          2
-                                                                                                   )
+                                                       (               ) (          ) (
+                                       + ⋅ cos 2 ⋅ βl − θ + Rhole + b ⋅ sin 2 ⋅ βl − θ             )
                                                           p
               (                      )                   ( )                   (            ) (        ) (
    polyβ_in p , b , Rhole , βl , θ := −R⋅ sin βl + Rhole − ⋅ cos 2 ⋅ βl − θ − Rhole + b ⋅ sin 2 ⋅ βl − θ
@@ -60877,9 +60874,9 @@ Plot results:
     sleft_point := ⋅ cos θ − R⋅ sin β
                i  2       i          ( )
                                      i                       ( )
-                     (
+     i               (
     r := rwall α , p , b , Rhole , −θ
-     i                                           i   )
+                                                 i   )
     sleft_wall := − ⋅ cos −θ − r 
                      p
               i      2        i  i     ( )                  
@@ -60946,7 +60943,7 @@ title: TP 3.6 - Effective Target Sizes For Slow Shots Into A Corner Pocket At Di
 topics: technical_proofs, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                     technical proof
@@ -61001,10 +60998,9 @@ technical proof                                                                 
                (                         )                   ( )               (                          ) (                         )
     polyβ α , p , b , Rhole , βl , θ := R⋅ sin βl + A α , p , b , Rhole , βl , θ ⋅ sin 4 ⋅ βl − 2 ⋅ θ − 2 ⋅ α + Rhole⋅ cos 4 ⋅ βl − 2 ⋅ θ − 2 ⋅ α ...(           )
                                           p
-                                                               (                    ) (
-                                        + ⋅ cos 2 ⋅ βl − θ + Rhole + b ⋅ sin 2 ⋅ βl − θ
                                           2
-                                                                                                         ) (                )
+                                                               (                    ) (
+                                        + ⋅ cos 2 ⋅ βl − θ + Rhole + b ⋅ sin 2 ⋅ βl − θ                  ) (                )
                                                            p
                     (                    )                    ( )                                    (
     polyβ_in p , b , Rhole , βl , θ := −R⋅ sin βl + Rhole − ⋅ cos 2 ⋅ βl − θ − Rhole + b ⋅ sin 2 ⋅ βl − θ
@@ -61033,10 +61029,9 @@ Size of the left portion of the target area assuming one wall deflection
            (                         )       (                                             )
     rwall α , p , b , Rhole , θ := A α , p , b , Rhole , 90⋅ deg , θ ⋅ sin( 2 ⋅ θ + 2 ⋅ α) − Rhole⋅ cos( 2 ⋅ θ + 2 ⋅ α) ...
                                      p
-                                                                   (
-                                   + ⋅ cos( θ) − Rhole + b ⋅ sin( θ)
                                      2
-                                                                                       )
+                                                                   (
+                                   + ⋅ cos( θ) − Rhole + b ⋅ sin( θ)                   )
 
     sleft_wall α , p , b , Rhole , θ := − ⋅ cos( −θ) − rwall α , p , b , Rhole , −θ 
                                            p
@@ -61307,7 +61302,7 @@ title: TP 3.7 - Effective Target Sizes For Fast Shots Into A Side Pocket At Diff
 topics: technical_proofs, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                               technical proof
@@ -61489,7 +61484,7 @@ title: TP 3.8 - Effective Target Sizes For Fast Shots Into A Corner Pocket At Di
 topics: technical_proofs, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                                          technical proof
@@ -61629,7 +61624,7 @@ title: TP_4-1
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 TP 4.1
@@ -61927,7 +61922,7 @@ title: TP 4.2 - Center of percussion of the cue ball
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 7/10/03
@@ -61994,7 +61989,7 @@ title: TP 4.3 - English-induced throw effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                          technical proof
@@ -62057,7 +62052,7 @@ title: TP 4.4 - Relationship between the amount of throw and cut angle
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                              technical proof
@@ -62131,7 +62126,7 @@ title: TP 6.1 - Parallel midpoint line banking method geometry
 topics: technical_proofs, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 7/11/03
@@ -62162,7 +62157,7 @@ title: TP 6.2 - Mirror image kick shot method geometry
 topics: technical_proofs, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 7/11/03
@@ -62192,7 +62187,7 @@ title: TP 6.3 - Increase in bank rebound angle due to the rail coefficient of re
 topics: technical_proofs, collisions_and_impacts, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 7/11/03
@@ -62236,7 +62231,7 @@ title: TP 7.1 - Two-rail parallel line kick shot geometry
 topics: technical_proofs, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 7/11/03
@@ -62261,7 +62256,7 @@ title: TP 7.2 - Corner-5 three-rail diamond system formulas
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP 7.2
@@ -62372,7 +62367,7 @@ title: TP 7.3 - Ball-rail interaction and the effects on vertical plane spin
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 7/11/03
@@ -62479,7 +62474,7 @@ title: TP A.10 - The effect of bridge length on contact point accuracy
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 6/6/05
@@ -62537,7 +62532,7 @@ title: TP A.11 - Analysis of a common fractional-ball aiming system
 topics: technical_proofs, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                       technical proof
@@ -62625,7 +62620,7 @@ title: TP A.12 - The relationship between cue ball spin and cue tip offset
 topics: technical_proofs, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                     technical proof
@@ -62702,7 +62697,7 @@ title: TP A.13 - Number of lines of aim required for different types of shots
 topics: technical_proofs, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                       technical proof
@@ -62792,7 +62787,7 @@ title: TP A.14 - The effects of cut angle, speed, and spin on object ball throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                        technical proof
@@ -63601,7 +63596,7 @@ title: TP A.15 - Controlling the cue ball direction in a frozen cue ball shot
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                              technical proof
@@ -63735,7 +63730,7 @@ title: TP A.16 - Final ball speeds, distances, and directions for natural roll s
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                     technical proof
@@ -64319,7 +64314,7 @@ title: TP A.17 - The effect of the amount of friction on throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 8/9/05
@@ -64473,7 +64468,7 @@ title: TP A.18 - Distance required for stun and natural roll to develop for diff
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                               technical proof
@@ -64849,7 +64844,7 @@ title: TP A.19 - Masse shot aiming method, and curved cue ball paths
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                               technical proof
@@ -65209,7 +65204,7 @@ title: TP A.1 - Half-ball hit, foot-spot carom shot
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 4/7/04
@@ -65347,7 +65342,7 @@ title: TP A.20 - The effect of spin, speed, and cut angle on draw shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                      technical proof
@@ -65409,9 +65404,9 @@ technical proof                                                                 
                                                                                     2
        x c( t , v , ω , φ) := v ⋅ t⋅ sin( φ) ⋅ cos( φ) −
                                                                                                                2
-                                                                                
+                                                                         2      
                                                              2 ⋅ cos( φ) +  sin( φ) +
-                                                                         2                        R⋅ ω     
+                                                                                                  R⋅ ω     
                                                                                                       ( )
                                                                                                 v ⋅ sin φ 
 
@@ -65724,7 +65719,7 @@ title: TP A.21 - Comparison of bisector-point and double-angle-bisect draw syste
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                   technical proof
@@ -65825,7 +65820,7 @@ title: TP A.22 - Tips Of English
 topics: technical_proofs, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                           technical proof
@@ -66255,7 +66250,7 @@ title: TP A.23 - Ball-hit fraction vs. cut angle
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                technical proof
@@ -66358,7 +66353,7 @@ title: TP A.24 - The effects of follow and draw on throw
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                technical proof
@@ -66525,7 +66520,7 @@ title: TP A.25 - The relationship between spin-rate-factor and percent-English
 topics: technical_proofs, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                              technical proof
@@ -66573,7 +66568,7 @@ title: TP A.26 - The Amount Of Sidespin Required For Gearing Outside English
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                      technical proof
@@ -66705,7 +66700,7 @@ title: TP A.27 - Spin Transfer
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                     technical proof
@@ -67022,7 +67017,7 @@ title: TP A.28 - Throw plots for all types of shots
 topics: technical_proofs, collisions_and_impacts, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                   technical proof
@@ -68067,7 +68062,7 @@ title: technical proof TP A.29 technical proof Using throw to limit cue ball mot
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                           TP A.29                                                     technical proof
@@ -68402,7 +68397,7 @@ title: TP A.2 - Carom shot vs. cut shot example
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 4/7/04
@@ -68594,7 +68589,7 @@ title: TP A.30 - The effect of cue tip offset, cue weight, and cue speed
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                            technical proof
@@ -69148,7 +69143,7 @@ title: TP A.31 - The physics of squirt
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                 technical proof
@@ -69429,7 +69424,7 @@ title: TP A.3 - Minimum Cue Elevation Required For A Head Spot To Foot Spot Cent
 topics: technical_proofs, cue_ball_motion_and_spin, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 12/3/04
@@ -69505,7 +69500,7 @@ title: TP A.4 - Post-impact cue ball trajectory for any cut angle, speed, and sp
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                technical proof
@@ -70061,7 +70056,7 @@ title: TP_A-5
 topics: technical_proofs, collisions_and_impacts, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP A.5
@@ -70207,7 +70202,7 @@ title: TP A.6 - The effects of ball inelasticity and friction on the 30° rule
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                              technical proof
@@ -70258,10 +70253,10 @@ technical proof                                                                 
    Therefore, the friction impulse can be expressed as:
 
                                                 
-                                                vrel 1
+                           ˆ                    vrel 1
                                                                                         
                            F fric   balls Fn   balls mv1  e  cos   sin  tˆ  cos kˆ
-                           ˆ                 ˆ
+                                             ˆ
                                                 vrel 2
                                                                                                                          (6)
 Therefore, the tangential component of the friction impulse (reversing the sign to match the direction
@@ -70674,7 +70669,7 @@ title: TP A.7 - The effects of English on the 90° rule
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                     technical proof
@@ -70761,7 +70756,7 @@ title: TP A.8 - The effects of English on the 30° rule
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                                   technical proof
@@ -71116,7 +71111,7 @@ title: TP A.9 - Cue stick accelerometer measurements
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                   technical proof
@@ -71321,7 +71316,7 @@ title: TP B.10 - Draw shot cue elevation effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                    technical proof
@@ -71401,9 +71396,8 @@ technical proof                                                                 
 
      Cue ball (CB) speed, spin, and angle after tip impact:
 
-                                      (         )
-                     v := vCB vs , b = 11.194 mph
-                        0                                                                       (         )
+                        0             (         )
+                     v := vCB vs , b = 11.194 mph                                              (         )
                                                                                   ω := ωCB vs , b = 34.841 rps
                                                                                     0
 
@@ -71594,9 +71588,8 @@ For a level cue, the program results are the same as for a drag shot:
                                                                 spin θs , d drag = 31.43       )                              (         )
                                                                                                                        ratio θs , d drag = 1.186
 
-                                                            (
-                                              ωdrag v , ω , d drag = 31.43 rps
-                                                     0 0                                   )                                          (0 0           )
+                                                     0 0    (
+                                              ωdrag v , ω , d drag = 31.43 rps            )                                          (0 0           )
                                                                                                                        drag_ratio v , ω , d drag = 1.186
 
 Here are some example data at a typical cue elevation and medium drag distance:
@@ -71909,7 +71902,7 @@ title: TP B.11 - Shallow-angle contact-point mirror kick system
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                     technical proof
@@ -72085,7 +72078,7 @@ title: TP B.12 - Optimal Tip Height for Speed/Distance Control
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                  technical proof
@@ -72381,7 +72374,7 @@ title: TP B.13 - Rolling CB Carom Angle Approximations
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                technical proof
@@ -72660,7 +72653,7 @@ title: TP B.14 - Draw shot cue ball angle approximations
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                      technical proof
@@ -72884,7 +72877,7 @@ title: TP B.15 - Pocket geometry calculations
 topics: technical_proofs, collisions_and_impacts, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                                                    technical proof
@@ -72987,7 +72980,7 @@ title: TP_B-16
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.16
@@ -73030,7 +73023,7 @@ title: TP_B-17
 topics: technical_proofs, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.17
@@ -73139,7 +73132,7 @@ title: TP_B-18
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.18
@@ -73259,7 +73252,7 @@ title: TP_B-19
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.19
@@ -73355,7 +73348,7 @@ title: TP B.1 - Squirt angle, pivot length, and tip shape
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                      technical proof
@@ -73665,7 +73658,7 @@ title: TP_B-20
 topics: technical_proofs, collisions_and_impacts, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.20
@@ -73763,7 +73756,7 @@ title: TP B.21 - Small Gap Combination Throw Effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.21
@@ -74242,7 +74235,7 @@ title: TP B.22 - How peak tip contact force and contact patch size
 topics: technical_proofs, collisions_and_impacts, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.22
@@ -74482,7 +74475,7 @@ title: TP B.23 - Cue Pivot Point Required for Known CB Carom Angle
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                            technical proof
@@ -74546,7 +74539,7 @@ title: TP B.24 - Estimating Rolling CB Carom Angle with 1/4 Cue Point
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                               technical proof
@@ -74766,7 +74759,7 @@ title: TP B.25 - Percentage Outside Spin Required for Maximum SIT at Any Cut Ang
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                              technical proof
@@ -75006,7 +74999,7 @@ title: TP B.26 - BHE/FHE Pivot Percentage Relation to Cue Natural Pivot Length
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                  technical proof
@@ -75084,7 +75077,7 @@ title: TP B.27 - Sliding Bank System Comparison
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.27
@@ -75214,7 +75207,7 @@ title: TP B.28 - Sliding Bank Shot Table Comparisons From Careful Measurements
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 TP B.28
@@ -75311,7 +75304,7 @@ title: TP B.29 - Simulation of a CB striking two frozen OBs along their line of 
 topics: technical_proofs, collisions_and_impacts, aiming_and_potting, robotics_and_computation
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                                   technical proof
@@ -75572,7 +75565,7 @@ title: TP B.2 - Rolling resistance, spin resistance, and "ball turn
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                technical proof
@@ -75933,7 +75926,7 @@ title: TP B.30 - Outside vs. Inside Spin Margins for Error
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                         technical proof
@@ -76212,7 +76205,7 @@ title: TP B.31 - Percentage Sidespin Required for Maximum CIT at Any Cut Angle
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                             technical proof
@@ -76452,7 +76445,7 @@ title: TP B.3 - Throw Calibration and Contour Plots for Various
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                    technical proof
@@ -76884,7 +76877,7 @@ title: TP B.4 - Stroke speed and acceleration vs. distance
 topics: technical_proofs, collisions_and_impacts, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                                technical proof
@@ -77387,7 +77380,7 @@ title: TP B.5 - Rolling CB, direct-hit hop and ball travel distances
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                                   technical proof
@@ -77524,7 +77517,7 @@ title: TP B.6 - CB table lengths of travel for different speeds
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                                                  technical proof
@@ -77720,7 +77713,7 @@ title: TP B.7 - Effect of squirt on the amount of spin
 topics: technical_proofs, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                          technical proof
@@ -77800,7 +77793,7 @@ title: TP B.8 - Draw shot physics
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: yes
 text:
 technical proof                                                                          technical proof
@@ -78182,16 +78175,15 @@ d draw v s b d drag μs μr          
                                                      v pre_roll  v skid( v ω)
 
                                                      d_roll_stop  d roll v pre_roll μr             
-                                                                                       
-                                                     if d_roll_stop  d drag  d pre_roll 
-                                                                                                              
+                                                                                      
+                                                     if d_roll_stop  d drag  d pre_roll                    
                                                          "CB doesn't reach OB"
                                                          v'  0
                                                      otherwise
                                                          "CB rolls into OB"
-                                                                                                   
-                                                         v'  v rollv pre_roll  d drag  d pre_roll μr
-                                                                                                                           
+
+                                                                                                  
+                                                         v'  v rollv pre_roll  d drag  d pre_roll μr                
                                                             v'
                                                      ω' 
                                                             R
@@ -78860,7 +78852,7 @@ title: TP B.9 - Draw shot spin vs. spin ratio
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 technical proof                                                                                               technical proof
@@ -78993,16 +78985,15 @@ d skid v ω μs  sign  ω          
 
                                                                                        
                                                        d_roll_stop  d roll v pre_roll μr            
-                                                                                   
-                                                       if d_roll_stop  d drag  d pre_roll 
-                                                                                                          
+                                                                                  
+                                                       if d_roll_stop  d drag  d pre_roll              
                                                            "CB doesn't reach OB"
                                                            v'  0
                                                        otherwise
                                                            "CB rolls into OB"
-                                                                                                   
-                                                           v'  v rollv pre_roll  d drag  d pre_roll μr
-                                                                                                                        
+
+                                                                                                  
+                                                           v'  v rollv pre_roll  d drag  d pre_roll μr           
                                                               v'
                                                        ω' 
                                                               R
@@ -79257,7 +79248,7 @@ title: Trajectory of a Billiard Ball and Recovery of Its Initial Velocities
 topics: collisions_and_impacts, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 Trajectory of a Billiard Ball and Recovery of Its Initial Velocities
@@ -79810,7 +79801,7 @@ title: Twice Plus Tenths
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Twice Plus Tenths”                                                           ILLUSTRATED PRINCIPLES
@@ -79930,7 +79921,7 @@ title: Using Your Cue To Aim
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “Using Your Cue to Aim”                                                     ILLUSTRATED PRINCIPLES
@@ -80091,7 +80082,7 @@ title: VEEB Part I Pocket Blockers
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEEB – Part I: Pocket Blockers”                                             ILLUSTRATED PRINCIPLES
@@ -80185,7 +80176,7 @@ title: VEEB Part Ii Selecting Key Balls
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEEB – Part II: Selecting Key Balls”                                         ILLUSTRATED PRINCIPLES
@@ -80284,7 +80275,7 @@ title: VEEB Part Iii Drag Enhanced Sidespin
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEEB – Part III: Drag-Enhanced Sidespin”                                 ILLUSTRATED PRINCIPLES
@@ -80391,7 +80382,7 @@ title: VEEB Part Iv Throw Hold Shots
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEEB – Part IV: Throw Hold Shots”                                           ILLUSTRATED PRINCIPLES
@@ -80499,7 +80490,7 @@ title: VEEB Part Ix Run Out Examples
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 VEEB – Part IX: Run-Out Examples                                                 ILLUSTRATED PRINCIPLES
@@ -80619,7 +80610,7 @@ title: VEEB Part V Coming Into The Line Of Blockers
 topics: technical_proofs, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEEB – Part V: Coming Into the Line of Blockers”                          ILLUSTRATED PRINCIPLES
@@ -80709,7 +80700,7 @@ title: VEEB Part Vi Straight In Shot Options
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEEB – Part VI: Straight-In Shot Options”                                   ILLUSTRATED PRINCIPLES
@@ -80804,7 +80795,7 @@ title: VEEB Part Vii End Game Situations
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEEB – Part VII: End-Game Situations”                                     ILLUSTRATED PRINCIPLES
@@ -80900,7 +80891,7 @@ title: VEEB Part Viii The Break
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEEB – Part VIII: The Break”                                               ILLUSTRATED PRINCIPLES
@@ -81036,7 +81027,7 @@ title: VENT Part I Corey S 9 Ball Soft Break
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part I: Corey’s 9-ball Soft Break”                                    ILLUSTRATED PRINCIPLES
@@ -81154,7 +81145,7 @@ title: VENT Part Ii How To Train Your Table
 topics: technical_proofs, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part II: How to Train Your Table”                                    ILLUSTRATED PRINCIPLES
@@ -81273,7 +81264,7 @@ title: VENT Part Iii Creative Shot Options
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part III: Creative Shot Options”                                    ILLUSTRATED PRINCIPLES
@@ -81391,7 +81382,7 @@ title: VENT Part Iv Defensive Strategy
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part IV: Defensive Strategy”                                        ILLUSTRATED PRINCIPLES
@@ -81486,7 +81477,7 @@ title: VENT Part Ix Rail Cut Shot Effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part IX: Rail Cut Shot Effects”                                      ILLUSTRATED PRINCIPLES
@@ -81603,7 +81594,7 @@ title: VENT Part V Two Rail Position Plays
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part V: Two-Rail Position Plays”                                    ILLUSTRATED PRINCIPLES
@@ -81693,7 +81684,7 @@ title: VENT Part Vi End Game Patterns
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part VI: End-Game Patterns”                                          ILLUSTRATED PRINCIPLES
@@ -81803,7 +81794,7 @@ title: VENT Part Vii Safety Play
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part VII: Safety Play”                                               ILLUSTRATED PRINCIPLES
@@ -81910,7 +81901,7 @@ title: VENT Part Viii Ball In Hand Options
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part VIII: Ball-In-Hand Options”                                     ILLUSTRATED PRINCIPLES
@@ -82032,7 +82023,7 @@ title: VENT Part X Herd And Compress
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VENT – Part X: Herd and Compress”                                           ILLUSTRATED PRINCIPLES
@@ -82139,7 +82130,7 @@ title: VEPP Part I Introduction And Fundamentals
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part I: Introduction and Fundamentals”                                ILLUSTRATED PRINCIPLES
@@ -82320,7 +82311,7 @@ title: VEPP Part Ii Progressive Practice And Draw Drills
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part II: Progressive Practice, and Draw Drills”                      ILLUSTRATED PRINCIPLES
@@ -82510,7 +82501,7 @@ title: VEPP Part Iii Wagon Wheel Drills
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part III: Wagon Wheel Drills”                                             ILLUSTRATED PRINCIPLES
@@ -82651,7 +82642,7 @@ title: VEPP Part Iv Target Practice Card Trick
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part IV: Target Practice Card Trick”                                ILLUSTRATED PRINCIPLES
@@ -82771,7 +82762,7 @@ title: VEPP Part Ix Safety Drills
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part IX: Safety Drills”                                             ILLUSTRATED PRINCIPLES
@@ -82926,7 +82917,7 @@ title: VEPP Part V Hanger Table Center Drills
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part V: Hanger Table-Center Drills”                                    ILLUSTRATED PRINCIPLES
@@ -83043,7 +83034,7 @@ title: VEPP Part Vi Line Of Balls Drill
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part VI: Line-of-Balls Drill”                                                    ILLUSTRATED PRINCIPLES
@@ -83150,7 +83141,7 @@ title: VEPP Part Vii 9 Ball Pattern Drills
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part VII: 9-Ball Pattern Drills”                                     ILLUSTRATED PRINCIPLES
@@ -83284,7 +83275,7 @@ title: VEPP Part Viii 8 Ball Pattern Drills
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part VIII: 8-Ball Pattern Drills”                                    ILLUSTRATED PRINCIPLES
@@ -83416,7 +83407,7 @@ title: VEPP Part X Shallow One Rail Kicks
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part X: Shallow One-rail Kicks”                                     ILLUSTRATED PRINCIPLES
@@ -83554,7 +83545,7 @@ title: VEPP Part Xi Bank Shots
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part XI: Bank Shots”                                                 ILLUSTRATED PRINCIPLES
@@ -83704,7 +83695,7 @@ title: VEPP Part Xii Jump Shots
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part XII: Jump Shots”                                               ILLUSTRATED PRINCIPLES
@@ -83866,7 +83857,7 @@ title: VEPP Part Xiii Safety And Carom Challenge Drills
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part XIII: Safety and Carom Challenge Drills”                           ILLUSTRATED PRINCIPLES
@@ -83990,7 +83981,7 @@ title: VEPP Part Xiv Custom Drills
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “VEPP – Part XIV: Custom Drills”                                            ILLUSTRATED PRINCIPLES
@@ -84095,7 +84086,7 @@ title: VEPS Gems Part I Introduction
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                              ILLUSTRATED PRINCIPLES
@@ -84262,7 +84253,7 @@ title: VEPS Gems Part Ii Basic Shot Making And Position
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)               ILLUSTRATED PRINCIPLES
@@ -84431,7 +84422,7 @@ title: VEPS GEMS - Part III: English and Position Control
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                ILLUSTRATED PRINCIPLES
@@ -84582,7 +84573,7 @@ title: VEPS GEMS - Part IV: Safety Play and Strategy
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)               ILLUSTRATED PRINCIPLES
@@ -84736,7 +84727,7 @@ title: VEPS GEMS - Part IX: Plus System Adjustments
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)              ILLUSTRATED PRINCIPLES
@@ -84896,7 +84887,7 @@ title: VEPS GEMS - Part V: Banks and Kicks
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                           ILLUSTRATED PRINCIPLES
@@ -85109,7 +85100,7 @@ title: VEPS GEMS - Part VI: One-Rail Kicks
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -85275,7 +85266,7 @@ title: VEPS GEMS - Part VII: Contact-Point Mirror Kick
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)              ILLUSTRATED PRINCIPLES
@@ -85468,7 +85459,7 @@ title: VEPS GEMS - Part VIII: Plus System Intro
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -85653,7 +85644,7 @@ title: VEPS GEMS - Part X: Plus System Examples
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                                ILLUSTRATED PRINCIPLES
@@ -85892,7 +85883,7 @@ title: VEPS GEMS - Part XI: Corner-5 System Intro
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -86083,7 +86074,7 @@ title: VEPS GEMS - Part XII: Corner-5 System Example and Benchmark
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)             ILLUSTRATED PRINCIPLES
@@ -86306,7 +86297,7 @@ title: VEPS GEMS - Part XIII: Corner-5 System Adjustments
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)              ILLUSTRATED PRINCIPLES
@@ -86532,7 +86523,7 @@ title: VEPS GEMS - Part XIV: 'Spot-on-the-Wall' System
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)              ILLUSTRATED PRINCIPLES
@@ -86714,7 +86705,7 @@ title: VEPS GEMS - Part XV: The Jump Shot
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                              ILLUSTRATED PRINCIPLES
@@ -86872,7 +86863,7 @@ title: VEPS GEMS - Part XVI: The Massé Shot
 topics: technical_proofs, cue_ball_motion_and_spin, aiming_and_potting, strategy_rules_drills, history_and_general_physics
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)                               ILLUSTRATED PRINCIPLES
@@ -87086,7 +87077,7 @@ title: VEPS GEMS - Part XVII: Trick and Proposition Shots
 topics: collisions_and_impacts, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 David Alciatore, PhD (“Dr. Dave”)              ILLUSTRATED PRINCIPLES
@@ -87247,7 +87238,7 @@ title: Walker
 topics: uncategorized
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 [NO_EXTRACTED_TEXT]
@@ -87258,7 +87249,7 @@ title: Waxgate Effects
 topics: technical_proofs, collisions_and_impacts, cue_ball_motion_and_spin, aiming_and_potting, banks_kicks_rails, strategy_rules_drills
 retrieval: include
 authority: contextual
-excluded_scopes: 
+excluded_scopes: [none]
 cited_by_repo: no
 text:
 “WaxGate Effects”                                                               ILLUSTRATED PRINCIPLES

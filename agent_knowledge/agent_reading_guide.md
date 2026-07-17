@@ -33,8 +33,8 @@ Use this order if you are trying to quickly grok the current billiards physics m
 
 - Documents indexed: 401
 - Documents cited by current repo code/docs (including TODO old→new mappings): 50
-- Approx extracted text size: 5,551,212 characters
-- Formula-like candidate lines harvested: 2,716
+- Approx extracted text size: 5,550,351 characters
+- Formula-like candidate lines harvested: 2,676
 
 ## Code- and doc-cited sources
 
@@ -44,7 +44,7 @@ Use this order if you are trying to quickly grok the current billiards physics m
 - `whitepapers/non_smooth_modelling_of_billiard_and_superbilliard_ball_collisions.pdf` — Non Smooth Modelling Of Billiard And Superbilliard Ball Collisions [code, docs]
 - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf` — Pool and Billiards Physics Principles by Coriolis and Others [code, docs]
 - `whitepapers/rolling_motion_of_a_ball_spinning_about_a_near_vertical_axis.pdf` — Rolling motion of a ball spinning about a near vertical axis [code, docs]
-- `whitepapers/the_art_of_billiards_play.html` — The Art of Billiards Play [code, docs]
+- `whitepapers/the_art_of_billiards_play.html` — The Art of Billiards Play [code, docs, excluded-scopes:cue_squirt,off_center_cue_impact,cue_end_mass_calibration]
 - `whitepapers/the_physics_of_billiards.html` — The Physics Of Billiards [code, docs]
 - `whitepapers/tp_3_5_effective_target_sizes_for_slow_shots_into_a_side_pocket_at_different_angles.pdf` — TP 3.5 - Effective Target Sizes For Slow Shots Into A Side Pocket At Different Angles [code, docs]
 - `whitepapers/tp_3_6_effective_target_sizes_for_slow_shots_into_a_corner_pocket_at_different_angles.pdf` — TP 3.6 - Effective Target Sizes For Slow Shots Into A Corner Pocket At Different Angles [code, docs]
@@ -114,11 +114,11 @@ for the exhaustive list.
 
 - `whitepapers/tp_3_7_effective_target_sizes_for_fast_shots_into_a_side_pocket_at_different_angles.pdf` — TP 3.7 - Effective Target Sizes For Fast Shots Into A Side Pocket At Different Angles [starter | code-cited | formula-lines:40]
 - `whitepapers/a_theoretical_analysis_of_billiard_ball_dynamics_under_cushion_impacts.pdf` — A Theoretical Analysis Of Billiard Ball Dynamics Under Cushion Impacts [starter | doc-cited | formula-lines:40]
-- `whitepapers/the_art_of_billiards_play.html` — The Art of Billiards Play [code-cited | formula-lines:40]
 - `whitepapers/tp_b_6_cue_ball_table_lengths_of_travel_for_different_speeds_accounting_for_rail_rebound_and_drag_losses.pdf` — TP B.6 - CB table lengths of travel for different speeds [code-cited | formula-lines:36]
 - `whitepapers/billiard_university_bu_part_iv_table_difficulty.pdf` — Billiard University BU Part Iv Table Difficulty [doc-cited | formula-lines:22]
 - `whitepapers/tp_7_3_ball_rail_interaction_and_the_effects_on_vertical_plane_spin.pdf` — TP 7.3 - Ball-rail interaction and the effects on vertical plane spin [doc-cited | formula-lines:18]
 - `whitepapers/draw_shot_physics_part_i_basics.pdf` — Draw Shot Physics - Part I: basics [doc-cited | formula-lines:3]
+- `whitepapers/the_art_of_billiards_play.html` — The Art of Billiards Play [code-cited | excluded-scopes:cue_squirt,off_center_cue_impact,cue_end_mass_calibration]
 - `whitepapers/magic_spot_kicks.pdf` — Magic Spot Kicks [doc-cited]
 - `whitepapers/golden_break.pdf` — Golden Break [doc-cited]
 - `whitepapers/frozen_proposition_shot.pdf` — Frozen Proposition Shot [doc-cited]
@@ -156,7 +156,7 @@ for the exhaustive list.
 - `whitepapers/the_physics_of_billiards.html` — The Physics Of Billiards [starter | code-cited | formula-lines:28]
 - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf` — Pool and Billiards Physics Principles by Coriolis and Others [starter | code-cited | formula-lines:24]
 - `whitepapers/numerical_simulations_of_the_frictional_collisions_of_solid_balls_on_a_rough_surface.pdf` — Numerical Simulations Of The Frictional Collisions Of Solid Balls On A Rough Surface [starter | doc-cited | formula-lines:23]
-- ... 341 more in `whitepapers_index.jsonl`
+- ... 340 more in `whitepapers_index.jsonl`
 
 ### History And General Physics
 
@@ -166,9 +166,9 @@ for the exhaustive list.
 - `whitepapers/the_physics_of_billiards.html` — The Physics Of Billiards [starter | code-cited | formula-lines:28]
 - `whitepapers/pool_and_billiards_physics_principles_by_coriolis_and_others.pdf` — Pool and Billiards Physics Principles by Coriolis and Others [starter | code-cited | formula-lines:24]
 - `whitepapers/theorie_mathematique_des_effets_du_jeu_de_billard_par_g_coriolis.pdf` — Théorie mathématique des effets du jeu de billard / par G. Coriolis [doc-cited | formula-lines:40]
-- `whitepapers/the_art_of_billiards_play.html` — The Art of Billiards Play [code-cited | formula-lines:40]
 - `whitepapers/collision_of_two_spinning_billiard_balls_and_the_role_of_table_friction.pdf` — Collision of two spinning billiard balls and the role of table [code-cited | formula-lines:40]
 - `whitepapers/amateur_physics_for_the_amateur_pool_player.pdf` — APAPP 4 of 4 [doc-cited | formula-lines:40]
+- `whitepapers/the_art_of_billiards_play.html` — The Art of Billiards Play [code-cited | excluded-scopes:cue_squirt,off_center_cue_impact,cue_end_mass_calibration]
 - `whitepapers/application_of_high_speed_imaging_to_determine_the_dynamics_of_billiards.pdf` — Application of high-speed imaging to determine the dynamics of billiards [formula-lines:14]
 - `whitepapers/the_amazing_world_of_billiards_physics.pdf` — The Amazing World of Billiards Physics May, 2007 [formula-lines:8]
 - `whitepapers/draw_shot_primer_part_vii_tips_of_english.pdf` — Draw Shot Primer - Part VII: Tips of English [formula-lines:2]
@@ -203,7 +203,7 @@ for the exhaustive list.
 - `whitepapers/tp_4_1_distance_required_for_stun_and_normal_roll_to_develop.pdf` — TP_4-1 [doc-cited | formula-lines:40]
 - `whitepapers/tp_b_8_draw_shot_physics.pdf` — TP B.8 - Draw shot physics [doc-cited | formula-lines:40]
 - `whitepapers/tp_b_2_rolling_resistance_spin_resistance_and_ball_turn.pdf` — TP B.2 - Rolling resistance, spin resistance, and "ball turn [code-cited | formula-lines:40]
-- `whitepapers/the_art_of_billiards_play.html` — The Art of Billiards Play [code-cited | formula-lines:40]
+- `whitepapers/robotic_billiards_understanding_humans_in_order_to_counter_them.pdf` — Robotic Billiards: Understanding Humans in Order to Counter Them [doc-cited | formula-lines:40]
 - ... 300 more in `whitepapers_index.jsonl`
 
 ### Technical Proofs

@@ -43,6 +43,15 @@ PDFINFO = shutil.which("pdfinfo")
 TEXT_FILE_EXTS = {".rs", ".md", ".org", ".txt", ".toml", ".nix", ".yml", ".yaml", ".json"}
 DOC_EXTS = {".pdf", ".html", ".htm", ".txt"}
 
+# Broad guide topics that would recommend a source inside each excluded scope.
+EXCLUDED_SCOPE_GUIDE_TOPICS = {
+    "cue_squirt": {"cue_ball_motion_and_spin"},
+    "off_center_cue_impact": {"cue_ball_motion_and_spin"},
+    "cue_end_mass_calibration": {"cue_ball_motion_and_spin"},
+}
+
+VALID_RETRIEVAL_STATES = {"include", "scope_limited", "quarantine", "exclude"}
+
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into",
     "is", "it", "of", "on", "or", "that", "the", "their", "this", "to", "with",
@@ -158,6 +167,14 @@ class DocRecord:
     excluded_scopes: list[str]
 
 
+def supported_top_level_sources() -> set[str]:
+    return {
+        f"whitepapers/{path.name}"
+        for path in WHITEPAPERS_DIR.iterdir()
+        if path.is_file() and path.suffix.lower() in DOC_EXTS
+    }
+
+
 def load_authority_manifest() -> dict[str, dict]:
     try:
         raw = json.loads(AUTHORITY_MANIFEST_PATH.read_text())
@@ -166,21 +183,89 @@ def load_authority_manifest() -> dict[str, dict]:
     except json.JSONDecodeError as error:
         raise SystemExit(f"Invalid authority manifest: {error}") from error
 
-    if raw.get("schema_version") != 1:
+    if raw.get("schema_version") != 2:
         raise SystemExit("Unsupported authority manifest schema_version")
+    included_documents = raw.get("included_documents")
+    reviewed_documents = raw.get("documents")
+    if not isinstance(included_documents, list):
+        raise SystemExit("Authority manifest included_documents must be a list")
+    if not isinstance(reviewed_documents, list):
+        raise SystemExit("Authority manifest documents must be a list")
+
     policies: dict[str, dict] = {}
-    for document in raw.get("documents", []):
-        path = document.get("path")
-        retrieval = document.get("retrieval")
-        if not isinstance(path, str) or not path.startswith("whitepapers/"):
-            raise SystemExit(f"Manifest document has invalid path: {path!r}")
-        if retrieval not in {"include", "scope_limited", "quarantine", "exclude"}:
-            raise SystemExit(f"Manifest document has invalid retrieval state: {path!r}")
+    for path in included_documents:
+        if (
+            not isinstance(path, str)
+            or not path.startswith("whitepapers/")
+            or Path(path).parent != Path("whitepapers")
+        ):
+            raise SystemExit(f"Manifest included document has invalid path: {path!r}")
         if path in policies:
             raise SystemExit(f"Manifest has duplicate document path: {path}")
-        if not (REPO_ROOT / path).is_file():
+        policies[path] = {
+            "path": path,
+            "retrieval": "include",
+            "authority": "contextual",
+            "excluded_scopes": [],
+        }
+
+    for document in reviewed_documents:
+        if not isinstance(document, dict):
+            raise SystemExit(f"Manifest document must be an object: {document!r}")
+        path = document.get("path")
+        retrieval = document.get("retrieval")
+        authority = document.get("authority")
+        excluded_scopes = document.get("excluded_scopes", [])
+        if not isinstance(path, str) or not path.startswith("whitepapers/"):
+            raise SystemExit(f"Manifest document has invalid path: {path!r}")
+        if retrieval not in VALID_RETRIEVAL_STATES:
+            raise SystemExit(f"Manifest document has invalid retrieval state: {path!r}")
+        if not isinstance(authority, str) or not authority:
+            raise SystemExit(f"Manifest document has invalid authority: {path!r}")
+        if not isinstance(excluded_scopes, list) or any(
+            not isinstance(scope, str) for scope in excluded_scopes
+        ):
+            raise SystemExit(f"Manifest document has invalid excluded_scopes: {path!r}")
+        if len(set(excluded_scopes)) != len(excluded_scopes):
+            raise SystemExit(f"Manifest document has duplicate excluded_scopes: {path!r}")
+        unknown_scopes = set(excluded_scopes) - EXCLUDED_SCOPE_GUIDE_TOPICS.keys()
+        if unknown_scopes:
+            scopes = ", ".join(sorted(unknown_scopes))
+            raise SystemExit(f"Manifest document has unsupported excluded_scopes: {path}: {scopes}")
+        if retrieval == "scope_limited" and not excluded_scopes:
+            raise SystemExit(f"Scope-limited manifest document has no excluded_scopes: {path}")
+        if retrieval != "scope_limited" and excluded_scopes:
+            raise SystemExit(f"Non-scope-limited manifest document has excluded_scopes: {path}")
+        if path in policies:
+            raise SystemExit(f"Manifest has duplicate document path: {path}")
+        policies[path] = {**document, "excluded_scopes": excluded_scopes}
+
+    for path in policies:
+        source = REPO_ROOT / path
+        if not source.is_file():
             raise SystemExit(f"Manifest document does not exist: {path}")
-        policies[path] = document
+        if source.suffix.lower() not in DOC_EXTS:
+            raise SystemExit(f"Manifest document has unsupported extension: {path}")
+
+    supported = supported_top_level_sources()
+    manifested_top_level = {
+        path
+        for path in policies
+        if (REPO_ROOT / path).parent == WHITEPAPERS_DIR
+    }
+    missing = supported - manifested_top_level
+    extra = manifested_top_level - supported
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"unmanifested supported sources: {', '.join(sorted(missing))}")
+        if extra:
+            details.append(
+                "manifest paths are not supported top-level sources: "
+                + ", ".join(sorted(extra))
+            )
+        raise SystemExit("Authority manifest/source parity failure: " + "; ".join(details))
+
     return policies
 
 
@@ -474,13 +559,11 @@ def gather_repo_citations() -> tuple[set[str], set[str], set[str]]:
 
 
 def iter_docs(policies: dict[str, dict]) -> Iterable[Path]:
-    for path in sorted(WHITEPAPERS_DIR.iterdir()):
-        if path.is_dir() or path.suffix.lower() not in DOC_EXTS:
+    for manifest_path in sorted(supported_top_level_sources()):
+        policy = policies[manifest_path]
+        if policy["retrieval"] in {"exclude", "quarantine"}:
             continue
-        policy = policies.get(f"whitepapers/{path.name}", {})
-        if policy.get("retrieval") in {"exclude", "quarantine"}:
-            continue
-        yield path
+        yield REPO_ROOT / manifest_path
 
 
 def keyword_signature(title: str) -> list[str]:
@@ -493,6 +576,32 @@ def keyword_signature(title: str) -> list[str]:
         if len(sig) >= 8:
             break
     return sig
+
+
+def scope_is_allowed(policy: dict, scope: str) -> bool:
+    return scope not in policy.get("excluded_scopes", [])
+
+
+# Extracted formula lines have no reliable scope labels, so scope-limited sources
+# cannot safely contribute recommendation candidates.
+def formula_candidates_allowed(policy: dict) -> bool:
+    return all(
+        scope_is_allowed(policy, scope)
+        for scope in policy.get("excluded_scopes", [])
+    )
+
+
+def topic_is_allowed(policy: dict, topic: str) -> bool:
+    return all(
+        scope_is_allowed(policy, scope) or topic not in excluded_topics
+        for scope, excluded_topics in EXCLUDED_SCOPE_GUIDE_TOPICS.items()
+    )
+
+
+def exclusion_tag(excluded_scopes: list[str]) -> str:
+    if not excluded_scopes:
+        return ""
+    return f"excluded-scopes:{','.join(excluded_scopes)}"
 
 
 def render_guide(records: list[DocRecord], topic_map: dict[str, list[DocRecord]]) -> str:
@@ -537,7 +646,9 @@ def render_guide(records: list[DocRecord], topic_map: dict[str, list[DocRecord]]
             tags.append("code")
         if r.cited_in_docs:
             tags.append("docs")
-        lines.append(f"- `{r.path}` — {r.title} [{', '.join(tags)}]")
+        scope_tag = exclusion_tag(r.excluded_scopes)
+        metadata = tags + ([scope_tag] if scope_tag else [])
+        lines.append(f"- `{r.path}` — {r.title} [{', '.join(metadata)}]")
     lines.append("")
     lines.append("## Topic map (top docs only)")
     lines.append("")
@@ -559,6 +670,9 @@ def render_guide(records: list[DocRecord], topic_map: dict[str, list[DocRecord]]
                 extra.append("doc-cited")
             if r.formula_line_count:
                 extra.append(f"formula-lines:{r.formula_line_count}")
+            scope_tag = exclusion_tag(r.excluded_scopes)
+            if scope_tag:
+                extra.append(scope_tag)
             meta = f" [{' | '.join(extra)}]" if extra else ""
             lines.append(f"- `{r.path}` — {r.title}{meta}")
         if len(ranked) > len(shown):
@@ -635,10 +749,11 @@ def main() -> None:
         if title_is_noisy(title):
             title = pretty_title
 
+        policy = policies[f"whitepapers/{path.name}"]
         topics = classify_topics(title, path.name, text)
-        formulas = extract_formula_lines(text)
+        extracted_formulas = extract_formula_lines(text)
+        formulas = extracted_formulas if formula_candidates_allowed(policy) else []
         excerpt = short_excerpt(text)
-        policy = policies.get(f"whitepapers/{path.name}", {})
         record = DocRecord(
             path=f"whitepapers/{path.name}",
             filename=path.name,
@@ -651,23 +766,26 @@ def main() -> None:
             cited_in_docs=path.name in cited_docs,
             primary_start=(
                 path.name in PRIMARY_STARTER_DOCS
-                and policy.get("retrieval", "include") == "include"
+                and policy["retrieval"] == "include"
             ),
             char_count=len(text),
             line_count=text.count("\n") + (1 if text else 0),
             formula_line_count=len(formulas),
             excerpt=excerpt,
-            retrieval=policy.get("retrieval", "include"),
-            authority=policy.get("authority", "contextual"),
-            excluded_scopes=policy.get("excluded_scopes", []),
+            retrieval=policy["retrieval"],
+            authority=policy["authority"],
+            excluded_scopes=policy["excluded_scopes"],
         )
         records.append(record)
 
         formula_sections.append(
             f"## {record.title}\npath: {record.path}\n"
             f"retrieval: {record.retrieval}\nauthority: {record.authority}\n"
+            f"excluded_scopes: {', '.join(record.excluded_scopes) or '[none]'}\n"
         )
-        if formulas:
+        if not formula_candidates_allowed(policy):
+            formula_sections.append("- [formula candidates omitted due to scope exclusions]\n")
+        elif formulas:
             formula_sections.extend(f"- {line}\n" for line in formulas)
         else:
             formula_sections.append("- [no formula-like lines detected]\n")
@@ -682,7 +800,7 @@ def main() -> None:
                     f"topics: {', '.join(record.topics)}",
                     f"retrieval: {record.retrieval}",
                     f"authority: {record.authority}",
-                    f"excluded_scopes: {', '.join(record.excluded_scopes)}",
+                    f"excluded_scopes: {', '.join(record.excluded_scopes) or '[none]'}",
                     f"cited_by_repo: {'yes' if record.cited_by_repo else 'no'}",
                     "text:",
                     text or "[NO_EXTRACTED_TEXT]",
@@ -701,8 +819,10 @@ def main() -> None:
 
     topic_map: dict[str, list[DocRecord]] = defaultdict(list)
     for record in records:
+        policy = policies[record.path]
         for topic in record.topics:
-            topic_map[topic].append(record)
+            if topic_is_allowed(policy, topic):
+                topic_map[topic].append(record)
 
     GUIDE_PATH.write_text(render_guide(records, topic_map))
     README_PATH.write_text(render_readme(records))

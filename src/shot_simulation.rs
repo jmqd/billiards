@@ -250,6 +250,9 @@ impl PhysicsProfile {
                     .is_some_and(|magnitude| magnitude >= 0.0)
         };
         let valid_restitution = |value: &Scale| {
+            finite_scale(value) && (0.0..=1.0).contains(&value.as_f64())
+        };
+        let valid_lossy_restitution = |value: &Scale| {
             finite_scale(value) && (0.0..1.0).contains(&value.as_f64())
         };
         let valid_unit_interval_scale = |value: &Scale| {
@@ -287,7 +290,7 @@ impl PhysicsProfile {
                 "ball radius must be finite and positive",
             ));
         }
-        if !valid_restitution(&ball.airborne_table_contact.normal_restitution)
+        if !valid_lossy_restitution(&ball.airborne_table_contact.normal_restitution)
             || !valid_nonnegative_scale(&ball.airborne_table_contact.sliding_friction_coefficient)
             || !ball
                 .airborne_table_contact

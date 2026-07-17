@@ -7,9 +7,10 @@ use billiards::shot_simulation::{
     ThreeCushionShot, UnsupportedPhysicsReason,
 };
 use billiards::{
-    BallSetPhysicsSpec, Inches, InchesPerSecond, InchesPerSecondSq, OnTableMotionConfig,
-    RadiansPerSecond, RadiansPerSecondSq, Rail, RailCollisionProfile, RollingResistanceModel, Scale,
-    Seconds, SlidingFrictionModel, SlidingToRollingModel, SpinDecayModel,
+    BallBallCollisionConfig, BallSetPhysicsSpec, Inches, InchesPerSecond, InchesPerSecondSq,
+    OnTableMotionConfig, RadiansPerSecond, RadiansPerSecondSq, Rail, RailCollisionProfile,
+    RollingResistanceModel, Scale, Seconds, SlidingFrictionModel, SlidingToRollingModel,
+    SpinDecayModel,
 };
 
 fn fixture_layout() -> ShotLayout {
@@ -54,6 +55,7 @@ fn canonical_profile_with(
     alter: impl FnOnce(
         &mut BallSetPhysicsSpec,
         &mut OnTableMotionConfig,
+        &mut BallBallCollisionConfig,
         &mut RailCollisionProfile,
     ),
 ) -> Result<PhysicsProfile, ShotSimulationError> {
@@ -61,14 +63,15 @@ fn canonical_profile_with(
     let mut ball = baseline.ball_set().clone();
     let mut motion = baseline.motion().clone();
     let mut rails = baseline.rails().clone();
-    alter(&mut ball, &mut motion, &mut rails);
+    let mut collision = baseline.collision().clone();
+    alter(&mut ball, &mut motion, &mut collision, &mut rails);
 
     PhysicsProfile::new(
         baseline.table().clone(),
         ball,
         motion,
         baseline.collision_model(),
-        baseline.collision().clone(),
+        collision,
         baseline.rail_model(),
         rails,
     )
@@ -124,30 +127,53 @@ fn physics_profile_rejects_out_of_domain_coefficients_before_execution() {
 }
 
 #[test]
+fn physics_profile_accepts_ideal_ball_collision_restitution() {
+    canonical_profile_with(|_, _, collision, _| {
+        *collision = BallBallCollisionConfig::ideal();
+    })
+    .expect("ideal ball collision with normal restitution 1.0 is valid");
+}
+
+#[test]
+fn physics_profile_accepts_unit_normal_restitution_for_every_rail() {
+    canonical_profile_with(|_, _, _, rails| {
+        for rail in [
+            &mut rails.top,
+            &mut rails.right,
+            &mut rails.bottom,
+            &mut rails.left,
+        ] {
+            rail.normal_restitution = Scale::from_f64(1.0);
+        }
+    })
+    .expect("normal restitution 1.0 is valid for every rail");
+}
+
+#[test]
 fn physics_profile_accepts_zero_airborne_restitution_but_rejects_one() {
-    assert!(canonical_profile_with(|ball, _, _| {
+    assert!(canonical_profile_with(|ball, _, _, _| {
         ball.airborne_table_contact.normal_restitution = Scale::zero();
     })
     .is_ok());
 
-    assert_invalid_profile(canonical_profile_with(|ball, _, _| {
+    assert_invalid_profile(canonical_profile_with(|ball, _, _, _| {
         ball.airborne_table_contact.normal_restitution = Scale::from_f64(1.0);
     }));
 }
 
 #[test]
 fn physics_profile_rejects_zero_motion_rates() {
-    let zero_sliding = canonical_profile_with(|_, motion, _| {
+    let zero_sliding = canonical_profile_with(|_, motion, _, _| {
         motion.sliding_friction = SlidingFrictionModel::ConstantAcceleration {
             acceleration_magnitude: InchesPerSecondSq::new(Inches::zero()),
         };
     });
-    let zero_spin = canonical_profile_with(|_, motion, _| {
+    let zero_spin = canonical_profile_with(|_, motion, _, _| {
         motion.spin_decay = SpinDecayModel::ConstantAngularDeceleration {
             angular_deceleration: RadiansPerSecondSq::zero(),
         };
     });
-    let zero_rolling = canonical_profile_with(|_, motion, _| {
+    let zero_rolling = canonical_profile_with(|_, motion, _, _| {
         motion.rolling_resistance = RollingResistanceModel::ConstantDeceleration {
             linear_deceleration: InchesPerSecondSq::new(Inches::zero()),
         };
@@ -160,28 +186,28 @@ fn physics_profile_rejects_zero_motion_rates() {
 
 #[test]
 fn physics_profile_rejects_a_rail_contact_height_ratio_above_one() {
-    assert_invalid_profile(canonical_profile_with(|_, _, rails| {
+    assert_invalid_profile(canonical_profile_with(|_, _, _, rails| {
         rails.top.effective_contact_height_ratio = Scale::from_f64(1.000_001);
     }));
 }
 
 #[test]
 fn physics_profile_rejects_every_negative_phase_tolerance() {
-    let negative_airborne_height = canonical_profile_with(|_, motion, _| {
+    let negative_airborne_height = canonical_profile_with(|_, motion, _, _| {
         motion.phase.thresholds.airborne_height = Inches::from_f64(-1.0);
     });
-    let negative_airborne_vertical_speed = canonical_profile_with(|_, motion, _| {
+    let negative_airborne_vertical_speed = canonical_profile_with(|_, motion, _, _| {
         motion.phase.thresholds.airborne_vertical_speed =
             InchesPerSecond::new(Inches::from_f64(-1.0));
     });
-    let negative_rest_linear_speed = canonical_profile_with(|_, motion, _| {
+    let negative_rest_linear_speed = canonical_profile_with(|_, motion, _, _| {
         motion.phase.thresholds.rest_linear_speed =
             InchesPerSecond::new(Inches::from_f64(-1.0));
     });
-    let negative_rest_angular_speed = canonical_profile_with(|_, motion, _| {
+    let negative_rest_angular_speed = canonical_profile_with(|_, motion, _, _| {
         motion.phase.thresholds.rest_angular_speed = RadiansPerSecond::new(-1.0);
     });
-    let negative_no_slip_epsilon = canonical_profile_with(|_, motion, _| {
+    let negative_no_slip_epsilon = canonical_profile_with(|_, motion, _, _| {
         motion.phase.sliding_to_rolling = SlidingToRollingModel::Thresholded {
             contact_speed_epsilon: InchesPerSecond::new(Inches::from_f64(-1.0)),
         };

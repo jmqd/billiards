@@ -1545,6 +1545,9 @@ fn first_linear_sphere_entry_time(
 }
 
 
+const CONTINUOUS_EVENT_GAP_TOLERANCE_INCHES: f64 =
+    N_BALL_GEOMETRY_RECOVERY_TOLERANCE_INCHES;
+
 fn first_continuous_entry_time_adaptive<F, D>(
     horizon: f64,
     gap_at: F,
@@ -1563,10 +1566,14 @@ where
         return None;
     }
 
+    let time_tolerance =
+        2.0 * CONTINUOUS_EVENT_GAP_TOLERANCE_INCHES / gap_rate_bound;
+
     let horizon_gap = gap_at(horizon);
     let mut pending = vec![(0.0, horizon, initial_gap, horizon_gap)];
     while let Some((left, right, left_gap, right_gap)) = pending.pop() {
-        let midpoint = left + 0.5 * (right - left);
+        let width = right - left;
+        let midpoint = left + 0.5 * width;
         if midpoint == left || midpoint == right {
             if left_gap > 0.0 && right_gap <= 0.0 && derivative_at(right) < 0.0 {
                 return Some(right);
@@ -1574,7 +1581,24 @@ where
             continue;
         }
         let midpoint_gap = gap_at(midpoint);
-        if midpoint_gap > gap_rate_bound * (0.5 * (right - left)) {
+        if midpoint_gap > gap_rate_bound * (0.5 * width) {
+            continue;
+        }
+
+        if width <= time_tolerance {
+            let bracket = if left_gap > 0.0 && midpoint_gap <= 0.0 {
+                Some((left, midpoint))
+            } else if midpoint_gap > 0.0 && right_gap <= 0.0 {
+                Some((midpoint, right))
+            } else {
+                None
+            };
+            if let Some((entry_left, entry_right)) = bracket {
+                let root = refine_curved_entry_time(entry_left, entry_right, &gap_at);
+                if derivative_at(root) < 0.0 {
+                    return Some(root);
+                }
+            }
             continue;
         }
 
@@ -1586,6 +1610,53 @@ where
     }
 
     None
+}
+
+#[cfg(test)]
+#[test]
+fn continuous_entry_search_spatial_tolerance_bounds_subresolution_near_miss() {
+    use std::cell::Cell;
+
+    let gap_evaluations = Cell::<usize>::new(0);
+    let gap_at = |time: f64| {
+        gap_evaluations.set(gap_evaluations.get() + 1);
+        1.2e-12 + 2.4998 * time * time
+    };
+
+    let entry = first_continuous_entry_time_adaptive(
+        7.2e-5,
+        gap_at,
+        200.0,
+        |time| 4.9996 * time,
+    );
+
+    assert_eq!(entry, None);
+    assert!(
+        gap_evaluations.get() < 20_000,
+        "positive near miss required {} gap evaluations",
+        gap_evaluations.get()
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn continuous_entry_search_finds_non_grid_aligned_narrow_contact() {
+    let center = 0.0054321;
+    let gap_at = |time: f64| 1000.0 * (time - center).powi(2) - 2e-6;
+    let derivative_at = |time: f64| 2000.0 * (time - center);
+
+    let entry = first_continuous_entry_time_adaptive(0.01, gap_at, 11.0, derivative_at)
+        .expect("narrow sign-changing contact should be found");
+    let expected_entry = center - (2e-9_f64).sqrt();
+
+    assert!(
+        (entry - expected_entry).abs() < 1e-12,
+        "entry {entry} differs from analytic root {expected_entry}"
+    );
+    assert!(
+        derivative_at(entry) < 0.0,
+        "first contact root must be on the inward branch"
+    );
 }
 
 fn predict_airborne_ball_ball_collision(

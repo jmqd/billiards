@@ -1559,8 +1559,8 @@ where
     D: Fn(f64) -> f64,
 {
     let initial_gap = gap_at(0.0);
-    if initial_gap <= 0.0 {
-        return (derivative_at(0.0) < 0.0).then_some(0.0);
+    if initial_gap <= 0.0 && derivative_at(0.0) < 0.0 {
+        return Some(0.0);
     }
     if !gap_rate_bound.is_finite() || gap_rate_bound <= 0.0 {
         return None;

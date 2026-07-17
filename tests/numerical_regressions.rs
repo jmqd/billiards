@@ -247,3 +247,53 @@ fn cancellation_safe_downward_table_contact_stays_positive_and_finite() {
     assert_eq!(settled_time, predicted_time);
     assert_eq!(contact_height, 0.0);
 }
+
+#[test]
+fn separating_touching_mixed_pair_recollides_after_sliding_friction_reverses_motion() {
+    let ball = BallSetPhysicsSpec::default();
+    let radius = ball.radius.as_f64();
+    let airborne = BallState::airborne(
+        inches2(20.0, 20.0),
+        Inches::zero(),
+        Velocity2::zero(),
+        Inches::from_f64(10.0),
+        AngularVelocity3::zero(),
+    );
+    let airborne_table_contact = time_until_airborne_ball_reaches_table(&airborne)
+        .expect("an upward launch from table height must return to the table")
+        .as_f64();
+    let sliding = BallState::on_table(
+        inches2(20.0 + 2.0 * radius, 20.0),
+        velocity2(0.01, 0.0),
+        AngularVelocity3::new(0.0, (0.01 - 1.0) / radius, 0.0),
+    );
+    let states = [
+        NBallSystemState::Airborne(airborne),
+        NBallSystemState::OnTable(on_table(sliding)),
+    ];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states,
+        &ball,
+        &TableSpec::default(),
+        &zero_threshold_motion(),
+    )
+    .expect("fixture geometry should validate");
+
+    let Some(NBallSystemEvent::AirborneBallBallCollision { contact, .. }) = event else {
+        panic!("expected re-entry collision before airborne table contact, got {event:?}");
+    };
+    let collision_time = contact.time_until_contact.as_f64();
+    assert!(
+        collision_time > 0.0,
+        "initial separation must exclude the touching t=0 root"
+    );
+    assert!(
+        (collision_time - 0.0354).abs() < 1e-4,
+        "expected 3-D re-entry near 0.0354 s, got {collision_time}"
+    );
+    assert!(
+        collision_time < airborne_table_contact,
+        "re-entry collision at {collision_time} must precede table contact at {airborne_table_contact}"
+    );
+}

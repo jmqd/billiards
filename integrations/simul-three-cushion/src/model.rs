@@ -85,6 +85,9 @@ impl ExperimentConfig {
         if self.candidate_budget == 0 {
             return Err("candidate budget must be greater than zero".into());
         }
+        if self.mode == Mode::Sensitivity && self.sensitivity_centers.is_empty() {
+            return Err("sensitivity mode requires at least one center".into());
+        }
         if self.mode == Mode::Sensitivity
             && self.candidate_budget < self.sensitivity_centers.len() as u64
         {
@@ -96,24 +99,7 @@ impl ExperimentConfig {
         if self.max_events == 0 {
             return Err("max events must be greater than zero".into());
         }
-        for (name, value) in [
-            ("heading", self.nominal.heading),
-            ("speed", self.nominal.speed),
-            ("tip side", self.nominal.tip_side),
-            ("tip height", self.nominal.tip_height),
-            ("elevation", self.nominal.elevation),
-        ] {
-            if !value.is_finite() {
-                return Err(format!("{name} must be finite"));
-            }
-        }
-        if self.nominal.speed <= 0.0 {
-            return Err("launch speed must be greater than zero".into());
-        }
-        if self.nominal.elevation < 0.0 || self.nominal.elevation >= 90.0 {
-            return Err("elevation must be in [0, 90) degrees".into());
-        }
-        validate_tip(self.nominal)?;
+        validate_controls(self.nominal)?;
         for position in self.positions {
             if !position.x.is_finite() || !position.y.is_finite() {
                 return Err("ball positions must be finite".into());
@@ -138,7 +124,7 @@ impl ExperimentConfig {
             }
         }
         for center in &self.sensitivity_centers {
-            validate_tip(*center)?;
+            validate_controls(*center)?;
         }
         Ok(())
     }
@@ -156,7 +142,34 @@ impl NoiseWidths {
     }
 }
 
+fn validate_controls(controls: Controls) -> Result<(), String> {
+    for (name, value) in [
+        ("heading", controls.heading),
+        ("speed", controls.speed),
+        ("tip side", controls.tip_side),
+        ("tip height", controls.tip_height),
+        ("elevation", controls.elevation),
+    ] {
+        if !value.is_finite() {
+            return Err(format!("{name} must be finite"));
+        }
+    }
+    if controls.speed <= 0.0 {
+        return Err("launch speed must be greater than zero".into());
+    }
+    if controls.elevation < 0.0 || controls.elevation >= 90.0 {
+        return Err("elevation must be in [0, 90) degrees".into());
+    }
+    validate_tip(controls)
+}
+
 pub fn validate_tip(controls: Controls) -> Result<(), String> {
+    if !controls.tip_side.is_finite() {
+        return Err("tip side must be finite".into());
+    }
+    if !controls.tip_height.is_finite() {
+        return Err("tip height must be finite".into());
+    }
     if controls.tip_side.hypot(controls.tip_height) > 1.0 + 1e-12 {
         return Err("tip side/height must lie within one ball radius".into());
     }

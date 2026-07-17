@@ -131,6 +131,29 @@ fn rejects_zero_budgets_and_invalid_tip_offsets() {
 }
 
 #[test]
+fn rejects_negative_speed_in_additional_good_center() {
+    let config = Cli::try_parse_from([
+        "simul-three-cushion",
+        "--fixture",
+        "--mode",
+        "sensitivity",
+        "--seed",
+        "1",
+        "--candidates",
+        "2",
+        "--good",
+        "0,-1,0,0,0",
+    ])
+    .expect("finite additional center syntax should parse")
+    .into_config();
+
+    assert_eq!(
+        config.unwrap_err(),
+        "launch speed must be greater than zero"
+    );
+}
+
+#[test]
 fn report_is_stable_and_distinguishes_non_misses() {
     let controls = Controls {
         heading: 25.0,

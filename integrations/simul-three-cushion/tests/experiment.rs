@@ -9,6 +9,177 @@ fn config(arguments: &[&str]) -> simul_three_cushion::ExperimentConfig {
 }
 
 #[test]
+fn sensitivity_requires_a_center_before_trial_execution() {
+    let mut sensitivity = config(&[
+        "--fixture",
+        "--mode",
+        "sensitivity",
+        "--seed",
+        "1",
+        "--candidates",
+        "1",
+        "--replications",
+        "1",
+    ]);
+    sensitivity.sensitivity_centers.clear();
+
+    assert_eq!(
+        run(&sensitivity).unwrap_err(),
+        "sensitivity mode requires at least one center"
+    );
+
+    sensitivity.mode = simul_three_cushion::Mode::Search;
+    sensitivity
+        .validate()
+        .expect("search mode does not require sensitivity centers");
+}
+
+#[test]
+fn invalid_additional_sensitivity_centers_are_rejected_before_trials() {
+    let baseline = config(&[
+        "--fixture",
+        "--mode",
+        "sensitivity",
+        "--seed",
+        "1",
+        "--candidates",
+        "2",
+        "--replications",
+        "1",
+    ]);
+    let center = baseline.nominal;
+    let cases = [
+        (
+            "negative speed",
+            simul_three_cushion::Controls {
+                speed: -1.0,
+                ..center
+            },
+            "launch speed must be greater than zero",
+        ),
+        (
+            "NaN speed",
+            simul_three_cushion::Controls {
+                speed: f64::NAN,
+                ..center
+            },
+            "speed must be finite",
+        ),
+        (
+            "infinite speed",
+            simul_three_cushion::Controls {
+                speed: f64::INFINITY,
+                ..center
+            },
+            "speed must be finite",
+        ),
+        (
+            "tip outside the unit circle",
+            simul_three_cushion::Controls {
+                tip_side: 0.8,
+                tip_height: 0.8,
+                ..center
+            },
+            "tip side/height must lie within one ball radius",
+        ),
+        (
+            "NaN tip side",
+            simul_three_cushion::Controls {
+                tip_side: f64::NAN,
+                ..center
+            },
+            "tip side must be finite",
+        ),
+        (
+            "infinite tip height",
+            simul_three_cushion::Controls {
+                tip_height: f64::NEG_INFINITY,
+                ..center
+            },
+            "tip height must be finite",
+        ),
+        (
+            "negative elevation",
+            simul_three_cushion::Controls {
+                elevation: -f64::EPSILON,
+                ..center
+            },
+            "elevation must be in [0, 90) degrees",
+        ),
+        (
+            "excluded upper elevation boundary",
+            simul_three_cushion::Controls {
+                elevation: 90.0,
+                ..center
+            },
+            "elevation must be in [0, 90) degrees",
+        ),
+        (
+            "NaN elevation",
+            simul_three_cushion::Controls {
+                elevation: f64::NAN,
+                ..center
+            },
+            "elevation must be finite",
+        ),
+        (
+            "infinite elevation",
+            simul_three_cushion::Controls {
+                elevation: f64::INFINITY,
+                ..center
+            },
+            "elevation must be finite",
+        ),
+    ];
+
+    for (case, invalid_center, expected) in cases {
+        let mut config = baseline.clone();
+        config.sensitivity_centers.push(invalid_center);
+        assert_eq!(run(&config).unwrap_err(), expected, "{case}");
+    }
+}
+
+#[test]
+fn valid_sensitivity_center_boundaries_validate_and_execute() {
+    let mut config = config(&[
+        "--fixture",
+        "--mode",
+        "sensitivity",
+        "--seed",
+        "1",
+        "--candidates",
+        "1",
+        "--replications",
+        "1",
+        "--max-events",
+        "1",
+    ]);
+    let boundary = simul_three_cushion::Controls {
+        heading: 0.0,
+        speed: f64::MIN_POSITIVE,
+        tip_side: 1.0,
+        tip_height: 0.0,
+        elevation: 0.0,
+    };
+    config.sensitivity_centers = vec![boundary];
+    config
+        .validate()
+        .expect("positive speed, unit-radius tip, and zero elevation are valid");
+
+    let elevated = simul_three_cushion::Controls {
+        heading: 0.0,
+        speed: 150.0,
+        tip_side: 0.0,
+        tip_height: 0.0,
+        elevation: 45.0,
+    };
+    config.sensitivity_centers = vec![elevated];
+    let report = run(&config).expect("a supported elevated center should execute");
+    assert_eq!(report.trials.len(), 1);
+    assert_eq!(report.trials[0].applied, elevated);
+}
+
+#[test]
 fn built_in_fixture_is_a_known_scored_carom() {
     let report = run(&config(&[
         "--fixture",

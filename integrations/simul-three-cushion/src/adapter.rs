@@ -221,6 +221,10 @@ pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
     })
 }
 
+fn bounded_worker_count(requested: usize, specs_len: usize, available: usize) -> usize {
+    requested.min(specs_len).min(available.max(1))
+}
+
 fn run_trials(
     config: &ExperimentConfig,
     specs: Vec<TrialSpec>,
@@ -228,7 +232,8 @@ fn run_trials(
     if specs.is_empty() {
         return Ok(Vec::new());
     }
-    let worker_count = config.workers.get().min(specs.len());
+    let available = std::thread::available_parallelism().map_or(1, |count| count.get());
+    let worker_count = bounded_worker_count(config.workers.get(), specs.len(), available);
     if worker_count == 1 {
         let evaluator = physics::Evaluator::new(config)?;
         return Ok(specs
@@ -245,16 +250,20 @@ fn run_trials(
         let chunk_size = specs.len().div_ceil(worker_count);
         let mut handles = Vec::with_capacity(worker_count);
         for chunk in specs.chunks(chunk_size) {
-            handles.push(scope.spawn(move || {
-                let evaluator = physics::Evaluator::new(config);
-                chunk
-                    .iter()
-                    .map(|spec| match &evaluator {
-                        Ok(evaluator) => execute_spec(evaluator, config, spec),
-                        Err(detail) => failed_record(config, spec, detail),
+            handles.push(
+                std::thread::Builder::new()
+                    .spawn_scoped(scope, move || {
+                        let evaluator = physics::Evaluator::new(config);
+                        chunk
+                            .iter()
+                            .map(|spec| match &evaluator {
+                                Ok(evaluator) => execute_spec(evaluator, config, spec),
+                                Err(detail) => failed_record(config, spec, detail),
+                            })
+                            .collect::<Vec<_>>()
                     })
-                    .collect::<Vec<_>>()
-            }));
+                    .map_err(|error| format!("failed to spawn parallel trial worker: {error}"))?,
+            );
         }
         let mut records = Vec::with_capacity(specs.len());
         for handle in handles {
@@ -542,5 +551,23 @@ mod tests {
 
         assert_eq!(first_candidate, distinct_candidate);
         assert_ne!(first_candidate, next_replication);
+    }
+
+    #[test]
+    fn bounded_worker_count_respects_all_limits() {
+        let cases = [
+            ("huge request capped by availability", usize::MAX, 1_024, 8, 8),
+            ("request capped by fewer specs", 12, 3, 8, 3),
+            ("ordinary request below both limits", 4, 12, 8, 4),
+            ("zero availability normalized to one", 8, 12, 0, 1),
+        ];
+
+        for (name, requested, specs_len, available, expected) in cases {
+            assert_eq!(
+                bounded_worker_count(requested, specs_len, available),
+                expected,
+                "{name}"
+            );
+        }
     }
 }

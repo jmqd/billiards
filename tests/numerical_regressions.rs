@@ -413,3 +413,44 @@ fn suprathreshold_touching_airborne_pair_still_predicts_zero_time_collision() {
     assert_eq!((first_ball_index, second_ball_index), (0, 1));
     assert_eq!(contact.time_until_contact.as_f64(), 0.0);
 }
+
+#[test]
+fn subthreshold_touching_airborne_on_table_pair_still_predicts_zero_time_collision() {
+    let ball = BallSetPhysicsSpec::default();
+    let diameter = 2.0 * ball.radius.as_f64();
+    let airborne_height = 0.25;
+    let horizontal_separation = (diameter * diameter - airborne_height * airborne_height).sqrt();
+    let states = [
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0, 20.0),
+            Inches::from_f64(airborne_height),
+            velocity2(1e-11, 0.0),
+            Inches::zero(),
+            AngularVelocity3::zero(),
+        )),
+        NBallSystemState::OnTable(on_table(BallState::on_table(
+            inches2(20.0 + horizontal_separation, 20.0),
+            Velocity2::zero(),
+            AngularVelocity3::zero(),
+        ))),
+    ];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states,
+        &ball,
+        &TableSpec::default(),
+        &zero_threshold_motion(),
+    )
+    .expect("the exactly touching mixed-height fixture should remain valid");
+
+    let Some(NBallSystemEvent::AirborneBallBallCollision {
+        first_ball_index,
+        second_ball_index,
+        contact,
+    }) = event
+    else {
+        panic!("expected a subthreshold immediate mixed-height collision, got {event:?}");
+    };
+    assert_eq!((first_ball_index, second_ball_index), (0, 1));
+    assert_eq!(contact.time_until_contact.as_f64(), 0.0);
+}

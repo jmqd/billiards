@@ -1693,9 +1693,9 @@ fn predict_airborne_ball_ball_collision(
         second_state.vertical_velocity.as_f64() - first_state.vertical_velocity.as_f64(),
     ];
 
-    let contact_time = if matches!(first, NBallSystemState::Airborne(_))
-        && matches!(second, NBallSystemState::Airborne(_))
-    {
+    let both_airborne = matches!(first, NBallSystemState::Airborne(_))
+        && matches!(second, NBallSystemState::Airborne(_));
+    let contact_time = if both_airborne {
         // Gravity cancels from the relative trajectory of two airborne balls, leaving an exact
         // linear sphere-entry problem rather than a sampled ballistic curve.
         first_linear_sphere_entry_time(center_offset, relative_velocity, contact_distance)
@@ -1759,7 +1759,7 @@ fn predict_airborne_ball_ball_collision(
         first_continuous_entry_time_adaptive(horizon, gap_at, speed_bound, derivative_at)
     }?;
 
-    if contact_time == 0.0 {
+    if both_airborne && contact_time == 0.0 {
         let center_distance = vector_norm_3d(center_offset);
         let closing_speed = if center_distance <= f64::EPSILON {
             0.0

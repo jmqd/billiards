@@ -243,7 +243,17 @@ impl PhysicsProfile {
                 .is_some_and(|value| value.is_finite())
         };
         let valid_nonnegative_scale = |value: &Scale| {
-            finite_scale(value) && value.magnitude >= bigdecimal::BigDecimal::from(0_u8)
+            finite_scale(value)
+                && value
+                    .magnitude
+                    .to_f64()
+                    .is_some_and(|magnitude| magnitude >= 0.0)
+        };
+        let valid_restitution = |value: &Scale| {
+            finite_scale(value) && (0.0..1.0).contains(&value.as_f64())
+        };
+        let valid_unit_interval_scale = |value: &Scale| {
+            finite_scale(value) && (0.0..=1.0).contains(&value.as_f64())
         };
         if !finite_inches(&table.diamond_length) || table.diamond_length.as_f64() <= 0.0 {
             return Err(ShotSimulationError::InvalidPhysicsProfile(
@@ -277,8 +287,7 @@ impl PhysicsProfile {
                 "ball radius must be finite and positive",
             ));
         }
-        if !finite_scale(&ball.airborne_table_contact.normal_restitution)
-            || !(0.0..=1.0).contains(&ball.airborne_table_contact.normal_restitution.as_f64())
+        if !valid_restitution(&ball.airborne_table_contact.normal_restitution)
             || !valid_nonnegative_scale(&ball.airborne_table_contact.sliding_friction_coefficient)
             || !ball
                 .airborne_table_contact
@@ -294,6 +303,31 @@ impl PhysicsProfile {
             return Err(ShotSimulationError::InvalidPhysicsProfile(
                 "airborne table-contact coefficients are outside their finite physical ranges",
             ));
+        }
+        let phase_threshold_values = [
+            motion.phase.thresholds.airborne_height.as_f64(),
+            motion.phase.thresholds.airborne_vertical_speed.as_f64(),
+            motion.phase.thresholds.rest_linear_speed.as_f64(),
+            motion.phase.thresholds.rest_angular_speed.as_f64(),
+        ];
+        if !phase_threshold_values
+            .iter()
+            .all(|value| value.is_finite() && *value >= 0.0)
+        {
+            return Err(ShotSimulationError::InvalidPhysicsProfile(
+                "motion phase thresholds must be finite and non-negative",
+            ));
+        }
+        if let crate::SlidingToRollingModel::Thresholded {
+            contact_speed_epsilon,
+        } = &motion.phase.sliding_to_rolling
+        {
+            let contact_speed_epsilon = contact_speed_epsilon.as_f64();
+            if !contact_speed_epsilon.is_finite() || contact_speed_epsilon < 0.0 {
+                return Err(ShotSimulationError::InvalidPhysicsProfile(
+                    "sliding-to-rolling contact-speed epsilon must be finite and non-negative",
+                ));
+            }
         }
         let motion_values = [
             match &motion.sliding_friction {
@@ -314,14 +348,13 @@ impl PhysicsProfile {
         ];
         if !motion_values
             .iter()
-            .all(|value| value.is_finite() && *value >= 0.0)
+            .all(|value| value.is_finite() && *value > 0.0)
         {
             return Err(ShotSimulationError::InvalidPhysicsProfile(
-                "motion coefficients must be finite and non-negative",
+                "motion coefficients must be finite and positive",
             ));
         }
-        if !finite_scale(&collision.normal_restitution)
-            || !(0.0..=1.0).contains(&collision.normal_restitution.as_f64())
+        if !valid_restitution(&collision.normal_restitution)
             || !valid_nonnegative_scale(&collision.tangential_friction_coefficient)
             || !valid_nonnegative_scale(&collision.object_table_static_friction_coefficient)
             || !valid_nonnegative_scale(&collision.friction_model.reference_coefficient())
@@ -331,11 +364,10 @@ impl PhysicsProfile {
             ));
         }
         for rail in [&rails.top, &rails.right, &rails.bottom, &rails.left] {
-            if !finite_scale(&rail.normal_restitution)
-                || !(0.0..=1.0).contains(&rail.normal_restitution.as_f64())
+            if !valid_restitution(&rail.normal_restitution)
                 || !valid_nonnegative_scale(&rail.tangential_friction_coefficient)
                 || !valid_nonnegative_scale(&rail.impact_cloth_friction_coefficient)
-                || !valid_nonnegative_scale(&rail.effective_contact_height_ratio)
+                || !valid_unit_interval_scale(&rail.effective_contact_height_ratio)
             {
                 return Err(ShotSimulationError::InvalidPhysicsProfile(
                     "rail coefficients are outside their finite physical ranges",
@@ -863,6 +895,7 @@ struct ThreeCushionAccumulator {
     object_a_first_contact: Option<ContactInstant>,
     object_b_first_contact: Option<ContactInstant>,
     completion: Option<ContactInstant>,
+    first_unsupported_contact: Option<ContactInstant>,
     cushion_contacts_before_completion: u16,
     first_three_qualifying_cushions: [Option<Rail>; 3],
 }
@@ -873,10 +906,25 @@ impl ThreeCushionAccumulator {
             event_index,
             at: event.at,
         };
+        if event
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, ResolvedEffect::UnsupportedContact { .. }))
+        {
+            self.first_unsupported_contact.get_or_insert(instant);
+        }
         for effect in &event.effects {
-            let ResolvedEffect::BallBallContact { first, second, .. } = effect else {
+            let ResolvedEffect::BallBallContact {
+                first,
+                second,
+                resolution,
+            } = effect else {
                 continue;
             };
+            if *resolution == BallBallContactResolution::SharedCoupledCausalityUnresolved {
+                self.first_unsupported_contact.get_or_insert(instant);
+                continue;
+            }
             if (*first == roles.cue && *second == roles.object_a)
                 || (*second == roles.cue && *first == roles.object_a)
             {
@@ -922,7 +970,11 @@ impl ThreeCushionAccumulator {
 
     fn adjudicate(&self, termination: &ShotTermination) -> ThreeCushionAdjudication {
         let facts = self.facts();
-        if facts.completion.is_some() {
+        let completion_is_final = facts.completion.is_some_and(|completion| {
+            self.first_unsupported_contact
+                .is_none_or(|unsupported| completion.event_index < unsupported.event_index)
+        });
+        if completion_is_final {
             if facts.cushion_contacts_before_completion >= 3 {
                 return ThreeCushionAdjudication::Scored(facts);
             }

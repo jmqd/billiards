@@ -4,9 +4,13 @@ use billiards::shot_simulation::{
     OwnedShotResult, PhysicsProfile, ResolvedEffect, ResolvedEvent, SceneBall, ShotControls,
     ShotLayout, ShotLimit, ShotSimulationError, ShotTermination, ThreeCushionAdjudication,
     ThreeCushionIndeterminate, ThreeCushionMiss, ThreeCushionRoles, ThreeCushionShooter,
-    ThreeCushionShot,
+    ThreeCushionShot, UnsupportedPhysicsReason,
 };
-use billiards::{Rail, Seconds};
+use billiards::{
+    BallSetPhysicsSpec, Inches, InchesPerSecond, InchesPerSecondSq, OnTableMotionConfig,
+    RadiansPerSecond, RadiansPerSecondSq, Rail, RailCollisionProfile, RollingResistanceModel, Scale,
+    Seconds, SlidingFrictionModel, SlidingToRollingModel, SpinDecayModel,
+};
 
 fn fixture_layout() -> ShotLayout {
     ShotLayout::three_cushion_from_diamonds((0.700, 1.000), (1.200, 2.100), (0.850, 6.550))
@@ -44,6 +48,37 @@ fn owned(events: Vec<ResolvedEvent>, termination: ShotTermination) -> OwnedShotR
         events: events.into_boxed_slice(),
         final_states: Box::new([]),
     }
+}
+
+fn canonical_profile_with(
+    alter: impl FnOnce(
+        &mut BallSetPhysicsSpec,
+        &mut OnTableMotionConfig,
+        &mut RailCollisionProfile,
+    ),
+) -> Result<PhysicsProfile, ShotSimulationError> {
+    let baseline = PhysicsProfile::three_cushion_default();
+    let mut ball = baseline.ball_set().clone();
+    let mut motion = baseline.motion().clone();
+    let mut rails = baseline.rails().clone();
+    alter(&mut ball, &mut motion, &mut rails);
+
+    PhysicsProfile::new(
+        baseline.table().clone(),
+        ball,
+        motion,
+        baseline.collision_model(),
+        baseline.collision().clone(),
+        baseline.rail_model(),
+        rails,
+    )
+}
+
+fn assert_invalid_profile(result: Result<PhysicsProfile, ShotSimulationError>) {
+    assert!(matches!(
+        result,
+        Err(ShotSimulationError::InvalidPhysicsProfile(_))
+    ));
 }
 
 #[test]
@@ -86,6 +121,81 @@ fn physics_profile_rejects_out_of_domain_coefficients_before_execution() {
         ),
         Err(ShotSimulationError::InvalidPhysicsProfile(_))
     ));
+}
+
+#[test]
+fn physics_profile_accepts_zero_airborne_restitution_but_rejects_one() {
+    assert!(canonical_profile_with(|ball, _, _| {
+        ball.airborne_table_contact.normal_restitution = Scale::zero();
+    })
+    .is_ok());
+
+    assert_invalid_profile(canonical_profile_with(|ball, _, _| {
+        ball.airborne_table_contact.normal_restitution = Scale::from_f64(1.0);
+    }));
+}
+
+#[test]
+fn physics_profile_rejects_zero_motion_rates() {
+    let zero_sliding = canonical_profile_with(|_, motion, _| {
+        motion.sliding_friction = SlidingFrictionModel::ConstantAcceleration {
+            acceleration_magnitude: InchesPerSecondSq::new(Inches::zero()),
+        };
+    });
+    let zero_spin = canonical_profile_with(|_, motion, _| {
+        motion.spin_decay = SpinDecayModel::ConstantAngularDeceleration {
+            angular_deceleration: RadiansPerSecondSq::zero(),
+        };
+    });
+    let zero_rolling = canonical_profile_with(|_, motion, _| {
+        motion.rolling_resistance = RollingResistanceModel::ConstantDeceleration {
+            linear_deceleration: InchesPerSecondSq::new(Inches::zero()),
+        };
+    });
+
+    for result in [zero_sliding, zero_spin, zero_rolling] {
+        assert_invalid_profile(result);
+    }
+}
+
+#[test]
+fn physics_profile_rejects_a_rail_contact_height_ratio_above_one() {
+    assert_invalid_profile(canonical_profile_with(|_, _, rails| {
+        rails.top.effective_contact_height_ratio = Scale::from_f64(1.000_001);
+    }));
+}
+
+#[test]
+fn physics_profile_rejects_every_negative_phase_tolerance() {
+    let negative_airborne_height = canonical_profile_with(|_, motion, _| {
+        motion.phase.thresholds.airborne_height = Inches::from_f64(-1.0);
+    });
+    let negative_airborne_vertical_speed = canonical_profile_with(|_, motion, _| {
+        motion.phase.thresholds.airborne_vertical_speed =
+            InchesPerSecond::new(Inches::from_f64(-1.0));
+    });
+    let negative_rest_linear_speed = canonical_profile_with(|_, motion, _| {
+        motion.phase.thresholds.rest_linear_speed =
+            InchesPerSecond::new(Inches::from_f64(-1.0));
+    });
+    let negative_rest_angular_speed = canonical_profile_with(|_, motion, _| {
+        motion.phase.thresholds.rest_angular_speed = RadiansPerSecond::new(-1.0);
+    });
+    let negative_no_slip_epsilon = canonical_profile_with(|_, motion, _| {
+        motion.phase.sliding_to_rolling = SlidingToRollingModel::Thresholded {
+            contact_speed_epsilon: InchesPerSecond::new(Inches::from_f64(-1.0)),
+        };
+    });
+
+    for result in [
+        negative_airborne_height,
+        negative_airborne_vertical_speed,
+        negative_rest_linear_speed,
+        negative_rest_angular_speed,
+        negative_no_slip_epsilon,
+    ] {
+        assert_invalid_profile(result);
+    }
 }
 
 #[test]
@@ -398,4 +508,191 @@ fn incomplete_abnormal_termination_is_indeterminate_but_completed_point_is_final
         project_three_cushion(&completed),
         ThreeCushionAdjudication::Scored(_)
     ));
+}
+
+#[test]
+fn unresolved_shared_object_contacts_cannot_score() {
+    let reason = UnsupportedPhysicsReason::NonIdealSharedBallBallContact {
+        balls: vec![BallId::WHITE, BallId::YELLOW, BallId::RED].into_boxed_slice(),
+    };
+    let result = owned(
+        vec![
+            instant(
+                1.0,
+                vec![
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Top,
+                    },
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Right,
+                    },
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Bottom,
+                    },
+                ],
+            ),
+            instant(
+                2.0,
+                vec![
+                    ResolvedEffect::BallBallContact {
+                        first: BallId::WHITE,
+                        second: BallId::YELLOW,
+                        resolution: BallBallContactResolution::SharedCoupledCausalityUnresolved,
+                    },
+                    ResolvedEffect::BallBallContact {
+                        first: BallId::WHITE,
+                        second: BallId::RED,
+                        resolution: BallBallContactResolution::SharedCoupledCausalityUnresolved,
+                    },
+                    ResolvedEffect::UnsupportedContact {
+                        reason: reason.clone(),
+                    },
+                ],
+            ),
+        ],
+        ShotTermination::UnsupportedPhysics {
+            reason: reason.clone(),
+        },
+    );
+
+    let adjudication = project_three_cushion(&result);
+    assert!(matches!(
+        adjudication,
+        ThreeCushionAdjudication::Indeterminate {
+            reason: ThreeCushionIndeterminate::UnsupportedPhysics {
+                reason: UnsupportedPhysicsReason::NonIdealSharedBallBallContact { .. }
+            },
+            ..
+        }
+    ));
+    assert_eq!(adjudication.facts().object_a_first_contact, None);
+    assert_eq!(adjudication.facts().object_b_first_contact, None);
+    assert_eq!(adjudication.facts().completion, None);
+}
+
+#[test]
+fn completion_at_the_same_instant_as_unsupported_physics_is_indeterminate() {
+    let reason = UnsupportedPhysicsReason::NonIdealSharedBallBallContact {
+        balls: vec![BallId::WHITE, BallId::YELLOW, BallId::RED].into_boxed_slice(),
+    };
+    let result = owned(
+        vec![
+            instant(
+                1.0,
+                vec![
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Top,
+                    },
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Right,
+                    },
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Bottom,
+                    },
+                ],
+            ),
+            instant(
+                2.0,
+                vec![
+                    ball_contact(BallId::WHITE, BallId::YELLOW),
+                    ball_contact(BallId::WHITE, BallId::RED),
+                    ResolvedEffect::BallBallContact {
+                        first: BallId::YELLOW,
+                        second: BallId::RED,
+                        resolution: BallBallContactResolution::SharedCoupledCausalityUnresolved,
+                    },
+                    ResolvedEffect::UnsupportedContact {
+                        reason: reason.clone(),
+                    },
+                ],
+            ),
+        ],
+        ShotTermination::UnsupportedPhysics { reason },
+    );
+
+    let adjudication = project_three_cushion(&result);
+    assert!(matches!(
+        adjudication,
+        ThreeCushionAdjudication::Indeterminate {
+            reason: ThreeCushionIndeterminate::UnsupportedPhysics {
+                reason: UnsupportedPhysicsReason::NonIdealSharedBallBallContact { .. }
+            },
+            ..
+        }
+    ));
+    assert_eq!(
+        adjudication.facts().completion,
+        Some(ContactInstant {
+            event_index: 1,
+            at: Seconds::new(2.0),
+        })
+    );
+}
+
+#[test]
+fn a_valid_point_remains_scored_when_later_contact_is_unsupported() {
+    let reason = UnsupportedPhysicsReason::NonIdealSharedBallBallContact {
+        balls: vec![BallId::WHITE, BallId::YELLOW, BallId::RED].into_boxed_slice(),
+    };
+    let result = owned(
+        vec![
+            instant(
+                1.0,
+                vec![
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Top,
+                    },
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Right,
+                    },
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Bottom,
+                    },
+                ],
+            ),
+            instant(
+                2.0,
+                vec![
+                    ball_contact(BallId::WHITE, BallId::YELLOW),
+                    ball_contact(BallId::WHITE, BallId::RED),
+                ],
+            ),
+            instant(
+                3.0,
+                vec![
+                    ResolvedEffect::BallBallContact {
+                        first: BallId::WHITE,
+                        second: BallId::YELLOW,
+                        resolution: BallBallContactResolution::SharedCoupledCausalityUnresolved,
+                    },
+                    ResolvedEffect::UnsupportedContact { reason },
+                ],
+            ),
+        ],
+        ShotTermination::UnsupportedPhysics {
+            reason: UnsupportedPhysicsReason::NonIdealSharedBallBallContact {
+                balls: vec![BallId::WHITE, BallId::YELLOW, BallId::RED].into_boxed_slice(),
+            },
+        },
+    );
+
+    let ThreeCushionAdjudication::Scored(facts) = project_three_cushion(&result) else {
+        panic!("a completed point must remain final after a later unsupported contact")
+    };
+    assert_eq!(
+        facts.completion,
+        Some(ContactInstant {
+            event_index: 1,
+            at: Seconds::new(2.0),
+        })
+    );
 }

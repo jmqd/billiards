@@ -21,6 +21,12 @@ use billiards::{
     ShotSpeedPreset, TableSpec,
 };
 
+fn workspace_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask manifest directory should be inside the workspace root")
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("error: {error}");
@@ -81,7 +87,7 @@ struct WasmPreviewOptions {
 impl Default for BaseSvgOptions {
     fn default() -> Self {
         Self {
-            output_path: PathBuf::from("target/base-pocket-table.svg"),
+            output_path: workspace_root().join("target/base-pocket-table.svg"),
             transparent_background: false,
         }
     }
@@ -90,7 +96,7 @@ impl Default for BaseSvgOptions {
 impl Default for WasmPreviewOptions {
     fn default() -> Self {
         Self {
-            output_dir: PathBuf::from("target/wasm-preview"),
+            output_dir: workspace_root().join("target/wasm-preview"),
             host: "127.0.0.1".to_string(),
             port: 8000,
             serve: true,
@@ -101,8 +107,8 @@ impl Default for WasmPreviewOptions {
 impl Default for ValidationSuiteOptions {
     fn default() -> Self {
         Self {
-            scenario_dir: PathBuf::from("examples/scenarios"),
-            output_dir: PathBuf::from("target/validation-suite"),
+            scenario_dir: workspace_root().join("examples/scenarios"),
+            output_dir: workspace_root().join("target/validation-suite"),
             trace_sample_step_seconds: DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS,
             max_events_override: None,
             transparent_background: false,
@@ -312,12 +318,7 @@ fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
         )
     })?;
 
-    run_checked(
-        Command::new("cargo")
-            .args(["build", "--lib", "--release", "--target"])
-            .arg("wasm32-unknown-unknown"),
-        "failed to build billiards Wasm library",
-    )?;
+    let wasm_artifact = build_wasm_artifact()?;
 
     let package_dir = options.output_dir.join("pkg");
     fs::create_dir_all(&package_dir).map_err(|error| {
@@ -334,12 +335,18 @@ fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
             .arg("--out-dir")
             .arg(&package_dir)
             .arg("--no-typescript")
-            .arg("target/wasm32-unknown-unknown/release/billiards.wasm"),
+            .arg(&wasm_artifact),
         "failed to generate browser Wasm bindings",
     )?;
 
-    copy_preview_asset("web/billiards-ui.css", &options.output_dir)?;
-    copy_preview_asset("web/billiards-viewer.js", &options.output_dir)?;
+    copy_preview_asset(
+        workspace_root().join("web/billiards-ui.css"),
+        &options.output_dir,
+    )?;
+    copy_preview_asset(
+        workspace_root().join("web/billiards-viewer.js"),
+        &options.output_dir,
+    )?;
 
     let index_path = options.output_dir.join("index.html");
     fs::write(&index_path, wasm_preview_index_html())
@@ -356,7 +363,11 @@ fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
         return Ok(());
     }
 
-    let url = format!("http://{}:{}/index.html", options.host, options.port);
+    let url = format!(
+        "http://{}:{}/index.html",
+        host_for_url(&options.host),
+        options.port
+    );
     println!("Serving Wasm preview at {url}");
     println!("Press Ctrl-C to stop the server.");
     run_checked(
@@ -370,6 +381,154 @@ fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
             .arg(&options.output_dir),
         "failed to serve Wasm preview",
     )
+}
+
+fn build_wasm_artifact() -> Result<PathBuf, String> {
+    let output = Command::new("cargo")
+        .args([
+            "build",
+            "--package",
+            "billiards",
+            "--lib",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--message-format=json-render-diagnostics",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .map_err(|error| format!("failed to build billiards Wasm library: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "failed to build billiards Wasm library: command exited with {}{}{}",
+            output.status,
+            if stderr.trim().is_empty() { "" } else { "\n" },
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| format!("Cargo emitted non-UTF-8 JSON messages: {error}"))?;
+    let mut wasm_artifacts = Vec::new();
+    for message in stdout.lines().filter(|line| {
+        line.contains("\"reason\":\"compiler-artifact\"")
+            && line.contains("\"name\":\"billiards\"")
+    }) {
+        let Some(filenames) = cargo_json_string_array(message, "filenames")? else {
+            continue;
+        };
+        wasm_artifacts.extend(
+            filenames
+                .into_iter()
+                .map(PathBuf::from)
+                .filter(|path| path.extension() == Some(OsStr::new("wasm"))),
+        );
+    }
+    wasm_artifacts.sort();
+    wasm_artifacts.dedup();
+
+    match wasm_artifacts.as_slice() {
+        [artifact] => Ok(artifact.clone()),
+        [] => Err("Cargo did not report a billiards Wasm artifact".to_string()),
+        artifacts => Err(format!(
+            "Cargo reported multiple billiards Wasm artifacts: {}",
+            artifacts
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+fn cargo_json_string_array(message: &str, field: &str) -> Result<Option<Vec<String>>, String> {
+    let marker = format!("\"{field}\":[");
+    let Some(start) = message.find(&marker) else {
+        return Ok(None);
+    };
+    let mut input = &message[start + marker.len()..];
+    let mut values = Vec::new();
+
+    loop {
+        input = input.trim_start();
+        if input.starts_with(']') {
+            return Ok(Some(values));
+        }
+        if !values.is_empty() {
+            input = input.strip_prefix(',').ok_or_else(|| {
+                format!("invalid Cargo JSON `{field}` array: expected a comma")
+            })?;
+            input = input.trim_start();
+        }
+        let (value, consumed) = parse_json_string(input)
+            .map_err(|error| format!("invalid Cargo JSON `{field}` array: {error}"))?;
+        values.push(value);
+        input = &input[consumed..];
+    }
+}
+
+fn parse_json_string(input: &str) -> Result<(String, usize), String> {
+    let Some(mut input) = input.strip_prefix('"') else {
+        return Err("expected a string".to_string());
+    };
+    let mut value = String::new();
+    let mut consumed = 1;
+
+    loop {
+        let mut chars = input.char_indices();
+        let Some((_, ch)) = chars.next() else {
+            return Err("unterminated string".to_string());
+        };
+        let width = ch.len_utf8();
+        consumed += width;
+        input = &input[width..];
+        match ch {
+            '"' => return Ok((value, consumed)),
+            '\\' => {
+                let mut escaped_chars = input.char_indices();
+                let Some((_, escaped)) = escaped_chars.next() else {
+                    return Err("unterminated escape".to_string());
+                };
+                let escaped_width = escaped.len_utf8();
+                consumed += escaped_width;
+                input = &input[escaped_width..];
+                match escaped {
+                    '"' | '\\' | '/' => value.push(escaped),
+                    'b' => value.push('\u{0008}'),
+                    'f' => value.push('\u{000c}'),
+                    'n' => value.push('\n'),
+                    'r' => value.push('\r'),
+                    't' => value.push('\t'),
+                    'u' => {
+                        if input.len() < 4 || !input.as_bytes()[..4].iter().all(u8::is_ascii_hexdigit)
+                        {
+                            return Err("invalid Unicode escape".to_string());
+                        }
+                        let code = u32::from_str_radix(&input[..4], 16)
+                            .map_err(|error| format!("invalid Unicode escape: {error}"))?;
+                        let decoded = char::from_u32(code)
+                            .ok_or_else(|| "invalid Unicode scalar value".to_string())?;
+                        value.push(decoded);
+                        consumed += 4;
+                        input = &input[4..];
+                    }
+                    _ => return Err(format!("unsupported escape `\\{escaped}`")),
+                }
+            }
+            ch if ch.is_control() => return Err("unescaped control character".to_string()),
+            _ => value.push(ch),
+        }
+    }
+}
+
+fn host_for_url(host: &str) -> String {
+    if host.contains(':') && !(host.starts_with('[') && host.ends_with(']')) {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    }
 }
 
 fn run_checked(command: &mut Command, failure_message: &str) -> Result<(), String> {
@@ -475,15 +634,24 @@ trace(max_events: 8)
         .replaceAll('"', "&quot;");
     }
 
+    function normalizeEvents(events) {
+      return Array.isArray(events)
+        ? events.map((event) => Array.isArray(event)
+          ? { label: String(event[0] ?? ""), time: Number(event[1]), summary: String(event[2] ?? ""), title: String(event[3] ?? "") }
+          : event)
+        : [];
+    }
+
     function eventLogHtml(events) {
-      if (!Array.isArray(events) || events.length === 0) {
+      if (events.length === 0) {
         return "";
       }
       const rows = events.map((event) => {
-        const label = escapeHtml(event.label ?? "");
+        const label = event.label ?? "";
         const time = Number(event.time ?? 0).toFixed(6);
-        const summary = escapeHtml(event.summary ?? "");
-        return `<li><span class="event-badge">${label}</span> <span class="event-time">t=${time}</span> <span class="event-summary">${summary}</span></li>`;
+        const summary = event.summary ?? "";
+        const title = event.title ?? `t=${time} ${summary}`;
+        return `<li data-event-label="${escapeHtml(label)}" data-event-title="${escapeHtml(title)}" data-event-time="${time}"><span class="event-badge">${escapeHtml(label)}</span> <span class="event-time">t=${time}</span> <span class="event-summary">${escapeHtml(summary)}</span></li>`;
       }).join("");
       return `<details class="event-log" open><summary>Event log</summary><ol class="event-list">${rows}</ol></details>`;
     }
@@ -492,11 +660,12 @@ trace(max_events: 8)
       try {
         const start = performance.now();
         const report = JSON.parse(render_svg_report_from_dsl(input.value));
+        const events = normalizeEvents(report.events);
         const elapsedMs = Math.round(performance.now() - start);
         const viewer = window.BilliardsReportViewer;
         const controls = viewer?.viewerControlsHtml?.({ tableDetailDefault: "full" }) ?? "";
         const playback = viewer?.playbackPanelHtml?.(report.playback) ?? "";
-        preview.innerHTML = `<figure class="svg-viewer" data-viewer>${controls}<div class="svg-frame">${report.svg}</div>${playback}</figure>${eventLogHtml(report.events)}`;
+        preview.innerHTML = `<figure class="svg-viewer" data-viewer>${controls}<div class="svg-frame">${report.svg}</div>${playback}</figure>${eventLogHtml(events)}`;
         viewer?.initialize(preview);
         const svgSizeKiB = (new Blob([report.svg], { type: "image/svg+xml" }).size / 1024).toFixed(1);
         const frames = report.playback?.frames?.length ?? 0;

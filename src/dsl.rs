@@ -3060,20 +3060,26 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
         trace_max_events: None,
         entries: Vec::new(),
     };
-    let mut duplicate_singleton = false;
+    let mut duplicate_singleton = None;
 
     repeat(0.., statement)
         .fold(
             || (),
-            |(), entry| match entry {
+            |(), (entry, entry_start)| match entry {
                 DslStatement::Table(table) => {
-                    duplicate_singleton |= doc.table.replace(table).is_some();
+                    if doc.table.replace(table).is_some() {
+                        duplicate_singleton.get_or_insert(entry_start);
+                    }
                 }
                 DslStatement::Game(game) => {
-                    duplicate_singleton |= doc.game.replace(game).is_some();
+                    if doc.game.replace(game).is_some() {
+                        duplicate_singleton.get_or_insert(entry_start);
+                    }
                 }
                 DslStatement::TraceMaxEvents(max_events) => {
-                    duplicate_singleton |= doc.trace_max_events.replace(max_events).is_some();
+                    if doc.trace_max_events.replace(max_events).is_some() {
+                        duplicate_singleton.get_or_insert(entry_start);
+                    }
                 }
                 DslStatement::Alias(alias) => doc.entries.push(DslEntry::Alias(alias)),
                 DslStatement::Ball(placement) => doc.entries.push(DslEntry::Ball(placement)),
@@ -3088,8 +3094,8 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
         )
         .parse_next(input)?;
 
-    if duplicate_singleton {
-        return Err(ErrMode::Cut(InputError::at(*input)));
+    if let Some(duplicate_start) = duplicate_singleton {
+        return Err(ErrMode::Cut(InputError::at(duplicate_start)));
     }
 
     let _ = terminated(hws0, eof).parse_next(input)?;
@@ -3113,8 +3119,9 @@ enum DslStatement {
     Empty,
 }
 
-fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
+fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (DslStatement, Stream<'a>)> {
     let _ = hws0.parse_next(input)?;
+    let statement_start = *input;
     let stmt = alt((
         comment_line,
         blank_line,
@@ -3132,7 +3139,7 @@ fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     ))
     .parse_next(input)?;
     let _ = hws0.parse_next(input)?;
-    Ok(stmt)
+    Ok((stmt, statement_start))
 }
 
 fn comment_line<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {

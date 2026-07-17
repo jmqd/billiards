@@ -65,15 +65,46 @@ fn parse_dsl_returns_a_crate_owned_error_with_a_byte_offset() {
     );
 }
 
+fn assert_repeated_singleton_offset(name: &str, keyword: &str, input: &str) {
+    let second_keyword_offset = input
+        .match_indices(keyword)
+        .nth(1)
+        .expect("fixture has a repeated singleton keyword")
+        .0;
+
+    let err = parse_dsl(input).expect_err("singleton declarations may only appear once");
+
+    assert_eq!(
+        err.offset, second_keyword_offset,
+        "repeated {name} should be reported at its second keyword"
+    );
+}
+
 #[test]
-fn rejects_repeated_singleton_declarations() {
-    for input in [
-        "table brunswick_gc4_9ft\ntable three_cushion_carom_10ft\n",
-        "game nine_ball\ngame three_cushion\n",
-        "trace(max_events: 1)\ntrace(max_events: 2)\n",
-    ] {
-        parse_dsl(input).expect_err("singleton declarations may only appear once");
-    }
+fn rejects_repeated_singleton_table_at_the_second_keyword() {
+    assert_repeated_singleton_offset(
+        "table",
+        "table",
+        "table brunswick_gc4_9ft\n# intervening comment\ntable three_cushion_carom_10ft\n",
+    );
+}
+
+#[test]
+fn rejects_repeated_singleton_game_at_the_second_keyword() {
+    assert_repeated_singleton_offset(
+        "game",
+        "game",
+        "game nine_ball\npos marker = (1.0, 2.0)\n    game three_cushion\n",
+    );
+}
+
+#[test]
+fn rejects_repeated_singleton_trace_at_the_second_keyword() {
+    assert_repeated_singleton_offset(
+        "trace",
+        "trace",
+        "trace(max_events: 1)\nball cue at center\ntrace(max_events: 2)\n",
+    );
 }
 
 #[test]

@@ -157,7 +157,7 @@ fn benchmark_direct_trials(c: &mut Criterion) {
     });
 
     trials.throughput(Throughput::Elements(u64::from(SERIAL_BATCH_SIZE)));
-    // Measures a fixed serial simul batch plus typed report assembly; no CLI, DSL, I/O, or formatting.
+    // Measures a fixed serial experiment batch plus typed report assembly; no CLI, DSL, I/O, or formatting.
     trials.bench_function("serial_batch_32", |b| {
         b.iter(|| {
             let output = run(black_box(&batch_config));

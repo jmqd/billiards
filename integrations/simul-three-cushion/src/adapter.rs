@@ -1,10 +1,4 @@
-use std::{cmp::Ordering, num::NonZeroUsize};
-
-use simul::experiment::search::sample_bounded;
-use simul::experiment::{
-    run_parallel, run_serial, BernoulliReducer, CandidateId, FixedReplications, MasterSeed,
-    ParallelConfig, SeedDeriver, TrialContext, TrialStream,
-};
+use std::cmp::Ordering;
 
 use crate::{
     CandidateReport, Controls, ExperimentConfig, ExperimentReport, Mode, TrialDisposition,
@@ -13,10 +7,53 @@ use crate::{
 
 mod physics;
 
+const SEED_PROTOCOL: &str = "local-v1-splitmix64";
+const GOLDEN_RATIO: u64 = 0x9e37_79b9_7f4a_7c15;
+const DOMAIN_SEARCH: u64 = 0x5345_4152_4348;
+const DOMAIN_SENSITIVITY: u64 = 0x5345_4e53_4954;
+const DOMAIN_EXECUTION: u64 = 0x4558_4543_5554;
+
 #[derive(Clone, Copy, Debug)]
 struct Candidate {
-    id: CandidateId,
+    id: u64,
     controls: Controls,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrialKey {
+    candidate_id: u64,
+    replication_id: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ReplayKey {
+    trial: TrialKey,
+    common_random_group: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrialSpec {
+    candidate: Candidate,
+    key: TrialKey,
+    replay: ReplayKey,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrialContext {
+    master_seed: u64,
+    common_random_group: u64,
+}
+
+impl TrialContext {
+    fn uniform(&self, tag: &str) -> f64 {
+        let tag_seed = hash_tag(tag);
+        let seed = derive_seed(
+            self.master_seed,
+            DOMAIN_EXECUTION,
+            (self.common_random_group << 32) ^ tag_seed,
+        );
+        uniform_f64(seed)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -31,55 +68,84 @@ struct FailedTrial {
     detail: String,
 }
 
-pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
-    config.validate()?;
-    let master_seed = MasterSeed::from_u64(config.master_seed);
-    let candidates = make_candidates(config, master_seed)?;
-    let trial_capacity = candidates
-        .len()
-        .checked_mul(config.replication_budget as usize)
-        .ok_or("candidate × replication budget exceeds addressable memory")?;
-    let schedule = FixedReplications::new(config.replication_budget, 0);
-    let mut specs = Vec::with_capacity(trial_capacity);
-    for candidate in &candidates {
-        specs.extend(schedule.trials(candidate.id, *candidate));
+#[derive(Clone, Debug)]
+struct TrialRecord {
+    key: TrialKey,
+    replay: ReplayKey,
+    result: Result<EvaluatedTrial, FailedTrial>,
+}
+
+#[derive(Default)]
+struct BernoulliReducer {
+    successes: u32,
+    observations: u32,
+}
+
+struct BernoulliStatistics {
+    rate: f64,
+    wilson_lower: f64,
+    wilson_upper: f64,
+}
+
+impl BernoulliReducer {
+    fn observe(&mut self, success: bool) {
+        self.observations = self.observations.saturating_add(1);
+        if success {
+            self.successes = self.successes.saturating_add(1);
+        }
     }
 
-    let records = if config.workers == NonZeroUsize::MIN {
-        // Preserve the original serial path exactly for the default configuration.
-        let evaluator = physics::Evaluator::new(config)?;
-        run_serial(master_seed, specs, |candidate, context| {
-            evaluate_trial(&evaluator, candidate, config, context)
+    fn finish(&self) -> Option<BernoulliStatistics> {
+        if self.observations == 0 {
+            return None;
+        }
+        let n = f64::from(self.observations);
+        let rate = f64::from(self.successes) / n;
+        let z = 1.959_963_984_540_054;
+        let z_squared = z * z;
+        let denominator = 1.0 + z_squared / n;
+        let center = (rate + z_squared / (2.0 * n)) / denominator;
+        let margin =
+            z * ((rate * (1.0 - rate) / n + z_squared / (4.0 * n * n)).sqrt()) / denominator;
+        Some(BernoulliStatistics {
+            rate,
+            wilson_lower: (center - margin).max(0.0),
+            wilson_upper: (center + margin).min(1.0),
         })
-        .map_err(|error| format!("trial scheduling failed: {error:?}"))?
-    } else {
-        // Validate construction before starting the pool so layout/configuration failures
-        // remain run-level failures rather than becoming one failure per trial.
-        physics::Evaluator::new(config)?;
-        let batch_limit = NonZeroUsize::new(trial_capacity)
-            .ok_or("trial batch must contain at least one record")?;
-        run_parallel(
-            master_seed,
-            specs,
-            ParallelConfig::new(config.workers, batch_limit),
-            || physics::Evaluator::new(config),
-            |evaluator, candidate, context| match evaluator {
-                Ok(evaluator) => evaluate_trial(evaluator, candidate, config, context),
-                Err(detail) => {
-                    let applied = apply_execution_noise(candidate.controls, config, context);
-                    Err(FailedTrial {
-                        applied,
-                        detail: detail.clone(),
-                    })
-                }
-            },
-        )
-        .map_err(|error| format!("parallel trial scheduling failed: {error:?}"))?
-    };
+    }
+}
 
+pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
+    config.validate()?;
+    let candidates = make_candidates(config)?;
+    let records_per_candidate = usize::try_from(config.replication_budget)
+        .map_err(|_| "replication budget does not fit this platform")?;
+    let trial_capacity = candidates
+        .len()
+        .checked_mul(records_per_candidate)
+        .ok_or("candidate × replication budget exceeds addressable memory")?;
+    let mut specs = Vec::with_capacity(trial_capacity);
+    for candidate in &candidates {
+        for replication_id in 0..config.replication_budget {
+            let key = TrialKey {
+                candidate_id: candidate.id,
+                replication_id,
+            };
+            let common_random_group = u64::from(replication_id);
+            specs.push(TrialSpec {
+                candidate: *candidate,
+                key,
+                replay: ReplayKey {
+                    trial: key,
+                    common_random_group,
+                },
+            });
+        }
+    }
+
+    let records = run_trials(config, specs)?;
     let mut candidate_reports = Vec::with_capacity(candidates.len());
     let mut trial_reports = Vec::with_capacity(records.len());
-    let records_per_candidate = config.replication_budget as usize;
     for (candidate_index, candidate) in candidates.iter().enumerate() {
         let start = candidate_index * records_per_candidate;
         let candidate_records = &records[start..start + records_per_candidate];
@@ -117,28 +183,27 @@ pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
                     )
                 }
             };
-            let key = record.key;
             trial_reports.push(TrialReport {
-                candidate_id: key.candidate().value(),
-                replication_id: key.replication().value(),
+                candidate_id: record.key.candidate_id,
+                replication_id: record.key.replication_id,
                 replay_key: replay_key(config.master_seed, record.replay),
                 applied,
                 disposition,
             });
         }
-        let statistics = reducer.finish().ok();
+        let statistics = reducer.finish();
         candidate_reports.push(CandidateReport {
             rank: None,
-            candidate_id: candidate.id.value(),
+            candidate_id: candidate.id,
             controls: candidate.controls,
             requested: config.replication_budget,
             scored,
             missed,
             indeterminate,
             failed,
-            success_rate: statistics.map(|value| value.rate),
-            confidence_low: statistics.map(|value| value.wilson_lower),
-            confidence_high: statistics.map(|value| value.wilson_upper),
+            success_rate: statistics.as_ref().map(|value| value.rate),
+            confidence_low: statistics.as_ref().map(|value| value.wilson_lower),
+            confidence_high: statistics.as_ref().map(|value| value.wilson_upper),
             eligible: indeterminate == 0 && failed == 0,
         });
     }
@@ -150,10 +215,90 @@ pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
         mode: config.mode,
         shooter: config.shooter,
         master_seed: config.master_seed,
-        seed_protocol: "simul-v1-blake3-chacha12",
+        seed_protocol: SEED_PROTOCOL,
         candidates: candidate_reports,
         trials: trial_reports,
     })
+}
+
+fn run_trials(
+    config: &ExperimentConfig,
+    specs: Vec<TrialSpec>,
+) -> Result<Vec<TrialRecord>, String> {
+    if specs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let worker_count = config.workers.get().min(specs.len());
+    if worker_count == 1 {
+        let evaluator = physics::Evaluator::new(config)?;
+        return Ok(specs
+            .iter()
+            .map(|spec| execute_spec(&evaluator, config, spec))
+            .collect());
+    }
+
+    // Validate once before launching workers so invalid layouts remain run-level errors.
+    physics::Evaluator::new(config)?;
+    // Each worker owns its evaluator. Chunks are joined in their original order,
+    // so worker scheduling cannot change report or trial ordering.
+    std::thread::scope(|scope| {
+        let chunk_size = specs.len().div_ceil(worker_count);
+        let mut handles = Vec::with_capacity(worker_count);
+        for chunk in specs.chunks(chunk_size) {
+            handles.push(scope.spawn(move || {
+                let evaluator = physics::Evaluator::new(config);
+                chunk
+                    .iter()
+                    .map(|spec| match &evaluator {
+                        Ok(evaluator) => execute_spec(evaluator, config, spec),
+                        Err(detail) => failed_record(config, spec, detail),
+                    })
+                    .collect::<Vec<_>>()
+            }));
+        }
+        let mut records = Vec::with_capacity(specs.len());
+        for handle in handles {
+            records.extend(
+                handle
+                    .join()
+                    .map_err(|_| "parallel trial worker panicked".to_string())?,
+            );
+        }
+        Ok(records)
+    })
+}
+
+fn execute_spec(
+    evaluator: &physics::Evaluator,
+    config: &ExperimentConfig,
+    spec: &TrialSpec,
+) -> TrialRecord {
+    let context = TrialContext {
+        master_seed: config.master_seed,
+        common_random_group: spec.replay.common_random_group,
+    };
+    let result = evaluate_trial(evaluator, &spec.candidate, config, &context);
+    TrialRecord {
+        key: spec.key,
+        replay: spec.replay,
+        result,
+    }
+}
+
+fn failed_record(config: &ExperimentConfig, spec: &TrialSpec, detail: &str) -> TrialRecord {
+    let context = TrialContext {
+        master_seed: config.master_seed,
+        common_random_group: spec.replay.common_random_group,
+    };
+    let applied = apply_execution_noise(spec.candidate.controls, config, &context);
+    TrialRecord {
+        key: spec.key,
+        replay: spec.replay,
+        result: Err(FailedTrial {
+            applied,
+            detail: detail.to_string(),
+        }),
+    }
 }
 
 fn evaluate_trial(
@@ -169,31 +314,19 @@ fn evaluate_trial(
         .map_err(|detail| FailedTrial { applied, detail })
 }
 
-fn make_candidates(
-    config: &ExperimentConfig,
-    master_seed: MasterSeed,
-) -> Result<Vec<Candidate>, String> {
+fn make_candidates(config: &ExperimentConfig) -> Result<Vec<Candidate>, String> {
     let budget = usize::try_from(config.candidate_budget)
         .map_err(|_| "candidate budget does not fit this platform")?;
     match config.mode {
-        Mode::Sensitivity => Ok(make_sensitivity_candidates(config, master_seed, budget)),
+        Mode::Sensitivity => make_sensitivity_candidates(config, budget),
         Mode::Search => {
-            let bounds: Vec<_> = config
-                .search_bounds
-                .iter()
-                .map(|bounds| (bounds.minimum, bounds.maximum))
-                .collect();
-            let sampled = sample_bounded(master_seed, budget, &bounds)
-                .map_err(|error| format!("invalid search bounds: {error:?}"))?;
-            sampled
+            let sampled = sample_bounded(config.master_seed, budget, &config.search_bounds);
+            Ok(sampled
                 .into_iter()
                 .enumerate()
-                .map(|(index, values)| {
-                    let [heading, speed, tip_side, tip_height, elevation]: [f64; 5] = values
-                        .try_into()
-                        .map_err(|_| "simul search returned the wrong control dimension")?;
-                    Ok(Candidate {
-                        id: CandidateId::new(index as u64),
+                .map(
+                    |(index, [heading, speed, tip_side, tip_height, elevation])| Candidate {
+                        id: index as u64,
                         controls: Controls {
                             heading,
                             speed,
@@ -201,45 +334,67 @@ fn make_candidates(
                             tip_height,
                             elevation,
                         },
-                    })
-                })
-                .collect()
+                    },
+                )
+                .collect())
         }
     }
 }
 
 fn make_sensitivity_candidates(
     config: &ExperimentConfig,
-    master_seed: MasterSeed,
     budget: usize,
-) -> Vec<Candidate> {
-    let deriver = SeedDeriver::new(master_seed);
+) -> Result<Vec<Candidate>, String> {
     let center_count = config.sensitivity_centers.len();
-    (0..budget)
+    if center_count == 0 {
+        return Err("sensitivity mode requires at least one center".into());
+    }
+    Ok((0..budget)
         .map(|index| {
             let center = config.sensitivity_centers[index % center_count];
             let controls = if index < center_count {
                 center
             } else {
-                perturb_candidate(center, config, &deriver, index as u64)
+                perturb_candidate(center, config, index as u64)
             };
             Candidate {
-                id: CandidateId::new(index as u64),
+                id: index as u64,
                 controls,
             }
+        })
+        .collect())
+}
+
+fn sample_bounded(master_seed: u64, budget: usize, bounds: &[crate::Bounds; 5]) -> Vec<[f64; 5]> {
+    (0..budget)
+        .map(|index| {
+            let candidate = index as u64;
+            std::array::from_fn(|dimension| {
+                let bound = bounds[dimension];
+                let seed = derive_seed(
+                    master_seed,
+                    DOMAIN_SEARCH,
+                    candidate.wrapping_mul(8).wrapping_add(dimension as u64),
+                );
+                if bound.minimum == bound.maximum {
+                    bound.minimum
+                } else {
+                    let sample = uniform_f64(seed);
+                    bound.minimum * (1.0 - sample) + bound.maximum * sample
+                }
+            })
         })
         .collect()
 }
 
-fn perturb_candidate(
-    center: Controls,
-    config: &ExperimentConfig,
-    deriver: &SeedDeriver,
-    token: u64,
-) -> Controls {
+fn perturb_candidate(center: Controls, config: &ExperimentConfig, token: u64) -> Controls {
     let sample = |dimension: u64| {
-        let stream_token = token.wrapping_mul(8).wrapping_add(dimension);
-        2.0 * deriver.proposal_seed(stream_token).rng().uniform_f64() - 1.0
+        let seed = derive_seed(
+            config.master_seed,
+            DOMAIN_SENSITIVITY,
+            token.wrapping_mul(8).wrapping_add(dimension),
+        );
+        2.0 * uniform_f64(seed) - 1.0
     };
     Controls {
         heading: center.heading + config.perturbations.heading * sample(0),
@@ -255,10 +410,7 @@ fn apply_execution_noise(
     config: &ExperimentConfig,
     context: &TrialContext,
 ) -> Controls {
-    let sample = |tag| {
-        let mut rng = context.common_rng(TrialStream::ExecutionNoise, tag);
-        2.0 * rng.uniform_f64() - 1.0
-    };
+    let sample = |tag| 2.0 * context.uniform(tag) - 1.0;
     Controls {
         heading: candidate.heading + config.execution_noise.heading * sample("heading-degrees"),
         speed: candidate.speed + config.execution_noise.speed * sample("launch-speed-ips"),
@@ -270,14 +422,35 @@ fn apply_execution_noise(
     }
 }
 
-fn replay_key(master_seed: u64, replay: simul::experiment::ReplayKey) -> String {
-    let trial = replay.trial();
+fn replay_key(master_seed: u64, replay: ReplayKey) -> String {
     format!(
         "v1:{master_seed}:{}:{}:{}",
-        trial.candidate().value(),
-        trial.replication().value(),
-        replay.common_random_group()
+        replay.trial.candidate_id, replay.trial.replication_id, replay.common_random_group,
     )
+}
+
+fn hash_tag(tag: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325;
+    for byte in tag.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    }
+    hash
+}
+
+fn derive_seed(master_seed: u64, domain: u64, token: u64) -> u64 {
+    mix_seed(master_seed ^ mix_seed(domain) ^ token.wrapping_mul(GOLDEN_RATIO))
+}
+
+fn mix_seed(mut value: u64) -> u64 {
+    value = value.wrapping_add(GOLDEN_RATIO);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
+}
+
+fn uniform_f64(seed: u64) -> f64 {
+    (mix_seed(seed) >> 11) as f64 * (1.0 / 9_007_199_254_740_992.0)
 }
 
 fn rank_search_candidates(candidates: &mut [CandidateReport]) {
@@ -304,5 +477,70 @@ fn compare_descending(left: Option<f64>, right: Option<f64>) -> Ordering {
         (Some(_), None) => Ordering::Greater,
         (None, Some(_)) => Ordering::Less,
         (None, None) => Ordering::Equal,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn common_random_group_keys_execution_noise_across_candidates_and_replications() {
+        let config = crate::Cli::try_parse_from([
+            "simul-three-cushion",
+            "--fixture",
+            "--mode",
+            "sensitivity",
+            "--seed",
+            "918273",
+            "--candidates",
+            "1",
+            "--replications",
+            "1",
+            "--heading-noise",
+            "0.25",
+            "--speed-noise",
+            "1.5",
+            "--tip-side-noise",
+            "0.01",
+            "--tip-height-noise",
+            "0.015",
+            "--elevation-noise",
+            "0.5",
+        ])
+        .expect("fixed test arguments should parse")
+        .into_config()
+        .expect("fixed test configuration should validate");
+        let controls = config.nominal;
+        let applied = |candidate_id, replication_id, common_random_group| {
+            let key = TrialKey {
+                candidate_id,
+                replication_id,
+            };
+            let spec = TrialSpec {
+                candidate: Candidate {
+                    id: candidate_id,
+                    controls,
+                },
+                key,
+                replay: ReplayKey {
+                    trial: key,
+                    common_random_group,
+                },
+            };
+            failed_record(&config, &spec, "forced failure for noise-only test")
+                .result
+                .expect_err("failed_record should retain its failure")
+                .applied
+        };
+
+        let first_candidate = applied(7, 11, 11);
+        let distinct_candidate = applied(99, 11, 11);
+        let next_replication = applied(7, 12, 12);
+
+        assert_eq!(first_candidate, distinct_candidate);
+        assert_ne!(first_candidate, next_replication);
     }
 }

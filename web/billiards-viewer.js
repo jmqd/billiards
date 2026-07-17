@@ -271,11 +271,10 @@
       const nextEventButton = playbackPanel.querySelector('[data-playback-next-event]');
       if (playback && Array.isArray(playback.frames) && playback.frames.length > 0 && slider) {
         const ns = 'http://www.w3.org/2000/svg';
-        const ballLayer = svg.querySelector('[data-layer="balls"]');
+        const ballLayer = svg.querySelector('[data-layer="balls"], [data-layer="static-balls"]');
         if (ballLayer) {
           ballLayer.style.display = 'none';
-          const ballToggle = viewer.querySelector('[data-layer-toggle="balls"]');
-          if (ballToggle) ballToggle.checked = false;
+          ballLayer.setAttribute('data-layer', 'static-balls');
         }
         svg.querySelectorAll('.diagram-layer .ball-spin-glyph').forEach((glyph) => {
           glyph.style.display = 'none';
@@ -291,8 +290,8 @@
           setTracePathsVisible(traceToggle.checked);
         }
         const playbackLayer = document.createElementNS(ns, 'g');
-        playbackLayer.setAttribute('class', 'playback-layer');
-        playbackLayer.setAttribute('data-layer', 'playback-balls');
+        playbackLayer.setAttribute('class', 'playback-layer playback-balls');
+        playbackLayer.setAttribute('data-layer', 'balls');
         if (ballLayer && ballLayer.parentNode) {
           ballLayer.parentNode.insertBefore(playbackLayer, ballLayer.nextSibling);
         } else {
@@ -427,7 +426,7 @@
           const rollAlignment = speed > spinStun && rollSpeed > spinStun
             ? Math.max(-1, Math.min(1, (vx * rollVx + vy * rollVy) / (speed * rollSpeed)))
             : 0;
-          const angle = rollSpeed > spinStun ? Math.atan2(rollVy, rollVx) * 180 / Math.PI : 0;
+          const angle = rollSpeed > spinStun ? Math.atan2(-rollVy, rollVx) * 180 / Math.PI : 0;
           const rollingSlipLimit = Math.max(speed * 0.12, 0.75);
           const isRolling = speed > spinStun && planar > spinStun && rollSlip <= rollingSlipLimit;
           const hasProminentSide = Math.abs(wz) > Math.max(planar, rollingTarget) * 0.25;
@@ -566,10 +565,10 @@
             const radius = Number(visual.radius) || 12;
             const radiusInches = Math.max(spinStun, Number(visual.radiusInches) || Number(ball.ballRadiusInches) || 1.125);
             const liftPx = Math.max(0, finiteNumber(ball.heightInches)) * radius / radiusInches;
-            const displayX = finiteNumber(ball.x);
-            const displayY = finiteNumber(ball.y) - liftPx;
+            const displayX = finiteNumber(ball.x) - liftPx;
+            const displayY = finiteNumber(ball.y);
             const liftRatio = Math.max(0, Math.min(1.6, liftPx / Math.max(radius, 1)));
-            appendCircle('playback-ball-shadow', displayX + radius * (0.12 + 0.11 * liftRatio), finiteNumber(ball.y) + radius * (0.18 + 0.10 * liftRatio), radius * (1.02 + 0.22 * liftRatio), '#000', Math.max(0.08, 0.25 - 0.08 * liftRatio));
+            appendCircle('playback-ball-shadow', finiteNumber(ball.x) + radius * (0.12 + 0.11 * liftRatio), finiteNumber(ball.y) + radius * (0.18 + 0.10 * liftRatio), radius * (1.02 + 0.22 * liftRatio), '#000', Math.max(0.08, 0.25 - 0.08 * liftRatio));
             appendCircle('playback-ball', displayX, displayY, radius, visual.fill || '#ffffff', 1, '#111', '1.25');
             const heading = headingForBall(index, ball);
             const speed = Math.max(0, Number(ball.speed) || 0);
@@ -597,6 +596,7 @@
               label.setAttribute('class', 'playback-ball-label');
               label.setAttribute('x', displayX.toFixed(3));
               label.setAttribute('y', displayY.toFixed(3));
+              label.setAttribute('transform', `rotate(-90 ${displayX.toFixed(3)} ${displayY.toFixed(3)})`);
               label.textContent = visual.label;
               playbackLayer.appendChild(label);
             }
@@ -654,6 +654,10 @@
           animationId = requestAnimationFrame(tick);
         };
         const tick = (now) => {
+          if (!viewer.isConnected || !playbackLayer.isConnected) {
+            stopPlayback();
+            return;
+          }
           if (!playing) return;
           const duration = Math.max(0, Number(playback.duration) || 0);
           const targetTime = playTargetTime === null ? duration : playTargetTime;

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Billiards viewer behavior probe</title>
+  <style>
+    svg { width: 400px; height: 200px; }
+  </style>
+  <script>
+    const pendingAnimationFrames = new Map();
+    let nextAnimationFrameId = 1;
+    window.requestAnimationFrame = (callback) => {
+      const id = nextAnimationFrameId++;
+      pendingAnimationFrames.set(id, callback);
+      return id;
+    };
+    window.cancelAnimationFrame = (id) => pendingAnimationFrames.delete(id);
+  </script>
+</head>
+<body>
+  <output id="result">RUNNING</output>
+  <div class="card">
+    <figure data-viewer>
+      <div data-viewer-controls data-table-detail-default="full"></div>
+      <svg viewBox="0 0 200 100" aria-label="Viewer test diagram">
+        <g class="diagram-orientation" transform="translate(200 0) rotate(90)">
+          <g data-layer="table"></g>
+          <g data-layer="overlays-below-balls">
+            <polyline class="smooth-polyline" points="50,50 50,40"></polyline>
+          </g>
+          <g data-layer="balls">
+            <g class="ball ball-eight"><text class="ball-label">8</text></g>
+          </g>
+          <g data-layer="overlays-above-balls"></g>
+        </g>
+      </svg>
+      <div data-playback>
+        <script type="application/json" data-playback-data>{"duration":1,"events":[],"balls":[["eight","#111111","8",12,1]],"frames":[[0,[["eight",50,50,0,0,10,0,-10,0,0]]],[1,[["eight",50,40,2,0,10,0,-10,0,0]]]]}</script>
+      </div>
+    </figure>
+  </div>
+  <script src="./billiards-viewer.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const result = document.querySelector('#result');
+      const assert = (condition, message) => {
+        if (!condition) throw new Error(message);
+      };
+      const numberAttribute = (element, name) => Number(element.getAttribute(name));
+      try {
+        const viewer = document.querySelector('[data-viewer]');
+        const svg = viewer.querySelector('svg');
+        const orientation = svg.querySelector('.diagram-orientation');
+        const playbackLayer = svg.querySelector('[data-layer="balls"]');
+        const staticBallLayer = svg.querySelector('[data-layer="static-balls"]');
+        assert(playbackLayer, 'playback must render in the Balls layer');
+        assert(staticBallLayer.style.display === 'none', 'static balls must remain hidden during playback');
+
+        const label = playbackLayer.querySelector('.playback-ball-label');
+        assert(label, 'numbered playback ball must render a text label');
+        const labelMatrix = label.transform.baseVal.consolidate()?.matrix;
+        const labelRotation = Math.atan2(labelMatrix?.b ?? 0, labelMatrix?.a ?? 1) * 180 / Math.PI;
+        assert(Math.abs(labelRotation + 90) < 0.001, `playback label must counter-rotate by 90 degrees, got ${labelRotation}`);
+
+        const heading = playbackLayer.querySelector('.playback-heading');
+        const glyph = playbackLayer.querySelector('.playback-spin-glyph');
+        assert(heading && glyph, 'moving playback ball must render heading and spin direction');
+        const headingDx = numberAttribute(heading, 'x2') - numberAttribute(heading, 'x1');
+        const headingDy = numberAttribute(heading, 'y2') - numberAttribute(heading, 'y1');
+        const headingLength = Math.hypot(headingDx, headingDy);
+        const arrowAngle = numberAttribute(glyph, 'data-spin-angle-deg') * Math.PI / 180;
+        const spinTrajectoryAlignment = (headingDx * Math.cos(arrowAngle) + headingDy * Math.sin(arrowAngle)) / headingLength;
+        assert(spinTrajectoryAlignment > 0.999, `spin arrow must follow rendered trajectory, got dot ${spinTrajectoryAlignment}`);
+
+        const ball = playbackLayer.querySelector('.playback-ball');
+        const projectedCenter = new DOMPoint(50, 40).matrixTransform(orientation.getCTM());
+        const renderedCenter = new DOMPoint(numberAttribute(ball, 'cx'), numberAttribute(ball, 'cy')).matrixTransform(ball.getCTM());
+        assert(Math.abs(renderedCenter.x - projectedCenter.x) < 0.5, 'airborne lift must not move the ball sideways on screen');
+        assert(renderedCenter.y < projectedCenter.y - 5, 'positive airborne height must lift the ball screen-up');
+
+        const ballsToggle = viewer.querySelector('[data-layer-toggle="balls"]');
+        assert(ballsToggle.checked, 'Balls toggle must start checked while playback balls are visible');
+        ballsToggle.checked = false;
+        ballsToggle.dispatchEvent(new Event('change', { bubbles: true }));
+        assert(playbackLayer.style.display === 'none', 'Balls toggle must hide playback balls');
+        assert(staticBallLayer.style.display === 'none', 'Balls toggle must not reveal stale static balls');
+        ballsToggle.checked = true;
+        ballsToggle.dispatchEvent(new Event('change', { bubbles: true }));
+        assert(playbackLayer.style.display !== 'none', 'Balls toggle must restore playback balls');
+        assert(staticBallLayer.style.display === 'none', 'restoring playback balls must keep static balls hidden');
+
+        const playButton = viewer.querySelector('[data-playback-play]');
+        playButton.click();
+        assert(pendingAnimationFrames.size === 1, 'play must schedule one animation frame');
+        viewer.remove();
+        const [[animationId, animationCallback]] = pendingAnimationFrames.entries();
+        pendingAnimationFrames.delete(animationId);
+        animationCallback(performance.now() + 16);
+        assert(pendingAnimationFrames.size === 0, 'detached playback must not schedule another animation frame');
+        assert(playButton.getAttribute('aria-label') === 'Play', 'detached playback must reset its play state');
+
+        document.documentElement.dataset.testStatus = 'passed';
+        result.textContent = 'PASS';
+      } catch (error) {
+        document.documentElement.dataset.testStatus = 'failed';
+        result.textContent = `FAIL: ${error.message}`;
+        console.error(error);
+      }
+    }, { once: true });
+  </script>
+</body>
+</html>

@@ -11,6 +11,10 @@ use bigdecimal::ToPrimitive;
 use image::codecs::png::PngEncoder;
 use image::imageops::{overlay, resize, FilterType};
 use image::{ImageEncoder, ImageFormat, Rgba, RgbaImage};
+use imageproc::drawing::{
+    draw_filled_circle_mut, draw_line_segment_mut, draw_polygon_mut,
+};
+use imageproc::point::Point;
 
 const LEGACY_WIDTH_PX: f32 = 1089.0;
 const LEGACY_HEIGHT_PX: f32 = 1938.0;
@@ -289,10 +293,16 @@ impl DiagramBackend for PngBackend {
         let output = if scale_factor == 1 {
             table
         } else {
+            let output_width = tw
+                .checked_mul(scale_factor)
+                .expect("scaled PNG width overflow");
+            let output_height = th
+                .checked_mul(scale_factor)
+                .expect("scaled PNG height overflow");
             resize(
                 &table,
-                tw * scale_factor,
-                th * scale_factor,
+                output_width,
+                output_height,
                 FilterType::CatmullRom,
             )
         };
@@ -315,13 +325,12 @@ impl DiagramBackend for SvgBackend {
         let mut svg = String::new();
         let unrotated_width_px = scene.viewport.width_px;
         let unrotated_height_px = scene.viewport.height_px;
-        let scale_factor = options.scale_factor.max(1) as f32;
+        let scale_factor = f64::from(options.scale_factor.max(1));
+        let scaled_width_px = f64::from(unrotated_height_px) * scale_factor;
+        let scaled_height_px = f64::from(unrotated_width_px) * scale_factor;
         svg.push_str(&format!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {:.0} {:.0}\" width=\"{:.0}\" height=\"{:.0}\" role=\"img\" aria-label=\"Billiards diagram\" preserveAspectRatio=\"xMidYMid meet\" data-orientation=\"clockwise\">\n",
-            unrotated_height_px,
-            unrotated_width_px,
-            unrotated_height_px * scale_factor,
-            unrotated_width_px * scale_factor
+            unrotated_height_px, unrotated_width_px, scaled_width_px, scaled_height_px
         ));
         svg.push_str("<style>\n");
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
@@ -518,8 +527,260 @@ fn draw_raster_elements_for_layer(
                     style.color,
                 );
             }
-            DiagramElement::SpinGlyph { .. } => {}
+            DiagramElement::SpinGlyph {
+                center,
+                angular_velocity,
+                linear_velocity,
+                ball_radius,
+                style,
+            } => draw_raster_spin_glyph(
+                table,
+                scene,
+                center,
+                angular_velocity,
+                linear_velocity,
+                ball_radius,
+                style,
+            ),
         }
+    }
+}
+
+fn draw_raster_spin_glyph(
+    table: &mut RgbaImage,
+    scene: &DiagramScene,
+    center: &Position,
+    angular_velocity: &AngularVelocity3,
+    linear_velocity: &Velocity2,
+    ball_radius: &Inches,
+    style: &SpinGlyphStyle,
+) {
+    let center = scene.viewport.position_to_scene_point(center);
+    let radius = scene.viewport.ball_radius_px(
+        &scene.table_spec,
+        &BallSpec {
+            radius: ball_radius.clone(),
+        },
+    );
+    let glyph_radius = (radius * style.glyph_radius_fraction).clamp(8.5, 13.0);
+    let badge_offset = radius * 0.72;
+    let glyph_center = (center.x + badge_offset, center.y - badge_offset);
+    let glyph_center_i32 = (
+        glyph_center.0.round() as i32,
+        glyph_center.1.round() as i32,
+    );
+    let stroke_width = (radius * 0.135).clamp(2.4, 4.0);
+    let metrics = spin_glyph_metrics(angular_velocity, linear_velocity, ball_radius);
+
+    draw_filled_circle_mut(
+        table,
+        glyph_center_i32,
+        glyph_radius.ceil() as i32 + 1,
+        Rgba([17, 17, 17, 230]),
+    );
+    draw_filled_circle_mut(
+        table,
+        glyph_center_i32,
+        glyph_radius.ceil() as i32,
+        Rgba([255, 250, 241, 250]),
+    );
+
+    if metrics.total_rps <= SPIN_GLYPH_STUN_RPS {
+        let arm = glyph_radius * 0.48;
+        for (start, end) in [
+            ((-arm, -arm), (arm, arm)),
+            ((arm, -arm), (-arm, arm)),
+        ] {
+            let start = (glyph_center.0 + start.0, glyph_center.1 + start.1);
+            let end = (glyph_center.0 + end.0, glyph_center.1 + end.1);
+            draw_raster_thick_line(
+                table,
+                start,
+                end,
+                stroke_width * 2.7,
+                Rgba([255, 250, 241, 255]),
+            );
+            draw_raster_thick_line(
+                table,
+                start,
+                end,
+                stroke_width * 1.35,
+                Rgba([SPIN_GLYPH_GREY[0], SPIN_GLYPH_GREY[1], SPIN_GLYPH_GREY[2], 255]),
+            );
+        }
+        return;
+    }
+
+    if metrics.planar_rps > SPIN_GLYPH_STUN_RPS {
+        let angle = metrics.angle_degrees.to_radians();
+        let direction = (angle.cos() as f32, angle.sin() as f32);
+        let normal = (-direction.1, direction.0);
+        let tail = -glyph_radius * 0.70;
+        let tip = glyph_radius * 0.74;
+        let head = glyph_radius * 0.36;
+        let base = tip - head;
+        let line_start = (
+            glyph_center.0 + direction.0 * tail,
+            glyph_center.1 + direction.1 * tail,
+        );
+        let line_end = (
+            glyph_center.0 + direction.0 * base,
+            glyph_center.1 + direction.1 * base,
+        );
+        let planar = Rgba([
+            metrics.planar_color[0],
+            metrics.planar_color[1],
+            metrics.planar_color[2],
+            255,
+        ]);
+        draw_raster_thick_line(
+            table,
+            line_start,
+            line_end,
+            stroke_width * 2.65,
+            Rgba([255, 250, 241, 255]),
+        );
+        draw_raster_thick_line(table, line_start, line_end, stroke_width * 1.28, planar);
+        let arrow_tip = (
+            glyph_center.0 + direction.0 * tip,
+            glyph_center.1 + direction.1 * tip,
+        );
+        let head_half_width = head * 0.70;
+        draw_raster_triangle(
+            table,
+            arrow_tip,
+            (
+                line_end.0 + normal.0 * head_half_width,
+                line_end.1 + normal.1 * head_half_width,
+            ),
+            (
+                line_end.0 - normal.0 * head_half_width,
+                line_end.1 - normal.1 * head_half_width,
+            ),
+            planar,
+        );
+    }
+
+    if metrics.wz.abs() > SPIN_GLYPH_STUN_RPS {
+        let direction = if metrics.wz >= 0.0 { 1.0 } else { -1.0 };
+        let arc_radius = glyph_radius * 0.82;
+        let z_color = Rgba([
+            metrics.z_color[0],
+            metrics.z_color[1],
+            metrics.z_color[2],
+            255,
+        ]);
+        draw_raster_spin_arc(
+            table,
+            glyph_center,
+            arc_radius,
+            direction,
+            stroke_width * 2.25,
+            Rgba([255, 250, 241, 255]),
+        );
+        draw_raster_spin_arc(
+            table,
+            glyph_center,
+            arc_radius,
+            direction,
+            stroke_width * 1.18,
+            z_color,
+        );
+
+        let end_angle = 125.0_f32.to_radians();
+        let arrow_tip = (
+            glyph_center.0 + direction * arc_radius * end_angle.cos(),
+            glyph_center.1 + arc_radius * end_angle.sin(),
+        );
+        let tangent = (-direction * end_angle.sin(), end_angle.cos());
+        let tangent_length = tangent.0.hypot(tangent.1);
+        let tangent = (tangent.0 / tangent_length, tangent.1 / tangent_length);
+        let normal = (-tangent.1, tangent.0);
+        let head = glyph_radius * 0.30;
+        let base = (
+            arrow_tip.0 - tangent.0 * head,
+            arrow_tip.1 - tangent.1 * head,
+        );
+        draw_raster_triangle(
+            table,
+            arrow_tip,
+            (base.0 + normal.0 * head * 0.55, base.1 + normal.1 * head * 0.55),
+            (base.0 - normal.0 * head * 0.55, base.1 - normal.1 * head * 0.55),
+            z_color,
+        );
+    }
+}
+
+fn draw_raster_thick_line(
+    table: &mut RgbaImage,
+    start: (f32, f32),
+    end: (f32, f32),
+    width: f32,
+    color: Rgba<u8>,
+) {
+    let delta = (end.0 - start.0, end.1 - start.1);
+    let length = delta.0.hypot(delta.1);
+    if length <= f32::EPSILON {
+        return;
+    }
+    let normal = (-delta.1 / length, delta.0 / length);
+    let half_width = width * 0.5;
+    let offset_limit = half_width.ceil() as i32;
+    for offset in -offset_limit..=offset_limit {
+        let offset = offset as f32;
+        if offset.abs() > half_width + 0.5 {
+            continue;
+        }
+        let shift = (normal.0 * offset, normal.1 * offset);
+        draw_line_segment_mut(
+            table,
+            (start.0 + shift.0, start.1 + shift.1),
+            (end.0 + shift.0, end.1 + shift.1),
+            color,
+        );
+    }
+}
+
+fn draw_raster_triangle(
+    table: &mut RgbaImage,
+    first: (f32, f32),
+    second: (f32, f32),
+    third: (f32, f32),
+    color: Rgba<u8>,
+) {
+    draw_polygon_mut(
+        table,
+        &[
+            Point::new(first.0.round() as i32, first.1.round() as i32),
+            Point::new(second.0.round() as i32, second.1.round() as i32),
+            Point::new(third.0.round() as i32, third.1.round() as i32),
+        ],
+        color,
+    );
+}
+
+fn draw_raster_spin_arc(
+    table: &mut RgbaImage,
+    center: (f32, f32),
+    radius: f32,
+    direction: f32,
+    width: f32,
+    color: Rgba<u8>,
+) {
+    const ARC_SEGMENTS: u32 = 28;
+    let start_angle = -155.0_f32.to_radians();
+    let sweep = 280.0_f32.to_radians();
+    let mut previous = None;
+    for step in 0..=ARC_SEGMENTS {
+        let angle = start_angle + sweep * step as f32 / ARC_SEGMENTS as f32;
+        let point = (
+            center.0 + direction * radius * angle.cos(),
+            center.1 + radius * angle.sin(),
+        );
+        if let Some(previous) = previous {
+            draw_raster_thick_line(table, previous, point, width, color);
+        }
+        previous = Some(point);
     }
 }
 
@@ -1517,8 +1778,8 @@ struct SpinGlyphMetrics {
     roll_slip_ips: f64,
     angle_degrees: f64,
     kind: &'static str,
-    planar_color: String,
-    z_color: String,
+    planar_color: [u8; 3],
+    z_color: [u8; 3],
 }
 
 fn push_svg_spin_glyph(
@@ -1541,6 +1802,8 @@ fn push_svg_spin_glyph(
     let badge_offset = radius * 0.72;
     let stroke_width = (radius * 0.135).clamp(2.4, 4.0);
     let metrics = spin_glyph_metrics(angular_velocity, linear_velocity, ball_radius);
+    let planar_color = svg_rgb(metrics.planar_color);
+    let z_color = svg_rgb(metrics.z_color);
     let title = escape_xml(&format!(
         "spin: v=({:.1}, {:.1}) ips; omega=({:.1}, {:.1}, {:.1}) rad/s; roll slip={:.1} ips; roll ratio={:.2}; side={:.1} rad/s",
         metrics.vx,
@@ -1624,7 +1887,7 @@ fn push_svg_spin_glyph(
                 "<path class=\"ball-spin-vector\" d=\"M {:.3} 0 L {:.3} 0\" stroke=\"{}\" stroke-opacity=\".98\" stroke-width=\"{:.3}\"/>\n",
                 tail,
                 base,
-                metrics.planar_color,
+                planar_color,
                 stroke_width * 1.28
             ));
             svg.push_str(&format!(
@@ -1634,7 +1897,7 @@ fn push_svg_spin_glyph(
                 -head * 0.70,
                 base,
                 head * 0.70,
-                metrics.planar_color,
+                planar_color,
                 stroke_width * 0.55
             ));
             svg.push_str("</g>\n");
@@ -1663,7 +1926,7 @@ fn push_svg_spin_glyph(
                 arc,
                 arc,
                 arc * 0.42,
-                metrics.z_color,
+                z_color,
                 z_opacity,
                 stroke_width * 1.18
             ));
@@ -1675,7 +1938,7 @@ fn push_svg_spin_glyph(
                 arc * 0.42 - head * 0.78,
                 arc - head * 0.12,
                 arc * 0.42 + head * 0.90,
-                metrics.z_color,
+                z_color,
                 z_opacity,
                 stroke_width * 0.55
             ));
@@ -1724,9 +1987,9 @@ fn spin_glyph_metrics(
             0.0
         };
     let spin_vector_x = roll_vx;
-    let spin_vector_y = roll_vy;
-    let angle_degrees = if spin_vector_x.hypot(spin_vector_y) > SPIN_GLYPH_STUN_RPS {
-        spin_vector_y.atan2(spin_vector_x).to_degrees()
+    let spin_vector_scene_y = -roll_vy;
+    let angle_degrees = if spin_vector_x.hypot(spin_vector_scene_y) > SPIN_GLYPH_STUN_RPS {
+        spin_vector_scene_y.atan2(spin_vector_x).to_degrees()
     } else {
         0.0
     };
@@ -1751,17 +2014,17 @@ fn spin_glyph_metrics(
         "spin"
     };
     let planar_color = match kind {
-        "stun" | "english" => svg_rgb(SPIN_GLYPH_GREY),
-        "rolling" | "rolling-english" => svg_rgb(SPIN_GLYPH_GREEN),
-        "draw" => svg_rgb(SPIN_GLYPH_ORANGE),
-        "follow" => svg_rgb(SPIN_GLYPH_BLUE),
+        "stun" | "english" => SPIN_GLYPH_GREY,
+        "rolling" | "rolling-english" => SPIN_GLYPH_GREEN,
+        "draw" => SPIN_GLYPH_ORANGE,
+        "follow" => SPIN_GLYPH_BLUE,
         _ => {
             let reference = rolling_target_rps.max(120.0);
             let t = (planar_rps / reference).clamp(0.0, 1.0);
-            svg_rgb(interpolate_rgb(SPIN_GLYPH_GREY, SPIN_GLYPH_AMBER, t))
+            interpolate_rgb(SPIN_GLYPH_GREY, SPIN_GLYPH_AMBER, t)
         }
     };
-    let z_color = svg_rgb(SPIN_GLYPH_VIOLET);
+    let z_color = SPIN_GLYPH_VIOLET;
 
     SpinGlyphMetrics {
         vx,
@@ -1834,7 +2097,7 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
                 "<circle r=\"{label_radius:.3}\" fill=\"#f8f4e8\" stroke=\"#111\" stroke-width=\".75\"/>\n"
             ));
             svg.push_str(&format!(
-                "<text class=\"ball-label\" y=\".5\" fill=\"#111\" font-size=\"{:.3}\">{}</text>\n",
+                "<text class=\"ball-label\" y=\".5\" fill=\"#111\" font-size=\"{:.3}\" transform=\"rotate(-90)\">{}</text>\n",
                 (radius * 0.58).max(10.0),
                 label
             ));

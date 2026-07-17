@@ -1196,20 +1196,17 @@ impl ScenarioBallTrace {
         motion: &OnTableMotionConfig,
     ) -> Option<BallState> {
         let target_time = elapsed.as_f64().max(0.0);
-        for segment in &self.timeline_segments {
+        for (segment_index, segment) in self.timeline_segments.iter().enumerate() {
             let start_time = segment.start_time.as_f64();
             let duration = segment.duration.as_f64();
             let end_time = start_time + duration;
             if target_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS < start_time {
                 return Some(segment.start.clone());
             }
-            if target_time <= end_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+            if target_time < end_time - SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
                 let segment_elapsed = (target_time - start_time).clamp(0.0, duration);
                 if segment_elapsed <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
                     return Some(segment.start.clone());
-                }
-                if duration - segment_elapsed <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
-                    return Some(segment.end.clone());
                 }
                 return Some(advance_timeline_ball_state(
                     &segment.start,
@@ -1218,21 +1215,32 @@ impl ScenarioBallTrace {
                     motion,
                 ));
             }
+            if target_time <= end_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+                if self
+                    .timeline_segments
+                    .get(segment_index + 1)
+                    .is_some_and(|next| {
+                        next.start_time.as_f64()
+                            <= end_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS
+                    })
+                {
+                    continue;
+                }
+                if segment_index + 1 == self.timeline_segments.len() {
+                    return self.resolved_final_playback_state();
+                }
+                return Some(segment.end.clone());
+            }
         }
 
+        self.resolved_final_playback_state()
+    }
+
+    fn resolved_final_playback_state(&self) -> Option<BallState> {
         match &self.final_state {
             NBallSystemState::OnTable(state) => Some(state.as_ball_state().clone()),
             NBallSystemState::Airborne(state) => Some(state.clone()),
-            NBallSystemState::Pocketed {
-                state_at_capture, ..
-            } => (target_time
-                <= self
-                    .timeline_segments
-                    .last()
-                    .map(|segment| segment.start_time.as_f64() + segment.duration.as_f64())
-                    .unwrap_or(0.0)
-                    + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS)
-                .then(|| state_at_capture.as_ball_state().clone()),
+            NBallSystemState::Pocketed { .. } => None,
         }
     }
 
@@ -1944,6 +1952,9 @@ pub enum DslBuildError {
     CutAngleOutOfRange {
         degrees: f64,
     },
+    CueElevationOutOfRange {
+        degrees: f64,
+    },
     InvalidCueStrikeConfig {
         name: String,
         error: ShotError,
@@ -2091,6 +2102,11 @@ impl std::fmt::Display for DslBuildError {
             Self::CutAngleOutOfRange { degrees } => write!(
                 f,
                 "cut angle {degrees}deg is out of bounds; expected 0..=90"
+            ),
+            Self::CueElevationOutOfRange { degrees } => write!(
+                f,
+                "cue elevation {degrees}deg is out of bounds; expected 0..={}",
+                crate::MAX_CUE_ELEVATION_DEGREES
             ),
             Self::InvalidCueStrikeConfig { name, error } => {
                 write!(f, "cue_strike '{name}' is invalid: {error:?}")
@@ -2745,6 +2761,14 @@ fn angle_from_degrees(degrees: f64) -> Angle {
     Angle::from_north(radians.sin(), radians.cos())
 }
 
+fn cue_elevation_angle_from_degrees(degrees: f64) -> Result<Angle, DslBuildError> {
+    if !degrees.is_finite() || !(0.0..=crate::MAX_CUE_ELEVATION_DEGREES).contains(&degrees) {
+        return Err(DslBuildError::CueElevationOutOfRange { degrees });
+    }
+
+    Ok(angle_from_degrees(degrees))
+}
+
 fn resolve_shot_aiming_ball<'a>(
     game_state: &'a GameState,
     ball_ref: BallRef,
@@ -2918,7 +2942,7 @@ fn build_shot(
     .map_err(DslBuildError::InvalidShot)?;
     if let Some(elevation_degrees) = effective_cue_elevation_degrees {
         shot = shot
-            .with_cue_elevation(angle_from_degrees(elevation_degrees))
+            .with_cue_elevation(cue_elevation_angle_from_degrees(elevation_degrees)?)
             .map_err(DslBuildError::InvalidShot)?;
     }
 

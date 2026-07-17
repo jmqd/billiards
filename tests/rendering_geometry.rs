@@ -76,6 +76,42 @@ fn svg_attr_f32(element: &str, attr: &str) -> f32 {
         .unwrap_or_else(|error| panic!("invalid SVG attribute {attr} in {element}: {error}"))
 }
 
+fn svg_attr_u64(element: &str, attr: &str) -> u64 {
+    let prefix = format!("{attr}=\"");
+    let start = element
+        .find(&prefix)
+        .unwrap_or_else(|| panic!("missing SVG attribute {attr} in {element}"))
+        + prefix.len();
+    let end = element[start..]
+        .find('"')
+        .unwrap_or_else(|| panic!("unterminated SVG attribute {attr} in {element}"))
+        + start;
+    element[start..end]
+        .parse()
+        .unwrap_or_else(|error| panic!("invalid SVG attribute {attr} in {element}: {error}"))
+}
+
+fn svg_rotation_degrees(element: &str) -> f32 {
+    let transform_prefix = "transform=\"";
+    let transform_start = element
+        .find(transform_prefix)
+        .unwrap_or_else(|| panic!("missing SVG transform in {element}"))
+        + transform_prefix.len();
+    let rotate_prefix = "rotate(";
+    let rotate_start = element[transform_start..]
+        .find(rotate_prefix)
+        .unwrap_or_else(|| panic!("missing SVG rotation in {element}"))
+        + transform_start
+        + rotate_prefix.len();
+    let rotate_end = element[rotate_start..]
+        .find([' ', ')'])
+        .unwrap_or_else(|| panic!("unterminated SVG rotation in {element}"))
+        + rotate_start;
+    element[rotate_start..rotate_end]
+        .parse()
+        .unwrap_or_else(|error| panic!("invalid SVG rotation in {element}: {error}"))
+}
+
 fn svg_element<'a>(svg: &'a str, marker: &str, index: usize) -> &'a str {
     svg.lines()
         .filter(|line| line.contains(marker))
@@ -347,6 +383,23 @@ fn svg_scale_factor_changes_intrinsic_dimensions_without_changing_view_box() {
 }
 
 #[test]
+fn svg_scale_factor_above_f32_integer_precision_keeps_exact_intrinsic_dimensions() {
+    const SCALE_FACTOR: u32 = (1 << 24) + 1;
+    let svg = render_svg_with_options(
+        &cue_ball_at("2", "4"),
+        &DiagramRenderOptions {
+            scale_factor: SCALE_FACTOR,
+            ..DiagramRenderOptions::default()
+        },
+    );
+    let root = svg.lines().next().expect("SVG root element");
+
+    assert_eq!(svg_attr_u64(root, "width"), 1_938 * u64::from(SCALE_FACTOR));
+    assert_eq!(svg_attr_u64(root, "height"), 1_089 * u64::from(SCALE_FACTOR));
+    assert_eq!(root.matches("viewBox=\"0 0 1938 1089\"").count(), 1);
+}
+
+#[test]
 fn drawing_with_a_transparent_background_leaves_an_empty_table_fully_transparent() {
     let rendered = render_with_options(
         &GameState::default(),
@@ -370,6 +423,34 @@ fn drawing_with_a_transparent_background_still_renders_visible_balls() {
     );
 
     assert!(rendered.pixels().any(|pixel| pixel[3] > 0));
+}
+
+#[test]
+fn png_backend_renders_spin_glyphs_without_requiring_a_ball_sprite() {
+    let table_spec = TableSpec::default();
+    let ball_spec = BallSpec::default();
+    let radius = ball_spec.radius.as_f64();
+    let rolling = on_table(BallState::on_table(
+        inches2(24.0, 48.0),
+        Velocity2::new("0", "24"),
+        AngularVelocity3::new(-24.0 / radius, 0.0, 0.0),
+    ));
+    let mut game = GameState::new(table_spec);
+    game.add_spin_glyph_for_on_table_state(&rolling, &ball_spec);
+
+    let rendered = render_with_options(
+        &game,
+        &DiagramRenderOptions {
+            background: DiagramBackground::Transparent,
+            ..DiagramRenderOptions::default()
+        },
+    );
+    let visible_pixels = rendered.pixels().filter(|pixel| pixel[3] > 0).count();
+    let bbox = diff_bbox(&RgbaImage::new(rendered.width(), rendered.height()), &rendered)
+        .expect("spin glyph should produce visible raster pixels");
+
+    assert!(visible_pixels > 20, "spin glyph should have a visible filled footprint");
+    assert!(bbox.2 - bbox.0 >= 10 && bbox.3 - bbox.1 >= 10);
 }
 
 #[test]
@@ -409,6 +490,23 @@ fn svg_backend_emits_layered_scalable_markup_for_a_ball_layout() {
     assert!(svg.contains("data-layer=\"table\""));
     assert!(svg.contains("data-layer=\"balls\""));
     assert!(svg.contains("class=\"ball ball-cue\""));
+}
+
+#[test]
+fn svg_ball_number_is_counter_rotated_to_remain_upright_on_screen() {
+    let state = GameState::with_balls(
+        TableSpec::default(),
+        [Ball {
+            ty: BallType::Eight,
+            position: Position::new("2", "4"),
+            spec: BallSpec::default(),
+        }],
+    );
+    let svg = render_svg_with_options(&state, &DiagramRenderOptions::default());
+    let label = svg_element(&svg, "class=\"ball-label\"", 0);
+
+    let screen_rotation_degrees = 90.0 + svg_rotation_degrees(label);
+    assert!(screen_rotation_degrees.abs() < 1e-6);
 }
 
 #[test]
@@ -457,6 +555,18 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     for state in states {
         game.add_spin_glyph_for_on_table_state(state, &ball_spec);
     }
+    let trajectory_start = rolling
+        .as_ball_state()
+        .projected_position(&table_spec);
+    let trajectory_end = trajectory_start.translate_inches(
+        Inches::from_f64(12.0),
+        Angle::from_north(0.0, 1.0),
+    );
+    game.add_dotted_line(
+        &trajectory_start,
+        &trajectory_end,
+        image::Rgba([255, 255, 255, 255]),
+    );
 
     let svg = render_svg_with_options(
         &game,
@@ -473,7 +583,7 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     assert!(svg.contains("data-spin-kind=\"english\""));
     assert!(svg.contains("data-spin-kind=\"stun\""));
     assert!(svg.contains("data-spin-rps=\"240.000\""));
-    assert!(svg.contains("data-spin-angle-deg=\"90.000\""));
+    assert!(svg.contains("data-spin-angle-deg=\"-90.000\""));
     assert!(svg.contains("data-spin-roll-ratio=\"1.000\""));
     assert!(svg.contains("class=\"ball-spin-vector-halo\""));
     assert!(svg.contains("class=\"ball-spin-vector\""));
@@ -488,7 +598,20 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     assert!(svg.contains("role=\"img\" aria-label=\"spin:"));
     assert!(svg.contains("#7f858c"));
     assert!(svg.contains("omega="));
+    let trajectory = svg_element(&svg, "class=\"overlay dashed-line\"", 0);
+    let trajectory_dx = svg_attr_f32(trajectory, "x2") - svg_attr_f32(trajectory, "x1");
+    let trajectory_dy = svg_attr_f32(trajectory, "y2") - svg_attr_f32(trajectory, "y1");
+    let trajectory_length = trajectory_dx.hypot(trajectory_dy);
+    let rolling_glyph = svg_element(&svg, "data-spin-kind=\"rolling\"", 0);
+    let arrow_angle = svg_attr_f32(rolling_glyph, "data-spin-angle-deg").to_radians();
+    let alignment = (trajectory_dx * arrow_angle.cos() + trajectory_dy * arrow_angle.sin())
+        / trajectory_length;
+    assert!(
+        alignment > 0.999,
+        "rolling spin arrow should point along the rendered trajectory, got dot {alignment}"
+    );
 }
+
 
 #[test]
 fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {

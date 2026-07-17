@@ -1343,6 +1343,58 @@ fn playback_frames_snap_to_logged_event_times_and_sample_between_them() {
 }
 
 #[test]
+fn playback_uses_the_post_event_state_at_an_exact_segment_boundary() {
+    let pre_event = BallState::on_table(
+        Inches2::new("20", "24"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(0.0, 0.0, 0.0),
+    );
+    let at_event = BallState::on_table(
+        Inches2::new("20", "30"),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(0.0, 0.0, 0.0),
+    );
+    let post_event = BallState::on_table(
+        Inches2::new("20", "30"),
+        Velocity2::new("0", "-7"),
+        AngularVelocity3::new(3.0, 0.0, 0.0),
+    );
+    let after_event = BallState::on_table(
+        Inches2::new("20", "26"),
+        Velocity2::new("0", "-6"),
+        AngularVelocity3::new(2.0, 0.0, 0.0),
+    );
+    let trace = ScenarioBallTrace {
+        ball: BallType::Cue,
+        initial_state: pre_event.clone(),
+        final_state: OnTableBallState::try_from(after_event.clone())
+            .expect("final state should be on-table")
+            .into(),
+        segments: Vec::new(),
+        timeline_segments: vec![
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::zero(),
+                start: pre_event,
+                end: at_event,
+                duration: Seconds::new(1.0),
+            },
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::new(1.0),
+                start: post_event.clone(),
+                end: after_event,
+                duration: Seconds::new(1.0),
+            },
+        ],
+    };
+
+    let sampled = trace
+        .state_at_elapsed(Seconds::new(1.0), &BallSetPhysicsSpec::default(), &motion_config())
+        .expect("ball should remain visible after the event");
+
+    assert_eq!(sampled, post_event);
+}
+
+#[test]
 fn playback_frames_omit_pocketed_balls_after_their_capture_time() {
     let initial_state = OnTableBallState::try_from(BallState::on_table(
         Inches2::new("20", "20"),
@@ -1392,11 +1444,19 @@ fn playback_frames_omit_pocketed_balls_after_their_capture_time() {
         .iter()
         .find(|frame| (frame.time.as_f64() - 2.0).abs() < 1e-9)
         .expect("post-capture frame");
+    let frame_at_capture = frames
+        .iter()
+        .find(|frame| (frame.time.as_f64() - 1.0).abs() < 1e-9)
+        .expect("capture-time frame");
 
     assert!(frame_before_capture
         .balls
         .iter()
         .any(|ball| ball.ball == BallType::Cue));
+    assert!(
+        frame_at_capture.balls.is_empty(),
+        "a pocketed ball should disappear in the exact capture-time frame"
+    );
     assert!(
         frame_after_capture.balls.is_empty(),
         "pocketed balls should disappear after capture instead of snapping back onto the table"
@@ -1455,6 +1515,46 @@ fn parses_elevated_cue_method_and_jump_alias() {
         "ball cue at center\n\
          cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
          shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).masse(30deg).using(default)\n",
+    );
+}
+
+#[test]
+fn rejects_raw_cue_elevations_before_angle_normalization() {
+    for (elevation, expected_degrees) in [
+        ("370deg", 370.0),
+        ("720deg", 720.0),
+        ("-1deg", -1.0),
+        ("86deg", 86.0),
+    ] {
+        let input = format!(
+            "ball cue at center\n\
+             cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+             shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.0R).elevation({elevation}).using(default)\n"
+        );
+
+        let error = parse_dsl_to_scenario(&input)
+            .expect_err("raw out-of-range cue elevation should be rejected");
+        assert!(matches!(
+            error,
+            DslError::Build(DslBuildError::CueElevationOutOfRange { degrees })
+                if degrees == expected_degrees
+        ));
+    }
+
+    let maximum = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.0R).elevation(85deg).using(default)\n",
+    )
+    .expect("the documented maximum cue elevation should remain valid");
+    assert_close(
+        maximum
+            .shot
+            .expect("scenario should contain a shot")
+            .shot
+            .cue_elevation()
+            .as_degrees(),
+        85.0,
     );
 }
 

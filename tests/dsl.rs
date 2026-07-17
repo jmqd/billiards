@@ -1374,6 +1374,68 @@ fn playback_frames_snap_to_logged_event_times_and_sample_between_them() {
 }
 
 #[test]
+fn playback_uses_the_pre_event_state_just_before_a_segment_boundary() {
+    let pre_event = BallState::airborne(
+        Inches2::new("20", "24"),
+        "1000",
+        Velocity2::new("10", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let at_event = BallState::airborne(
+        Inches2::new("30", "24"),
+        "1000",
+        Velocity2::new("10", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let post_event = BallState::airborne(
+        Inches2::new("30", "24"),
+        "1000",
+        Velocity2::new("-7", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let after_event = BallState::airborne(
+        Inches2::new("23", "24"),
+        "1000",
+        Velocity2::new("-7", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let trace = ScenarioBallTrace {
+        ball: BallType::Cue,
+        initial_state: pre_event.clone(),
+        final_state: NBallSystemState::Airborne(after_event.clone()),
+        segments: Vec::new(),
+        timeline_segments: vec![
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::zero(),
+                start: pre_event,
+                end: at_event,
+                duration: Seconds::new(1.0),
+            },
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::new(1.0),
+                start: post_event,
+                end: after_event,
+                duration: Seconds::new(1.0),
+            },
+        ],
+    };
+
+    let sampled = trace
+        .state_at_elapsed(
+            Seconds::new(1.0 - 0.5e-9),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .expect("ball should remain visible immediately before the event");
+
+    assert_close(sampled.velocity.x().as_f64(), 10.0);
+}
+
+#[test]
 fn playback_uses_the_post_event_state_at_an_exact_segment_boundary() {
     let pre_event = BallState::on_table(
         Inches2::new("20", "24"),

@@ -1203,7 +1203,7 @@ impl ScenarioBallTrace {
             if target_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS < start_time {
                 return Some(segment.start.clone());
             }
-            if target_time < end_time - SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+            if target_time < end_time {
                 let segment_elapsed = (target_time - start_time).clamp(0.0, duration);
                 if segment_elapsed <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
                     return Some(segment.start.clone());

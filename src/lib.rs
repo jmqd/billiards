@@ -6383,6 +6383,7 @@ fn raw_rail_gap_derivative_at_state(state: RawOnTableBallState, rail: Rail) -> f
         Rail::Left => state.vx,
         Rail::Right => -state.vx,
     }
+}
 
 fn snap_raw_state_to_rail_contact(
     mut state: RawOnTableBallState,

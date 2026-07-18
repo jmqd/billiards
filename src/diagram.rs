@@ -335,6 +335,9 @@ impl DiagramBackend for SvgBackend {
         svg.push_str("<style>\n");
         svg.push_str(".diagram-layer{vector-effect:non-scaling-stroke}\n");
         svg.push_str(".ball-label{font-family:Inter,Arial,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}\n");
+        if scene.table_spec.kind == TableKind::Pool {
+            svg.push_str(".ball-number-label{font-weight:800;fill:#171512}.ball-shell{stroke:none}.ball-gloss{fill:#fff;fill-opacity:.42;pointer-events:none}.ball-outline{fill:none;stroke:#211e19;stroke-opacity:.82;stroke-width:.9}.ball-number-medallion{fill:url(#pool-ball-medallion);stroke:#211e19;stroke-width:.85}\n");
+        }
         svg.push_str(".ball-spin-glyph{pointer-events:none}.ball-spin-backplate{fill:#fffaf1;fill-opacity:.98;stroke:#111;stroke-opacity:.9}.ball-spin-vector,.ball-spin-vector-halo,.ball-spin-z,.ball-spin-z-halo,.ball-spin-stun-x-halo,.ball-spin-stun-x-mark{fill:none;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}.ball-spin-vector-halo,.ball-spin-z-halo,.ball-spin-stun-x-halo{stroke:#fffaf1;stroke-opacity:1}.ball-spin-arrowhead,.ball-spin-z-head{stroke:#fffaf1;stroke-linejoin:round;vector-effect:non-scaling-stroke}.ball-spin-stun-x-mark{stroke:#7f858c;stroke-opacity:.98}\n");
         svg.push_str(".overlay-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;dominant-baseline:central}.origin-marker{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none}.event-marker[data-event-label]{cursor:help}\n");
         svg.push_str(".table-cloth{fill:url(#tournament-blue-cloth)}.table-cloth-texture{fill:url(#cloth-weave);opacity:.20}");
@@ -346,6 +349,9 @@ impl DiagramBackend for SvgBackend {
         svg.push_str(".carom-table .table-rail{fill:url(#carom-wood-rail)}.carom-table .table-cloth{fill:url(#heated-carom-cloth)}.carom-table .table-cloth-texture{opacity:.16}.carom-table .table-cushion{fill:url(#heated-carom-cushion)}.carom-table .table-cushion-nose{stroke:#88ecff;stroke-width:3.2}.carom-table .table-cushion-back{stroke:#064f69;stroke-width:3.2}.carom-table .table-rail-inner-shadow{stroke:#0b0705;stroke-width:12;opacity:.58}\n");
         svg.push_str("</style>\n");
         push_svg_table_defs(&mut svg, scene.viewport);
+        if scene.table_spec.kind == TableKind::Pool {
+            push_svg_pool_ball_defs(&mut svg);
+        }
         svg.push_str(&format!(
             "<g class=\"diagram-orientation\" transform=\"translate({:.0} 0) rotate(90)\">\n",
             unrotated_height_px
@@ -443,6 +449,64 @@ fn push_svg_table_defs(svg: &mut String, viewport: DiagramViewport) {
 </defs>
 "##,
     ));
+}
+
+fn push_svg_pool_ball_defs(svg: &mut String) {
+    svg.push_str(
+        r##"<defs>
+<radialGradient id="pool-ball-ivory" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#fffdf2"/>
+<stop offset="56%" stop-color="#eee6cf"/>
+<stop offset="100%" stop-color="#b8aa8c"/>
+</radialGradient>
+<radialGradient id="pool-ball-medallion" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#fff9dc"/>
+<stop offset="56%" stop-color="#f2e4b5"/>
+<stop offset="100%" stop-color="#c5b27e"/>
+</radialGradient>
+<radialGradient id="pool-ball-yellow" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#ffd54a"/>
+<stop offset="56%" stop-color="#e7aa16"/>
+<stop offset="100%" stop-color="#9f6203"/>
+</radialGradient>
+<radialGradient id="pool-ball-blue" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#48a9eb"/>
+<stop offset="56%" stop-color="#0875c5"/>
+<stop offset="100%" stop-color="#03447d"/>
+</radialGradient>
+<radialGradient id="pool-ball-red" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#ff6460"/>
+<stop offset="56%" stop-color="#e3262e"/>
+<stop offset="100%" stop-color="#900e19"/>
+</radialGradient>
+<radialGradient id="pool-ball-purple" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#aa7ac5"/>
+<stop offset="56%" stop-color="#704397"/>
+<stop offset="100%" stop-color="#40215c"/>
+</radialGradient>
+<radialGradient id="pool-ball-orange" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#ffa24c"/>
+<stop offset="56%" stop-color="#f26b1b"/>
+<stop offset="100%" stop-color="#a63b05"/>
+</radialGradient>
+<radialGradient id="pool-ball-green" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#48bc9b"/>
+<stop offset="56%" stop-color="#078c69"/>
+<stop offset="100%" stop-color="#04533f"/>
+</radialGradient>
+<radialGradient id="pool-ball-maroon" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#dc5260"/>
+<stop offset="56%" stop-color="#a71e30"/>
+<stop offset="100%" stop-color="#610914"/>
+</radialGradient>
+<radialGradient id="pool-ball-black" cx="35%" cy="28%" r="78%" fx="29%" fy="22%">
+<stop offset="0%" stop-color="#696c70"/>
+<stop offset="56%" stop-color="#202326"/>
+<stop offset="100%" stop-color="#050607"/>
+</radialGradient>
+</defs>
+"##,
+    );
 }
 
 pub fn render_scene_to_bytes(
@@ -2078,48 +2142,143 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
         let center = scene.viewport.position_to_scene_point(&ball.position);
         let radius = scene.viewport.ball_radius_px(&scene.table_spec, &ball.spec);
         let visual = ball_visual(&ball.ty);
-        let label = ball_label(&ball.ty);
-        svg.push_str(&format!(
-            "<g class=\"ball ball-{}\" data-ball=\"{}\" transform=\"translate({:.3} {:.3})\">\n",
-            visual.class_name, visual.class_name, center.x, center.y
-        ));
-        svg.push_str(&format!(
-            "<circle r=\"{radius:.3}\" fill=\"{}\" stroke=\"#111\" stroke-width=\"1.5\"/>\n",
-            visual.fill
-        ));
-        svg.push_str(&format!(
-            "<circle r=\"{:.3}\" fill=\"none\" stroke=\"rgba(255,255,255,.45)\" stroke-width=\"2\"/>\n",
-            radius * 0.72
-        ));
-        if let Some(label) = label {
-            let label_radius = (radius * 0.42).max(7.0);
-            svg.push_str(&format!(
-                "<circle r=\"{label_radius:.3}\" fill=\"#f8f4e8\" stroke=\"#111\" stroke-width=\".75\"/>\n"
-            ));
-            svg.push_str(&format!(
-                "<text class=\"ball-label\" y=\".5\" fill=\"#111\" font-size=\"{:.3}\" transform=\"rotate(-90)\">{}</text>\n",
-                (radius * 0.58).max(10.0),
-                label
-            ));
+        if scene.table_spec.kind == TableKind::Pool {
+            push_svg_pool_ball(svg, &ball.ty, visual, center, radius);
+        } else {
+            push_svg_carom_ball(svg, &ball.ty, visual, center, radius);
         }
-        svg.push_str("</g>\n");
     }
     svg.push_str("</g>\n");
 }
 
+#[derive(Clone, Copy)]
 struct BallVisual {
     fill: &'static str,
+    gradient: &'static str,
+    paint: &'static str,
     class_name: &'static str,
+}
+
+fn push_svg_pool_ball(
+    svg: &mut String,
+    ball_type: &BallType,
+    visual: BallVisual,
+    center: ScenePoint,
+    radius: f32,
+) {
+    let label = ball_label(ball_type);
+    let style = match ball_type {
+        BallType::Nine => "stripe",
+        BallType::One
+        | BallType::Two
+        | BallType::Three
+        | BallType::Four
+        | BallType::Five
+        | BallType::Six
+        | BallType::Seven
+        | BallType::Eight => "solid",
+        BallType::Cue | BallType::YellowCue | BallType::Red => "plain",
+    };
+    let (body_gradient, body_paint) = if style == "stripe" {
+        ("pool-ball-ivory", "ivory")
+    } else {
+        (visual.gradient, visual.paint)
+    };
+
+    svg.push_str(&format!(
+        "<g class=\"ball ball-{}\" data-ball=\"{}\" data-ball-style=\"{}\" transform=\"translate({:.3} {:.3})\">\n",
+        visual.class_name, visual.class_name, style, center.x, center.y
+    ));
+    svg.push_str(&format!(
+        "<g class=\"pool-ball-artwork\">\n\
+         <circle class=\"ball-shell\" data-fill=\"{body_paint}\" cx=\"0\" cy=\"0\" r=\"{radius:.3}\" fill=\"url(#{body_gradient})\"/>\n"
+    ));
+
+    if style == "stripe" {
+        let stripe_half_width = radius * 0.43;
+        let stripe_half_length = (radius * radius - stripe_half_width * stripe_half_width).sqrt();
+        svg.push_str(&format!(
+            "<path class=\"ball-stripe-band\" data-fill=\"{}\" d=\"M {left:.3} {top:.3} A {radius:.3} {radius:.3} 0 0 1 {right:.3} {top:.3} L {right:.3} {bottom:.3} A {radius:.3} {radius:.3} 0 0 1 {left:.3} {bottom:.3} Z\" fill=\"url(#{})\"/>\n",
+            visual.paint,
+            visual.gradient,
+            left = -stripe_half_width,
+            right = stripe_half_width,
+            top = -stripe_half_length,
+            bottom = stripe_half_length,
+        ));
+    }
+
+    svg.push_str(&format!(
+        "<ellipse class=\"ball-gloss\" cx=\"{:.3}\" cy=\"{:.3}\" rx=\"{:.3}\" ry=\"{:.3}\"/>\n",
+        -radius * 0.32,
+        radius * 0.32,
+        radius * 0.11,
+        radius * 0.23,
+    ));
+
+    if let Some(label) = label {
+        let label_radius = radius * 0.47;
+        svg.push_str(&format!(
+            "<circle class=\"ball-number-medallion\" data-fill=\"ivory\" cx=\"0\" cy=\"0\" r=\"{label_radius:.3}\"/>\n"
+        ));
+        svg.push_str(&format!(
+            "<text class=\"ball-label ball-number-label\" x=\"0\" y=\"0\" font-size=\"{:.3}\" transform=\"rotate(-90)\">{}</text>\n",
+            radius * 0.76,
+            label
+        ));
+    }
+    svg.push_str(&format!(
+        "<circle class=\"ball-outline\" cx=\"0\" cy=\"0\" r=\"{radius:.3}\"/>\n"
+    ));
+    svg.push_str("</g>\n</g>\n");
+}
+
+fn push_svg_carom_ball(
+    svg: &mut String,
+    ball_type: &BallType,
+    visual: BallVisual,
+    center: ScenePoint,
+    radius: f32,
+) {
+    let label = ball_label(ball_type);
+    svg.push_str(&format!(
+        "<g class=\"ball ball-{}\" data-ball=\"{}\" transform=\"translate({:.3} {:.3})\">\n",
+        visual.class_name, visual.class_name, center.x, center.y
+    ));
+    svg.push_str(&format!(
+        "<circle r=\"{radius:.3}\" fill=\"{}\" stroke=\"#111\" stroke-width=\"1.5\"/>\n",
+        visual.fill
+    ));
+    svg.push_str(&format!(
+        "<circle r=\"{:.3}\" fill=\"none\" stroke=\"rgba(255,255,255,.45)\" stroke-width=\"2\"/>\n",
+        radius * 0.72
+    ));
+    if let Some(label) = label {
+        let label_radius = (radius * 0.42).max(7.0);
+        svg.push_str(&format!(
+            "<circle r=\"{label_radius:.3}\" fill=\"#f8f4e8\" stroke=\"#111\" stroke-width=\".75\"/>\n"
+        ));
+        svg.push_str(&format!(
+            "<text class=\"ball-label\" y=\".5\" fill=\"#111\" font-size=\"{:.3}\" transform=\"rotate(-90)\">{}</text>\n",
+            (radius * 0.58).max(10.0),
+            label
+        ));
+    }
+    svg.push_str("</g>\n");
 }
 
 fn ball_visual(ball_type: &BallType) -> BallVisual {
     match ball_type {
         BallType::Cue => BallVisual {
             fill: "#f8f4e8",
+            gradient: "pool-ball-ivory",
+            paint: "ivory",
             class_name: "cue",
         },
         BallType::One | BallType::Nine => BallVisual {
             fill: "#f1c232",
+            gradient: "pool-ball-yellow",
+            paint: "yellow",
             class_name: if matches!(ball_type, BallType::One) {
                 "one"
             } else {
@@ -2128,38 +2287,56 @@ fn ball_visual(ball_type: &BallType) -> BallVisual {
         },
         BallType::Two => BallVisual {
             fill: "#2458c8",
+            gradient: "pool-ball-blue",
+            paint: "blue",
             class_name: "two",
         },
         BallType::Three => BallVisual {
             fill: "#c82828",
+            gradient: "pool-ball-red",
+            paint: "red",
             class_name: "three",
         },
         BallType::Four => BallVisual {
             fill: "#6f3fa8",
+            gradient: "pool-ball-purple",
+            paint: "purple",
             class_name: "four",
         },
         BallType::Five => BallVisual {
             fill: "#e27a22",
+            gradient: "pool-ball-orange",
+            paint: "orange",
             class_name: "five",
         },
         BallType::Six => BallVisual {
             fill: "#25834b",
+            gradient: "pool-ball-green",
+            paint: "green",
             class_name: "six",
         },
         BallType::Seven => BallVisual {
             fill: "#8f2d20",
+            gradient: "pool-ball-maroon",
+            paint: "maroon",
             class_name: "seven",
         },
         BallType::Eight => BallVisual {
             fill: "#111111",
+            gradient: "pool-ball-black",
+            paint: "black",
             class_name: "eight",
         },
         BallType::YellowCue => BallVisual {
             fill: "#f1c232",
+            gradient: "pool-ball-yellow",
+            paint: "yellow",
             class_name: "yellow",
         },
         BallType::Red => BallVisual {
             fill: "#c82828",
+            gradient: "pool-ball-red",
+            paint: "red",
             class_name: "red",
         },
     }

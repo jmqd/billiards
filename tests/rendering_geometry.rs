@@ -91,6 +91,50 @@ fn svg_attr_u64(element: &str, attr: &str) -> u64 {
         .unwrap_or_else(|error| panic!("invalid SVG attribute {attr} in {element}: {error}"))
 }
 
+fn svg_attr_str<'a>(element: &'a str, attr: &str) -> &'a str {
+    let prefix = format!("{attr}=\"");
+    let start = element
+        .find(&prefix)
+        .unwrap_or_else(|| panic!("missing SVG attribute {attr} in {element}"))
+        + prefix.len();
+    let end = element[start..]
+        .find('"')
+        .unwrap_or_else(|| panic!("unterminated SVG attribute {attr} in {element}"))
+        + start;
+    &element[start..end]
+}
+
+fn svg_has_class(element: &str, class_name: &str) -> bool {
+    svg_attr_str(element, "class")
+        .split_ascii_whitespace()
+        .any(|candidate| candidate == class_name)
+}
+
+fn svg_element_with_class<'a>(svg: &'a str, class_name: &str, index: usize) -> &'a str {
+    svg.lines()
+        .filter(|line| line.contains("class=\"") && svg_has_class(line, class_name))
+        .nth(index)
+        .unwrap_or_else(|| panic!("missing SVG element {index} with class {class_name}"))
+}
+
+fn svg_has_element_with_class(svg: &str, class_name: &str) -> bool {
+    svg.lines()
+        .any(|line| line.contains("class=\"") && svg_has_class(line, class_name))
+}
+
+fn svg_css_rule<'a>(svg: &'a str, selector: &str) -> &'a str {
+    let prefix = format!("{selector}{{");
+    let start = svg
+        .find(&prefix)
+        .unwrap_or_else(|| panic!("missing SVG CSS rule for {selector}"))
+        + prefix.len();
+    let end = svg[start..]
+        .find('}')
+        .unwrap_or_else(|| panic!("unterminated SVG CSS rule for {selector}"))
+        + start;
+    &svg[start..end]
+}
+
 fn svg_rotation_degrees(element: &str) -> f32 {
     let transform_prefix = "transform=\"";
     let transform_start = element
@@ -503,10 +547,129 @@ fn svg_ball_number_is_counter_rotated_to_remain_upright_on_screen() {
         }],
     );
     let svg = render_svg_with_options(&state, &DiagramRenderOptions::default());
-    let label = svg_element(&svg, "class=\"ball-label\"", 0);
+    let label = svg_element_with_class(&svg, "ball-label", 0);
 
     let screen_rotation_degrees = 90.0 + svg_rotation_degrees(label);
     assert!(screen_rotation_degrees.abs() < 1e-6);
+}
+
+#[test]
+fn svg_pool_numbered_solid_has_centered_large_bold_number_portrait() {
+    let state = GameState::with_balls(
+        TableSpec::default(),
+        [Ball {
+            ty: BallType::Eight,
+            position: Position::new("2", "4"),
+            spec: BallSpec::default(),
+        }],
+    );
+    let svg = render_svg_with_options(&state, &DiagramRenderOptions::default());
+
+    let outer = svg_element_with_class(&svg, "ball-eight", 0);
+    assert!(svg_has_class(outer, "ball"));
+    assert_eq!(svg_attr_str(outer, "data-ball"), "eight");
+    assert_eq!(svg_attr_str(outer, "data-ball-style"), "solid");
+
+    let shell = svg_element_with_class(&svg, "ball-shell", 0);
+    let portrait = svg_element_with_class(&svg, "ball-number-medallion", 0);
+    let label = svg_element_with_class(&svg, "ball-number-label", 0);
+    let shell_radius = svg_attr_f32(shell, "r");
+    let portrait_radius = svg_attr_f32(portrait, "r");
+
+    assert_eq!(svg_attr_str(shell, "data-fill"), "black");
+    assert_eq!(svg_attr_str(portrait, "data-fill"), "ivory");
+    assert!((svg_attr_f32(portrait, "cx")).abs() < 1e-6);
+    assert!((svg_attr_f32(portrait, "cy")).abs() < 1e-6);
+    assert!(
+        ((portrait_radius / shell_radius) - 0.47).abs() < 0.02,
+        "number portrait radius {portrait_radius} was not about 47% of shell radius {shell_radius}"
+    );
+    assert!(!svg_has_element_with_class(&svg, "ball-stripe-band"));
+
+    assert!(svg_has_class(label, "ball-label"));
+    assert!((svg_attr_f32(label, "x")).abs() < 1e-6);
+    assert!((svg_attr_f32(label, "y")).abs() < 1e-6);
+    let label_size_ratio = svg_attr_f32(label, "font-size") / shell_radius;
+    assert!(
+        (0.72..=0.80).contains(&label_size_ratio),
+        "number label size was {label_size_ratio:.3} times the shell radius"
+    );
+    assert!(label.contains(">8</text>"));
+
+    let label_rule = svg_css_rule(&svg, ".ball-number-label");
+    assert!(label_rule.split(';').any(|item| item == "font-weight:800"));
+    let base_label_rule = svg_css_rule(&svg, ".ball-label");
+    assert!(base_label_rule
+        .split(';')
+        .any(|item| item == "text-anchor:middle"));
+    assert!(base_label_rule
+        .split(';')
+        .any(|item| item == "dominant-baseline:central"));
+}
+
+#[test]
+fn svg_pool_nine_ball_uses_ivory_shell_with_yellow_stripe_band() {
+    let state = GameState::with_balls(
+        TableSpec::default(),
+        [Ball {
+            ty: BallType::Nine,
+            position: Position::new("2", "4"),
+            spec: BallSpec::default(),
+        }],
+    );
+    let svg = render_svg_with_options(&state, &DiagramRenderOptions::default());
+
+    let outer = svg_element_with_class(&svg, "ball-nine", 0);
+    assert!(svg_has_class(outer, "ball"));
+    assert_eq!(svg_attr_str(outer, "data-ball"), "nine");
+    assert_eq!(svg_attr_str(outer, "data-ball-style"), "stripe");
+
+    let shell = svg_element_with_class(&svg, "ball-shell", 0);
+    let band = svg_element_with_class(&svg, "ball-stripe-band", 0);
+    let portrait = svg_element_with_class(&svg, "ball-number-medallion", 0);
+    let label = svg_element_with_class(&svg, "ball-number-label", 0);
+
+    assert_eq!(svg_attr_str(shell, "data-fill"), "ivory");
+    assert_eq!(svg_attr_str(band, "data-fill"), "yellow");
+    assert_eq!(svg_attr_str(portrait, "data-fill"), "ivory");
+    assert!((svg_attr_f32(portrait, "cx")).abs() < 1e-6);
+    assert!((svg_attr_f32(portrait, "cy")).abs() < 1e-6);
+    assert!(svg_has_class(label, "ball-label"));
+    assert!(label.contains(">9</text>"));
+}
+
+#[test]
+fn svg_three_cushion_balls_do_not_use_pool_number_or_stripe_artwork() {
+    let table = TableSpec::three_cushion_carom_10ft();
+    let ball_spec = table.default_ball_spec();
+    let state = GameState::with_balls(
+        table,
+        [
+            Ball {
+                ty: BallType::Cue,
+                position: Position::new("1", "1"),
+                spec: ball_spec.clone(),
+            },
+            Ball {
+                ty: BallType::YellowCue,
+                position: Position::new("2", "4"),
+                spec: ball_spec.clone(),
+            },
+            Ball {
+                ty: BallType::Red,
+                position: Position::new("3", "7"),
+                spec: ball_spec,
+            },
+        ],
+    );
+    let svg = render_svg_with_options(&state, &DiagramRenderOptions::default());
+
+    assert!(svg_has_element_with_class(&svg, "ball-cue"));
+    assert!(svg_has_element_with_class(&svg, "ball-yellow"));
+    assert!(svg_has_element_with_class(&svg, "ball-red"));
+    assert!(!svg_has_element_with_class(&svg, "ball-number-medallion"));
+    assert!(!svg_has_element_with_class(&svg, "ball-number-label"));
+    assert!(!svg_has_element_with_class(&svg, "ball-stripe-band"));
 }
 
 #[test]

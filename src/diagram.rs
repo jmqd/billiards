@@ -2078,10 +2078,9 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
         let center = scene.viewport.position_to_scene_point(&ball.position);
         let radius = scene.viewport.ball_radius_px(&scene.table_spec, &ball.spec);
         let visual = ball_visual(&ball.ty);
-        let label = ball_label(&ball.ty);
         svg.push_str(&format!(
             "<g class=\"ball ball-{}\" data-ball=\"{}\" transform=\"translate({:.3} {:.3})\">\n",
-            visual.class_name, visual.class_name, center.x, center.y
+            visual.id, visual.id, center.x, center.y
         ));
         svg.push_str(&format!(
             "<circle r=\"{radius:.3}\" fill=\"{}\" stroke=\"#111\" stroke-width=\"1.5\"/>\n",
@@ -2091,7 +2090,7 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
             "<circle r=\"{:.3}\" fill=\"none\" stroke=\"rgba(255,255,255,.45)\" stroke-width=\"2\"/>\n",
             radius * 0.72
         ));
-        if let Some(label) = label {
+        if let Some(label) = visual.label {
             let label_radius = (radius * 0.42).max(7.0);
             svg.push_str(&format!(
                 "<circle r=\"{label_radius:.3}\" fill=\"#f8f4e8\" stroke=\"#111\" stroke-width=\".75\"/>\n"
@@ -2107,76 +2106,75 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
     svg.push_str("</g>\n");
 }
 
-struct BallVisual {
-    fill: &'static str,
-    class_name: &'static str,
+#[derive(Clone, Copy)]
+pub(crate) struct BallVisual {
+    pub(crate) id: &'static str,
+    pub(crate) fill: &'static str,
+    pub(crate) label: Option<&'static str>,
 }
 
-fn ball_visual(ball_type: &BallType) -> BallVisual {
+pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
     match ball_type {
         BallType::Cue => BallVisual {
+            id: "cue",
             fill: "#f8f4e8",
-            class_name: "cue",
+            label: None,
         },
-        BallType::One | BallType::Nine => BallVisual {
+        BallType::One => BallVisual {
+            id: "one",
             fill: "#f1c232",
-            class_name: if matches!(ball_type, BallType::One) {
-                "one"
-            } else {
-                "nine"
-            },
+            label: Some("1"),
         },
         BallType::Two => BallVisual {
+            id: "two",
             fill: "#2458c8",
-            class_name: "two",
+            label: Some("2"),
         },
         BallType::Three => BallVisual {
+            id: "three",
             fill: "#c82828",
-            class_name: "three",
+            label: Some("3"),
         },
         BallType::Four => BallVisual {
+            id: "four",
             fill: "#6f3fa8",
-            class_name: "four",
+            label: Some("4"),
         },
         BallType::Five => BallVisual {
+            id: "five",
             fill: "#e27a22",
-            class_name: "five",
+            label: Some("5"),
         },
         BallType::Six => BallVisual {
+            id: "six",
             fill: "#25834b",
-            class_name: "six",
+            label: Some("6"),
         },
         BallType::Seven => BallVisual {
+            id: "seven",
             fill: "#8f2d20",
-            class_name: "seven",
+            label: Some("7"),
         },
         BallType::Eight => BallVisual {
+            id: "eight",
             fill: "#111111",
-            class_name: "eight",
+            label: Some("8"),
+        },
+        BallType::Nine => BallVisual {
+            id: "nine",
+            fill: "#f1c232",
+            label: Some("9"),
         },
         BallType::YellowCue => BallVisual {
+            id: "yellow",
             fill: "#f1c232",
-            class_name: "yellow",
+            label: None,
         },
         BallType::Red => BallVisual {
+            id: "red",
             fill: "#c82828",
-            class_name: "red",
+            label: None,
         },
-    }
-}
-
-fn ball_label(ball_type: &BallType) -> Option<&'static str> {
-    match ball_type {
-        BallType::Cue | BallType::YellowCue | BallType::Red => None,
-        BallType::One => Some("1"),
-        BallType::Two => Some("2"),
-        BallType::Three => Some("3"),
-        BallType::Four => Some("4"),
-        BallType::Five => Some("5"),
-        BallType::Six => Some("6"),
-        BallType::Seven => Some("7"),
-        BallType::Eight => Some("8"),
-        BallType::Nine => Some("9"),
     }
 }
 

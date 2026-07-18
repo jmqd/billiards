@@ -1,11 +1,11 @@
 use std::fmt::Write as _;
 
-use crate::diagram::DiagramViewport;
+use crate::diagram::{ball_visual, DiagramViewport};
 use crate::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
 use crate::visualization::{PathColorMode, DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS};
 use crate::{
-    human_tuned_preview_motion_config, BallType, CollisionModel, DiagramBackground,
-    DiagramRenderOptions, RailModel, Seconds, TableSpec,
+    human_tuned_preview_motion_config, CollisionModel, DiagramBackground, DiagramRenderOptions,
+    RailModel, Seconds, TableSpec,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -194,12 +194,13 @@ fn push_playback_json(
         if index > 0 {
             json.push(',');
         }
+        let visual = ball_visual(&ball_trace.ball);
         json.push('[');
-        push_json_string(json, playback_ball_id(&ball_trace.ball));
+        push_json_string(json, visual.id);
         json.push(',');
-        push_json_string(json, playback_ball_fill(&ball_trace.ball));
+        push_json_string(json, visual.fill);
         json.push(',');
-        if let Some(label) = playback_ball_label(&ball_trace.ball) {
+        if let Some(label) = visual.label {
             push_json_string(json, label);
         } else {
             json.push_str("null");
@@ -225,9 +226,10 @@ fn push_playback_json(
                 json.push(',');
             }
             let state = &ball.state;
+            let visual = ball_visual(&ball.ball);
             let center = viewport.position_to_scene_point(&state.projected_position(table_spec));
             json.push('[');
-            push_json_string(json, playback_ball_id(&ball.ball));
+            push_json_string(json, visual.id);
             write!(
                 json,
                 ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}]",
@@ -246,52 +248,6 @@ fn push_playback_json(
         json.push_str("]]");
     }
     json.push_str("]}");
-}
-
-fn playback_ball_id(ball_type: &BallType) -> &'static str {
-    match ball_type {
-        BallType::Cue => "cue",
-        BallType::One => "one",
-        BallType::Two => "two",
-        BallType::Three => "three",
-        BallType::Four => "four",
-        BallType::Five => "five",
-        BallType::Six => "six",
-        BallType::Seven => "seven",
-        BallType::Eight => "eight",
-        BallType::Nine => "nine",
-        BallType::YellowCue => "yellow",
-        BallType::Red => "red",
-    }
-}
-
-fn playback_ball_fill(ball_type: &BallType) -> &'static str {
-    match ball_type {
-        BallType::Cue => "#f8f4e8",
-        BallType::One | BallType::Nine | BallType::YellowCue => "#f1c232",
-        BallType::Two => "#2458c8",
-        BallType::Three | BallType::Red => "#c82828",
-        BallType::Four => "#6f3fa8",
-        BallType::Five => "#e27a22",
-        BallType::Six => "#25834b",
-        BallType::Seven => "#8f2d20",
-        BallType::Eight => "#111111",
-    }
-}
-
-fn playback_ball_label(ball_type: &BallType) -> Option<&'static str> {
-    match ball_type {
-        BallType::Cue | BallType::YellowCue | BallType::Red => None,
-        BallType::One => Some("1"),
-        BallType::Two => Some("2"),
-        BallType::Three => Some("3"),
-        BallType::Four => Some("4"),
-        BallType::Five => Some("5"),
-        BallType::Six => Some("6"),
-        BallType::Seven => Some("7"),
-        BallType::Eight => Some("8"),
-        BallType::Nine => Some("9"),
-    }
 }
 
 fn push_json_string(out: &mut String, value: &str) {

@@ -394,6 +394,8 @@ pub struct InchesPerSecond {
 }
 
 impl InchesPerSecond {
+    pub const KMH_PER_IPS: f64 = 0.09144;
+
     pub fn new<I: Into<Inches>>(inches: I) -> Self {
         Self {
             inches: inches.into(),
@@ -418,6 +420,10 @@ impl InchesPerSecond {
 
     pub fn as_mph(&self) -> f64 {
         self.as_f64() / 17.6
+    }
+
+    pub fn as_kmh(&self) -> f64 {
+        self.as_f64() * Self::KMH_PER_IPS
     }
 }
 

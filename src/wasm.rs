@@ -16,28 +16,34 @@ pub fn shot_controls_from_dsl(source: &str) -> Result<String, JsValue> {
     let controls = crate::dsl::shot_controls_from_dsl(source)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     Ok(match controls {
-        Some(controls) => format!(
-            concat!(
-                "{{\"headingDegrees\":{},",
-                "\"speedIps\":{},",
-                "\"tipSide\":{},",
-                "\"tipHeight\":{},",
-                "\"tipMaxRadius\":{},",
-                "\"cueElevationDegrees\":{},",
-                "\"cueElevationExplicit\":{},",
-                "\"speedMaxIps\":{},",
-                "\"cueElevationMaxDegrees\":{}}}"
-            ),
-            controls.heading_degrees,
-            controls.speed_ips,
-            controls.tip_side,
-            controls.tip_height,
-            controls.tip_max_radius,
-            controls.cue_elevation_degrees,
-            controls.cue_elevation_explicit,
-            controls.speed_max_ips,
-            controls.cue_elevation_max_degrees,
-        ),
+        Some(controls) => {
+            let speed = crate::InchesPerSecond::new(crate::Inches::from_f64(controls.speed_ips));
+            let speed_hint = crate::ShotSpeedPreset::nearest_to_speed(&speed).human_label();
+            format!(
+                concat!(
+                    "{{\"headingDegrees\":{},",
+                    "\"speedIps\":{},",
+                    "\"speedHint\":\"{}\",",
+                    "\"tipSide\":{},",
+                    "\"tipHeight\":{},",
+                    "\"tipMaxRadius\":{},",
+                    "\"cueElevationDegrees\":{},",
+                    "\"cueElevationExplicit\":{},",
+                    "\"speedMaxIps\":{},",
+                    "\"cueElevationMaxDegrees\":{}}}"
+                ),
+                controls.heading_degrees,
+                controls.speed_ips,
+                speed_hint,
+                controls.tip_side,
+                controls.tip_height,
+                controls.tip_max_radius,
+                controls.cue_elevation_degrees,
+                controls.cue_elevation_explicit,
+                controls.speed_max_ips,
+                controls.cue_elevation_max_degrees,
+            )
+        }
         None => "null".to_string(),
     })
 }

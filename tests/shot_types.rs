@@ -15,6 +15,29 @@ fn assert_close(actual: f64, expected: f64) {
 }
 
 #[test]
+fn metric_speed_converts_inches_per_second_to_kilometers_per_hour() {
+    assert_close(InchesPerSecond::new("352").as_kmh(), 32.18688);
+}
+
+#[test]
+fn metric_speed_presets_expose_friendly_human_labels() {
+    for (preset, expected) in [
+        (ShotSpeedPreset::Touch, "touch speed"),
+        (ShotSpeedPreset::Power, "power speed"),
+        (
+            ShotSpeedPreset::TypicalPowerBreak,
+            "typical power-break speed",
+        ),
+        (
+            ShotSpeedPreset::ExceptionalPowerBreak,
+            "exceptional power-break speed",
+        ),
+    ] {
+        assert_eq!(preset.human_label(), expected, "{preset:?}");
+    }
+}
+
+#[test]
 fn dr_dave_shot_speed_presets_round_trip_and_format_nearest_speed() {
     assert_eq!(ShotSpeedPreset::Medium.as_str(), "medium");
     assert_eq!(ShotSpeedPreset::Medium.to_string(), "medium");

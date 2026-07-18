@@ -132,8 +132,41 @@
         const dslInput = document.querySelector('#dsl-input');
         const increaseHeading = document.querySelector('[data-heading-delta="1"]');
         const preview = document.querySelector('#preview');
+        const speedInput = document.querySelector('#speed-input');
+        const speedRange = document.querySelector('#speed-range');
+        const speedHint = document.querySelector('#speed-hint');
+        const speedUnit = speedInput?.nextElementSibling;
         assert(Number.isFinite(headingInput.valueAsNumber), 'Wasm must expose the configured heading');
         assert(increaseHeading && !increaseHeading.disabled, 'heading control must be interactive');
+        assert(speedInput && !speedInput.matches(':disabled'), 'metric speed control must be interactive');
+
+        const metricSpeed = '32.18688';
+        speedInput.value = metricSpeed;
+        speedInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const metricSource = dslInput.value;
+        assert(
+          metricSource.includes('.speed(352ips)'),
+          '32.18688 km/h must round-trip through Rust as exactly .speed(352ips)',
+        );
+        assert(
+          !metricSource.includes('.speed(352.00000000000006ips)'),
+          'metric conversion must not leak a floating-point artifact into the DSL',
+        );
+        assert(speedInput.value === metricSpeed, 'precise speed must remain 32.18688 km/h after Rust sync');
+        assert(speedRange.value === metricSpeed, 'speed range must remain at 32.18688 km/h after Rust sync');
+        assert(
+          speedHint?.value === 'power speed' && speedHint.textContent.trim() === 'power speed',
+          '352 ips must expose the friendly power speed hint',
+        );
+        assert(
+          speedRange.getAttribute('aria-valuetext') === '32.18688 kilometers per hour, power speed',
+          'speed range ARIA text must expose the converted metric speed and friendly hint',
+        );
+        assert(
+          speedUnit?.textContent.trim() === 'km/h' && speedUnit.getAttribute('aria-hidden') === 'true',
+          'precise speed must retain its visible km/h unit',
+        );
 
         const startingHeading = headingInput.valueAsNumber;
         increaseHeading.click();
@@ -167,6 +200,10 @@
         assert(
           newestRequest.source === newestSource,
           'the queued render must use the latest source after rapid heading changes',
+        );
+        assert(
+          newestRequest.source.includes('.speed(352ips)'),
+          'the queued Rust-updated render must retain the exact 352 ips DSL speed',
         );
 
         worker.respond({ id: newestRequest.id, report: report('newest'), elapsedMs: 1 });

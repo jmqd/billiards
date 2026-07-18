@@ -635,8 +635,8 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     ));
     let follow = on_table(BallState::on_table(
         inches2(30.0, 42.0),
-        Velocity2::new("0", "24"),
-        AngularVelocity3::new(-48.0 / radius, 0.0, 0.0),
+        Velocity2::new("0", "352"),
+        AngularVelocity3::new(-704.0 / radius, 0.0, 0.0),
     ));
     let english = on_table(BallState::on_table(
         inches2(36.0, 48.0),
@@ -707,6 +707,25 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     assert!(svg.contains("role=\"img\" aria-label=\"spin:"));
     assert!(svg.contains("#7f858c"));
     assert!(svg.contains("omega="));
+    let follow_glyph = svg_element(&svg, "data-spin-kind=\"follow\"", 0);
+    assert!(follow_glyph.contains("data-spin-slip-ips=\"352.000\""));
+    let follow_aria = follow_glyph
+        .split_once("aria-label=\"")
+        .expect("follow spin glyph should have an accessible label")
+        .1
+        .split_once('"')
+        .expect("follow spin glyph accessible label should be terminated")
+        .0;
+    let follow_title = follow_glyph
+        .split_once("<title>")
+        .expect("follow spin glyph should have a title")
+        .1
+        .split_once("</title>")
+        .expect("follow spin glyph title should be terminated")
+        .0;
+    assert_eq!(follow_title, follow_aria);
+    assert!(follow_title.contains("v=(0.0, 32.2) km/h"));
+    assert!(follow_title.contains("roll slip=32.2 km/h"));
     let trajectory = svg_element(&svg, "class=\"overlay dashed-line\"", 0);
     let trajectory_dx = svg_attr_f32(trajectory, "x2") - svg_attr_f32(trajectory, "x1");
     let trajectory_dy = svg_attr_f32(trajectory, "y2") - svg_attr_f32(trajectory, "y1");

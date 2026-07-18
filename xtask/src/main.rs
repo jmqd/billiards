@@ -1068,9 +1068,9 @@ fn render_scenario(
         .lines()
         .find(|line| line.trim_start().starts_with("shot("))
         .map(|line| line.trim().to_string());
-    let cue_ball_launch_speed_mph = speed_validation
+    let cue_ball_launch_speed_kmh = speed_validation
         .as_ref()
-        .map(|validation| validation.estimated_cue_ball_speed_after_impact.as_mph());
+        .map(|validation| validation.estimated_cue_ball_speed_after_impact.as_kmh());
 
     let mut info_rows = Vec::new();
     info_rows.push(ReportInfoRow::new(
@@ -1088,8 +1088,8 @@ fn render_scenario(
         info_rows.push(ReportInfoRow::new(
             "Cue-ball launch",
             format!(
-                "{:.2} mph · {} · {} band",
-                validation.estimated_cue_ball_speed_after_impact.as_mph(),
+                "{:.2} km/h · {} · {} band",
+                validation.estimated_cue_ball_speed_after_impact.as_kmh(),
                 nearest.human_label(),
                 speed_band_label(validation.cue_ball_speed_band)
             ),
@@ -1097,8 +1097,8 @@ fn render_scenario(
         info_rows.push(ReportInfoRow::new(
             "Cue-stick impact",
             format!(
-                "{:.2} mph · {} band",
-                validation.cue_speed_at_impact.as_mph(),
+                "{:.2} km/h · {} band",
+                validation.cue_speed_at_impact.as_kmh(),
                 speed_band_label(validation.cue_speed_band)
             ),
         ));
@@ -1136,12 +1136,12 @@ fn render_scenario(
             shot.shot.tip_contact().side_offset().as_f64(),
             shot.shot.tip_contact().height_offset().as_f64(),
             shot.cue_strike.miscue_offset_limit().as_f64(),
-            cue_ball_launch_speed_mph.unwrap_or_else(|| shot.shot.cue_speed().as_mph()),
+            cue_ball_launch_speed_kmh.unwrap_or_else(|| shot.shot.cue_speed().as_kmh()),
         )
     });
     let power_meter_svg = speed_validation.as_ref().map(|validation| {
         render_power_meter_svg(
-            validation.estimated_cue_ball_speed_after_impact.as_mph(),
+            validation.estimated_cue_ball_speed_after_impact.as_kmh(),
             validation.cue_ball_speed_band,
         )
     });
@@ -1423,7 +1423,7 @@ fn render_cue_tip_diagram_svg(
     side_offset: f64,
     height_offset: f64,
     miscue_offset_limit: f64,
-    cue_ball_launch_speed_mph: f64,
+    cue_ball_launch_speed_kmh: f64,
 ) -> String {
     let ball_radius = 64.0;
     let ball_center = 90.0;
@@ -1431,7 +1431,7 @@ fn render_cue_tip_diagram_svg(
     let tip_y = ball_center - height_offset * ball_radius;
     let limit_radius = miscue_offset_limit.clamp(0.0, 1.0) * ball_radius;
     let offset_radius = side_offset.hypot(height_offset);
-    let marker_radius = cue_tip_marker_radius(cue_ball_launch_speed_mph, ball_radius);
+    let marker_radius = cue_tip_marker_radius(cue_ball_launch_speed_kmh, ball_radius);
     let marker_outline_radius = marker_radius + 2.5;
     let limit_status = if offset_radius <= miscue_offset_limit + 1e-12 {
         "inside"
@@ -1440,7 +1440,7 @@ fn render_cue_tip_diagram_svg(
     };
 
     format!(
-        r##"<svg class="cue-tip-diagram" data-tip-side="{side_offset:.3}" data-tip-height="{height_offset:.3}" data-miscue-limit="{miscue_offset_limit:.3}" data-cue-ball-speed-mph="{cue_ball_launch_speed_mph:.3}" data-tip-marker-r="{marker_radius:.3}" data-tip-x="{tip_x:.3}" data-tip-y="{tip_y:.3}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 184" role="img" aria-label="Cue ball tip contact: side {side_offset:+.2} ball radii, height {height_offset:+.2} ball radii, {limit_status} the {miscue_offset_limit:.2} ball-radius miscue limit; red marker radius scales with {cue_ball_launch_speed_mph:.2} mph cue-ball launch speed">
+        r##"<svg class="cue-tip-diagram" data-tip-side="{side_offset:.3}" data-tip-height="{height_offset:.3}" data-miscue-limit="{miscue_offset_limit:.3}" data-cue-ball-speed-kmh="{cue_ball_launch_speed_kmh:.3}" data-tip-marker-r="{marker_radius:.3}" data-tip-x="{tip_x:.3}" data-tip-y="{tip_y:.3}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 184" role="img" aria-label="Cue ball tip contact: side {side_offset:+.2} ball radii, height {height_offset:+.2} ball radii, {limit_status} the {miscue_offset_limit:.2} ball-radius miscue limit; red marker radius scales with {cue_ball_launch_speed_kmh:.2} km/h cue-ball launch speed">
 <ellipse class="cue-ball-shadow" cx="94" cy="157" rx="54" ry="14" fill="#000000" opacity=".28"/>
 <circle class="cue-ball-body" cx="{ball_center:.0}" cy="{ball_center:.0}" r="{ball_radius:.0}" fill="#e9e0c9" stroke="#fff9e9" stroke-width="1.5"/>
 <circle class="cue-ball-highlight" cx="67" cy="55" r="32" fill="#ffffff" opacity=".24"/>
@@ -1454,58 +1454,60 @@ fn render_cue_tip_diagram_svg(
     )
 }
 
-fn cue_tip_marker_radius(cue_ball_launch_speed_mph: f64, ball_radius: f64) -> f64 {
+fn cue_tip_marker_radius(cue_ball_launch_speed_kmh: f64, ball_radius: f64) -> f64 {
+    const MAX_MARKER_SPEED_KMH: f64 = 48.280_32;
+
     let equator_width = ball_radius * 2.0;
     let min_radius = equator_width / 15.0;
     let max_radius = equator_width / 8.0;
-    let speed_ratio = (cue_ball_launch_speed_mph / 30.0).clamp(0.0, 1.0);
+    let speed_ratio = (cue_ball_launch_speed_kmh / MAX_MARKER_SPEED_KMH).clamp(0.0, 1.0);
 
     min_radius + (max_radius - min_radius) * speed_ratio
 }
 
 fn render_power_meter_svg(
-    cue_ball_launch_speed_mph: f64,
+    cue_ball_launch_speed_kmh: f64,
     speed_band: HumanShotSpeedBand,
 ) -> String {
-    const MIN_MPH: f64 = 0.0;
-    const GREEN_END_MPH: f64 = 20.0;
-    const YELLOW_END_MPH: f64 = 30.0;
-    const MAX_MPH: f64 = 35.0;
+    const MIN_KMH: f64 = 0.0;
+    const GREEN_END_KMH: f64 = 32.186_88;
+    const YELLOW_END_KMH: f64 = 48.280_32;
+    const MAX_KMH: f64 = 56.327_04;
 
     let cx = 110.0;
     let cy = 106.0;
     let radius = 80.0;
-    let needle_angle = power_meter_angle_for_mph(cue_ball_launch_speed_mph);
+    let needle_angle = power_meter_angle_for_kmh(cue_ball_launch_speed_kmh);
     let track_arc = svg_arc_path(
         cx,
         cy,
         radius,
-        power_meter_angle_for_mph(MIN_MPH),
-        power_meter_angle_for_mph(MAX_MPH),
+        power_meter_angle_for_kmh(MIN_KMH),
+        power_meter_angle_for_kmh(MAX_KMH),
     );
     let (needle_x, needle_y) = polar_point(cx, cy, radius - 6.0, needle_angle);
 
     let mut zone_arcs = String::new();
-    for (class, zone, start_mph, end_mph, stroke) in [
+    for (class, zone, start_kmh, end_kmh, stroke) in [
         (
             "power-meter-zone power-meter-zone-green",
             "green",
-            MIN_MPH,
-            GREEN_END_MPH,
+            MIN_KMH,
+            GREEN_END_KMH,
             "#5fd35f",
         ),
         (
             "power-meter-zone power-meter-zone-yellow",
             "yellow",
-            GREEN_END_MPH,
-            YELLOW_END_MPH,
+            GREEN_END_KMH,
+            YELLOW_END_KMH,
             "#f3c742",
         ),
         (
             "power-meter-zone power-meter-zone-red power-meter-redline",
             "red",
-            YELLOW_END_MPH,
-            MAX_MPH,
+            YELLOW_END_KMH,
+            MAX_KMH,
             "#e04747",
         ),
     ] {
@@ -1513,19 +1515,31 @@ fn render_power_meter_svg(
             cx,
             cy,
             radius,
-            power_meter_angle_for_mph(start_mph),
-            power_meter_angle_for_mph(end_mph),
+            power_meter_angle_for_kmh(start_kmh),
+            power_meter_angle_for_kmh(end_kmh),
         );
         zone_arcs.push_str(&format!(
-            r##"<path class="{class}" data-zone="{zone}" data-zone-start-mph="{start_mph:.3}" data-zone-end-mph="{end_mph:.3}" d="{arc}" fill="none" stroke="{stroke}" stroke-width="14" stroke-linecap="butt"/>
+            r##"<path class="{class}" data-zone="{zone}" data-zone-start-kmh="{start_kmh:.5}" data-zone-end-kmh="{end_kmh:.5}" d="{arc}" fill="none" stroke="{stroke}" stroke-width="14" stroke-linecap="butt"/>
 "##
         ));
     }
 
     let mut ticks = String::new();
-    for tick_mph in [0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0] {
-        let angle = power_meter_angle_for_mph(tick_mph);
-        let major_tick = matches!(tick_mph as i32, 0 | 10 | 20 | 30 | 35);
+    for (tick_kmh, major_tick) in [
+        (0.0, true),
+        (5.0, false),
+        (10.0, true),
+        (15.0, false),
+        (20.0, true),
+        (25.0, false),
+        (30.0, true),
+        (35.0, false),
+        (40.0, true),
+        (45.0, false),
+        (50.0, true),
+        (MAX_KMH, true),
+    ] {
+        let angle = power_meter_angle_for_kmh(tick_kmh);
         let (outer_x, outer_y) = polar_point(cx, cy, radius + 5.0, angle);
         let (inner_x, inner_y) =
             polar_point(cx, cy, radius - if major_tick { 14.0 } else { 8.0 }, angle);
@@ -1536,41 +1550,44 @@ fn render_power_meter_svg(
         };
         let tick_width = if major_tick { 2.75 } else { 1.75 };
         ticks.push_str(&format!(
-            r##"<line class="{tick_class}" data-tick-mph="{tick_mph:.3}" x1="{outer_x:.3}" y1="{outer_y:.3}" x2="{inner_x:.3}" y2="{inner_y:.3}" stroke="#101410" stroke-opacity=".68" stroke-width="{tick_width:.2}" stroke-linecap="round"/>
+            r##"<line class="{tick_class}" data-tick-kmh="{tick_kmh:.5}" x1="{outer_x:.3}" y1="{outer_y:.3}" x2="{inner_x:.3}" y2="{inner_y:.3}" stroke="#101410" stroke-opacity=".68" stroke-width="{tick_width:.2}" stroke-linecap="round"/>
 "##
         ));
 
         if major_tick {
             let (label_x, label_y) = polar_point(cx, cy, radius - 31.0, angle);
-            let label_zone = if tick_mph >= YELLOW_END_MPH {
+            let label_zone = if tick_kmh >= YELLOW_END_KMH {
                 "red"
-            } else if tick_mph >= GREEN_END_MPH {
+            } else if tick_kmh >= GREEN_END_KMH {
                 "yellow"
             } else {
                 "green"
             };
             ticks.push_str(&format!(
                 r##"<circle class="power-meter-label-backplate power-meter-label-backplate-{label_zone}" cx="{label_x:.3}" cy="{label_y:.3}" r="10.5" fill="#fffaf1" fill-opacity=".96" stroke="#101410" stroke-opacity=".35" stroke-width=".8"/>
-<text class="power-meter-label power-meter-label-{label_zone}" x="{label_x:.3}" y="{label_y:.3}" fill="#111111" stroke="#fffaf1" stroke-width="2.25" paint-order="stroke fill" font-size="12" font-weight="800" font-family="Inter,system-ui,sans-serif" text-anchor="middle" dominant-baseline="middle">{tick_mph:.0}</text>
+<text class="power-meter-label power-meter-label-{label_zone}" x="{label_x:.3}" y="{label_y:.3}" fill="#111111" stroke="#fffaf1" stroke-width="2.25" paint-order="stroke fill" font-size="12" font-weight="800" font-family="Inter,system-ui,sans-serif" text-anchor="middle" dominant-baseline="middle">{tick_kmh:.0}</text>
 "##
             ));
         }
     }
 
     format!(
-        r##"<svg class="power-meter" data-cue-ball-speed-mph="{cue_ball_launch_speed_mph:.3}" data-speed-band="{speed_band:?}" data-speedometer-scale="green-yellow-red" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 160" role="img" aria-label="Power level: cue-ball launch speed {cue_ball_launch_speed_mph:.2} miles per hour, {speed_band_label} band. Gauge increases monotonically from green 0 to 20 miles per hour, yellow 20 to 30 miles per hour, and red 30 to 35 miles per hour.">
+        r##"<svg class="power-meter" data-cue-ball-speed-kmh="{cue_ball_launch_speed_kmh:.3}" data-speed-band="{speed_band:?}" data-speedometer-scale="green-yellow-red" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 160" role="img" aria-label="Power level: cue-ball launch speed {cue_ball_launch_speed_kmh:.2} km/h, {speed_band_label} band. Gauge increases monotonically from green 0 to 32.19 km/h, yellow 32.19 to 48.28 km/h, and red 48.28 to 56.33 km/h.">
 <path class="power-meter-track" d="{track_arc}" fill="none" stroke="#304030" stroke-width="18" stroke-linecap="round"/>
 {zone_arcs}{ticks}<line class="power-meter-needle-halo" x1="{cx:.0}" y1="{cy:.0}" x2="{needle_x:.3}" y2="{needle_y:.3}" stroke="#fffaf1" stroke-width="10" stroke-linecap="round"/>
 <line class="power-meter-needle" x1="{cx:.0}" y1="{cy:.0}" x2="{needle_x:.3}" y2="{needle_y:.3}" stroke="#050505" stroke-width="7" stroke-linecap="round"/>
 <circle class="power-meter-hub" cx="{cx:.0}" cy="{cy:.0}" r="10" fill="#050505" stroke="#fffaf1" stroke-width="3.5"/>
+<text class="power-meter-unit" x="{cx:.0}" y="139" fill="#111111" font-size="11" font-weight="700" font-family="Inter,system-ui,sans-serif" text-anchor="middle">km/h</text>
 </svg>
 "##,
         speed_band_label = speed_band_label(speed_band)
     )
 }
 
-fn power_meter_angle_for_mph(mph: f64) -> f64 {
-    150.0 + (mph / 35.0).clamp(0.0, 1.0) * 240.0
+fn power_meter_angle_for_kmh(kmh: f64) -> f64 {
+    const MAX_KMH: f64 = 56.327_04;
+
+    150.0 + (kmh / MAX_KMH).clamp(0.0, 1.0) * 240.0
 }
 
 fn svg_arc_path(
@@ -1859,7 +1876,7 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
                 push_tooltip(
                     &mut html,
                     "?",
-                    "Needle: estimated cue-ball launch speed. Green arc: 0-20 mph ordinary range. Yellow arc: 20-30 mph power-break approach. Red arc: 30-35 mph exceptional break-speed band.",
+                    "Needle: estimated cue-ball launch speed. Green arc: 0-32.19 km/h ordinary range. Yellow arc: 32.19-48.28 km/h power-break approach. Red arc: 48.28-56.33 km/h exceptional break-speed band.",
                 );
                 html.push_str("</div>\n</div>\n");
             }
@@ -2245,16 +2262,19 @@ mod tests {
     }
 
     #[test]
-    fn cue_tip_diagram_places_marker_from_shot_offsets_and_speed() {
-        let svg = render_cue_tip_diagram_svg(0.25, -0.5, 0.5, 15.0);
+    fn cue_tip_diagram_uses_converted_kmh_for_marker_size_and_accessible_text() {
+        let svg = render_cue_tip_diagram_svg(0.25, -0.5, 0.5, 24.140_16);
 
         assert!(svg.contains("class=\"cue-tip-diagram\""));
         assert!(!svg.contains("class=\"cue-ball-shade\""));
         assert!(svg.contains("data-tip-side=\"0.250\""));
         assert!(svg.contains("data-tip-height=\"-0.500\""));
         assert!(svg.contains("data-miscue-limit=\"0.500\""));
-        assert!(svg.contains("data-cue-ball-speed-mph=\"15.000\""));
+        assert!(svg.contains("data-cue-ball-speed-kmh=\"24.140\""));
         assert!(svg.contains("data-tip-marker-r=\"12.267\""));
+        assert!(svg.contains("red marker radius scales with 24.14 km/h cue-ball launch speed"));
+        assert!(!svg.contains("mph"));
+        assert!(!svg.contains("miles per hour"));
         assert!(svg.contains("data-tip-x=\"106.000\""));
         assert!(svg.contains("data-tip-y=\"122.000\""));
         assert!(svg.contains("class=\"miscue-limit\" cx=\"90\" cy=\"90\" r=\"32.000\""));
@@ -2263,28 +2283,29 @@ mod tests {
     }
 
     #[test]
-    fn cue_tip_marker_radius_scales_across_requested_speed_range() {
+    fn cue_tip_marker_radius_scales_at_kmh_physical_thresholds() {
         assert_close(cue_tip_marker_radius(0.0, 64.0), 8.533333333333333);
-        assert_eq!(cue_tip_marker_radius(30.0, 64.0), 16.0);
-        assert_eq!(cue_tip_marker_radius(35.0, 64.0), 16.0);
+        assert_close(cue_tip_marker_radius(32.186_88, 64.0), 13.511111111111111);
+        assert_close(cue_tip_marker_radius(48.280_32, 64.0), 16.0);
+        assert_close(cue_tip_marker_radius(56.327_04, 64.0), 16.0);
     }
 
     #[test]
-    fn power_meter_renders_monotonic_green_yellow_red_scale_and_black_needle_data() {
-        let svg = render_power_meter_svg(30.0, HumanShotSpeedBand::TypicalPowerBreak);
+    fn power_meter_renders_calibrated_kmh_scale_labels_and_aria() {
+        let svg = render_power_meter_svg(48.280_32, HumanShotSpeedBand::TypicalPowerBreak);
 
         assert!(svg.contains("class=\"power-meter\""));
-        assert!(svg.contains("data-cue-ball-speed-mph=\"30.000\""));
+        assert!(svg.contains("data-cue-ball-speed-kmh=\"48.280\""));
         assert!(svg.contains("data-speed-band=\"TypicalPowerBreak\""));
         assert!(svg.contains("data-speedometer-scale=\"green-yellow-red\""));
         assert!(svg.contains(
-            "data-zone=\"green\" data-zone-start-mph=\"0.000\" data-zone-end-mph=\"20.000\""
+            "data-zone=\"green\" data-zone-start-kmh=\"0.00000\" data-zone-end-kmh=\"32.18688\""
         ));
         assert!(svg.contains(
-            "data-zone=\"yellow\" data-zone-start-mph=\"20.000\" data-zone-end-mph=\"30.000\""
+            "data-zone=\"yellow\" data-zone-start-kmh=\"32.18688\" data-zone-end-kmh=\"48.28032\""
         ));
         assert!(svg.contains(
-            "data-zone=\"red\" data-zone-start-mph=\"30.000\" data-zone-end-mph=\"35.000\""
+            "data-zone=\"red\" data-zone-start-kmh=\"48.28032\" data-zone-end-kmh=\"56.32704\""
         ));
         assert!(svg.contains("class=\"power-meter-zone power-meter-zone-yellow\""));
         assert!(svg.contains("stroke=\"#f3c742\""));
@@ -2293,15 +2314,31 @@ mod tests {
             svg.contains("class=\"power-meter-label-backplate power-meter-label-backplate-red\"")
         );
         assert!(svg.contains("font-size=\"12\""));
+        for tick_label in ["0", "10", "20", "30", "40", "50", "56"] {
+            assert!(
+                svg.contains(&format!("dominant-baseline=\"middle\">{tick_label}</text>")),
+                "missing visible {tick_label} km/h tick label"
+            );
+        }
+        assert!(svg.contains("class=\"power-meter-unit\" x=\"110\" y=\"139\" fill=\"#111111\" font-size=\"11\" font-weight=\"700\" font-family=\"Inter,system-ui,sans-serif\" text-anchor=\"middle\">km/h</text>"));
         assert!(svg.contains("class=\"power-meter-needle-halo\""));
         assert!(svg.contains("class=\"power-meter-needle\""));
         assert!(svg.contains("stroke=\"#050505\" stroke-width=\"7\""));
         assert!(svg.contains("r=\"10\" fill=\"#050505\""));
-        assert!(svg.contains("Gauge increases monotonically from green 0 to 20 miles per hour, yellow 20 to 30 miles per hour, and red 30 to 35 miles per hour."));
+        assert!(svg
+            .contains("Power level: cue-ball launch speed 48.28 km/h, typical power break band."));
+        assert!(svg.contains("Gauge increases monotonically from green 0 to 32.19 km/h, yellow 32.19 to 48.28 km/h, and red 48.28 to 56.33 km/h."));
+        assert!(!svg.contains("mph"));
+        assert!(!svg.contains("miles per hour"));
+
+        assert_close(power_meter_angle_for_kmh(0.0), 150.0);
+        assert_close(power_meter_angle_for_kmh(32.186_88), 287.14285714285717);
+        assert_close(power_meter_angle_for_kmh(48.280_32), 355.7142857142857);
+        assert_close(power_meter_angle_for_kmh(56.327_04), 390.0);
     }
 
     #[test]
-    fn validation_report_embeds_tabular_info_and_visual_stack() {
+    fn validation_report_card_renders_representative_kmh_content() {
         let report = ScenarioReport {
             name: "cue tip test".to_string(),
             image_file_name: "cue_tip_test.svg".to_string(),
@@ -2310,12 +2347,15 @@ mod tests {
             info_rows: vec![
                 ReportInfoRow::new("Source", "examples/scenarios/cue_tip_test.billiards"),
                 ReportInfoRow::new("Heading", "90.00°"),
-                ReportInfoRow::new("Cue-ball launch", "7.27 mph · medium speed · medium band"),
+                ReportInfoRow::new("Cue-ball launch", "32.19 km/h · medium speed · medium band"),
                 ReportInfoRow::new("Tip side", "+0.25 R"),
                 ReportInfoRow::new("Tip height", "-0.50 R"),
             ],
-            cue_tip_diagram_svg: Some(render_cue_tip_diagram_svg(0.25, -0.5, 0.5, 7.27)),
-            power_meter_svg: Some(render_power_meter_svg(7.27, HumanShotSpeedBand::Medium)),
+            cue_tip_diagram_svg: Some(render_cue_tip_diagram_svg(0.25, -0.5, 0.5, 32.186_88)),
+            power_meter_svg: Some(render_power_meter_svg(
+                32.186_88,
+                HumanShotSpeedBand::Medium,
+            )),
             playback: None,
             events: Vec::new(),
         };
@@ -2338,6 +2378,12 @@ mod tests {
         assert!(html.contains("<dl class=\"info-table\""));
         assert!(html.contains("<dt>Tip side</dt><dd>+0.25 R</dd>"));
         assert!(html.contains("<dt>Tip height</dt><dd>-0.50 R</dd>"));
+        assert!(html
+            .contains("<dt>Cue-ball launch</dt><dd>32.19 km/h · medium speed · medium band</dd>"));
+        assert!(html.contains("data-cue-ball-speed-kmh=\"32.187\""));
+        assert!(html.contains("Needle: estimated cue-ball launch speed. Green arc: 0-32.19 km/h ordinary range. Yellow arc: 32.19-48.28 km/h power-break approach. Red arc: 48.28-56.33 km/h exceptional break-speed band."));
+        assert!(!html.contains("mph"));
+        assert!(!html.contains("miles per hour"));
         assert!(html.contains("class=\"info-panel shot-data-panel\""));
         assert!(html.contains("class=\"scenario-context scenario-details\""));
         assert!(html.contains("<summary>Scenario details</summary>"));

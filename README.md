@@ -84,10 +84,12 @@ nix develop -c cargo xtask wasm-preview
 ```
 
 The generated page keeps `.billiards` DSL text authoritative while exposing synchronized
-heading, cue-tip, shot-speed, and cue-elevation instruments. Edits in either representation
-re-render through the Wasm `render_svg_report_from_dsl` binding; the report includes the same
-table-detail and playback controls used by the validation gallery. Generated preview output lives
-in `target/wasm-preview/`.
+heading, cue-tip, shot-speed, and cue-elevation instruments. User-facing shot speeds are shown in
+km/h with the nearest named-speed hint; DSL and simulation values retain their explicit source
+units. Edits in either representation re-render through the Wasm
+`render_svg_report_from_dsl` binding; the report includes the same table-detail and playback
+controls used by the validation gallery. Generated preview output lives in
+`target/wasm-preview/`.
 
 ## Thanks
 

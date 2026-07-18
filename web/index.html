@@ -109,13 +109,16 @@
 
             <fieldset class="shot-instrument shot-instrument-linear" disabled>
               <legend>Shot speed</legend>
-              <label for="speed-range">Speed</label>
-              <input id="speed-range" type="range" min="0" max="120" step="any" value="0">
+              <div class="instrument-label-row">
+                <label for="speed-range">Speed</label>
+                <output id="speed-hint" for="speed-range speed-input">—</output>
+              </div>
+              <input id="speed-range" type="range" min="0" max="56.32704" step="any" value="0">
               <label class="numeric-field" for="speed-input">
-                <span>Precise speed (inches per second)</span>
+                <span>Precise speed (km/h)</span>
                 <span class="unit-input">
-                  <input id="speed-input" type="number" min="0" max="120" step="any" inputmode="decimal">
-                  <span aria-hidden="true">IPS</span>
+                  <input id="speed-input" type="number" min="0" max="56.32704" step="any" inputmode="decimal">
+                  <span aria-hidden="true">km/h</span>
                 </span>
               </label>
             </fieldset>

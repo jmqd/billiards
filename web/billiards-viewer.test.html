@@ -35,7 +35,7 @@
         </g>
       </svg>
       <div data-playback>
-        <script type="application/json" data-playback-data>{"duration":1,"events":[],"balls":[["eight","#111111","8",12,1]],"frames":[[0,[["eight",50,50,0,0,10,0,-10,0,0]]],[1,[["eight",50,40,2,0,10,0,-10,0,0]]]]}</script>
+        <script type="application/json" data-playback-data>{"duration":1,"events":[],"balls":[["eight","#111111","8",12,1]],"frames":[[0,[["eight",50,50,0,0,352,0,-340,0,0]]],[1,[["eight",50,40,2,0,352,0,-340,0,0]]]]}</script>
       </div>
     </figure>
   </div>
@@ -71,6 +71,13 @@
         const arrowAngle = numberAttribute(glyph, 'data-spin-angle-deg') * Math.PI / 180;
         const spinTrajectoryAlignment = (headingDx * Math.cos(arrowAngle) + headingDy * Math.sin(arrowAngle)) / headingLength;
         assert(spinTrajectoryAlignment > 0.999, `spin arrow must follow rendered trajectory, got dot ${spinTrajectoryAlignment}`);
+        assert(glyph.getAttribute('data-spin-kind') === 'rolling', 'nonzero roll slip within tolerance must preserve rolling classification');
+        assert(glyph.getAttribute('data-spin-slip-ips') === '12.000', 'playback spin metadata must retain the 12 ips roll slip');
+        const spinTitle = glyph.querySelector('title')?.textContent;
+        const spinAria = glyph.getAttribute('aria-label');
+        assert(spinTitle === spinAria, 'playback spin tooltip and accessible label must describe the same metrics');
+        assert(spinTitle?.includes('v=(0.0, 32.2) km/h'), `playback spin tooltip must convert 352 ips linear velocity to km/h, got ${spinTitle}`);
+        assert(spinTitle?.includes('roll slip=1.1 km/h'), `playback spin tooltip must convert 12 ips roll slip to km/h, got ${spinTitle}`);
 
         const ball = playbackLayer.querySelector('.playback-ball');
         const projectedCenter = new DOMPoint(50, 40).matrixTransform(orientation.getCTM());

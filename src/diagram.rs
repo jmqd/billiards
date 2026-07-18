@@ -5,7 +5,7 @@ use crate::visualization::{
 use crate::{assets, drawing};
 use crate::{
     Angle, AngularVelocity3, BallSpec, BallType, DiagramBackground, DiagramRenderOptions, Inches,
-    OverlayLayer, Position, TableKind, TableSpec, Velocity2,
+    InchesPerSecond, OverlayLayer, Position, TableKind, TableSpec, Velocity2,
 };
 use bigdecimal::ToPrimitive;
 use image::codecs::png::PngEncoder;
@@ -1824,14 +1824,14 @@ fn push_svg_spin_glyph(
     let metrics = spin_glyph_metrics(angular_velocity, linear_velocity, ball_radius);
     let planar_color = svg_rgb(metrics.planar_color);
     let z_color = svg_rgb(metrics.z_color);
+    let vx_kmh = metrics.vx * InchesPerSecond::KMH_PER_IPS;
+    let vy_kmh = metrics.vy * InchesPerSecond::KMH_PER_IPS;
+    let roll_slip_kmh = metrics.roll_slip_ips * InchesPerSecond::KMH_PER_IPS;
     let title = escape_xml(&format!(
-        "spin: v=({:.1}, {:.1}) ips; omega=({:.1}, {:.1}, {:.1}) rad/s; roll slip={:.1} ips; roll ratio={:.2}; side={:.1} rad/s",
-        metrics.vx,
-        metrics.vy,
+        "spin: v=({vx_kmh:.1}, {vy_kmh:.1}) km/h; omega=({:.1}, {:.1}, {:.1}) rad/s; roll slip={roll_slip_kmh:.1} km/h; roll ratio={:.2}; side={:.1} rad/s",
         metrics.wx,
         metrics.wy,
         metrics.wz,
-        metrics.roll_slip_ips,
         metrics.roll_ratio,
         metrics.wz
     ));

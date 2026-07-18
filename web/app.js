@@ -28,6 +28,7 @@ shot(cue).heading(341.141deg).speed(108ips).tip(side: 0.39R, height: 0.11R).usin
 const TEXTAREA_RENDER_DELAY_MS = 250;
 const CONTROL_RENDER_DELAY_MS = 75;
 const TIP_PAD_VIEW_RADIUS = 1.12;
+const IPS_TO_KMH = 0.09144;
 
 const input = document.querySelector("#dsl-input");
 const status = document.querySelector("#status");
@@ -56,6 +57,7 @@ const tipHeightInput = document.querySelector("#tip-height-input");
 
 const speedRange = document.querySelector("#speed-range");
 const speedInput = document.querySelector("#speed-input");
+const speedHint = document.querySelector("#speed-hint");
 const elevationRange = document.querySelector("#elevation-range");
 const elevationInput = document.querySelector("#elevation-input");
 const elevationMode = document.querySelector("#elevation-mode");
@@ -199,6 +201,14 @@ function formatControlNumber(value) {
   return String(Number(Number(value).toFixed(6)));
 }
 
+function ipsToKmh(value) {
+  return Number(value) * IPS_TO_KMH;
+}
+
+function kmhToIps(value) {
+  return Number(formatControlNumber(Number(value) / IPS_TO_KMH));
+}
+
 function setShotControlsAvailable(available) {
   shotControlsPanel.hidden = !available;
   shotFieldsets.forEach((fieldset) => {
@@ -214,12 +224,12 @@ function syncShotControls(controls) {
     setShotControlsAvailable(true);
 
     const heading = normalizeHeading(Number(controls.headingDegrees));
-    const speed = Number(controls.speedIps);
+    const speedKmh = ipsToKmh(controls.speedIps);
     const tipSide = Number(controls.tipSide);
     const tipHeight = Number(controls.tipHeight);
     const tipMaxRadius = Number(controls.tipMaxRadius);
     const elevation = Number(controls.cueElevationDegrees);
-    const speedMax = Number(controls.speedMaxIps);
+    const speedMaxKmh = ipsToKmh(controls.speedMaxIps);
     const elevationMax = Number(controls.cueElevationMaxDegrees);
 
     const headingText = formatControlNumber(heading);
@@ -248,12 +258,16 @@ function syncShotControls(controls) {
     tipPointer.setAttribute("cy", formatControlNumber(-tipHeight));
     tipPadDescription.textContent = `Current contact is ${tipSideText} R side and ${tipHeightText} R height. Drag within the ${tipMaxRadiusText} R clean-contact limit; side and height controls provide keyboard access.`;
 
-    const speedText = formatControlNumber(speed);
-    speedRange.max = formatControlNumber(speedMax);
-    speedInput.max = formatControlNumber(speedMax);
+    const speedText = formatControlNumber(speedKmh);
+    const speedMaxText = formatControlNumber(speedMaxKmh);
+    const speedHintText = String(controls.speedHint);
+    speedRange.max = speedMaxText;
+    speedInput.max = speedMaxText;
     speedRange.value = speedText;
     speedInput.value = speedText;
-    speedRange.setAttribute("aria-valuetext", `${speedText} inches per second`);
+    speedHint.value = speedHintText;
+    speedHint.textContent = speedHintText;
+    speedRange.setAttribute("aria-valuetext", `${speedText} kilometers per hour, ${speedHintText}`);
 
     const elevationText = formatControlNumber(elevation);
     elevationRange.max = formatControlNumber(elevationMax);
@@ -558,16 +572,17 @@ function bindShotControls() {
     else if (shotState) syncShotControls(shotState);
   });
 
-  speedRange.addEventListener("input", () => applyControlUpdate("speed", Number(speedRange.value)));
+  speedRange.addEventListener("input", () => applyControlUpdate("speed", kmhToIps(Number(speedRange.value))));
   speedRange.addEventListener("keydown", (event) => {
     if (!shotState) return;
-    const next = rangeKeyValue(event, Number(shotState.speedIps), 0.1, 0, Number(shotState.speedMaxIps));
-    if (next !== null) applyControlUpdate("speed", next);
+    const next = rangeKeyValue(event, ipsToKmh(shotState.speedIps), 0.1, 0, ipsToKmh(shotState.speedMaxIps));
+    if (next !== null) applyControlUpdate("speed", kmhToIps(next));
   });
   speedInput.addEventListener("change", () => {
     const value = speedInput.valueAsNumber;
     if (Number.isFinite(value) && shotState) {
-      applyControlUpdate("speed", clamp(value, 0, Number(shotState.speedMaxIps)));
+      const clampedKmh = clamp(value, 0, ipsToKmh(shotState.speedMaxIps));
+      applyControlUpdate("speed", kmhToIps(clampedKmh));
     } else if (shotState) {
       syncShotControls(shotState);
     }

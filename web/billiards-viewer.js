@@ -17,6 +17,7 @@
     ['rail', 'Rails and pockets only'],
   ];
   const playbackHelpText = 'Scrub the physics frames in either direction, set playback speed from 1x down to 1/16x for slow motion, toggle Trace paths to hide static trajectory lines, or use the icon buttons: rewind to the first frame, step one frame back or forward, play/pause, or play to the next logged event. The default 2.5 ms physics frames update at about 25 frame changes per second at 1/16x. Balls are sampled by the Rust physics solver; black ticks show instantaneous travel direction. Spin badges use green arrows for natural roll, blue for follow, orange for draw, amber for skid, purple arcs for side spin, and a gray X for no spin.';
+  const inchesPerSecondToKmh = (value) => value * 0.09144;
 
   const escapeHtml = (value) => String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -461,7 +462,7 @@
           const glyphRadius = Math.max(8.5, Math.min(13.0, radius * 0.58));
           const badgeOffset = radius * 0.72;
           const strokeWidth = Math.max(2.4, Math.min(4.0, radius * 0.135));
-          const titleText = `spin: v=(${metrics.vx.toFixed(1)}, ${metrics.vy.toFixed(1)}) ips; omega=(${metrics.wx.toFixed(1)}, ${metrics.wy.toFixed(1)}, ${metrics.wz.toFixed(1)}) rad/s; roll slip=${metrics.rollSlip.toFixed(1)} ips; roll ratio=${metrics.rollRatio.toFixed(2)}; side=${metrics.wz.toFixed(1)} rad/s`;
+          const titleText = `spin: v=(${inchesPerSecondToKmh(metrics.vx).toFixed(1)}, ${inchesPerSecondToKmh(metrics.vy).toFixed(1)}) km/h; omega=(${metrics.wx.toFixed(1)}, ${metrics.wy.toFixed(1)}, ${metrics.wz.toFixed(1)}) rad/s; roll slip=${inchesPerSecondToKmh(metrics.rollSlip).toFixed(1)} km/h; roll ratio=${metrics.rollRatio.toFixed(2)}; side=${metrics.wz.toFixed(1)} rad/s`;
           const group = svgNode(playbackLayer, 'g', {
             class: 'playback-spin-glyph ball-spin-glyph',
             role: 'img',

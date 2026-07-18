@@ -172,6 +172,7 @@ body.wasm-app main{width:min(100%,1600px);padding:1rem}
 .numeric-field,.axis-control{display:grid;gap:var(--space-1);min-width:0;color:var(--muted);font-weight:600}
 .unit-input{display:flex;align-items:center;gap:var(--space-1);width:max-content;max-width:100%;color:var(--muted);font-weight:700;white-space:nowrap}
 .unit-input input[type="number"]{width:var(--numeric-width)}
+#speed-input{width:6.25rem}
 .shot-controls input[type="number"]{min-height:var(--control-height);max-width:100%;border:1px solid var(--rule-strong);border-radius:var(--radius-small);padding:var(--space-1) var(--space-2);background:var(--paper-warm);color:var(--ink);font:400 .88rem/1.2 var(--type-ui);font-variant-numeric:tabular-nums}
 .shot-controls input[type="range"]{width:100%;min-height:var(--control-height);margin:0;accent-color:var(--accent)}
 .shot-controls input:focus-visible,.shot-controls button:focus-visible{outline:var(--focus-width) solid var(--accent);outline-offset:var(--space-1);border-color:var(--accent)}

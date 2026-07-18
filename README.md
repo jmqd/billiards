@@ -69,18 +69,18 @@ For more:
 
 ## Browser SVG generator
 
-The Rust renderer can be compiled to Wasm and served from a generated static
-preview page:
+The Rust renderer can be compiled to Wasm and hosted by the built-in preview server:
+
+```bash
+nix develop -c cargo xtask wasm-preview --serve
+```
+
+Then open the `Serving Wasm preview at ...` URL printed by the command. The xtask
+server has no Python dependency. To build the static preview without starting the
+server:
 
 ```bash
 nix develop -c cargo xtask wasm-preview
-```
-
-Then open the `Serving Wasm preview at ...` URL printed by the command. For a
-build-only artifact that you can serve yourself:
-
-```bash
-nix develop -c cargo xtask wasm-preview --no-serve
 ```
 
 The generated page keeps `.billiards` DSL text authoritative while exposing synchronized

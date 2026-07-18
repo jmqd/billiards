@@ -2,6 +2,8 @@ use std::env;
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
+use std::io::{self, BufRead, BufReader, Read as _, Write as IoWrite};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{
@@ -9,6 +11,7 @@ use std::sync::{
     Mutex,
 };
 use std::thread;
+use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -101,7 +104,7 @@ impl Default for WasmPreviewOptions {
             output_dir: workspace_root().join("target/wasm-preview"),
             host: "127.0.0.1".to_string(),
             port: 8000,
-            serve: true,
+            serve: false,
         }
     }
 }
@@ -256,8 +259,8 @@ impl WasmPreviewOptions {
                         .parse::<u16>()
                         .map_err(|error| format!("invalid --port: {error}"))?;
                 }
-                "--no-serve" => {
-                    options.serve = false;
+                "--serve" => {
+                    options.serve = true;
                 }
                 "--help" | "-h" => {
                     print_usage();
@@ -346,6 +349,7 @@ fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
         "app.js",
         "billiards-ui.css",
         "billiards-viewer.js",
+        "render-worker.js",
     ] {
         copy_preview_asset(
             workspace_root().join("web").join(asset),
@@ -358,32 +362,15 @@ fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
     println!("Built Wasm preview: {}", index_path.display());
     if !options.serve {
         println!(
-            "Serve it with: python -m http.server {} --bind {} --directory {}",
-            options.port,
+            "Serve it with: cargo xtask wasm-preview --serve --host {} --port {} --output-dir {}",
             options.host,
+            options.port,
             options.output_dir.display()
         );
         return Ok(());
     }
 
-    let url = format!(
-        "http://{}:{}/index.html",
-        host_for_url(&options.host),
-        options.port
-    );
-    println!("Serving Wasm preview at {url}");
-    println!("Press Ctrl-C to stop the server.");
-    run_checked(
-        Command::new("python")
-            .arg("-m")
-            .arg("http.server")
-            .arg(options.port.to_string())
-            .arg("--bind")
-            .arg(&options.host)
-            .arg("--directory")
-            .arg(&options.output_dir),
-        "failed to serve Wasm preview",
-    )
+    serve_wasm_preview(&options.output_dir, &options.host, options.port)
 }
 
 #[derive(Deserialize)]
@@ -476,6 +463,245 @@ fn host_for_url(host: &str) -> String {
     } else {
         host.to_string()
     }
+}
+
+const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
+const HTTP_IO_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Copy)]
+enum PreviewHttpMethod {
+    Get,
+    Head,
+    Unsupported,
+}
+
+struct PreviewHttpRequest {
+    method: PreviewHttpMethod,
+    target: String,
+}
+
+fn serve_wasm_preview(output_dir: &Path, host: &str, port: u16) -> Result<(), String> {
+    let root = output_dir.canonicalize().map_err(|error| {
+        format!(
+            "failed to resolve Wasm preview dir {}: {error}",
+            output_dir.display()
+        )
+    })?;
+    let bind_host = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    let listener = TcpListener::bind((bind_host, port))
+        .map_err(|error| format!("failed to bind Wasm preview server to {host}:{port}: {error}"))?;
+    let bound_port = listener
+        .local_addr()
+        .map(|address| address.port())
+        .unwrap_or(port);
+    let url = format!("http://{}:{bound_port}/", host_for_url(host));
+    println!("Serving Wasm preview at {url}");
+    println!("Press Ctrl-C to stop the server.");
+
+    for connection in listener.incoming() {
+        let stream = connection
+            .map_err(|error| format!("failed to accept Wasm preview connection: {error}"))?;
+        if let Err(error) = handle_preview_connection(stream, &root) {
+            eprintln!("Wasm preview request failed: {error}");
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_preview_connection(mut stream: TcpStream, root: &Path) -> io::Result<()> {
+    stream.set_read_timeout(Some(HTTP_IO_TIMEOUT))?;
+    stream.set_write_timeout(Some(HTTP_IO_TIMEOUT))?;
+
+    let request = match read_preview_request(&stream) {
+        Ok(request) => request,
+        Err(message) => {
+            return write_preview_error(&mut stream, "400 Bad Request", message, false, false);
+        }
+    };
+    let head_only = matches!(request.method, PreviewHttpMethod::Head);
+    if matches!(request.method, PreviewHttpMethod::Unsupported) {
+        return write_preview_error(
+            &mut stream,
+            "405 Method Not Allowed",
+            "Only GET and HEAD are supported.",
+            false,
+            true,
+        );
+    }
+
+    let Some(path) = resolve_preview_file(root, &request.target) else {
+        return write_preview_error(
+            &mut stream,
+            "404 Not Found",
+            "The requested preview asset was not found.",
+            head_only,
+            false,
+        );
+    };
+    let Ok(mut file) = fs::File::open(&path) else {
+        return write_preview_error(
+            &mut stream,
+            "404 Not Found",
+            "The requested preview asset was not found.",
+            head_only,
+            false,
+        );
+    };
+    let content_length = file.metadata()?.len();
+    write_preview_headers(
+        &mut stream,
+        "200 OK",
+        preview_content_type(&path),
+        content_length,
+        false,
+    )?;
+    if !head_only {
+        io::copy(&mut file, &mut stream)?;
+    }
+    stream.flush()
+}
+
+fn read_preview_request(stream: &TcpStream) -> Result<PreviewHttpRequest, &'static str> {
+    let reader = BufReader::new(stream);
+    let mut reader = reader.take((MAX_HTTP_HEADER_BYTES + 1) as u64);
+    let mut request_line = String::new();
+    let mut bytes_read = reader
+        .read_line(&mut request_line)
+        .map_err(|_| "Failed to read the HTTP request.")?;
+    if bytes_read == 0 {
+        return Err("The HTTP request was empty.");
+    }
+
+    loop {
+        let mut header = String::new();
+        let count = reader
+            .read_line(&mut header)
+            .map_err(|_| "Failed to read the HTTP headers.")?;
+        bytes_read += count;
+        if bytes_read > MAX_HTTP_HEADER_BYTES {
+            return Err("The HTTP request headers were too large.");
+        }
+        if count == 0 {
+            return Err("The HTTP request headers were incomplete.");
+        }
+        if header == "\r\n" || header == "\n" {
+            break;
+        }
+    }
+
+    let mut parts = request_line.split_whitespace();
+    let method = match parts.next() {
+        Some("GET") => PreviewHttpMethod::Get,
+        Some("HEAD") => PreviewHttpMethod::Head,
+        Some(_) => PreviewHttpMethod::Unsupported,
+        None => return Err("The HTTP request line was invalid."),
+    };
+    let target = parts.next().ok_or("The HTTP request target was missing.")?;
+    let version = parts.next().ok_or("The HTTP version was missing.")?;
+    if parts.next().is_some() || !matches!(version, "HTTP/1.0" | "HTTP/1.1") {
+        return Err("The HTTP request line was invalid.");
+    }
+
+    Ok(PreviewHttpRequest {
+        method,
+        target: target.to_string(),
+    })
+}
+
+fn resolve_preview_file(root: &Path, target: &str) -> Option<PathBuf> {
+    let request_path = target.split_once('?').map_or(target, |(path, _)| path);
+    let relative = if request_path == "/" {
+        "index.html"
+    } else {
+        request_path.strip_prefix('/')?
+    };
+    if relative.is_empty()
+        || relative
+            .chars()
+            .any(|character| matches!(character, '%' | '\\' | '\0' | '#'))
+        || relative
+            .split('/')
+            .any(|component| component.is_empty() || matches!(component, "." | ".."))
+    {
+        return None;
+    }
+
+    let path = root.join(relative).canonicalize().ok()?;
+    if !path.starts_with(root) || !path.metadata().ok()?.is_file() {
+        return None;
+    }
+    Some(path)
+}
+
+fn preview_content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(OsStr::to_str).unwrap_or_default() {
+        extension if extension.eq_ignore_ascii_case("html") => "text/html; charset=utf-8",
+        extension if extension.eq_ignore_ascii_case("css") => "text/css; charset=utf-8",
+        extension
+            if extension.eq_ignore_ascii_case("js") || extension.eq_ignore_ascii_case("mjs") =>
+        {
+            "text/javascript; charset=utf-8"
+        }
+        extension if extension.eq_ignore_ascii_case("wasm") => "application/wasm",
+        extension
+            if extension.eq_ignore_ascii_case("json") || extension.eq_ignore_ascii_case("map") =>
+        {
+            "application/json"
+        }
+        extension if extension.eq_ignore_ascii_case("svg") => "image/svg+xml",
+        extension if extension.eq_ignore_ascii_case("png") => "image/png",
+        extension
+            if extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("jpeg") =>
+        {
+            "image/jpeg"
+        }
+        extension if extension.eq_ignore_ascii_case("gif") => "image/gif",
+        extension if extension.eq_ignore_ascii_case("webp") => "image/webp",
+        extension if extension.eq_ignore_ascii_case("ico") => "image/x-icon",
+        _ => "application/octet-stream",
+    }
+}
+
+fn write_preview_headers(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    content_length: u64,
+    allow_methods: bool,
+) -> io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {content_length}\r\nCache-Control: no-store\r\nConnection: close\r\n"
+    )?;
+    if allow_methods {
+        stream.write_all(b"Allow: GET, HEAD\r\n")?;
+    }
+    stream.write_all(b"\r\n")
+}
+
+fn write_preview_error(
+    stream: &mut TcpStream,
+    status: &str,
+    detail: &str,
+    head_only: bool,
+    allow_methods: bool,
+) -> io::Result<()> {
+    let body = format!("{status}\n{detail}\n");
+    write_preview_headers(
+        stream,
+        status,
+        "text/plain; charset=utf-8",
+        body.len() as u64,
+        allow_methods,
+    )?;
+    if !head_only {
+        stream.write_all(body.as_bytes())?;
+    }
+    stream.flush()
 }
 
 fn run_checked(command: &mut Command, failure_message: &str) -> Result<(), String> {
@@ -1810,12 +2036,14 @@ fn print_usage() {
 }
 
 fn usage_text() -> &'static str {
-    "Usage:\n  cargo xtask validation-suite [options]\n  cargo xtask base-svg [options]\n  cargo xtask wasm-preview [options]\n\nValidation suite options:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for SVG diagrams and index.html [default: target/validation-suite]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.0025]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n\nBase SVG options:\n  --output <path>                    Output SVG path [default: target/base-pocket-table.svg]\n  --transparent                      Render the base table with transparent background metadata\n\nWasm preview options:\n  --output-dir <dir>                 Output directory for index.html, assets, and pkg/ [default: target/wasm-preview]\n  --host <host>                      Static server bind host [default: 127.0.0.1]\n  --port <port>                      Static server port [default: 8000]\n  --no-serve                         Build the preview without starting the HTTP server\n"
+    "Usage:\n  cargo xtask validation-suite [options]\n  cargo xtask base-svg [options]\n  cargo xtask wasm-preview [options]\n\nValidation suite options:\n  --scenario-dir <dir>               Directory containing .billiards files [default: examples/scenarios]\n  --output-dir <dir>                 Output directory for SVG diagrams and index.html [default: target/validation-suite]\n  --trace-sample-step-seconds <sec>  Path sampling step for rendered traces [default: 0.0025]\n  --max-events <n>                   Override scenario trace/simulation event limits\n  --transparent                      Render diagrams on a transparent background\n  --open                             Open the generated index.html with the platform opener\n\nBase SVG options:\n  --output <path>                    Output SVG path [default: target/base-pocket-table.svg]\n  --transparent                      Render the base table with transparent background metadata\n\nWasm preview options:\n  --output-dir <dir>                 Output directory for index.html, assets, and pkg/ [default: target/wasm-preview]\n  --serve                            Start the built-in static HTTP server after building\n  --host <host>                      Static server bind host [default: 127.0.0.1]\n  --port <port>                      Static server port [default: 8000]\n"
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+    use std::net::Shutdown;
 
     fn assert_close(actual: f64, expected: f64) {
         let delta = (actual - expected).abs();
@@ -2296,7 +2524,8 @@ mod tests {
     }
 
     #[test]
-    fn wasm_preview_options_parse_output_host_port_and_no_serve() {
+    fn wasm_preview_options_parse_output_host_port_and_serve() {
+        assert!(!WasmPreviewOptions::default().serve);
         let args = [
             "--output-dir".to_string(),
             "target/custom-wasm".to_string(),
@@ -2304,7 +2533,7 @@ mod tests {
             "0.0.0.0".to_string(),
             "--port".to_string(),
             "9090".to_string(),
-            "--no-serve".to_string(),
+            "--serve".to_string(),
         ];
 
         let options = WasmPreviewOptions::parse(&args).expect("wasm-preview options should parse");
@@ -2312,16 +2541,16 @@ mod tests {
         assert_eq!(options.output_dir, PathBuf::from("target/custom-wasm"));
         assert_eq!(options.host, "0.0.0.0");
         assert_eq!(options.port, 9090);
-        assert!(!options.serve);
+        assert!(options.serve);
     }
 
     #[test]
-    fn wasm_preview_options_reject_unknown_option() {
-        let args = ["--format".to_string(), "svg".to_string()];
+    fn wasm_preview_options_reject_no_serve() {
+        let args = ["--no-serve".to_string()];
 
-        let error = WasmPreviewOptions::parse(&args).expect_err("format option is not supported");
+        let error = WasmPreviewOptions::parse(&args).expect_err("--no-serve is not supported");
 
-        assert!(error.contains("unknown wasm-preview option `--format`"));
+        assert!(error.contains("unknown wasm-preview option `--no-serve`"));
     }
 
     #[test]
@@ -2332,5 +2561,240 @@ mod tests {
         assert!(usage.contains("cargo xtask wasm-preview [options]"));
         assert!(usage.contains("target/base-pocket-table.svg"));
         assert!(usage.contains("target/wasm-preview"));
+        assert!(usage.contains("--serve"));
+    }
+    const PREVIEW_INDEX_BODY: &[u8] = b"<!doctype html><title>Preview</title>\n";
+    const PREVIEW_JS_BODY: &[u8] = b"export const ready = true;\n";
+    const PREVIEW_WASM_BODY: &[u8] = b"\0asm\x01\0\0\0";
+
+    struct PreviewFixture {
+        directory: PathBuf,
+        root: PathBuf,
+    }
+
+    impl PreviewFixture {
+        fn new() -> Self {
+            let base = env::temp_dir();
+            let directory = (0..100)
+                .map(|attempt| {
+                    base.join(format!(
+                        "billiards-xtask-preview-server-{}-{attempt}",
+                        std::process::id()
+                    ))
+                })
+                .find(|candidate| fs::create_dir(candidate).is_ok())
+                .expect("create isolated preview-server directory");
+            let root = directory.join("public");
+            fs::create_dir(&root).expect("create preview document root");
+            fs::write(root.join("index.html"), PREVIEW_INDEX_BODY)
+                .expect("write preview HTML fixture");
+            fs::write(root.join("app.js"), PREVIEW_JS_BODY)
+                .expect("write preview JavaScript fixture");
+            fs::write(root.join("package.wasm"), PREVIEW_WASM_BODY)
+                .expect("write preview Wasm fixture");
+            fs::write(directory.join("secret.txt"), b"not public")
+                .expect("write file outside preview root");
+
+            Self {
+                directory,
+                root: root.canonicalize().expect("canonicalize preview root"),
+            }
+        }
+    }
+
+    impl Drop for PreviewFixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.directory).expect("remove preview-server fixture");
+        }
+    }
+
+    struct PreviewResponse {
+        status: String,
+        headers: BTreeMap<String, String>,
+        body: Vec<u8>,
+    }
+
+    impl PreviewResponse {
+        fn parse(bytes: Vec<u8>) -> Self {
+            let header_end = bytes
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .expect("response should terminate its headers");
+            let header_text = std::str::from_utf8(&bytes[..header_end])
+                .expect("response headers should be UTF-8");
+            let mut lines = header_text.split("\r\n");
+            let status = lines
+                .next()
+                .expect("response should have a status line")
+                .to_string();
+            let mut headers = BTreeMap::new();
+            for line in lines {
+                let (name, value) = line
+                    .split_once(':')
+                    .expect("response header should contain a colon");
+                let previous = headers.insert(name.to_ascii_lowercase(), value.trim().to_string());
+                assert!(previous.is_none(), "duplicate response header: {name}");
+            }
+
+            Self {
+                status,
+                headers,
+                body: bytes[(header_end + 4)..].to_vec(),
+            }
+        }
+
+        fn header(&self, name: &str) -> &str {
+            self.headers
+                .get(&name.to_ascii_lowercase())
+                .unwrap_or_else(|| panic!("missing response header: {name}"))
+        }
+
+        fn content_length(&self) -> usize {
+            self.header("content-length")
+                .parse()
+                .expect("Content-Length should be an integer")
+        }
+    }
+
+    fn send_preview_request(root: &Path, request: &str) -> PreviewResponse {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind preview test listener");
+        let address = listener.local_addr().expect("read preview test address");
+        let root = root.to_path_buf();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept()?;
+            handle_preview_connection(stream, &root)
+        });
+
+        let mut client = TcpStream::connect(address).expect("connect to preview test listener");
+        client
+            .write_all(request.as_bytes())
+            .expect("write preview request");
+        client
+            .shutdown(Shutdown::Write)
+            .expect("finish preview request");
+        let mut response = Vec::new();
+        client
+            .read_to_end(&mut response)
+            .expect("read preview response");
+        server
+            .join()
+            .expect("preview handler should not panic")
+            .expect("preview handler should serve the request");
+
+        PreviewResponse::parse(response)
+    }
+
+    #[test]
+    fn preview_paths_resolve_queries_but_reject_paths_outside_the_document_root() {
+        let fixture = PreviewFixture::new();
+        let cases = [
+            ("root index", "/", Some("index.html")),
+            ("root index with query", "/?version=1", Some("index.html")),
+            (
+                "asset with traversal text confined to query",
+                "/app.js?next=../secret.txt&cache=1",
+                Some("app.js"),
+            ),
+            ("parent traversal", "/../secret.txt", None),
+            ("encoded parent traversal", "/%2e%2e/secret.txt", None),
+            ("backslash traversal", "/..\\secret.txt", None),
+            ("empty path component", "//secret.txt", None),
+        ];
+
+        for (name, target, expected_relative) in cases {
+            let actual = resolve_preview_file(&fixture.root, target);
+            let expected = expected_relative.map(|relative| fixture.root.join(relative));
+            assert_eq!(actual, expected, "case: {name}");
+        }
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                fixture.directory.join("secret.txt"),
+                fixture.root.join("escape.txt"),
+            )
+            .expect("create symlink escaping preview root");
+            assert_eq!(
+                resolve_preview_file(&fixture.root, "/escape.txt"),
+                None,
+                "canonical path containment should reject symlink escapes"
+            );
+        }
+    }
+
+    #[test]
+    fn preview_get_serves_browser_assets_with_exact_bodies_and_required_headers() {
+        let fixture = PreviewFixture::new();
+        let cases = [
+            (
+                "HTML index",
+                "/",
+                "text/html; charset=utf-8",
+                PREVIEW_INDEX_BODY,
+            ),
+            (
+                "JavaScript with cache-busting query",
+                "/app.js?revision=7",
+                "text/javascript; charset=utf-8",
+                PREVIEW_JS_BODY,
+            ),
+            (
+                "Wasm module",
+                "/package.wasm",
+                "application/wasm",
+                PREVIEW_WASM_BODY,
+            ),
+        ];
+
+        for (name, target, content_type, expected_body) in cases {
+            let request = format!("GET {target} HTTP/1.1\r\nHost: localhost\r\n\r\n");
+            let response = send_preview_request(&fixture.root, &request);
+
+            assert_eq!(response.status, "HTTP/1.1 200 OK", "case: {name}");
+            assert_eq!(
+                response.header("content-type"),
+                content_type,
+                "case: {name}"
+            );
+            assert_eq!(
+                response.content_length(),
+                expected_body.len(),
+                "case: {name}"
+            );
+            assert_eq!(response.header("cache-control"), "no-store", "case: {name}");
+            assert_eq!(response.body, expected_body, "case: {name}");
+        }
+    }
+
+    #[test]
+    fn preview_head_reports_get_metadata_without_sending_the_asset_body() {
+        let fixture = PreviewFixture::new();
+        let response = send_preview_request(
+            &fixture.root,
+            "HEAD /app.js?revision=7 HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        );
+
+        assert_eq!(response.status, "HTTP/1.1 200 OK");
+        assert_eq!(
+            response.header("content-type"),
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(response.content_length(), PREVIEW_JS_BODY.len());
+        assert_eq!(response.header("cache-control"), "no-store");
+        assert_eq!(response.body, b"");
+    }
+
+    #[test]
+    fn preview_rejects_unsupported_methods_and_advertises_allowed_methods() {
+        let fixture = PreviewFixture::new();
+        let response = send_preview_request(
+            &fixture.root,
+            "POST /app.js HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n",
+        );
+
+        assert_eq!(response.status, "HTTP/1.1 405 Method Not Allowed");
+        assert_eq!(response.header("allow"), "GET, HEAD");
+        assert_eq!(response.header("cache-control"), "no-store");
+        assert_eq!(response.content_length(), response.body.len());
     }
 }

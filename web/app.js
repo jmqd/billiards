@@ -1,5 +1,4 @@
 import init, {
-  render_svg_report_from_dsl,
   shot_controls_from_dsl,
   update_shot_control_in_dsl,
   update_shot_tip_in_dsl,
@@ -62,7 +61,14 @@ const elevationInput = document.querySelector("#elevation-input");
 const elevationMode = document.querySelector("#elevation-mode");
 
 let lastSvg = "";
+let renderWorker = null;
 let renderTimer = null;
+let renderSequence = 0;
+let inFlightRender = null;
+let configuredSource = null;
+let configuredSourceValid = false;
+let renderedSource = null;
+let renderedStatus = "";
 let shotState = null;
 let syncingControls = false;
 let wasmReady = false;
@@ -139,7 +145,7 @@ function eventBucket(events) {
   return "multi";
 }
 
-function reportHtml(report, elapsedMs) {
+function reportHtml(report, elapsedMs, source) {
   const events = Array.isArray(report.events)
     ? report.events.map((event) => Array.isArray(event)
       ? { label: String(event[0] ?? ""), time: Number(event[1]), summary: String(event[2] ?? ""), title: String(event[3] ?? "") }
@@ -152,7 +158,7 @@ function reportHtml(report, elapsedMs) {
   const eventCount = events.length;
   const viewerControlsHtml = window.BilliardsReportViewer.viewerControlsHtml({ tableDetailDefault: "full" });
   const playbackPanelHtml = window.BilliardsReportViewer.playbackPanelHtml(playback);
-  previewCard.dataset.scenarioSearch = `${input.value} ${events.map((event) => event.summary).join(" ")}`.toLowerCase();
+  previewCard.dataset.scenarioSearch = `${source} ${events.map((event) => event.summary).join(" ")}`.toLowerCase();
   previewCard.dataset.scenarioEvents = eventBucket(events);
   previewCard.dataset.scenarioEventCount = String(eventCount);
   previewCard.dataset.scenarioPlayback = playback ? "with-playback" : "no-playback";
@@ -289,43 +295,100 @@ function cancelScheduledRender() {
   renderTimer = null;
 }
 
-function renderCurrentSource({ inspect = true } = {}) {
+function configureSource(source) {
   cancelScheduledRender();
-  if (!wasmReady) return;
-  if (inspect && !inspectShotControls()) return;
-
-  try {
-    const startedAt = performance.now();
-    const report = parseWasmJson(render_svg_report_from_dsl(input.value));
-    const elapsedMs = Math.round(performance.now() - startedAt);
-    const html = reportHtml(report, elapsedMs);
-
-    preview.innerHTML = html;
-    preview.querySelector("#inline-download-button")?.addEventListener("click", downloadSvg);
-    window.BilliardsReportViewer.initialize(preview);
-    lastSvg = report.svg;
-    downloadButton.disabled = false;
-    markPreviewStale(false);
-
-    const sizeKiB = (new Blob([lastSvg], { type: "image/svg+xml" }).size / 1024).toFixed(1);
-    const frames = report.playback?.frames?.length ?? 0;
-    setStatus(`Rendered ${sizeKiB} KiB SVG in ${elapsedMs} ms${frames ? ` with ${frames} playback frames` : ""}.`, "ok");
-  } catch (error) {
-    if (!lastSvg) {
-      setPreviewMessage("The renderer rejected this scenario. See the exact error below the editor.");
-    }
-    markPreviewStale(true);
-    setStatus(errorMessage(error), "error");
-  }
+  configuredSource = source;
+  configuredSourceValid = false;
+  markPreviewStale(source !== renderedSource);
+  if (source === renderedSource && renderedStatus) setStatus(renderedStatus, "ok");
 }
 
-function scheduleRender(delay, inspect) {
+function requestConfiguredRender() {
+  renderTimer = null;
+  if (!wasmReady || !renderWorker || inFlightRender || !configuredSourceValid || configuredSource === renderedSource) return;
+
+  const request = { id: ++renderSequence, source: configuredSource };
+  inFlightRender = request;
+  renderWorker.postMessage(request);
+}
+
+function scheduleConfiguredRender(delay) {
+  configuredSourceValid = true;
   cancelScheduledRender();
+  if (delay <= 0) {
+    requestConfiguredRender();
+    return;
+  }
+  renderTimer = window.setTimeout(requestConfiguredRender, delay);
+}
+
+function renderCurrentSource({ inspect = true, delay = 0 } = {}) {
+  if (!wasmReady) return;
+  const source = input.value;
+  configureSource(source);
+  if (inspect && !inspectShotControls(source)) return;
+  scheduleConfiguredRender(delay);
+}
+
+function commitRenderedReport(report, elapsedMs, source) {
+  const html = reportHtml(report, elapsedMs, source);
+
+  preview.innerHTML = html;
+  preview.querySelector("#inline-download-button")?.addEventListener("click", downloadSvg);
+  window.BilliardsReportViewer.initialize(preview);
+  lastSvg = report.svg;
+  renderedSource = source;
+  downloadButton.disabled = false;
+  markPreviewStale(false);
+
+  const sizeKiB = (new Blob([lastSvg], { type: "image/svg+xml" }).size / 1024).toFixed(1);
+  const frames = report.playback?.frames?.length ?? 0;
+  renderedStatus = `Rendered ${sizeKiB} KiB SVG in ${elapsedMs} ms${frames ? ` with ${frames} playback frames` : ""}.`;
+  setStatus(renderedStatus, "ok");
+}
+
+function handleRenderWorkerMessage(event) {
+  const request = inFlightRender;
+  const response = event.data ?? {};
+  if (!request || response.id !== request.id) return;
+  inFlightRender = null;
+
+  if (request.source !== configuredSource) {
+    requestConfiguredRender();
+    return;
+  }
+
+  if (typeof response.error === "string") {
+    if (!lastSvg) setPreviewMessage("The renderer rejected this scenario. See the exact error below the editor.");
+    markPreviewStale(true);
+    setStatus(response.error, "error");
+    return;
+  }
+
+  try {
+    commitRenderedReport(response.report, response.elapsedMs, request.source);
+  } catch (error) {
+    if (!lastSvg) setPreviewMessage("The renderer rejected this scenario. See the exact error below the editor.");
+    markPreviewStale(true);
+    setStatus(errorMessage(error), "error");
+    return;
+  }
+
+  if (configuredSource !== renderedSource) requestConfiguredRender();
+}
+
+function handleRenderWorkerError(event) {
+  event.preventDefault();
+  renderWorker?.terminate();
+  renderWorker = null;
+  inFlightRender = null;
+  configuredSourceValid = false;
+  wasmReady = false;
+  renderButton.disabled = true;
+  resetButton.disabled = true;
+  setShotControlsAvailable(false);
   markPreviewStale(true);
-  renderTimer = window.setTimeout(() => {
-    renderTimer = null;
-    renderCurrentSource({ inspect });
-  }, delay);
+  setStatus(event.message || "The background renderer stopped unexpectedly. Reload to retry.", "error");
 }
 
 function applyControlUpdate(control, value) {
@@ -333,9 +396,8 @@ function applyControlUpdate(control, value) {
   try {
     const updatedSource = update_shot_control_in_dsl(input.value, control, value);
     input.value = updatedSource;
-    if (inspectShotControls(updatedSource)) {
-      scheduleRender(CONTROL_RENDER_DELAY_MS, false);
-    }
+    configureSource(updatedSource);
+    if (inspectShotControls(updatedSource)) scheduleConfiguredRender(CONTROL_RENDER_DELAY_MS);
   } catch (error) {
     syncShotControls(shotState);
     setStatus(errorMessage(error), "error");
@@ -356,9 +418,8 @@ function applyTipUpdate(side, height) {
   try {
     const updatedSource = update_shot_tip_in_dsl(input.value, clampedSide, clampedHeight);
     input.value = updatedSource;
-    if (inspectShotControls(updatedSource)) {
-      scheduleRender(CONTROL_RENDER_DELAY_MS, false);
-    }
+    configureSource(updatedSource);
+    if (inspectShotControls(updatedSource)) scheduleConfiguredRender(CONTROL_RENDER_DELAY_MS);
   } catch (error) {
     syncShotControls(shotState);
     setStatus(errorMessage(error), "error");
@@ -549,17 +610,18 @@ async function boot() {
   downloadButton.disabled = true;
 
   try {
+    renderWorker = new Worker(new URL("./render-worker.js", import.meta.url), { type: "module" });
+    renderWorker.addEventListener("message", handleRenderWorkerMessage);
+    renderWorker.addEventListener("error", handleRenderWorkerError);
+
     await init();
+    if (!renderWorker) return;
     wasmReady = true;
     renderButton.disabled = false;
     resetButton.disabled = false;
 
     bindShotControls();
-    input.addEventListener("input", () => {
-      cancelScheduledRender();
-      markPreviewStale(true);
-      if (inspectShotControls()) scheduleRender(TEXTAREA_RENDER_DELAY_MS, false);
-    });
+    input.addEventListener("input", () => renderCurrentSource({ delay: TEXTAREA_RENDER_DELAY_MS }));
     renderButton.addEventListener("click", () => renderCurrentSource());
     resetButton.addEventListener("click", () => {
       input.value = sampleDsl;
@@ -568,6 +630,8 @@ async function boot() {
     downloadButton.addEventListener("click", downloadSvg);
     renderCurrentSource();
   } catch (error) {
+    renderWorker?.terminate();
+    renderWorker = null;
     setShotControlsAvailable(false);
     setPreviewMessage("Wasm package not loaded. Run `just wasm-web`, then serve the `web/` directory over HTTP.");
     setStatus(errorMessage(error), "error");

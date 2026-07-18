@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Billiards app render queue behavior probe</title>
+</head>
+<body>
+  <output id="result">RUNNING</output>
+  <script type="module">
+    const result = document.querySelector('#result');
+    const assert = (condition, message) => {
+      if (!condition) throw new Error(message);
+    };
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
+      return { promise, resolve };
+    };
+    const withTimeout = (promise, message) => {
+      let timeoutId;
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timeoutId = window.setTimeout(() => reject(new Error(message)), 10000);
+        }),
+      ]).finally(() => window.clearTimeout(timeoutId));
+    };
+
+    const workerCreated = deferred();
+    class ControlledRenderWorker extends EventTarget {
+      constructor() {
+        super();
+        this.messages = [];
+        this.messageWaiters = [];
+        workerCreated.resolve(this);
+      }
+
+      postMessage(message) {
+        this.messages.push(structuredClone(message));
+        this.messageWaiters = this.messageWaiters.filter((waiter) => {
+          if (this.messages.length < waiter.count) return true;
+          waiter.resolve();
+          return false;
+        });
+      }
+
+      whenMessageCount(count) {
+        if (this.messages.length >= count) return Promise.resolve();
+        return new Promise((resolve) => this.messageWaiters.push({ count, resolve }));
+      }
+
+      respond(data) {
+        this.dispatchEvent(new MessageEvent('message', { data }));
+      }
+
+      terminate() {}
+    }
+    const controlShortTimers = () => {
+      const nativeSetTimeout = window.setTimeout;
+      const nativeClearTimeout = window.clearTimeout;
+      const callbacks = new Map();
+      let nextTimerId = 1_000_000;
+
+      window.setTimeout = (callback, delay = 0, ...args) => {
+        if (Number(delay) >= 1000) return nativeSetTimeout.call(window, callback, delay, ...args);
+        const timerId = nextTimerId++;
+        callbacks.set(timerId, () => callback(...args));
+        return timerId;
+      };
+      window.clearTimeout = (timerId) => {
+        if (!callbacks.delete(timerId)) nativeClearTimeout.call(window, timerId);
+      };
+
+      return {
+        flush() {
+          const pending = [...callbacks.values()];
+          callbacks.clear();
+          pending.forEach((callback) => callback());
+        },
+        restore() {
+          callbacks.clear();
+          window.setTimeout = nativeSetTimeout;
+          window.clearTimeout = nativeClearTimeout;
+        },
+      };
+    };
+
+
+    const loadApplicationMarkup = async () => {
+      const response = await fetch('./index.html');
+      assert(response.ok, `application markup request failed with ${response.status}`);
+      const sourceDocument = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const main = sourceDocument.querySelector('main');
+      assert(main, 'application markup must contain its main controls');
+      document.body.append(document.importNode(main, true));
+    };
+
+    const loadViewer = () => new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = './billiards-viewer.js';
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', () => reject(new Error('viewer script failed to load')), { once: true });
+      document.head.append(script);
+    });
+
+    const report = (version) => ({
+      svg: `<svg viewBox="0 0 1 1" data-render-version="${version}" aria-label="${version} render"><circle cx="0.5" cy="0.5" r="0.25"></circle></svg>`,
+      events: [],
+      playback: null,
+    });
+
+    const run = async () => {
+      await loadApplicationMarkup();
+      await loadViewer();
+
+      const nativeWorker = window.Worker;
+      const controlledTimers = controlShortTimers();
+      window.Worker = ControlledRenderWorker;
+      try {
+        await import('./app.js?render-queue-regression');
+        const worker = await withTimeout(
+          workerCreated.promise,
+          'application must delegate rendering to a background worker',
+        );
+        await withTimeout(
+          worker.whenMessageCount(1),
+          'application must send its initial render to the worker',
+        );
+
+        const [initialRequest] = worker.messages;
+        const headingInput = document.querySelector('#heading-input');
+        const dslInput = document.querySelector('#dsl-input');
+        const increaseHeading = document.querySelector('[data-heading-delta="1"]');
+        const preview = document.querySelector('#preview');
+        assert(Number.isFinite(headingInput.valueAsNumber), 'Wasm must expose the configured heading');
+        assert(increaseHeading && !increaseHeading.disabled, 'heading control must be interactive');
+
+        const startingHeading = headingInput.valueAsNumber;
+        increaseHeading.click();
+        increaseHeading.click();
+        increaseHeading.click();
+
+        const expectedHeading = (startingHeading + 3) % 360;
+        assert(
+          Math.abs(headingInput.valueAsNumber - expectedHeading) < 1e-9,
+          `heading must reach ${expectedHeading} while the expensive render is still pending`,
+        );
+        const newestSource = dslInput.value;
+        assert(newestSource !== initialRequest.source, 'rapid controls must configure a newer DSL source');
+        controlledTimers.flush();
+        assert(
+          worker.messages.length === 1,
+          `only one render may be in flight, got ${worker.messages.length}`,
+        );
+
+        worker.respond({ id: initialRequest.id, report: report('stale'), elapsedMs: 9000 });
+
+        assert(
+          !preview.querySelector('[data-render-version="stale"]'),
+          'a stale worker result must not replace the configured preview',
+        );
+        assert(
+          worker.messages.length === 2,
+          'finishing a stale render must immediately request the newest configured source',
+        );
+        const newestRequest = worker.messages[1];
+        assert(
+          newestRequest.source === newestSource,
+          'the queued render must use the latest source after rapid heading changes',
+        );
+
+        worker.respond({ id: newestRequest.id, report: report('newest'), elapsedMs: 1 });
+        assert(
+          preview.querySelector('[data-render-version="newest"]'),
+          'the newest worker result must become the visible preview',
+        );
+      } finally {
+        controlledTimers.restore();
+        window.Worker = nativeWorker;
+      }
+    };
+
+    try {
+      await run();
+      document.documentElement.dataset.testStatus = 'passed';
+      result.textContent = 'PASS';
+    } catch (error) {
+      document.documentElement.dataset.testStatus = 'failed';
+      result.textContent = `FAIL: ${error.message}`;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

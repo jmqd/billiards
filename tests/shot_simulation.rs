@@ -107,6 +107,33 @@ fn controls_reject_every_non_finite_scalar() {
 }
 
 #[test]
+fn controls_validate_radial_tip_bound_at_construction_and_preserve_offsets() {
+    let inside_radius = 1.0 - 1e-9;
+    let side_offset = 0.6 * inside_radius;
+    let height_offset = -0.8 * inside_radius;
+    let controls = ShotControls::new(25.0, 100.0, side_offset, height_offset, 0.0)
+        .expect("a tip contact just inside the radial bound is valid");
+
+    assert_eq!(controls.side_tip_offset(), side_offset);
+    assert_eq!(controls.height_tip_offset(), height_offset);
+
+    let outside_radius = 1.0 + 1e-9;
+    let result = ShotControls::new(
+        25.0,
+        100.0,
+        0.6 * outside_radius,
+        -0.8 * outside_radius,
+        0.0,
+    );
+    assert!(matches!(
+        result,
+        Err(ShotSimulationError::Shot(
+            billiards::ShotError::CueTipContactOutsideBall { .. }
+        ))
+    ));
+}
+
+#[test]
 fn physics_profile_rejects_out_of_domain_coefficients_before_execution() {
     let table = billiards::TableSpec::three_cushion_carom_10ft();
     let mut ball = table.default_ball_set_physics_spec();

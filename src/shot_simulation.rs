@@ -434,8 +434,7 @@ impl PhysicsProfile {
 pub struct ShotControls {
     heading_degrees: f64,
     cue_ball_speed_inches_per_second: f64,
-    side_tip_offset: f64,
-    height_tip_offset: f64,
+    tip_contact: CueTipContact,
     cue_elevation_degrees: f64,
 }
 
@@ -468,7 +467,7 @@ impl ShotControls {
                 cue_elevation_degrees,
             ));
         }
-        CueTipContact::new(
+        let tip_contact = CueTipContact::new(
             Scale::from_f64(side_tip_offset),
             Scale::from_f64(height_tip_offset),
         )
@@ -477,8 +476,7 @@ impl ShotControls {
         Ok(Self {
             heading_degrees: heading_degrees.rem_euclid(360.0),
             cue_ball_speed_inches_per_second,
-            side_tip_offset,
-            height_tip_offset,
+            tip_contact,
             cue_elevation_degrees,
         })
     }
@@ -492,11 +490,11 @@ impl ShotControls {
     }
 
     pub fn side_tip_offset(&self) -> f64 {
-        self.side_tip_offset
+        self.tip_contact.side_offset().as_f64()
     }
 
     pub fn height_tip_offset(&self) -> f64 {
-        self.height_tip_offset
+        self.tip_contact.height_offset().as_f64()
     }
 
     pub fn cue_elevation_degrees(&self) -> f64 {
@@ -508,11 +506,7 @@ impl ShotControls {
         let elevation_radians = self.cue_elevation_degrees.to_radians();
         let heading = Angle::from_north(heading_radians.sin(), heading_radians.cos());
         let elevation = Angle::from_north(elevation_radians.sin(), elevation_radians.cos());
-        let tip = CueTipContact::new(
-            Scale::from_f64(self.side_tip_offset),
-            Scale::from_f64(self.height_tip_offset),
-        )
-        .map_err(ShotSimulationError::Shot)?;
+        let tip = self.tip_contact.clone();
         Shot::new_for_cue_ball_launch_speed(
             heading,
             InchesPerSecond::new(Inches::from_f64(self.cue_ball_speed_inches_per_second)),

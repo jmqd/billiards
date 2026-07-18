@@ -5,8 +5,6 @@ use imageproc::{
     point::Point,
 };
 
-use crate::Position;
-
 #[inline]
 fn normal(ux: f32, uy: f32) -> (f32, f32) {
     (uy, -ux)
@@ -21,18 +19,16 @@ fn offset(p: (f32, f32), vx: f32, vy: f32, s: f32) -> Point<i32> {
 /// A dashed line with adjustable thickness (via `line_width_px`)
 pub fn draw_dashed_line_thick_mut(
     img: &mut RgbaImage,
-    a: &Position,
-    b: &Position,
+    a: (i32, i32),
+    b: (i32, i32),
     dash_px: f32,
     gap_px: f32,
     width_px: f32,
     color: Rgba<u8>,
 ) {
-    let (x0, y0) = crate::assets::diamond_to_pixel(a);
-    let (x1, y1) = crate::assets::diamond_to_pixel(b);
 
-    let dx = x1 as f32 - x0 as f32;
-    let dy = y1 as f32 - y0 as f32;
+    let dx = b.0 as f32 - a.0 as f32;
+    let dy = b.1 as f32 - a.1 as f32;
     let len = (dx * dx + dy * dy).sqrt();
     if len == 0.0 {
         return;
@@ -49,8 +45,8 @@ pub fn draw_dashed_line_thick_mut(
         let e = (s + dash_px).min(len);
 
         // Centre-line endpoints of this dash
-        let p0 = (x0 as f32 + ux * s, y0 as f32 + uy * s);
-        let p1 = (x0 as f32 + ux * e, y0 as f32 + uy * e);
+        let p0 = (a.0 as f32 + ux * s, a.1 as f32 + uy * s);
+        let p1 = (a.0 as f32 + ux * e, a.1 as f32 + uy * e);
 
         // Four rectangle corners = endpoints +/- half_w along the normal
         let c0 = offset(p0, nx, ny, half_w);
@@ -105,18 +101,18 @@ fn draw_antialiased_thick_line_segment_mut(
 /// Draw a smooth anti-aliased polyline with a first-pass configurable width.
 pub fn draw_smooth_polyline_mut(
     img: &mut RgbaImage,
-    points: &[Position],
+    points: impl IntoIterator<Item = (i32, i32)>,
     width_px: f32,
     color: Rgba<u8>,
 ) {
-    if points.len() < 2 {
+    let mut points = points.into_iter();
+    let Some(mut start) = points.next() else {
         return;
-    }
+    };
 
-    for window in points.windows(2) {
-        let start = crate::assets::diamond_to_pixel(&window[0]);
-        let end = crate::assets::diamond_to_pixel(&window[1]);
+    for end in points {
         draw_antialiased_thick_line_segment_mut(img, start, end, width_px, color);
+        start = end;
     }
 }
 
@@ -163,16 +159,11 @@ fn draw_filled_circle_alpha_mut(
 
 pub fn draw_filled_circle_marker_mut(
     img: &mut RgbaImage,
-    center: &Position,
+    center: (i32, i32),
     radius_px: f32,
     color: Rgba<u8>,
 ) {
-    draw_filled_circle_alpha_mut(
-        img,
-        crate::assets::diamond_to_pixel(center),
-        radius_px,
-        color,
-    );
+    draw_filled_circle_alpha_mut(img, center, radius_px, color);
 }
 
 fn digit_bitmap(ch: char) -> Option<[u8; 7]> {
@@ -222,7 +213,7 @@ fn digit_bitmap(ch: char) -> Option<[u8; 7]> {
 
 pub fn draw_text_label_mut(
     img: &mut RgbaImage,
-    anchor: &Position,
+    anchor: (i32, i32),
     text: &str,
     offset_x_px: i32,
     offset_y_px: i32,
@@ -233,7 +224,7 @@ pub fn draw_text_label_mut(
         return;
     }
 
-    let (anchor_x, anchor_y) = crate::assets::diamond_to_pixel(anchor);
+    let (anchor_x, anchor_y) = anchor;
     let glyph_advance = 6 * scale_px as i32;
 
     for (index, ch) in text.chars().enumerate() {
@@ -264,10 +255,10 @@ pub fn draw_text_label_mut(
     }
 }
 
-/// Draw a translucent ghost-ball marker with a dotted outline at a table position.
+/// Draw a translucent ghost-ball marker with a dotted outline at a pixel center.
 pub fn draw_ghost_ball_mut(
     img: &mut RgbaImage,
-    center: &Position,
+    center: (i32, i32),
     diameter_px: u32,
     fill_color: Rgba<u8>,
     outline_color: Rgba<u8>,
@@ -276,7 +267,6 @@ pub fn draw_ghost_ball_mut(
         return;
     }
 
-    let center = crate::assets::diamond_to_pixel(center);
     let radius_px = diameter_px as f32 * 0.5;
     draw_filled_circle_alpha_mut(img, center, radius_px, fill_color);
 
@@ -306,7 +296,6 @@ pub fn draw_ghost_ball_mut(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Position;
 
     fn changed_pixel_count(image: &RgbaImage) -> usize {
         image
@@ -318,12 +307,12 @@ mod tests {
     #[test]
     fn given_a_zero_length_overlay_line_when_drawing_then_no_pixels_are_changed() {
         let mut image = RgbaImage::new(1089, 1938);
-        let start = Position::new(2u8, 4u8);
+        let start = (539, 969);
 
         draw_dashed_line_thick_mut(
             &mut image,
-            &start,
-            &start,
+            start,
+            start,
             3.0,
             12.0,
             2.0,
@@ -339,8 +328,8 @@ mod tests {
 
         draw_dashed_line_thick_mut(
             &mut image,
-            &Position::new(1u8, 4u8),
-            &Position::new(3u8, 4u8),
+            (325, 969),
+            (754, 969),
             8.0,
             4.0,
             2.0,
@@ -356,7 +345,7 @@ mod tests {
 
         draw_smooth_polyline_mut(
             &mut image,
-            &[Position::new(1u8, 4u8), Position::new(3u8, 4u8)],
+            [(325, 969), (754, 969)],
             4.0,
             Rgba([0, 255, 0, 255]),
         );
@@ -371,7 +360,7 @@ mod tests {
 
         draw_smooth_polyline_mut(
             &mut image,
-            &[Position::new(2u8, 4u8)],
+            [(539, 969)],
             4.0,
             Rgba([255, 0, 0, 255]),
         );
@@ -385,7 +374,7 @@ mod tests {
 
         draw_ghost_ball_mut(
             &mut image,
-            &Position::new(2u8, 4u8),
+            (539, 969),
             39,
             Rgba([255, 255, 255, 64]),
             Rgba([0, 0, 0, 96]),
@@ -400,7 +389,7 @@ mod tests {
 
         draw_filled_circle_marker_mut(
             &mut image,
-            &Position::new(2u8, 4u8),
+            (539, 969),
             5.0,
             Rgba([255, 0, 0, 192]),
         );
@@ -414,7 +403,7 @@ mod tests {
 
         draw_text_label_mut(
             &mut image,
-            &Position::new(2u8, 4u8),
+            (539, 969),
             "12",
             8,
             -8,

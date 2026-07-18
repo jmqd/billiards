@@ -1,9 +1,11 @@
-use billiards::diagram::{DiagramLayerId, DiagramOutputFormat, DiagramViewport};
+use billiards::diagram::{
+    render_scene_to_bytes, DiagramLayerId, DiagramOutputFormat, DiagramViewport,
+};
 use billiards::{
     trace_ball_path_with_rails_on_table,
     visualization::{
-        AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, EventMarkerStyle,
-        GhostBallStyle, LabelOverlayStyle,
+        AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
+        EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
     },
     Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
     DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2, InchesPerSecond,
@@ -29,6 +31,22 @@ fn render_with_options(state: &GameState, options: &DiagramRenderOptions) -> Rgb
 fn render_svg_with_options(state: &GameState, options: &DiagramRenderOptions) -> String {
     String::from_utf8(state.render_2d_diagram_with_options(DiagramOutputFormat::Svg, options))
         .expect("svg should be utf-8")
+}
+
+fn render_with_viewport(state: &GameState, viewport: DiagramViewport) -> RgbaImage {
+    let options = DiagramRenderOptions {
+        background: DiagramBackground::Transparent,
+        ..DiagramRenderOptions::default()
+    };
+    let mut scene = state.to_diagram_scene(&options);
+    scene.viewport = viewport;
+    load_from_memory(&render_scene_to_bytes(
+        &scene,
+        DiagramOutputFormat::Png,
+        &options,
+    ))
+    .expect("png decode")
+    .into_rgba8()
 }
 
 fn diff_bbox(a: &RgbaImage, b: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
@@ -309,6 +327,100 @@ fn rendered_ball_is_centered_on_the_requested_table_position() {
 
     assert_eq!((min_x + max_x) / 2, 539);
     assert_eq!((min_y + max_y) / 2, 969);
+}
+
+#[test]
+fn default_viewport_preserves_legacy_table_anchor_pixels() {
+    let viewport = DiagramViewport::default();
+    let cases = [
+        (Position::new(0u8, 0u8), (110.0, 1828.0)),
+        (Position::new(2u8, 4u8), (539.0, 969.0)),
+        (Position::new(4u8, 8u8), (968.0, 110.0)),
+    ];
+
+    for (position, expected) in cases {
+        let actual = viewport.position_to_scene_point(&position);
+        assert_eq!((actual.x, actual.y), expected);
+    }
+}
+
+#[test]
+fn raster_primitives_share_a_non_default_viewport_anchor() {
+    let viewport = DiagramViewport {
+        width_px: 1089.0,
+        height_px: 1938.0,
+        playfield_left_px: 250.0,
+        playfield_right_px: 1070.0,
+        playfield_top_px: 200.0,
+        playfield_bottom_px: 1840.0,
+    };
+    let anchor = Position::new(2u8, 4u8);
+    let expected_center = (660.0, 1020.0);
+    let color = image::Rgba([255, 0, 255, 255]);
+
+    let ball = cue_ball_at("2", "4");
+
+    let mut line = GameState::default();
+    let mut line_style = DashedLineStyle::new(color);
+    line_style.dash_px = 1000.0;
+    line_style.gap_px = 1.0;
+    line_style.width_px = 3.0;
+    line.add_dotted_line_styled(
+        &Position::new(1u8, 4u8),
+        &Position::new(3u8, 4u8),
+        line_style,
+    );
+
+    let mut marker = GameState::default();
+    marker.add_event_marker_styled(
+        &anchor,
+        EventMarkerStyle {
+            enabled: true,
+            color,
+            radius_px: 7.0,
+            layer: OverlayLayer::AboveBalls,
+        },
+    );
+
+    let mut ghost = GameState::default();
+    ghost.add_ghost_ball(&anchor, color, image::Rgba([0, 0, 0, 0]));
+
+    let mut label = GameState::default();
+    label.add_text_label_styled(
+        &anchor,
+        "8",
+        LabelOverlayStyle {
+            enabled: true,
+            color,
+            layer: OverlayLayer::AboveBalls,
+            offset_x_px: -5,
+            offset_y_px: -7,
+            scale_px: 2,
+        },
+    );
+
+    for (name, state) in [
+        ("ball", &ball),
+        ("line", &line),
+        ("marker", &marker),
+        ("ghost", &ghost),
+        ("label", &label),
+    ] {
+        let image = render_with_viewport(state, viewport);
+        let blank = RgbaImage::new(image.width(), image.height());
+        let (min_x, min_y, max_x, max_y) =
+            diff_bbox(&blank, &image).unwrap_or_else(|| panic!("{name} should render"));
+        let actual_center = (
+            (min_x + max_x) as f32 / 2.0,
+            (min_y + max_y) as f32 / 2.0,
+        );
+
+        assert!(
+            (actual_center.0 - expected_center.0).abs() <= 1.0
+                && (actual_center.1 - expected_center.1).abs() <= 1.0,
+            "{name} center {actual_center:?} should align with viewport anchor {expected_center:?}",
+        );
+    }
 }
 
 #[test]

@@ -461,13 +461,18 @@ fn draw_raster_elements_for_layer(
     layer: DiagramLayerId,
     table: &mut RgbaImage,
 ) {
+    let to_pixel = |position: &Position| {
+        let point = scene.viewport.position_to_scene_point(position);
+        (point.x.round() as i32, point.y.round() as i32)
+    };
+
     for element in scene.elements_for_layer(layer) {
         match element {
             DiagramElement::DashedLine { start, end, style } => {
                 drawing::draw_dashed_line_thick_mut(
                     table,
-                    start,
-                    end,
+                    to_pixel(start),
+                    to_pixel(end),
                     style.dash_px,
                     style.gap_px,
                     style.width_px,
@@ -475,7 +480,12 @@ fn draw_raster_elements_for_layer(
                 );
             }
             DiagramElement::SmoothPolyline { points, style } => {
-                drawing::draw_smooth_polyline_mut(table, points, style.width_px, style.color);
+                drawing::draw_smooth_polyline_mut(
+                    table,
+                    points.iter().map(to_pixel),
+                    style.width_px,
+                    style.color,
+                );
             }
             DiagramElement::HeadingChevron {
                 tip,
@@ -484,12 +494,17 @@ fn draw_raster_elements_for_layer(
             } => {
                 let points =
                     heading_chevron_points(&scene.table_spec, tip, *heading, &style.length_inches);
-                drawing::draw_smooth_polyline_mut(table, &points, style.width_px, style.color);
+                drawing::draw_smooth_polyline_mut(
+                    table,
+                    points.iter().map(to_pixel),
+                    style.width_px,
+                    style.color,
+                );
             }
             DiagramElement::GhostBall { center, style } => {
                 drawing::draw_ghost_ball_mut(
                     table,
-                    center,
+                    to_pixel(center),
                     scene
                         .viewport
                         .ball_diameter_px(&scene.table_spec, &scene.table_spec.default_ball_spec()),
@@ -501,7 +516,7 @@ fn draw_raster_elements_for_layer(
                 let scale_px = style.scale_px.max(1);
                 drawing::draw_text_label_mut(
                     table,
-                    center,
+                    to_pixel(center),
                     "O",
                     -((5 * scale_px as i32) / 2),
                     -((7 * scale_px as i32) / 2),
@@ -510,7 +525,12 @@ fn draw_raster_elements_for_layer(
                 );
             }
             DiagramElement::CircleMarker { center, style, .. } => {
-                drawing::draw_filled_circle_marker_mut(table, center, style.radius_px, style.color);
+                drawing::draw_filled_circle_marker_mut(
+                    table,
+                    to_pixel(center),
+                    style.radius_px,
+                    style.color,
+                );
             }
             DiagramElement::TextLabel {
                 anchor,
@@ -519,7 +539,7 @@ fn draw_raster_elements_for_layer(
             } => {
                 drawing::draw_text_label_mut(
                     table,
-                    anchor,
+                    to_pixel(anchor),
                     text,
                     style.offset_x_px,
                     style.offset_y_px,

@@ -131,6 +131,94 @@ struct BernoulliStatistics {
     wilson_upper: f64,
 }
 
+struct CandidateAccumulator {
+    candidate: Candidate,
+    requested: u32,
+    scored: u32,
+    missed: u32,
+    indeterminate: u32,
+    failed: u32,
+    reducer: BernoulliReducer,
+}
+
+impl CandidateAccumulator {
+    fn new(candidate: Candidate, requested: u32) -> Self {
+        Self {
+            candidate,
+            requested,
+            scored: 0,
+            missed: 0,
+            indeterminate: 0,
+            failed: 0,
+            reducer: BernoulliReducer::default(),
+        }
+    }
+
+    fn record(
+        &mut self,
+        result: &Result<EvaluatedTrial, FailedTrial>,
+    ) -> (Controls, TrialDisposition) {
+        match result {
+            Ok(evaluated) => match &evaluated.outcome {
+                physics::Outcome::Scored => {
+                    self.scored += 1;
+                    self.reducer.observe(true);
+                    (evaluated.applied, TrialDisposition::Scored)
+                }
+                physics::Outcome::Miss(detail) => {
+                    self.missed += 1;
+                    self.reducer.observe(false);
+                    (evaluated.applied, TrialDisposition::Miss(detail.clone()))
+                }
+                physics::Outcome::Indeterminate(detail) => {
+                    self.indeterminate += 1;
+                    (
+                        evaluated.applied,
+                        TrialDisposition::Indeterminate(detail.clone()),
+                    )
+                }
+            },
+            Err(error) => {
+                self.failed += 1;
+                (
+                    error.applied,
+                    TrialDisposition::Failed(error.detail.clone()),
+                )
+            }
+        }
+    }
+
+    fn finish(self) -> CandidateReport {
+        let observed = self.scored + self.missed + self.indeterminate + self.failed;
+        assert_eq!(
+            observed, self.requested,
+            "candidate disposition count must equal requested trial count"
+        );
+        let (success_rate, confidence_low, confidence_high) = match self.reducer.finish() {
+            Some(statistics) => (
+                Some(statistics.rate),
+                Some(statistics.wilson_lower),
+                Some(statistics.wilson_upper),
+            ),
+            None => (None, None, None),
+        };
+        CandidateReport {
+            rank: None,
+            candidate_id: self.candidate.id,
+            controls: self.candidate.controls,
+            requested: self.requested,
+            scored: self.scored,
+            missed: self.missed,
+            indeterminate: self.indeterminate,
+            failed: self.failed,
+            success_rate,
+            confidence_low,
+            confidence_high,
+            eligible: self.indeterminate == 0 && self.failed == 0,
+        }
+    }
+}
+
 impl BernoulliReducer {
     fn observe(&mut self, success: bool) {
         self.observations = self.observations.saturating_add(1);
@@ -181,40 +269,9 @@ pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
     for (candidate_index, candidate) in candidates.iter().enumerate() {
         let start = candidate_index * records_per_candidate;
         let candidate_records = &records[start..start + records_per_candidate];
-        let mut scored = 0_u32;
-        let mut missed = 0_u32;
-        let mut indeterminate = 0_u32;
-        let mut failed = 0_u32;
-        let mut reducer = BernoulliReducer::default();
+        let mut accumulator = CandidateAccumulator::new(*candidate, config.replication_budget);
         for record in candidate_records {
-            let (applied, disposition) = match &record.result {
-                Ok(evaluated) => match &evaluated.outcome {
-                    physics::Outcome::Scored => {
-                        scored += 1;
-                        reducer.observe(true);
-                        (evaluated.applied, TrialDisposition::Scored)
-                    }
-                    physics::Outcome::Miss(detail) => {
-                        missed += 1;
-                        reducer.observe(false);
-                        (evaluated.applied, TrialDisposition::Miss(detail.clone()))
-                    }
-                    physics::Outcome::Indeterminate(detail) => {
-                        indeterminate += 1;
-                        (
-                            evaluated.applied,
-                            TrialDisposition::Indeterminate(detail.clone()),
-                        )
-                    }
-                },
-                Err(error) => {
-                    failed += 1;
-                    (
-                        error.applied,
-                        TrialDisposition::Failed(error.detail.clone()),
-                    )
-                }
-            };
+            let (applied, disposition) = accumulator.record(&record.result);
             trial_reports.push(TrialReport {
                 candidate_id: record.key.candidate_id,
                 replication_id: record.key.replication_id,
@@ -223,21 +280,7 @@ pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
                 disposition,
             });
         }
-        let statistics = reducer.finish();
-        candidate_reports.push(CandidateReport {
-            rank: None,
-            candidate_id: candidate.id,
-            controls: candidate.controls,
-            requested: config.replication_budget,
-            scored,
-            missed,
-            indeterminate,
-            failed,
-            success_rate: statistics.as_ref().map(|value| value.rate),
-            confidence_low: statistics.as_ref().map(|value| value.wilson_lower),
-            confidence_high: statistics.as_ref().map(|value| value.wilson_upper),
-            eligible: indeterminate == 0 && failed == 0,
-        });
+        candidate_reports.push(accumulator.finish());
     }
 
     if config.mode == Mode::Search {
@@ -652,6 +695,161 @@ mod tests {
                 elevation: 5.250_516_891_614_714,
             }
         );
+    }
+
+    #[test]
+    fn candidate_accumulator_preserves_four_way_accounting_and_bernoulli_scope() {
+        let candidate = Candidate {
+            id: 17,
+            controls: Controls {
+                heading: 20.0,
+                speed: 150.0,
+                tip_side: 0.1,
+                tip_height: 0.2,
+                elevation: 5.0,
+            },
+        };
+        let scored_applied = Controls {
+            heading: 21.0,
+            ..candidate.controls
+        };
+        let missed_applied = Controls {
+            heading: 22.0,
+            ..candidate.controls
+        };
+        let indeterminate_applied = Controls {
+            heading: 23.0,
+            ..candidate.controls
+        };
+        let failed_applied = Controls {
+            heading: 24.0,
+            ..candidate.controls
+        };
+        let cases = [
+            (
+                "scored",
+                Ok(EvaluatedTrial {
+                    applied: scored_applied,
+                    outcome: physics::Outcome::Scored,
+                }),
+                scored_applied,
+                TrialDisposition::Scored,
+            ),
+            (
+                "miss",
+                Ok(EvaluatedTrial {
+                    applied: missed_applied,
+                    outcome: physics::Outcome::Miss("object ball first".into()),
+                }),
+                missed_applied,
+                TrialDisposition::Miss("object ball first".into()),
+            ),
+            (
+                "indeterminate",
+                Ok(EvaluatedTrial {
+                    applied: indeterminate_applied,
+                    outcome: physics::Outcome::Indeterminate("event limit".into()),
+                }),
+                indeterminate_applied,
+                TrialDisposition::Indeterminate("event limit".into()),
+            ),
+            (
+                "failed",
+                Err(FailedTrial {
+                    applied: failed_applied,
+                    detail: "invalid noisy controls".into(),
+                }),
+                failed_applied,
+                TrialDisposition::Failed("invalid noisy controls".into()),
+            ),
+        ];
+        let mut accumulator = CandidateAccumulator::new(candidate, cases.len() as u32);
+        for (name, result, expected_applied, expected_disposition) in cases {
+            assert_eq!(
+                accumulator.record(&result),
+                (expected_applied, expected_disposition),
+                "{name}"
+            );
+        }
+
+        let mut expected_reducer = BernoulliReducer::default();
+        expected_reducer.observe(true);
+        expected_reducer.observe(false);
+        let expected_statistics = expected_reducer
+            .finish()
+            .expect("scored and missed trials are observations");
+        let report = accumulator.finish();
+        assert_eq!(
+            (report.candidate_id, report.controls),
+            (candidate.id, candidate.controls)
+        );
+        assert_eq!(
+            (
+                report.requested,
+                report.scored,
+                report.missed,
+                report.indeterminate,
+                report.failed,
+            ),
+            (4, 1, 1, 1, 1)
+        );
+        assert_eq!(
+            report.scored + report.missed + report.indeterminate + report.failed,
+            report.requested
+        );
+        assert_eq!(
+            (
+                report.success_rate,
+                report.confidence_low,
+                report.confidence_high,
+            ),
+            (
+                Some(expected_statistics.rate),
+                Some(expected_statistics.wilson_lower),
+                Some(expected_statistics.wilson_upper),
+            )
+        );
+        assert!(!report.eligible);
+
+        let eligibility_cases = [
+            (
+                "observed outcomes only",
+                vec![
+                    Ok(EvaluatedTrial {
+                        applied: scored_applied,
+                        outcome: physics::Outcome::Scored,
+                    }),
+                    Ok(EvaluatedTrial {
+                        applied: missed_applied,
+                        outcome: physics::Outcome::Miss("miss".into()),
+                    }),
+                ],
+                true,
+            ),
+            (
+                "indeterminate outcome",
+                vec![Ok(EvaluatedTrial {
+                    applied: indeterminate_applied,
+                    outcome: physics::Outcome::Indeterminate("event limit".into()),
+                })],
+                false,
+            ),
+            (
+                "failed outcome",
+                vec![Err(FailedTrial {
+                    applied: failed_applied,
+                    detail: "invalid noisy controls".into(),
+                })],
+                false,
+            ),
+        ];
+        for (name, results, expected_eligible) in eligibility_cases {
+            let mut accumulator = CandidateAccumulator::new(candidate, results.len() as u32);
+            for result in &results {
+                accumulator.record(result);
+            }
+            assert_eq!(accumulator.finish().eligible, expected_eligible, "{name}");
+        }
     }
 
     #[test]

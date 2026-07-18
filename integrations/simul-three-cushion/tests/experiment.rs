@@ -279,6 +279,27 @@ fn trial_schedule_is_candidate_major_with_stable_replay_identity() {
             (2, 1, "v1:42:2:1:1"),
         ]
     );
+    assert_eq!(
+        report
+            .candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    candidate.requested,
+                    candidate.scored,
+                    candidate.missed,
+                    candidate.indeterminate,
+                    candidate.failed,
+                    candidate.eligible,
+                )
+            })
+            .collect::<Vec<_>>(),
+        [(2, 0, 0, 2, 0, false); 3]
+    );
+    assert!(report.trials.iter().all(|trial| matches!(
+        trial.disposition,
+        TrialDisposition::Indeterminate(_)
+    )));
 }
 
 #[test]

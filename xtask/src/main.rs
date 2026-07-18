@@ -10,6 +10,8 @@ use std::sync::{
 };
 use std::thread;
 
+use serde::Deserialize;
+
 use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
 use billiards::visualization::{
     BallPathRenderOptions, PathColorMode, DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS,
@@ -383,6 +385,22 @@ fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
     )
 }
 
+#[derive(Deserialize)]
+struct CargoMessage {
+    reason: Option<String>,
+    target: Option<CargoTarget>,
+}
+
+#[derive(Deserialize)]
+struct CargoTarget {
+    name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CargoArtifactMessage {
+    filenames: Option<Vec<PathBuf>>,
+}
+
 fn build_wasm_artifact() -> Result<PathBuf, String> {
     let output = Command::new("cargo")
         .args([
@@ -412,17 +430,25 @@ fn build_wasm_artifact() -> Result<PathBuf, String> {
     let stdout = String::from_utf8(output.stdout)
         .map_err(|error| format!("Cargo emitted non-UTF-8 JSON messages: {error}"))?;
     let mut wasm_artifacts = Vec::new();
-    for message in stdout.lines().filter(|line| {
-        line.contains("\"reason\":\"compiler-artifact\"")
-            && line.contains("\"name\":\"billiards\"")
-    }) {
-        let Some(filenames) = cargo_json_string_array(message, "filenames")? else {
+    for line in stdout.lines() {
+        let Ok(message) = serde_json::from_str::<CargoMessage>(line) else {
             continue;
         };
+        if message.reason.as_deref() != Some("compiler-artifact")
+            || message.target.as_ref().and_then(|target| target.name.as_deref())
+                != Some("billiards")
+        {
+            continue;
+        }
+
+        let artifact = serde_json::from_str::<CargoArtifactMessage>(line).map_err(|error| {
+            format!("failed to parse matching Cargo compiler-artifact JSON: {error}")
+        })?;
         wasm_artifacts.extend(
-            filenames
+            artifact
+                .filenames
+                .unwrap_or_default()
                 .into_iter()
-                .map(PathBuf::from)
                 .filter(|path| path.extension() == Some(OsStr::new("wasm"))),
         );
     }
@@ -440,86 +466,6 @@ fn build_wasm_artifact() -> Result<PathBuf, String> {
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
-    }
-}
-
-fn cargo_json_string_array(message: &str, field: &str) -> Result<Option<Vec<String>>, String> {
-    let marker = format!("\"{field}\":[");
-    let Some(start) = message.find(&marker) else {
-        return Ok(None);
-    };
-    let mut input = &message[start + marker.len()..];
-    let mut values = Vec::new();
-
-    loop {
-        input = input.trim_start();
-        if input.starts_with(']') {
-            return Ok(Some(values));
-        }
-        if !values.is_empty() {
-            input = input.strip_prefix(',').ok_or_else(|| {
-                format!("invalid Cargo JSON `{field}` array: expected a comma")
-            })?;
-            input = input.trim_start();
-        }
-        let (value, consumed) = parse_json_string(input)
-            .map_err(|error| format!("invalid Cargo JSON `{field}` array: {error}"))?;
-        values.push(value);
-        input = &input[consumed..];
-    }
-}
-
-fn parse_json_string(input: &str) -> Result<(String, usize), String> {
-    let Some(mut input) = input.strip_prefix('"') else {
-        return Err("expected a string".to_string());
-    };
-    let mut value = String::new();
-    let mut consumed = 1;
-
-    loop {
-        let mut chars = input.char_indices();
-        let Some((_, ch)) = chars.next() else {
-            return Err("unterminated string".to_string());
-        };
-        let width = ch.len_utf8();
-        consumed += width;
-        input = &input[width..];
-        match ch {
-            '"' => return Ok((value, consumed)),
-            '\\' => {
-                let mut escaped_chars = input.char_indices();
-                let Some((_, escaped)) = escaped_chars.next() else {
-                    return Err("unterminated escape".to_string());
-                };
-                let escaped_width = escaped.len_utf8();
-                consumed += escaped_width;
-                input = &input[escaped_width..];
-                match escaped {
-                    '"' | '\\' | '/' => value.push(escaped),
-                    'b' => value.push('\u{0008}'),
-                    'f' => value.push('\u{000c}'),
-                    'n' => value.push('\n'),
-                    'r' => value.push('\r'),
-                    't' => value.push('\t'),
-                    'u' => {
-                        if input.len() < 4 || !input.as_bytes()[..4].iter().all(u8::is_ascii_hexdigit)
-                        {
-                            return Err("invalid Unicode escape".to_string());
-                        }
-                        let code = u32::from_str_radix(&input[..4], 16)
-                            .map_err(|error| format!("invalid Unicode escape: {error}"))?;
-                        let decoded = char::from_u32(code)
-                            .ok_or_else(|| "invalid Unicode scalar value".to_string())?;
-                        value.push(decoded);
-                        consumed += 4;
-                        input = &input[4..];
-                    }
-                    _ => return Err(format!("unsupported escape `\\{escaped}`")),
-                }
-            }
-            ch if ch.is_control() => return Err("unescaped control character".to_string()),
-            _ => value.push(ch),
-        }
     }
 }
 
@@ -2013,6 +1959,188 @@ mod tests {
         assert!(
             delta < 1e-9,
             "expected {actual} to be within 1e-9 of {expected}; delta={delta}"
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    enum CargoArtifactExpectation {
+        Artifact(&'static str),
+        Error(&'static str),
+        MalformedRecord,
+    }
+
+    struct CargoMessageCase {
+        name: &'static str,
+        stdout: &'static str,
+        expected: CargoArtifactExpectation,
+    }
+
+    const CARGO_MESSAGE_CASES: &[CargoMessageCase] = &[
+        CargoMessageCase {
+            name: "reordered fields and whitespace",
+            stdout: r#"{ "filenames" : ["target/wasm32-unknown-unknown/release/billiards.wasm"], "target" : { "name" : "billiards" }, "reason" : "compiler-artifact" }"#,
+            expected: CargoArtifactExpectation::Artifact(
+                "target/wasm32-unknown-unknown/release/billiards.wasm",
+            ),
+        },
+        CargoMessageCase {
+            name: "escaped filename",
+            stdout: r#"{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":["target\/billiards-\ud83c\udfaf.wasm"]}"#,
+            expected: CargoArtifactExpectation::Artifact("target/billiards-🎯.wasm"),
+        },
+        CargoMessageCase {
+            name: "unrelated output, messages, and targets",
+            stdout: r#"not JSON
+{"reason":"compiler-artifact","target":{"name":"helper"},"metadata":{"name":"billiards"},"filenames":["target/helper.wasm"]}
+{"reason":"build-script-executed","metadata":{"reason":"compiler-artifact"},"target":{"name":"billiards"},"filenames":["target/build-script.wasm"]}
+{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":["target/billiards.wasm"]}"#,
+            expected: CargoArtifactExpectation::Artifact("target/billiards.wasm"),
+        },
+        CargoMessageCase {
+            name: "matching record without filenames",
+            stdout: r#"{"reason":"compiler-artifact","target":{"name":"billiards"}}"#,
+            expected: CargoArtifactExpectation::Error(
+                "Cargo did not report a billiards Wasm artifact",
+            ),
+        },
+        CargoMessageCase {
+            name: "malformed matching record",
+            stdout: r#"{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":42}"#,
+            expected: CargoArtifactExpectation::MalformedRecord,
+        },
+        CargoMessageCase {
+            name: "zero wasm artifacts",
+            stdout: r#"{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":["target/libbilliards.rlib"]}
+{"reason":"compiler-artifact","target":{"name":"helper"},"filenames":["target/helper.wasm"]}"#,
+            expected: CargoArtifactExpectation::Error(
+                "Cargo did not report a billiards Wasm artifact",
+            ),
+        },
+        CargoMessageCase {
+            name: "one deduplicated wasm artifact",
+            stdout: r#"{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":["target/billiards.wasm","target/libbilliards.rlib"]}
+{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":["target/billiards.wasm"]}"#,
+            expected: CargoArtifactExpectation::Artifact("target/billiards.wasm"),
+        },
+        CargoMessageCase {
+            name: "multiple distinct wasm artifacts",
+            stdout: r#"{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":["target/z-billiards.wasm","target/a-billiards.wasm"]}"#,
+            expected: CargoArtifactExpectation::Error(
+                "Cargo reported multiple billiards Wasm artifacts: target/a-billiards.wasm, target/z-billiards.wasm",
+            ),
+        },
+    ];
+
+    fn assert_cargo_message_case(case: &CargoMessageCase) {
+        match (build_wasm_artifact(), case.expected) {
+            (Ok(actual), CargoArtifactExpectation::Artifact(expected)) => {
+                assert_eq!(actual, PathBuf::from(expected), "case: {}", case.name);
+            }
+            (Err(actual), CargoArtifactExpectation::Error(expected)) => {
+                assert_eq!(actual, expected, "case: {}", case.name);
+            }
+            (Err(actual), CargoArtifactExpectation::MalformedRecord) => {
+                let describes_parse_failure = ["json", "parse", "malformed", "invalid"]
+                    .iter()
+                    .any(|term| actual.to_ascii_lowercase().contains(term));
+                assert!(
+                    describes_parse_failure,
+                    "case `{}` silently became an artifact-selection error: {actual}",
+                    case.name
+                );
+            }
+            (actual, _) => panic!("case `{}` produced an unexpected result: {actual:?}", case.name),
+        }
+    }
+
+    #[cfg(unix)]
+    struct FakeCargoDir(PathBuf);
+
+    #[cfg(unix)]
+    impl FakeCargoDir {
+        fn new() -> Self {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let base = env::temp_dir();
+            let directory = (0..100)
+                .map(|attempt| {
+                    base.join(format!(
+                        "billiards-xtask-cargo-messages-{}-{attempt}",
+                        std::process::id()
+                    ))
+                })
+                .find(|candidate| fs::create_dir(candidate).is_ok())
+                .expect("create isolated fake Cargo directory");
+            let cargo = directory.join("cargo");
+            fs::write(
+                &cargo,
+                "#!/bin/sh\nprintf '%s' \"$XTASK_FAKE_CARGO_STDOUT\"\n",
+            )
+            .expect("write fake Cargo executable");
+            let mut permissions = fs::metadata(&cargo)
+                .expect("read fake Cargo metadata")
+                .permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&cargo, permissions).expect("make fake Cargo executable");
+            Self(directory)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for FakeCargoDir {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("remove isolated fake Cargo directory");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cargo_messages_select_wasm_artifact_by_semantic_fields() {
+        const CHILD_CASE: &str = "XTASK_CARGO_MESSAGE_CHILD_CASE";
+
+        if let Some(case_index) = env::var_os(CHILD_CASE) {
+            let case_index = case_index
+                .to_str()
+                .expect("child case index should be UTF-8")
+                .parse::<usize>()
+                .expect("child case index should be numeric");
+            assert_cargo_message_case(&CARGO_MESSAGE_CASES[case_index]);
+            return;
+        }
+
+        let fake_cargo = FakeCargoDir::new();
+        let mut paths = vec![fake_cargo.0.clone()];
+        paths.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
+        let path = env::join_paths(paths).expect("prepend fake Cargo to PATH");
+        let test_binary = env::current_exe().expect("locate xtask test binary");
+        let mut failures = Vec::new();
+
+        for (case_index, case) in CARGO_MESSAGE_CASES.iter().enumerate() {
+            let output = Command::new(&test_binary)
+                .args([
+                    "tests::cargo_messages_select_wasm_artifact_by_semantic_fields",
+                    "--exact",
+                    "--nocapture",
+                ])
+                .env("PATH", &path)
+                .env("XTASK_FAKE_CARGO_STDOUT", case.stdout)
+                .env(CHILD_CASE, case_index.to_string())
+                .output()
+                .expect("run isolated Cargo-message test case");
+            if !output.status.success() {
+                failures.push(format!(
+                    "{}:\n{}{}",
+                    case.name,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "Cargo message cases failed:\n{}",
+            failures.join("\n")
         );
     }
 

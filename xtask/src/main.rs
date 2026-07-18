@@ -386,19 +386,21 @@ fn run_wasm_preview(options: &WasmPreviewOptions) -> Result<(), String> {
 }
 
 #[derive(Deserialize)]
-struct CargoMessage {
-    reason: Option<String>,
-    target: Option<CargoTarget>,
+struct CargoMessage<'a> {
+    reason: Option<&'a str>,
+    #[serde(borrow)]
+    target: Option<CargoTarget<'a>>,
 }
 
 #[derive(Deserialize)]
-struct CargoTarget {
-    name: Option<String>,
+struct CargoTarget<'a> {
+    name: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
 struct CargoArtifactMessage {
-    filenames: Option<Vec<PathBuf>>,
+    #[serde(default)]
+    filenames: Vec<PathBuf>,
 }
 
 fn build_wasm_artifact() -> Result<PathBuf, String> {
@@ -434,12 +436,8 @@ fn build_wasm_artifact() -> Result<PathBuf, String> {
         let Ok(message) = serde_json::from_str::<CargoMessage>(line) else {
             continue;
         };
-        if message.reason.as_deref() != Some("compiler-artifact")
-            || message
-                .target
-                .as_ref()
-                .and_then(|target| target.name.as_deref())
-                != Some("billiards")
+        if message.reason != Some("compiler-artifact")
+            || message.target.as_ref().and_then(|target| target.name) != Some("billiards")
         {
             continue;
         }
@@ -450,7 +448,6 @@ fn build_wasm_artifact() -> Result<PathBuf, String> {
         wasm_artifacts.extend(
             artifact
                 .filenames
-                .unwrap_or_default()
                 .into_iter()
                 .filter(|path| path.extension() == Some(OsStr::new("wasm"))),
         );
@@ -2005,6 +2002,12 @@ mod tests {
             expected: CargoArtifactExpectation::Error(
                 "Cargo did not report a billiards Wasm artifact",
             ),
+        },
+        CargoMessageCase {
+            name: "matching null filenames before valid artifact",
+            stdout: r#"{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":null}
+{"reason":"compiler-artifact","target":{"name":"billiards"},"filenames":["target/billiards.wasm"]}"#,
+            expected: CargoArtifactExpectation::MalformedRecord,
         },
         CargoMessageCase {
             name: "malformed matching record",

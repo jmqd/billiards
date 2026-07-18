@@ -1330,6 +1330,138 @@ fn scenario_trace_can_limit_rendered_simulation_events() {
     assert_eq!(scenario.trace_max_events, Some(8));
 }
 
+fn timeline_subdivision_ball_trace() -> ScenarioBallTrace {
+    let start = BallState::airborne(
+        Inches2::new("20", "24"),
+        "1000",
+        Velocity2::new("8", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let first_end = BallState::airborne(
+        Inches2::new("50", "24"),
+        "1000",
+        Velocity2::new("8", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let zero_duration_end = BallState::airborne(
+        Inches2::new("55", "24"),
+        "1000",
+        Velocity2::new("-3", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+
+    ScenarioBallTrace {
+        ball: BallType::Cue,
+        initial_state: start.clone(),
+        final_state: NBallSystemState::Airborne(zero_duration_end.clone()),
+        segments: Vec::new(),
+        timeline_segments: vec![
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::zero(),
+                start,
+                end: first_end.clone(),
+                duration: Seconds::new(1.0),
+            },
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::new(1.0),
+                start: first_end,
+                end: zero_duration_end,
+                duration: Seconds::zero(),
+            },
+        ],
+    }
+}
+
+fn timeline_subdivision_shot_trace() -> ScenarioShotTrace {
+    let ball_trace = timeline_subdivision_ball_trace();
+    ScenarioShotTrace {
+        simulation: NBallSystemSimulation {
+            states: vec![ball_trace.final_state.clone()],
+            elapsed: Seconds::new(1.0),
+            events: Vec::new(),
+        },
+        event_log: Vec::new(),
+        ball_traces: vec![ball_trace],
+        ball_set: BallSetPhysicsSpec::default(),
+        motion: motion_config(),
+    }
+}
+
+fn assert_projected_x_coordinates(
+    points: &[billiards::Position],
+    expected: &[f64],
+    table: &billiards::TableSpec,
+) {
+    assert_eq!(points.len(), expected.len());
+    for (point, expected_x) in points.iter().zip(expected) {
+        assert_close(table.diamond_to_inches(point.x.clone()).as_f64(), *expected_x);
+    }
+}
+
+#[test]
+fn timeline_sampling_evenly_subdivides_and_uses_exact_stored_endpoints() {
+    let table = billiards::TableSpec::default();
+    let points = timeline_subdivision_ball_trace().sampled_points(
+        Seconds::new(0.3),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        &table,
+    );
+
+    assert_projected_x_coordinates(
+        &points,
+        &[20.0, 22.0, 24.0, 26.0, 50.0, 55.0],
+        &table,
+    );
+}
+
+#[test]
+fn timeline_sampling_with_an_invalid_step_falls_back_to_segment_endpoints() {
+    let table = billiards::TableSpec::default();
+    for step in [Seconds::zero(), Seconds::new(-0.3)] {
+        let points = timeline_subdivision_ball_trace().sampled_points(
+            step,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            &table,
+        );
+
+        assert_projected_x_coordinates(&points, &[20.0, 50.0, 55.0], &table);
+    }
+}
+
+#[test]
+fn timeline_playback_evenly_subdivides_a_non_divisible_duration() {
+    let frames = timeline_subdivision_shot_trace().playback_frames(Seconds::new(0.3));
+    let expected_times = [0.0, 0.25, 0.5, 0.75, 1.0];
+
+    assert_eq!(frames.len(), expected_times.len());
+    for (frame, expected_time) in frames.iter().zip(expected_times) {
+        assert_close(frame.time.as_f64(), expected_time);
+    }
+    let terminal_cue = frames
+        .last()
+        .expect("terminal playback frame")
+        .balls
+        .iter()
+        .find(|ball| ball.ball == BallType::Cue)
+        .expect("cue ball at the zero-duration terminal segment");
+    assert_close(terminal_cue.state.position.x().as_f64(), 55.0);
+}
+
+#[test]
+fn timeline_playback_rejects_non_positive_steps() {
+    let trace = timeline_subdivision_shot_trace();
+
+    for step in [Seconds::zero(), Seconds::new(-0.3)] {
+        let result = std::panic::catch_unwind(|| trace.playback_frames(step));
+        assert!(result.is_err(), "playback should reject step {step:?}");
+    }
+}
+
 #[test]
 fn playback_frames_snap_to_logged_event_times_and_sample_between_them() {
     let scenario = parse_dsl_to_scenario(

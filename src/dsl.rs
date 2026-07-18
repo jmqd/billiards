@@ -899,9 +899,8 @@ impl ScenarioShotTrace {
                 let start = segment.start_time.as_f64();
                 let duration = segment.duration.as_f64();
                 times.push(start);
-                let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
-                for step in 1..=sample_count {
-                    times.push(start + duration * step as f64 / sample_count as f64);
+                for sample in TimelineSubdivision::new(duration, Some(max_time_step)) {
+                    times.push(start + sample.elapsed.as_f64());
                 }
             }
         }
@@ -1192,6 +1191,50 @@ pub struct ScenarioBallTimelineSegment {
     pub duration: Seconds,
 }
 
+struct TimelineSubdivisionSample {
+    elapsed: Seconds,
+    is_endpoint: bool,
+}
+
+struct TimelineSubdivision {
+    duration: f64,
+    sample_count: usize,
+    next_sample: usize,
+}
+
+impl TimelineSubdivision {
+    fn new(duration: f64, max_time_step: Option<f64>) -> Self {
+        let sample_count = max_time_step.map_or(1, |max_time_step| {
+            ((duration / max_time_step).ceil() as usize).max(1)
+        });
+        Self {
+            duration,
+            sample_count,
+            next_sample: 1,
+        }
+    }
+}
+
+impl Iterator for TimelineSubdivision {
+    type Item = TimelineSubdivisionSample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_sample == 0 {
+            return None;
+        }
+
+        let sample_index = self.next_sample;
+        let is_endpoint = sample_index == self.sample_count;
+        self.next_sample = if is_endpoint { 0 } else { sample_index + 1 };
+        Some(TimelineSubdivisionSample {
+            elapsed: Seconds::new(
+                self.duration * sample_index as f64 / self.sample_count as f64,
+            ),
+            is_endpoint,
+        })
+    }
+}
+
 impl ScenarioBallTrace {
     fn pocket_terminal_point(&self) -> Option<Position> {
         match &self.final_state {
@@ -1353,20 +1396,17 @@ impl ScenarioBallTrace {
         table_spec: &TableSpec,
     ) -> Vec<Position> {
         let mut points = vec![self.initial_state.projected_position(table_spec)];
-        let max_time_step = max_time_step.as_f64().max(0.0);
+        let max_time_step = max_time_step.as_f64();
+        let subdivision_step =
+            (max_time_step.is_finite() && max_time_step > 0.0).then_some(max_time_step);
         for segment in &self.timeline_segments {
-            let duration = segment.duration.as_f64().max(0.0);
-            let sample_count = if max_time_step > 0.0 {
-                (duration / max_time_step).ceil().max(1.0) as usize
-            } else {
-                1
-            };
-            for sample_index in 1..=sample_count {
-                let elapsed = Seconds::new(duration * sample_index as f64 / sample_count as f64);
-                let state = if sample_index == sample_count {
+            for sample in
+                TimelineSubdivision::new(segment.duration.as_f64().max(0.0), subdivision_step)
+            {
+                let state = if sample.is_endpoint {
                     segment.end.clone()
                 } else {
-                    advance_timeline_ball_state(&segment.start, elapsed, ball, motion)
+                    advance_timeline_ball_state(&segment.start, sample.elapsed, ball, motion)
                 };
                 let projected = state.projected_position(table_spec);
                 if points.last() != Some(&projected) {

@@ -86,6 +86,27 @@ struct EffectiveSimulationPhysics {
     max_events: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum ScenarioTraceStop {
+    UntilRest,
+    EventLimit(usize),
+}
+
+impl ScenarioTraceStop {
+    fn constrained_by(self, max_events: Option<usize>) -> Self {
+        let Some(max_events) = max_events else {
+            return self;
+        };
+
+        match self {
+            Self::UntilRest => Self::EventLimit(max_events),
+            Self::EventLimit(requested_max_events) => {
+                Self::EventLimit(requested_max_events.min(max_events))
+            }
+        }
+    }
+}
+
 impl DslScenario {
     pub fn ball_ball_config_named(
         &self,
@@ -174,26 +195,16 @@ impl DslScenario {
         simulation_name: &str,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
         let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-        if let Some(max_events) = simulation.max_events {
-            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
-                ball_set,
-                &simulation.motion,
-                simulation.collision_model,
-                &simulation.collision_config,
-                simulation.rail_model,
-                &simulation.rail_profile,
-                max_events,
-            )
-        } else {
-            self.simulate_shot_trace_with_physics_on_table_until_rest(
-                ball_set,
-                &simulation.motion,
-                simulation.collision_model,
-                &simulation.collision_config,
-                simulation.rail_model,
-                &simulation.rail_profile,
-            )
-        }
+        let stop = ScenarioTraceStop::UntilRest.constrained_by(simulation.max_events);
+        self.execute_shot_trace_with_physics_on_table(
+            ball_set,
+            &simulation.motion,
+            simulation.collision_model,
+            &simulation.collision_config,
+            simulation.rail_model,
+            &simulation.rail_profile,
+            stop,
+        )
     }
 
     pub fn trace_shot_path_with_simulation_on_table(
@@ -411,24 +422,61 @@ impl DslScenario {
         rail_model: RailModel,
         rail_profile: &RailCollisionProfile,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
-            return Ok(None);
-        };
-        let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
-            &initial_states,
+        self.execute_shot_trace_with_physics_on_table(
             ball_set,
-            &self.game_state.table_spec,
             motion,
             collision_model,
             collision_config,
             rail_model,
             rail_profile,
+            ScenarioTraceStop::UntilRest,
         )
+    }
+
+    fn execute_shot_trace_with_physics_on_table(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        collision_config: &BallBallCollisionConfig,
+        rail_model: RailModel,
+        rail_profile: &RailCollisionProfile,
+        stop: ScenarioTraceStop,
+    ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
+            return Ok(None);
+        };
+        let simulation = match stop {
+            ScenarioTraceStop::UntilRest => {
+                simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
+                    &initial_states,
+                    ball_set,
+                    &self.game_state.table_spec,
+                    motion,
+                    collision_model,
+                    collision_config,
+                    rail_model,
+                    rail_profile,
+                )
+            }
+            ScenarioTraceStop::EventLimit(max_events) => {
+                simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+                    &initial_states,
+                    ball_set,
+                    &self.game_state.table_spec,
+                    motion,
+                    collision_model,
+                    collision_config,
+                    rail_model,
+                    rail_profile,
+                    Some(max_events),
+                )
+            }
+        }
         .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
-        let initial_system_states = initial_states;
         let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
         let ball_traces = self.ball_traces_from_simulation(
-            &initial_system_states,
+            &initial_states,
             &simulation,
             ball_set,
             motion,
@@ -457,42 +505,15 @@ impl DslScenario {
         rail_profile: &RailCollisionProfile,
         max_events: usize,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
-            return Ok(None);
-        };
-        let initial_system_states = initial_states;
-        let simulation =
-            simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
-                &initial_system_states,
-                ball_set,
-                &self.game_state.table_spec,
-                motion,
-                collision_model,
-                collision_config,
-                rail_model,
-                rail_profile,
-                Some(max_events),
-            )
-            .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
-        let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
-        let ball_traces = self.ball_traces_from_simulation(
-            &initial_system_states,
-            &simulation,
+        self.execute_shot_trace_with_physics_on_table(
             ball_set,
             motion,
             collision_model,
             collision_config,
             rail_model,
             rail_profile,
-        )?;
-
-        Ok(Some(ScenarioShotTrace {
-            simulation,
-            event_log,
-            ball_traces,
-            ball_set: ball_set.clone(),
-            motion: motion.clone(),
-        }))
+            ScenarioTraceStop::EventLimit(max_events),
+        )
     }
 
     pub fn simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
@@ -502,13 +523,14 @@ impl DslScenario {
         collision_model: CollisionModel,
         rail_model: RailModel,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        self.simulate_shot_trace_with_physics_on_table_until_rest(
+        self.execute_shot_trace_with_physics_on_table(
             ball_set,
             motion,
             collision_model,
             &BallBallCollisionConfig::human_tuned(),
             rail_model,
             &RailCollisionProfile::default(),
+            ScenarioTraceStop::UntilRest,
         )
     }
 
@@ -519,34 +541,27 @@ impl DslScenario {
         collision_model: CollisionModel,
         rail_model: RailModel,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        let stop = ScenarioTraceStop::UntilRest;
         if let Some(simulation_name) = self.preferred_simulation_name() {
             let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-            if let Some(max_events) = simulation.max_events {
-                self.simulate_shot_trace_with_physics_on_table_until_event_limit(
-                    ball_set,
-                    &simulation.motion,
-                    simulation.collision_model,
-                    &simulation.collision_config,
-                    simulation.rail_model,
-                    &simulation.rail_profile,
-                    max_events,
-                )
-            } else {
-                self.simulate_shot_trace_with_physics_on_table_until_rest(
-                    ball_set,
-                    &simulation.motion,
-                    simulation.collision_model,
-                    &simulation.collision_config,
-                    simulation.rail_model,
-                    &simulation.rail_profile,
-                )
-            }
+            self.execute_shot_trace_with_physics_on_table(
+                ball_set,
+                &simulation.motion,
+                simulation.collision_model,
+                &simulation.collision_config,
+                simulation.rail_model,
+                &simulation.rail_profile,
+                stop.constrained_by(simulation.max_events),
+            )
         } else {
-            self.simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            self.execute_shot_trace_with_physics_on_table(
                 ball_set,
                 motion,
                 collision_model,
+                &BallBallCollisionConfig::human_tuned(),
                 rail_model,
+                &RailCollisionProfile::default(),
+                stop,
             )
         }
     }
@@ -559,31 +574,27 @@ impl DslScenario {
         rail_model: RailModel,
         max_events: usize,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        let stop = ScenarioTraceStop::EventLimit(max_events);
         if let Some(simulation_name) = self.preferred_simulation_name() {
             let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-            let max_events = simulation
-                .max_events
-                .map_or(max_events, |simulation_max_events| {
-                    max_events.min(simulation_max_events)
-                });
-            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
+            self.execute_shot_trace_with_physics_on_table(
                 ball_set,
                 &simulation.motion,
                 simulation.collision_model,
                 &simulation.collision_config,
                 simulation.rail_model,
                 &simulation.rail_profile,
-                max_events,
+                stop.constrained_by(simulation.max_events),
             )
         } else {
-            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
+            self.execute_shot_trace_with_physics_on_table(
                 ball_set,
                 motion,
                 collision_model,
                 &BallBallCollisionConfig::human_tuned(),
                 rail_model,
                 &RailCollisionProfile::default(),
-                max_events,
+                stop,
             )
         }
     }

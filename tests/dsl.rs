@@ -1066,7 +1066,7 @@ fn preferred_trace_can_stop_at_an_event_limit() {
 }
 
 #[test]
-fn named_simulation_can_default_preferred_trace_to_an_event_limit() {
+fn preferred_trace_uses_the_lower_of_requested_and_preset_event_limits() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at (2.0, 3.0)\n\
          ball one at (2.18, 4.12)\n\
@@ -1074,29 +1074,53 @@ fn named_simulation_can_default_preferred_trace_to_an_event_limit() {
          ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
          rail_response(clean).normal_restitution(0.7).tangential_friction(0.17)\n\
          rails(table).default(clean)\n\
-         simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).max_events(1)\n\
+         simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).max_events(2)\n\
          shot(cue).heading(9deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
     )
     .expect("expected shot DSL to build");
-    let trace = scenario
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let explicit = scenario
+        .simulate_shot_trace_with_simulation_on_table_until_rest(
+            &ball_set,
+            &motion,
+            "human_table",
+        )
+        .expect("explicit named simulation should succeed");
+    let preferred = scenario
         .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
-            &BallSetPhysicsSpec::default(),
-            &motion_config(),
+            &ball_set,
+            &motion,
             CollisionModel::ThrowAware,
             RailModel::SpinAware,
         )
-        .expect("preferred trace should succeed")
-        .expect("scenario should contain a shot");
+        .expect("preferred simulation should succeed");
 
-    assert_eq!(
-        scenario
-            .simulation_named("human_table")
-            .expect("named simulation")
-            .max_events,
-        Some(1)
-    );
-    assert_eq!(trace.simulation.events.len(), 1);
-    assert_eq!(trace.event_log.len(), 1);
+    assert_eq!(preferred, explicit);
+
+    for (case, requested_limit, expected_events) in [
+        ("requested below preset", 1, 1),
+        ("requested equal to preset", 2, 2),
+        ("requested above preset", 3, 2),
+    ] {
+        let trace = scenario
+            .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+                &ball_set,
+                &motion,
+                CollisionModel::ThrowAware,
+                RailModel::SpinAware,
+                requested_limit,
+            )
+            .expect("preferred trace should succeed")
+            .expect("scenario should contain a shot");
+
+        assert_eq!(
+            trace.simulation.events.len(),
+            expected_events,
+            "{case}"
+        );
+        assert_eq!(trace.event_log.len(), expected_events, "{case}");
+    }
 }
 
 #[test]

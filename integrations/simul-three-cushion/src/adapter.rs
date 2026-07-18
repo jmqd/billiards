@@ -74,6 +74,13 @@ impl TrialContext {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PreparedTrial {
+    key: TrialKey,
+    replay: ReplayKey,
+    applied: Controls,
+}
+
 #[derive(Clone, Debug)]
 struct EvaluatedTrial {
     applied: Controls,
@@ -91,6 +98,25 @@ struct TrialRecord {
     key: TrialKey,
     replay: ReplayKey,
     result: Result<EvaluatedTrial, FailedTrial>,
+}
+
+impl PreparedTrial {
+    fn record(self, result: Result<physics::Outcome, String>) -> TrialRecord {
+        let result = result
+            .map(|outcome| EvaluatedTrial {
+                applied: self.applied,
+                outcome,
+            })
+            .map_err(|detail| FailedTrial {
+                applied: self.applied,
+                detail,
+            });
+        TrialRecord {
+            key: self.key,
+            replay: self.replay,
+            result,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -244,7 +270,9 @@ fn run_trials(
         let evaluator = physics::Evaluator::new(config)?;
         return Ok(specs
             .iter()
-            .map(|spec| execute_spec(&evaluator, config, spec))
+            .map(|spec| {
+                execute_trial(&evaluator, config, prepare_trial(config, spec))
+            })
             .collect());
     }
 
@@ -262,9 +290,12 @@ fn run_trials(
                         let evaluator = physics::Evaluator::new(config);
                         chunk
                             .iter()
-                            .map(|spec| match &evaluator {
-                                Ok(evaluator) => execute_spec(evaluator, config, spec),
-                                Err(detail) => failed_record(config, spec, detail),
+                            .map(|spec| {
+                                let prepared = prepare_trial(config, spec);
+                                match &evaluator {
+                                    Ok(evaluator) => execute_trial(evaluator, config, prepared),
+                                    Err(detail) => prepared.record(Err(detail.to_string())),
+                                }
                             })
                             .collect::<Vec<_>>()
                     })
@@ -283,50 +314,33 @@ fn run_trials(
     })
 }
 
-fn execute_spec(
-    evaluator: &physics::Evaluator,
-    config: &ExperimentConfig,
-    spec: &TrialSpec,
-) -> TrialRecord {
+fn prepare_trial(config: &ExperimentConfig, spec: &TrialSpec) -> PreparedTrial {
     let context = TrialContext {
         master_seed: config.master_seed,
         common_random_group: spec.replay.common_random_group,
     };
-    let result = evaluate_trial(evaluator, &spec.candidate, config, &context);
-    TrialRecord {
+    PreparedTrial {
         key: spec.key(),
         replay: spec.replay,
-        result,
+        applied: apply_execution_noise(spec.candidate.controls, config, &context),
     }
 }
 
-fn failed_record(config: &ExperimentConfig, spec: &TrialSpec, detail: &str) -> TrialRecord {
-    let context = TrialContext {
-        master_seed: config.master_seed,
-        common_random_group: spec.replay.common_random_group,
-    };
-    let applied = apply_execution_noise(spec.candidate.controls, config, &context);
-    TrialRecord {
-        key: spec.key(),
-        replay: spec.replay,
-        result: Err(FailedTrial {
-            applied,
-            detail: detail.to_string(),
-        }),
-    }
+fn execute_trial(
+    evaluator: &physics::Evaluator,
+    config: &ExperimentConfig,
+    prepared: PreparedTrial,
+) -> TrialRecord {
+    let result = evaluate_trial(evaluator, config, &prepared);
+    prepared.record(result)
 }
 
 fn evaluate_trial(
     evaluator: &physics::Evaluator,
-    candidate: &Candidate,
     config: &ExperimentConfig,
-    context: &TrialContext,
-) -> Result<EvaluatedTrial, FailedTrial> {
-    let applied = apply_execution_noise(candidate.controls, config, context);
-    evaluator
-        .evaluate(config.shooter, applied, config.max_events)
-        .map(|outcome| EvaluatedTrial { applied, outcome })
-        .map_err(|detail| FailedTrial { applied, detail })
+    prepared: &PreparedTrial,
+) -> Result<physics::Outcome, String> {
+    evaluator.evaluate(config.shooter, prepared.applied, config.max_events)
 }
 
 fn make_candidates(config: &ExperimentConfig) -> Result<Vec<Candidate>, String> {
@@ -537,10 +551,7 @@ mod tests {
                 },
                 replication_id,
             );
-            failed_record(&config, &spec, "forced failure for noise-only test")
-                .result
-                .expect_err("failed_record should retain its failure")
-                .applied
+            prepare_trial(&config, &spec).applied
         };
 
         let first_candidate = applied(u64::MAX, u32::MAX);
@@ -549,6 +560,98 @@ mod tests {
 
         assert_eq!(first_candidate, distinct_candidate);
         assert_ne!(first_candidate, next_replication);
+    }
+
+    #[test]
+    fn normal_and_evaluator_construction_failure_share_prepared_trial() {
+        let config = crate::Cli::try_parse_from([
+            "simul-three-cushion",
+            "--fixture",
+            "--mode",
+            "sensitivity",
+            "--seed",
+            "918273",
+            "--candidates",
+            "1",
+            "--replications",
+            "1",
+            "--heading-noise",
+            "0.25",
+            "--speed-noise",
+            "1.5",
+            "--tip-side-noise",
+            "0.01",
+            "--tip-height-noise",
+            "0.015",
+            "--elevation-noise",
+            "0.5",
+            "--max-events",
+            "1",
+        ])
+        .expect("fixed test arguments should parse")
+        .into_config()
+        .expect("fixed test configuration should validate");
+        let spec = TrialSpec::new(
+            Candidate {
+                id: 41,
+                controls: Controls {
+                    heading: 196.391_792_039,
+                    speed: 237.947_968_822,
+                    tip_side: -0.230_661_681,
+                    tip_height: 0.365_060_077,
+                    elevation: 5.0,
+                },
+            },
+            29,
+        );
+        let evaluator = physics::Evaluator::new(&config).expect("fixture evaluator should build");
+
+        let prepared = prepare_trial(&config, &spec);
+        let executed = execute_trial(&evaluator, &config, prepared);
+        let failed = prepared.record(Err("forced evaluator construction failure".to_string()));
+        let executed_applied = match &executed.result {
+            Ok(evaluated) => evaluated.applied,
+            Err(error) => panic!("ordinary evaluation unexpectedly failed: {}", error.detail),
+        };
+        let failed_error = failed
+            .result
+            .as_ref()
+            .expect_err("forced evaluator construction failure should remain failed");
+
+        assert_eq!(
+            (
+                executed.key.candidate_id,
+                executed.key.replication_id,
+                executed.replay.trial.candidate_id,
+                executed.replay.trial.replication_id,
+                executed.replay.common_random_group,
+                replay_key(config.master_seed, executed.replay),
+            ),
+            (
+                failed.key.candidate_id,
+                failed.key.replication_id,
+                failed.replay.trial.candidate_id,
+                failed.replay.trial.replication_id,
+                failed.replay.common_random_group,
+                replay_key(config.master_seed, failed.replay),
+            )
+        );
+        assert_eq!(
+            replay_key(config.master_seed, failed.replay),
+            "v1:918273:41:29:29"
+        );
+        assert_eq!(failed_error.detail, "forced evaluator construction failure");
+        assert_eq!(executed_applied, failed_error.applied);
+        assert_eq!(
+            executed_applied,
+            Controls {
+                heading: 196.473_634_909_604_16,
+                speed: 238.114_336_421_040_92,
+                tip_side: -0.232_619_970_111_715_95,
+                tip_height: 0.354_032_810_918_413_65,
+                elevation: 5.250_516_891_614_714,
+            }
+        );
     }
 
     #[test]

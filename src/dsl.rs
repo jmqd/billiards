@@ -1227,9 +1227,7 @@ impl Iterator for TimelineSubdivision {
         let is_endpoint = sample_index == self.sample_count;
         self.next_sample = if is_endpoint { 0 } else { sample_index + 1 };
         Some(TimelineSubdivisionSample {
-            elapsed: Seconds::new(
-                self.duration * sample_index as f64 / self.sample_count as f64,
-            ),
+            elapsed: Seconds::new(self.duration * sample_index as f64 / self.sample_count as f64),
             is_endpoint,
         })
     }

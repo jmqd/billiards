@@ -313,9 +313,7 @@ fn run_trials(
         let evaluator = physics::Evaluator::new(config)?;
         return Ok(specs
             .iter()
-            .map(|spec| {
-                execute_trial(&evaluator, config, prepare_trial(config, spec))
-            })
+            .map(|spec| execute_trial(&evaluator, config, prepare_trial(config, spec)))
             .collect());
     }
 

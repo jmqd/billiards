@@ -410,10 +410,7 @@ fn raster_primitives_share_a_non_default_viewport_anchor() {
         let blank = RgbaImage::new(image.width(), image.height());
         let (min_x, min_y, max_x, max_y) =
             diff_bbox(&blank, &image).unwrap_or_else(|| panic!("{name} should render"));
-        let actual_center = (
-            (min_x + max_x) as f32 / 2.0,
-            (min_y + max_y) as f32 / 2.0,
-        );
+        let actual_center = ((min_x + max_x) as f32 / 2.0, (min_y + max_y) as f32 / 2.0);
 
         assert!(
             (actual_center.0 - expected_center.0).abs() <= 1.0

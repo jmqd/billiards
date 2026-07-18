@@ -26,7 +26,6 @@ pub fn draw_dashed_line_thick_mut(
     width_px: f32,
     color: Rgba<u8>,
 ) {
-
     let dx = b.0 as f32 - a.0 as f32;
     let dy = b.1 as f32 - a.1 as f32;
     let len = (dx * dx + dy * dy).sqrt();
@@ -358,12 +357,7 @@ mod tests {
     {
         let mut image = RgbaImage::new(1089, 1938);
 
-        draw_smooth_polyline_mut(
-            &mut image,
-            [(539, 969)],
-            4.0,
-            Rgba([255, 0, 0, 255]),
-        );
+        draw_smooth_polyline_mut(&mut image, [(539, 969)], 4.0, Rgba([255, 0, 0, 255]));
 
         assert_eq!(changed_pixel_count(&image), 0);
     }
@@ -387,12 +381,7 @@ mod tests {
     fn given_a_circle_marker_overlay_when_drawing_then_some_pixels_are_colored() {
         let mut image = RgbaImage::new(1089, 1938);
 
-        draw_filled_circle_marker_mut(
-            &mut image,
-            (539, 969),
-            5.0,
-            Rgba([255, 0, 0, 192]),
-        );
+        draw_filled_circle_marker_mut(&mut image, (539, 969), 5.0, Rgba([255, 0, 0, 192]));
 
         assert!(changed_pixel_count(&image) > 0);
     }
@@ -401,15 +390,7 @@ mod tests {
     fn given_a_numeric_text_label_when_drawing_then_some_pixels_are_colored() {
         let mut image = RgbaImage::new(1089, 1938);
 
-        draw_text_label_mut(
-            &mut image,
-            (539, 969),
-            "12",
-            8,
-            -8,
-            2,
-            Rgba([0, 0, 0, 255]),
-        );
+        draw_text_label_mut(&mut image, (539, 969), "12", 8, -8, 2, Rgba([0, 0, 0, 255]));
 
         assert!(changed_pixel_count(&image) > 0);
     }

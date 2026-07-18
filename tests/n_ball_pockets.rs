@@ -4,9 +4,8 @@ use billiards::{
     advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
-    compute_next_ball_rail_impact_on_table,
+    compute_next_ball_rail_impact_on_table, compute_next_n_ball_event_on_table,
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
-    compute_next_n_ball_event_on_table,
     resolve_n_ball_system_event_with_physics_and_pockets_on_table,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest,
     simulate_n_balls_with_rails_on_table_until_rest, AngularVelocity3, BallBallCollisionConfig,
@@ -1989,17 +1988,11 @@ fn ordinary_and_pocket_aware_schedulers_share_the_contact_tolerance_boundary() {
     ] {
         let states = shared_three_ball_contact_fixture_with_time_offset(contact_time_offset);
         let first_collision = compute_next_ball_ball_collision_during_current_phases_on_table(
-            &states[0],
-            &states[1],
-            &ball,
-            &motion,
+            &states[0], &states[1], &ball, &motion,
         )
         .expect("the first object ball should be reached");
         let second_collision = compute_next_ball_ball_collision_during_current_phases_on_table(
-            &states[0],
-            &states[2],
-            &ball,
-            &motion,
+            &states[0], &states[2], &ball, &motion,
         )
         .expect("the second object ball should be reached");
         let actual_time_offset = (second_collision.time_until_impact.as_f64()

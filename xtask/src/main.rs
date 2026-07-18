@@ -435,7 +435,10 @@ fn build_wasm_artifact() -> Result<PathBuf, String> {
             continue;
         };
         if message.reason.as_deref() != Some("compiler-artifact")
-            || message.target.as_ref().and_then(|target| target.name.as_deref())
+            || message
+                .target
+                .as_ref()
+                .and_then(|target| target.name.as_deref())
                 != Some("billiards")
         {
             continue;
@@ -2049,7 +2052,10 @@ mod tests {
                     case.name
                 );
             }
-            (actual, _) => panic!("case `{}` produced an unexpected result: {actual:?}", case.name),
+            (actual, _) => panic!(
+                "case `{}` produced an unexpected result: {actual:?}",
+                case.name
+            ),
         }
     }
 

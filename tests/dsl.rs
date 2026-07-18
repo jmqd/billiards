@@ -1081,11 +1081,7 @@ fn preferred_trace_uses_the_lower_of_requested_and_preset_event_limits() {
     let ball_set = BallSetPhysicsSpec::default();
     let motion = motion_config();
     let explicit = scenario
-        .simulate_shot_trace_with_simulation_on_table_until_rest(
-            &ball_set,
-            &motion,
-            "human_table",
-        )
+        .simulate_shot_trace_with_simulation_on_table_until_rest(&ball_set, &motion, "human_table")
         .expect("explicit named simulation should succeed");
     let preferred = scenario
         .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
@@ -1114,11 +1110,7 @@ fn preferred_trace_uses_the_lower_of_requested_and_preset_event_limits() {
             .expect("preferred trace should succeed")
             .expect("scenario should contain a shot");
 
-        assert_eq!(
-            trace.simulation.events.len(),
-            expected_events,
-            "{case}"
-        );
+        assert_eq!(trace.simulation.events.len(), expected_events, "{case}");
         assert_eq!(trace.event_log.len(), expected_events, "{case}");
     }
 }
@@ -1397,7 +1389,10 @@ fn assert_projected_x_coordinates(
 ) {
     assert_eq!(points.len(), expected.len());
     for (point, expected_x) in points.iter().zip(expected) {
-        assert_close(table.diamond_to_inches(point.x.clone()).as_f64(), *expected_x);
+        assert_close(
+            table.diamond_to_inches(point.x.clone()).as_f64(),
+            *expected_x,
+        );
     }
 }
 
@@ -1411,11 +1406,7 @@ fn timeline_sampling_evenly_subdivides_and_uses_exact_stored_endpoints() {
         &table,
     );
 
-    assert_projected_x_coordinates(
-        &points,
-        &[20.0, 22.0, 24.0, 26.0, 50.0, 55.0],
-        &table,
-    );
+    assert_projected_x_coordinates(&points, &[20.0, 22.0, 24.0, 26.0, 50.0, 55.0], &table);
 }
 
 #[test]

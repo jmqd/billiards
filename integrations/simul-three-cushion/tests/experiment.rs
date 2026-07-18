@@ -296,10 +296,10 @@ fn trial_schedule_is_candidate_major_with_stable_replay_identity() {
             .collect::<Vec<_>>(),
         [(2, 0, 0, 2, 0, false); 3]
     );
-    assert!(report.trials.iter().all(|trial| matches!(
-        trial.disposition,
-        TrialDisposition::Indeterminate(_)
-    )));
+    assert!(report
+        .trials
+        .iter()
+        .all(|trial| matches!(trial.disposition, TrialDisposition::Indeterminate(_))));
 }
 
 #[test]

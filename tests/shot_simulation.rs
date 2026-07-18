@@ -459,12 +459,8 @@ fn no_dsl_direct_execution_produces_a_verified_three_cushion_point() {
     )
     .unwrap();
     let shot = ThreeCushionShot::new(ThreeCushionShooter::Cue, controls);
-    let full = execute_with_adjudication_parity(
-        &physics,
-        &layout,
-        &shot,
-        ShotLimit::EventCount(64),
-    );
+    let full =
+        execute_with_adjudication_parity(&physics, &layout, &shot, ShotLimit::EventCount(64));
 
     let ThreeCushionAdjudication::Scored(facts) = &full.completion.summary else {
         panic!("verified direct fixture must score")

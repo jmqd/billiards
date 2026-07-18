@@ -2424,15 +2424,15 @@ impl PocketAwareEventCache {
         let best = best?;
         if let Some(summary) = shared_ball_ball_contact_summary(
             earliest_time,
-            self.ball_ball.iter().map(
-                |(&(first_ball_index, second_ball_index), collision)| {
+            self.ball_ball
+                .iter()
+                .map(|(&(first_ball_index, second_ball_index), collision)| {
                     (
                         collision.time_until_impact.as_f64(),
                         first_ball_index,
                         second_ball_index,
                     )
-                },
-            ),
+                }),
         ) {
             return Some(NBallSystemEvent::SharedBallBallContact {
                 time_until_contact: summary.time_until_contact,
@@ -6596,8 +6596,7 @@ fn first_rail_collision_time_during_current_phase_raw(
     radius: f64,
     config: &OnTableMotionConfig,
 ) -> Option<Seconds> {
-    let (a, b, c) =
-        boundary.gap_quadratic_coefficients(state, phase.clone(), radius, config);
+    let (a, b, c) = boundary.gap_quadratic_coefficients(state, phase.clone(), radius, config);
     let tolerance = 1e-10 * horizon.max(1.0);
 
     if c <= tolerance && (b < -tolerance || (b.abs() <= tolerance && a < -tolerance)) {
@@ -10950,8 +10949,7 @@ where
         .map(|(time, _, _)| time)
         .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
     if !earliest_ball_ball_time.is_finite()
-        || earliest_ball_ball_time - earliest_event_time
-            > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
+        || earliest_ball_ball_time - earliest_event_time > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
     {
         return None;
     }
@@ -10999,18 +10997,20 @@ fn select_earliest_n_ball_event_candidate(
         .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
     if let Some(summary) = shared_ball_ball_contact_summary(
         earliest_event_time,
-        candidates.iter().filter_map(|candidate| match &candidate.event {
-            NBallOnTableEvent::BallBallCollision {
-                first_ball_index,
-                second_ball_index,
-                collision,
-            } => Some((
-                collision.time_until_impact.as_f64(),
-                *first_ball_index,
-                *second_ball_index,
-            )),
-            _ => None,
-        }),
+        candidates
+            .iter()
+            .filter_map(|candidate| match &candidate.event {
+                NBallOnTableEvent::BallBallCollision {
+                    first_ball_index,
+                    second_ball_index,
+                    collision,
+                } => Some((
+                    collision.time_until_impact.as_f64(),
+                    *first_ball_index,
+                    *second_ball_index,
+                )),
+                _ => None,
+            }),
     ) {
         return Some(NBallOnTableEvent::SharedBallBallContact {
             time_until_contact: summary.time_until_contact,

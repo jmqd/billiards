@@ -135,13 +135,11 @@ fn every_rail_preserves_boundary_orientation_contact_direction_and_snapping() {
             Velocity2::new(Inches::from_f64(vx), Inches::from_f64(vy)),
             AngularVelocity3::new(wx, wy, 0.0),
         ));
-        let impact = compute_next_ball_rail_impact_on_table(
-            &approaching,
-            &ball,
-            &table,
-            &motion_config(),
-        )
-        .unwrap_or_else(|| panic!("{rail:?} should be reached while the ball is approaching"));
+        let impact =
+            compute_next_ball_rail_impact_on_table(&approaching, &ball, &table, &motion_config())
+                .unwrap_or_else(|| {
+                    panic!("{rail:?} should be reached while the ball is approaching")
+                });
 
         assert_eq!(impact.rail, rail);
         assert_close(impact.time_until_impact.as_f64(), expected_time);

@@ -83,10 +83,11 @@ build-only artifact that you can serve yourself:
 nix develop -c cargo xtask wasm-preview --no-serve
 ```
 
-The generated page accepts `.billiards` DSL text, renders through the Wasm
-`render_svg_report_from_dsl` binding, previews the SVG, and includes the same
-table-detail and playback controls used by the validation gallery. Generated
-preview output lives in `target/wasm-preview/`.
+The generated page keeps `.billiards` DSL text authoritative while exposing synchronized
+heading, cue-tip, shot-speed, and cue-elevation instruments. Edits in either representation
+re-render through the Wasm `render_svg_report_from_dsl` binding; the report includes the same
+table-detail and playback controls used by the validation gallery. Generated preview output lives
+in `target/wasm-preview/`.
 
 ## Thanks
 

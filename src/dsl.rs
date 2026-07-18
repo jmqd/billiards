@@ -1787,6 +1787,76 @@ pub struct ShotDef {
     pub methods: Vec<ShotMethodExpr>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct ShotSourceMetadata {
+    aim: Option<ShotAimSource>,
+    speed_literal: Option<ByteSpan>,
+    tip: Option<ShotTipSource>,
+    elevation: Option<ShotElevationSource>,
+}
+
+#[derive(Debug)]
+struct ParsedShotDef {
+    def: ShotDef,
+    source: ShotSourceMetadata,
+}
+
+#[derive(Debug)]
+struct ParsedDslDoc {
+    doc: DslDoc,
+    shot_source: Option<ShotSourceMetadata>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShotAimSource {
+    method: ByteSpan,
+    heading_literal: Option<ByteSpan>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShotTipSource {
+    method: ByteSpan,
+    side_literal: ByteSpan,
+    height_literal: ByteSpan,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShotElevationSource {
+    method: ByteSpan,
+    literal: Option<ByteSpan>,
+    is_jump: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ByteSpan {
+    start: usize,
+    end: usize,
+}
+
+impl ByteSpan {
+    fn between(start: usize, input: &Stream<'_>) -> Self {
+        Self {
+            start,
+            end: input.current_token_start(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ParsedShotMethod {
+    expr: ShotMethodExpr,
+    source: ParsedShotMethodSource,
+}
+
+#[derive(Debug)]
+enum ParsedShotMethodSource {
+    Aim(ShotAimSource),
+    Speed { literal: ByteSpan },
+    Tip(ShotTipSource),
+    Elevation(ShotElevationSource),
+    Other,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShotCutDirection {
     Left,
@@ -2193,19 +2263,93 @@ impl std::fmt::Display for DslError {
 
 impl std::error::Error for DslError {}
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShotControls {
+    pub heading_degrees: f64,
+    pub speed_ips: f64,
+    pub tip_side: f64,
+    pub tip_height: f64,
+    pub tip_max_radius: f64,
+    pub cue_elevation_degrees: f64,
+    pub cue_elevation_explicit: bool,
+    pub speed_max_ips: f64,
+    pub cue_elevation_max_degrees: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShotControl {
+    Heading,
+    Speed,
+    Elevation,
+    TipSide,
+    TipHeight,
+}
+
+impl std::str::FromStr for ShotControl {
+    type Err = ShotControlError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        match name {
+            "heading" => Ok(Self::Heading),
+            "speed" => Ok(Self::Speed),
+            "elevation" => Ok(Self::Elevation),
+            "tip-side" => Ok(Self::TipSide),
+            "tip-height" => Ok(Self::TipHeight),
+            _ => Err(ShotControlError::UnknownControl(name.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShotControlError {
+    Dsl(DslError),
+    NoShot,
+    UnknownControl(String),
+    NonFiniteValue { control: &'static str },
+    MissingSourceMetadata { control: &'static str },
+}
+
+impl std::fmt::Display for ShotControlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dsl(error) => write!(f, "{error}"),
+            Self::NoShot => write!(f, "the DSL does not contain a shot"),
+            Self::UnknownControl(control) => write!(f, "unknown shot control '{control}'"),
+            Self::NonFiniteValue { control } => {
+                write!(f, "shot control '{control}' requires a finite value")
+            }
+            Self::MissingSourceMetadata { control } => {
+                write!(f, "shot control '{control}' has no editable source range")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ShotControlError {}
+
+impl From<DslError> for ShotControlError {
+    fn from(error: DslError) -> Self {
+        Self::Dsl(error)
+    }
+}
+
 type Stream<'i> = LocatingSlice<&'i str>;
 
 type ParseError<'i> = ErrMode<InputError<Stream<'i>>>;
 
 type ParseResult<'i, T> = Result<T, ParseError<'i>>;
 
-fn parse_dsl_inner(input: &str) -> ParseResult<'_, DslDoc> {
+fn parse_dsl_inner(input: &str) -> ParseResult<'_, ParsedDslDoc> {
     let mut stream = LocatingSlice::new(input);
     dsl_doc.parse_next(&mut stream)
 }
 
-pub fn parse_dsl(input: &str) -> Result<DslDoc, DslParseError> {
+fn parse_dsl_with_metadata(input: &str) -> Result<ParsedDslDoc, DslParseError> {
     parse_dsl_inner(input).map_err(parse_error)
+}
+
+pub fn parse_dsl(input: &str) -> Result<DslDoc, DslParseError> {
+    parse_dsl_with_metadata(input).map(|parsed| parsed.doc)
 }
 
 pub fn parse_dsl_to_game_state(input: &str) -> Result<GameState, DslError> {
@@ -2216,6 +2360,193 @@ pub fn parse_dsl_to_game_state(input: &str) -> Result<GameState, DslError> {
 pub fn parse_dsl_to_scenario(input: &str) -> Result<DslScenario, DslError> {
     let doc = parse_dsl(input).map_err(DslError::Parse)?;
     build_scenario(&doc).map_err(DslError::Build)
+}
+
+pub fn shot_controls_from_dsl(source: &str) -> Result<Option<ShotControls>, ShotControlError> {
+    let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
+    let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
+    let Some(built_shot) = scenario.shot.as_ref() else {
+        return Ok(None);
+    };
+    let shot_def =
+        shot_def(&parsed.doc).ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })?;
+    let shot_source = parsed
+        .shot_source
+        .ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })?;
+    let speed_ips = shot_def
+        .methods
+        .iter()
+        .find_map(|method| match method {
+            ShotMethodExpr::SpeedIps(speed_ips) => Some(*speed_ips),
+            _ => None,
+        })
+        .ok_or(ShotControlError::MissingSourceMetadata { control: "speed" })?;
+    let tip_contact = built_shot.shot.tip_contact();
+
+    Ok(Some(ShotControls {
+        heading_degrees: built_shot.shot.heading().as_degrees(),
+        speed_ips,
+        tip_side: tip_contact.side_offset().as_f64(),
+        tip_height: tip_contact.height_offset().as_f64(),
+        tip_max_radius: built_shot.cue_strike.miscue_offset_limit().as_f64(),
+        cue_elevation_degrees: built_shot.shot.cue_elevation().as_degrees(),
+        cue_elevation_explicit: shot_source.elevation.is_some(),
+        speed_max_ips: ShotSpeedPreset::ExceptionalPowerBreak
+            .inches_per_second()
+            .as_f64(),
+        cue_elevation_max_degrees: crate::MAX_CUE_ELEVATION_DEGREES,
+    }))
+}
+
+pub fn update_shot_control_in_dsl(
+    source: &str,
+    control: ShotControl,
+    value: f64,
+) -> Result<String, ShotControlError> {
+    let control_name = match control {
+        ShotControl::Heading => "heading",
+        ShotControl::Speed => "speed",
+        ShotControl::Elevation => "elevation",
+        ShotControl::TipSide => "tip-side",
+        ShotControl::TipHeight => "tip-height",
+    };
+    if !value.is_finite() {
+        return Err(ShotControlError::NonFiniteValue {
+            control: control_name,
+        });
+    }
+
+    let source_metadata = editable_shot_source(source)?;
+    let number = format_shot_control_number(value);
+    let mut candidate = source.to_string();
+    match control {
+        ShotControl::Heading => {
+            let aim = source_metadata
+                .aim
+                .ok_or(ShotControlError::MissingSourceMetadata { control: "heading" })?;
+            if let Some(literal) = aim.heading_literal {
+                replace_source_span(&mut candidate, literal, &format!("{number}deg"));
+            } else {
+                replace_source_span(&mut candidate, aim.method, &format!("heading({number}deg)"));
+            }
+        }
+        ShotControl::Speed => {
+            let literal = source_metadata
+                .speed_literal
+                .ok_or(ShotControlError::MissingSourceMetadata { control: "speed" })?;
+            replace_source_span(&mut candidate, literal, &format!("{number}ips"));
+        }
+        ShotControl::TipSide => {
+            let literal = source_metadata
+                .tip
+                .ok_or(ShotControlError::MissingSourceMetadata { control: "tip" })?
+                .side_literal;
+            replace_source_span(&mut candidate, literal, &format!("{number}R"));
+        }
+        ShotControl::TipHeight => {
+            let literal = source_metadata
+                .tip
+                .ok_or(ShotControlError::MissingSourceMetadata { control: "tip" })?
+                .height_literal;
+            replace_source_span(&mut candidate, literal, &format!("{number}R"));
+        }
+        ShotControl::Elevation => match source_metadata.elevation {
+            Some(elevation) if elevation.is_jump => replace_source_span(
+                &mut candidate,
+                elevation.method,
+                &format!("elevation({number}deg)"),
+            ),
+            Some(elevation) => {
+                let literal = elevation
+                    .literal
+                    .ok_or(ShotControlError::MissingSourceMetadata {
+                        control: "elevation",
+                    })?;
+                replace_source_span(&mut candidate, literal, &format!("{number}deg"));
+            }
+            None => {
+                let tip = source_metadata
+                    .tip
+                    .ok_or(ShotControlError::MissingSourceMetadata { control: "tip" })?;
+                candidate.insert_str(tip.method.end, &format!(".elevation({number}deg)"));
+            }
+        },
+    }
+
+    validate_edited_shot_source(candidate)
+}
+
+pub fn update_shot_tip_in_dsl(
+    source: &str,
+    side: f64,
+    height: f64,
+) -> Result<String, ShotControlError> {
+    if !side.is_finite() {
+        return Err(ShotControlError::NonFiniteValue {
+            control: "tip side",
+        });
+    }
+    if !height.is_finite() {
+        return Err(ShotControlError::NonFiniteValue {
+            control: "tip height",
+        });
+    }
+
+    let source_metadata = editable_shot_source(source)?;
+    let tip = source_metadata
+        .tip
+        .ok_or(ShotControlError::MissingSourceMetadata { control: "tip" })?;
+    let side_literal = format!("{}R", format_shot_control_number(side));
+    let height_literal = format!("{}R", format_shot_control_number(height));
+    let mut replacements = [
+        (tip.side_literal, side_literal),
+        (tip.height_literal, height_literal),
+    ];
+    replacements.sort_unstable_by(|(left, _), (right, _)| right.start.cmp(&left.start));
+
+    let mut candidate = source.to_string();
+    for (span, replacement) in replacements {
+        replace_source_span(&mut candidate, span, &replacement);
+    }
+    validate_edited_shot_source(candidate)
+}
+
+fn shot_def(doc: &DslDoc) -> Option<&ShotDef> {
+    doc.entries.iter().find_map(|entry| match entry {
+        DslEntry::Shot(shot) => Some(shot),
+        _ => None,
+    })
+}
+
+fn editable_shot_source(source: &str) -> Result<ShotSourceMetadata, ShotControlError> {
+    let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
+    let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
+    if scenario.shot.is_none() {
+        return Err(ShotControlError::NoShot);
+    }
+    parsed
+        .shot_source
+        .ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })
+}
+
+fn validate_edited_shot_source(candidate: String) -> Result<String, ShotControlError> {
+    let scenario = parse_dsl_to_scenario(&candidate)?;
+    if scenario.shot.is_none() {
+        return Err(ShotControlError::NoShot);
+    }
+    Ok(candidate)
+}
+
+fn replace_source_span(source: &mut String, span: ByteSpan, replacement: &str) {
+    source.replace_range(span.start..span.end, replacement);
+}
+
+fn format_shot_control_number(value: f64) -> String {
+    if value == 0.0 {
+        "0".to_string()
+    } else {
+        value.to_string()
+    }
 }
 
 pub fn build_game_state(doc: &DslDoc) -> Result<GameState, DslBuildError> {
@@ -3102,7 +3433,7 @@ fn parse_error(err: ParseError<'_>) -> DslParseError {
     DslParseError { message, offset }
 }
 
-fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
+fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedDslDoc> {
     let mut doc = DslDoc {
         table: None,
         game: None,
@@ -3110,6 +3441,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
         entries: Vec::new(),
     };
     let mut duplicate_singleton = None;
+    let mut shot_source = None;
 
     repeat(0.., statement)
         .fold(
@@ -3137,7 +3469,10 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
                 DslStatement::RailResponse(def) => doc.entries.push(DslEntry::RailResponse(def)),
                 DslStatement::Rails(def) => doc.entries.push(DslEntry::Rails(def)),
                 DslStatement::Simulation(def) => doc.entries.push(DslEntry::Simulation(def)),
-                DslStatement::Shot(def) => doc.entries.push(DslEntry::Shot(def)),
+                DslStatement::Shot(parsed) => {
+                    shot_source = Some(parsed.source);
+                    doc.entries.push(DslEntry::Shot(parsed.def));
+                }
                 DslStatement::Empty => {}
             },
         )
@@ -3149,10 +3484,10 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
 
     let _ = terminated(hws0, eof).parse_next(input)?;
 
-    Ok(doc)
+    Ok(ParsedDslDoc { doc, shot_source })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 enum DslStatement {
     Table(TableRef),
     Game(GameRef),
@@ -3164,7 +3499,7 @@ enum DslStatement {
     RailResponse(RailResponseDef),
     Rails(RailsDef),
     Simulation(SimulationDef),
-    Shot(ShotDef),
+    Shot(ParsedShotDef),
     Empty,
 }
 
@@ -3310,8 +3645,26 @@ fn simulation_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> 
 fn shot_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     let _ = "shot".parse_next(input)?;
     let ball = delimited('(', delimited(hws0, ball_ref, hws0), ')').parse_next(input)?;
-    let methods = repeat(0.., shot_method_segment).parse_next(input)?;
-    Ok(DslStatement::Shot(ShotDef { ball, methods }))
+    let parsed_methods: Vec<ParsedShotMethod> =
+        repeat(0.., shot_method_segment).parse_next(input)?;
+    let mut methods = Vec::with_capacity(parsed_methods.len());
+    let mut source = ShotSourceMetadata::default();
+
+    for parsed in parsed_methods {
+        match parsed.source {
+            ParsedShotMethodSource::Aim(aim) => source.aim = Some(aim),
+            ParsedShotMethodSource::Speed { literal } => source.speed_literal = Some(literal),
+            ParsedShotMethodSource::Tip(tip) => source.tip = Some(tip),
+            ParsedShotMethodSource::Elevation(elevation) => source.elevation = Some(elevation),
+            ParsedShotMethodSource::Other => {}
+        }
+        methods.push(parsed.expr);
+    }
+
+    Ok(DslStatement::Shot(ParsedShotDef {
+        def: ShotDef { ball, methods },
+        source,
+    }))
 }
 
 fn hws0<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ()> {
@@ -3581,13 +3934,13 @@ fn simulation_max_events_method<'a>(
     Ok(SimulationMethodExpr::MaxEvents(value))
 }
 
-fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
     let _ = preceded(peek(preceded(chain_ws0, '.')), chain_ws0).parse_next(input)?;
     let _ = '.'.parse_next(input)?;
     shot_method.parse_next(input)
 }
 
-fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
     alt((
         preceded(peek("heading"), cut_err(shot_heading_method)),
         preceded(peek("to_pocket"), cut_err(shot_to_pocket_method)),
@@ -3604,20 +3957,44 @@ fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
     .parse_next(input)
 }
 
-fn shot_heading_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_heading_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "heading".parse_next(input)?;
-    let value = delimited('(', delimited(hws0, degrees_literal, hws0), ')').parse_next(input)?;
-    Ok(ShotMethodExpr::HeadingDegrees(value))
+    let (value, literal) =
+        delimited('(', delimited(hws0, located_degrees_literal, hws0), ')').parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::HeadingDegrees(value),
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: Some(literal),
+        }),
+    })
 }
 
-fn shot_to_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_to_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "to_pocket".parse_next(input)?;
-    shot_pocket_arguments.parse_next(input)
+    let expr = shot_pocket_arguments.parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
-fn shot_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "pocket".parse_next(input)?;
-    shot_pocket_arguments.parse_next(input)
+    let expr = shot_pocket_arguments.parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
 fn shot_pocket_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -3637,19 +4014,43 @@ fn shot_pocket_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMeth
     })
 }
 
-fn shot_cut_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_cut_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "cut".parse_next(input)?;
-    shot_cut_arguments(input)
+    let expr = shot_cut_arguments(input)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
-fn shot_cut_left_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_cut_left_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "cut_left".parse_next(input)?;
-    shot_one_sided_cut_arguments(input, ShotCutDirection::Left)
+    let expr = shot_one_sided_cut_arguments(input, ShotCutDirection::Left)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
-fn shot_cut_right_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_cut_right_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "cut_right".parse_next(input)?;
-    shot_one_sided_cut_arguments(input, ShotCutDirection::Right)
+    let expr = shot_one_sided_cut_arguments(input, ShotCutDirection::Right)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
 fn shot_cut_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -3697,23 +4098,28 @@ fn shot_one_sided_cut_arguments<'a>(
     })
 }
 
-fn shot_speed_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_speed_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
     let _ = "speed".parse_next(input)?;
-    let value = delimited('(', delimited(hws0, speed_literal, hws0), ')').parse_next(input)?;
-    Ok(ShotMethodExpr::SpeedIps(value))
+    let (value, literal) =
+        delimited('(', delimited(hws0, located_speed_literal, hws0), ')').parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::SpeedIps(value),
+        source: ParsedShotMethodSource::Speed { literal },
+    })
 }
 
-fn shot_tip_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_tip_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "tip".parse_next(input)?;
-    let (side, height) = delimited(
+    let ((side, side_literal), (height, height_literal)) = delimited(
         '(',
         delimited(
             hws0,
             (
-                preceded(("side", hws0, ':', hws0), radius_scale_literal),
+                preceded(("side", hws0, ':', hws0), located_radius_scale_literal),
                 preceded(
                     (hws0, ',', hws0, "height", hws0, ':', hws0),
-                    radius_scale_literal,
+                    located_radius_scale_literal,
                 ),
             ),
             hws0,
@@ -3721,27 +4127,78 @@ fn shot_tip_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr
         ')',
     )
     .parse_next(input)?;
-    Ok(ShotMethodExpr::Tip { side, height })
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::Tip { side, height },
+        source: ParsedShotMethodSource::Tip(ShotTipSource {
+            method: ByteSpan::between(method_start, input),
+            side_literal,
+            height_literal,
+        }),
+    })
 }
 
-fn shot_elevation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_elevation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "elevation".parse_next(input)?;
-    let value = delimited('(', delimited(hws0, degrees_literal, hws0), ')').parse_next(input)?;
-    Ok(ShotMethodExpr::ElevationDegrees(value))
+    let (value, literal) =
+        delimited('(', delimited(hws0, located_degrees_literal, hws0), ')').parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::ElevationDegrees(value),
+        source: ParsedShotMethodSource::Elevation(ShotElevationSource {
+            method: ByteSpan::between(method_start, input),
+            literal: Some(literal),
+            is_jump: false,
+        }),
+    })
 }
 
-fn shot_jump_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_jump_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "jump".parse_next(input)?;
-    let value = delimited('(', delimited(hws0, opt(degrees_literal), hws0), ')')
-        .parse_next(input)?
-        .unwrap_or(DEFAULT_JUMP_CUE_ELEVATION_DEGREES);
-    Ok(ShotMethodExpr::ElevationDegrees(value))
+    let located = delimited(
+        '(',
+        delimited(hws0, opt(located_degrees_literal), hws0),
+        ')',
+    )
+    .parse_next(input)?;
+    let (value, literal) = located
+        .map(|(value, literal)| (value, Some(literal)))
+        .unwrap_or((DEFAULT_JUMP_CUE_ELEVATION_DEGREES, None));
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::ElevationDegrees(value),
+        source: ParsedShotMethodSource::Elevation(ShotElevationSource {
+            method: ByteSpan::between(method_start, input),
+            literal,
+            is_jump: true,
+        }),
+    })
 }
 
-fn shot_using_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_using_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
     let _ = "using".parse_next(input)?;
     let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
-    Ok(ShotMethodExpr::Using(name.to_string()))
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::Using(name.to_string()),
+        source: ParsedShotMethodSource::Other,
+    })
+}
+
+fn located_degrees_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, ByteSpan)> {
+    let start = input.current_token_start();
+    let value = degrees_literal.parse_next(input)?;
+    Ok((value, ByteSpan::between(start, input)))
+}
+
+fn located_speed_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, ByteSpan)> {
+    let start = input.current_token_start();
+    let value = speed_literal.parse_next(input)?;
+    Ok((value, ByteSpan::between(start, input)))
+}
+
+fn located_radius_scale_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, ByteSpan)> {
+    let start = input.current_token_start();
+    let value = radius_scale_literal.parse_next(input)?;
+    Ok((value, ByteSpan::between(start, input)))
 }
 
 fn collision_model_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, CollisionModel> {

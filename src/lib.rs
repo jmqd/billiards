@@ -3559,8 +3559,15 @@ pub enum ShotError {
         height_offset: Scale,
         offset_radius: Scale,
     },
+    CueTipContactRadiusNotFinite {
+        side_offset: Scale,
+        height_offset: Scale,
+    },
     NegativeCueSpeed {
         cue_speed: InchesPerSecond,
+    },
+    RequiredCueSpeedNotFinite {
+        cue_ball_launch_speed: InchesPerSecond,
     },
     CueElevationOutOfRange {
         cue_elevation: Angle,
@@ -3632,6 +3639,12 @@ pub struct CueTipContact {
 impl CueTipContact {
     pub fn new(side_offset: Scale, height_offset: Scale) -> Result<Self, ShotError> {
         let radius = side_offset.as_f64().hypot(height_offset.as_f64());
+        if !radius.is_finite() {
+            return Err(ShotError::CueTipContactRadiusNotFinite {
+                side_offset,
+                height_offset,
+            });
+        }
         if radius > 1.0 + 1e-12 {
             return Err(ShotError::CueTipContactOutsideBall {
                 side_offset,
@@ -4762,9 +4775,14 @@ pub fn cue_speed_required_for_post_strike_speed(
         });
     }
 
-    Ok(InchesPerSecond::new(Inches::from_f64(
-        cue_ball_launch_speed.as_f64() / post_strike_speed_ratio(tip_contact, cue)?,
-    )))
+    let cue_speed = cue_ball_launch_speed.as_f64() / post_strike_speed_ratio(tip_contact, cue)?;
+    if !cue_speed.is_finite() {
+        return Err(ShotError::RequiredCueSpeedNotFinite {
+            cue_ball_launch_speed,
+        });
+    }
+
+    Ok(InchesPerSecond::new(Inches::from_f64(cue_speed)))
 }
 
 /// Validate a shot's raw cue speed and estimated cue-ball launch speed against human-play ranges.

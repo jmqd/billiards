@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Billiards SVG Generator</title>
+  <title>Billiards Wasm Preview</title>
   <link rel="stylesheet" href="./billiards-ui.css">
 </head>
 <body class="wasm-app">
   <header>
-    <h1>Billiards SVG Generator</h1>
+    <h1>Billiards Wasm Preview</h1>
     <p class="subtitle">
-      Paste a <code>.billiards</code> DSL scenario, render it in-browser through the compiled Rust/Wasm renderer, then inspect the same table controls, event log, and slow-motion playback used by the validation suite.
+      Edit the authoritative <code>.billiards</code> DSL, tune its shot with the live instruments, and inspect the same report and slow-motion playback used by the validation suite.
     </p>
   </header>
 
@@ -19,19 +19,137 @@
       <div class="panel-header">
         <h2 id="editor-title">Scenario DSL</h2>
         <div class="controls">
-          <button id="render-button" type="button">Generate SVG</button>
-          <button id="reset-button" type="button">Reset sample</button>
+          <button id="render-button" type="button" disabled>Render</button>
+          <button id="reset-button" type="button" disabled>Reset sample</button>
         </div>
       </div>
       <div class="panel-body">
+        <section id="shot-controls" class="shot-controls" aria-labelledby="shot-controls-title" hidden>
+          <div class="shot-controls-heading">
+            <h3 id="shot-controls-title">Live shot controls</h3>
+            <span>Edits are written through Rust</span>
+          </div>
+
+          <div class="shot-instrument-grid">
+            <fieldset class="shot-instrument" disabled>
+              <legend>Heading</legend>
+              <div class="heading-instrument-layout">
+                <div
+                  id="heading-dial"
+                  class="heading-dial"
+                  role="slider"
+                  tabindex="0"
+                  aria-label="Shot heading"
+                  aria-describedby="heading-help"
+                  aria-valuemin="0"
+                  aria-valuemax="360"
+                  aria-valuenow="0"
+                  aria-valuetext="0 degrees"
+                >
+                  <span class="compass-label compass-label-north" aria-hidden="true">N</span>
+                  <span class="compass-label compass-label-east" aria-hidden="true">E</span>
+                  <span class="compass-label compass-label-south" aria-hidden="true">S</span>
+                  <span class="compass-label compass-label-west" aria-hidden="true">W</span>
+                  <span id="heading-needle" class="heading-needle" aria-hidden="true"></span>
+                  <span class="heading-hub" aria-hidden="true"></span>
+                </div>
+                <div class="instrument-fields">
+                  <label class="numeric-field" for="heading-input">
+                    <span>Precise heading (degrees)</span>
+                    <span class="unit-input">
+                      <input id="heading-input" type="number" min="0" max="360" step="any" inputmode="decimal">
+                      <span aria-hidden="true">°</span>
+                    </span>
+                  </label>
+                  <div class="heading-nudges" aria-label="Heading nudges">
+                    <button type="button" data-heading-delta="-1" aria-label="Decrease heading by 1 degree">−1°</button>
+                    <button type="button" data-heading-delta="-0.1" aria-label="Decrease heading by 0.1 degrees">−0.1°</button>
+                    <button type="button" data-heading-delta="0.1" aria-label="Increase heading by 0.1 degrees">+0.1°</button>
+                    <button type="button" data-heading-delta="1" aria-label="Increase heading by 1 degree">+1°</button>
+                  </div>
+                </div>
+              </div>
+              <p id="heading-help" class="instrument-help">Drag the compass. Arrow keys adjust 0.1°; Shift + Arrow adjusts 1°.</p>
+            </fieldset>
+
+            <fieldset class="shot-instrument" disabled>
+              <legend>Cue tip</legend>
+              <div class="tip-instrument-layout">
+                <svg id="tip-pad" class="tip-pad" viewBox="-1.12 -1.12 2.24 2.24" role="img" aria-labelledby="tip-pad-title tip-pad-description">
+                  <title id="tip-pad-title">Cue-tip contact pad</title>
+                  <desc id="tip-pad-description">Drag within the dashed clean-contact limit. Side and height controls provide keyboard access.</desc>
+                  <circle class="tip-ball" cx="0" cy="0" r="1"></circle>
+                  <path class="tip-axes" d="M -1 0 H 1 M 0 -1 V 1"></path>
+                  <circle id="tip-limit-ring" class="tip-limit-ring" cx="0" cy="0" r="0.5"></circle>
+                  <circle id="tip-pointer" class="tip-pointer" cx="0" cy="0" r="0.09"></circle>
+                </svg>
+                <div class="tip-axis-controls">
+                  <div class="axis-control">
+                    <label for="tip-side-range">Side</label>
+                    <input id="tip-side-range" type="range" min="-1" max="1" step="any" value="0">
+                    <label class="visually-hidden" for="tip-side-input">Tip side in cue-ball radii</label>
+                    <span class="unit-input">
+                      <input id="tip-side-input" type="number" min="-1" max="1" step="any" inputmode="decimal">
+                      <span aria-hidden="true">R</span>
+                    </span>
+                  </div>
+                  <div class="axis-control">
+                    <label for="tip-height-range">Height</label>
+                    <input id="tip-height-range" type="range" min="-1" max="1" step="any" value="0">
+                    <label class="visually-hidden" for="tip-height-input">Tip height in cue-ball radii</label>
+                    <span class="unit-input">
+                      <input id="tip-height-input" type="number" min="-1" max="1" step="any" inputmode="decimal">
+                      <span aria-hidden="true">R</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <p class="instrument-help">Dashed ring: current clean-contact radius.</p>
+            </fieldset>
+
+            <fieldset class="shot-instrument shot-instrument-linear" disabled>
+              <legend>Shot speed</legend>
+              <label for="speed-range">Speed</label>
+              <input id="speed-range" type="range" min="0" max="120" step="any" value="0">
+              <label class="numeric-field" for="speed-input">
+                <span>Precise speed (inches per second)</span>
+                <span class="unit-input">
+                  <input id="speed-input" type="number" min="0" max="120" step="any" inputmode="decimal">
+                  <span aria-hidden="true">IPS</span>
+                </span>
+              </label>
+            </fieldset>
+
+            <fieldset class="shot-instrument shot-instrument-linear" disabled>
+              <legend>Cue elevation</legend>
+              <div class="instrument-label-row">
+                <label for="elevation-range">Elevation</label>
+                <output id="elevation-mode" for="elevation-range elevation-input">Default</output>
+              </div>
+              <input id="elevation-range" type="range" min="0" max="45" step="any" value="0">
+              <label class="numeric-field" for="elevation-input">
+                <span>Precise elevation (degrees)</span>
+                <span class="unit-input">
+                  <input id="elevation-input" type="number" min="0" max="45" step="any" inputmode="decimal">
+                  <span aria-hidden="true">°</span>
+                </span>
+              </label>
+            </fieldset>
+          </div>
+        </section>
+
+        <label class="visually-hidden" for="dsl-input">Billiards DSL input</label>
         <textarea id="dsl-input" spellcheck="false" aria-label="Billiards DSL input"></textarea>
-        <div id="status" class="status">Loading Wasm renderer…</div>
+        <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">Loading Wasm renderer…</div>
       </div>
     </section>
 
-    <section class="card wasm-report-card" aria-labelledby="preview-title" data-scenario-card data-scenario-search="" data-scenario-speed-band="" data-scenario-events="none" data-scenario-event-count="0" data-scenario-playback="no-playback">
+    <section class="card wasm-report-card" aria-labelledby="preview-title" data-scenario-card data-scenario-search="" data-scenario-speed-band="" data-scenario-events="none" data-scenario-event-count="0" data-scenario-playback="no-playback" data-preview-stale="false">
       <div class="panel-header">
-        <h2 id="preview-title">Scenario report</h2>
+        <div class="preview-heading">
+          <h2 id="preview-title">Scenario report</h2>
+          <span id="preview-state" class="preview-state" role="status" hidden>Showing last successful preview</span>
+        </div>
         <div class="controls">
           <button id="download-button" type="button" disabled>Download SVG</button>
         </div>

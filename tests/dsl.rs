@@ -1,8 +1,9 @@
 use bigdecimal::ToPrimitive;
 use billiards::dsl::{
-    parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, BallRef, CoordinateAxis,
-    DslBuildError, DslError, DslParseError, RailSide, ScenarioBallTimelineSegment,
-    ScenarioBallTrace, ScenarioShotTrace, ScenarioTraceRenderOptions,
+    parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, shot_controls_from_dsl,
+    update_shot_control_in_dsl, update_shot_tip_in_dsl, BallRef, CoordinateAxis, DslBuildError,
+    DslError, DslParseError, RailSide, ScenarioBallTimelineSegment, ScenarioBallTrace,
+    ScenarioShotTrace, ScenarioTraceRenderOptions, ShotControl, ShotControlError, ShotControls,
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
@@ -13,8 +14,8 @@ use billiards::{
     MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemSimulation,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, PlayingConditions, Pocket,
     RadiansPerSecondSq, RailCollisionProfile, RailModel, RollingResistanceModel, Seconds,
-    ShotSpeedPreset, SlidingFrictionModel, SpinDecayModel, TableKind, Velocity2, CAROM_BALL_RADIUS,
-    TYPICAL_BALL_RADIUS,
+    ShotError, ShotSpeedPreset, SlidingFrictionModel, SpinDecayModel, TableKind, Velocity2,
+    CAROM_BALL_RADIUS, TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, Rgba};
 
@@ -1934,5 +1935,261 @@ fn rejects_duplicate_shot_methods() {
     assert!(matches!(
         err,
         DslError::Build(DslBuildError::DuplicateShotMethod { method }) if method == "heading"
+    ));
+}
+
+fn editable_shot_control_source(aim: &str, speed: &str, tip: &str, elevation: &str) -> String {
+    format!(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).{aim}.speed({speed}).tip({tip}){elevation}.using(default)\n"
+    )
+}
+
+#[test]
+fn shot_control_inspection_matches_the_corrected_three_cushion_sample() {
+    let source = "# Legal three-cushion scoring shot: cue contacts yellow, then left/top/right cushions, then red.\n\
+                  table three_cushion_carom_10ft\n\
+                  game three_cushion\n\
+                  ball cue at (3.354, 3.309)\n\
+                  ball yellow at (2.491, 5.838)\n\
+                  ball red at (2.762, 3.888)\n\
+                  cue_strike(default).mass_ratio(1.0).energy_loss(0.08)\n\
+                  ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)\n\
+                  rail_response(lively).normal_restitution(0.82).tangential_friction(0.02)\n\
+                  rails(carom).default(lively)\n\
+                  simulation(default).collision_model(throw_aware).ball_ball(carom).rail_model(spin_aware).rails(carom).conditions(heated_carom).max_events(24)\n\
+                  trace(max_events: 24)\n\
+                  shot(cue).heading(341.141deg).speed(108ips).tip(side: 0.39R, height: 0.11R).using(default)";
+
+    let controls = shot_controls_from_dsl(source)
+        .expect("the corrected sample should build")
+        .expect("the corrected sample should contain a shot");
+
+    assert_eq!(
+        controls,
+        ShotControls {
+            heading_degrees: 341.141,
+            speed_ips: 108.0,
+            tip_side: 0.39,
+            tip_height: 0.11,
+            tip_max_radius: 0.5,
+            cue_elevation_degrees: 1.384,
+            cue_elevation_explicit: false,
+            speed_max_ips: 616.0,
+            cue_elevation_max_degrees: 85.0,
+        }
+    );
+}
+
+#[test]
+fn shot_control_valid_no_shot_inspects_as_none_but_rejects_updates() {
+    let source = "table three_cushion_carom_10ft\nball cue at center\n";
+
+    assert_eq!(
+        shot_controls_from_dsl(source).expect("a shotless layout is valid DSL"),
+        None
+    );
+    assert!(matches!(
+        update_shot_control_in_dsl(source, ShotControl::Speed, 64.0),
+        Err(ShotControlError::NoShot)
+    ));
+    assert!(matches!(
+        update_shot_tip_in_dsl(source, 0.1, 0.2),
+        Err(ShotControlError::NoShot)
+    ));
+}
+
+#[test]
+fn shot_control_direct_heading_edit_preserves_unicode_crlf_and_multiline_chains() {
+    let source = "# Café shot 🎱 — preserve these bytes\r\nball cue at center\r\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\r\nshot(cue)\r\n  .heading( 12deg )\r\n  .speed(48ips)\r\n  .tip(side: 0.10R, height: 0.20R)\r\n  .using(default)\r\n";
+    let expected = "# Café shot 🎱 — preserve these bytes\r\nball cue at center\r\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\r\nshot(cue)\r\n  .heading( 271.25deg )\r\n  .speed(48ips)\r\n  .tip(side: 0.10R, height: 0.20R)\r\n  .using(default)\r\n";
+
+    let edited = update_shot_control_in_dsl(source, ShotControl::Heading, 271.25)
+        .expect("a direct heading literal should be editable");
+
+    assert_eq!(edited, expected);
+}
+
+#[test]
+fn shot_control_heading_edit_replaces_each_derived_aim_method_only() {
+    for (name, aim) in [
+        ("to_pocket", "to_pocket(nine, top-right)"),
+        ("pocket alias", "pocket(nine, top-right)"),
+        ("two-sided cut", "cut(nine, left(32deg))"),
+        ("left cut alias", "cut_left(nine, 32)"),
+        ("right cut alias", "cut_right(nine, 18)"),
+    ] {
+        let source = editable_shot_control_source(aim, "64ips", "side: 0.0R, height: 0.0R", "");
+        let expected = editable_shot_control_source(
+            "heading(123.5deg)",
+            "64ips",
+            "side: 0.0R, height: 0.0R",
+            "",
+        );
+
+        let edited = update_shot_control_in_dsl(&source, ShotControl::Heading, 123.5)
+            .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
+
+        assert_eq!(edited, expected, "{name}");
+    }
+}
+
+#[test]
+fn shot_control_speed_edit_accepts_every_input_form_and_emits_canonical_ips() {
+    for (name, speed) in [
+        ("numeric ips", "52ips"),
+        ("numeric mph", "10mph"),
+        ("numeric kph", "16.09344kph"),
+        ("named preset", "medium-fast"),
+    ] {
+        let source =
+            editable_shot_control_source("heading(12deg)", speed, "side: 0.0R, height: 0.0R", "");
+        let expected = editable_shot_control_source(
+            "heading(12deg)",
+            "73.25ips",
+            "side: 0.0R, height: 0.0R",
+            "",
+        );
+
+        let edited = update_shot_control_in_dsl(&source, ShotControl::Speed, 73.25)
+            .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
+
+        assert_eq!(edited, expected, "{name}");
+    }
+}
+
+#[test]
+fn shot_control_tip_edits_preserve_untouched_literals_and_support_atomic_updates() {
+    let source =
+        editable_shot_control_source("heading(12deg)", "52ips", "side: -0.10R, height: 0.20R", "");
+
+    let edited_side = update_shot_control_in_dsl(&source, ShotControl::TipSide, 0.3)
+        .expect("tip side should be editable independently");
+    assert_eq!(
+        edited_side,
+        editable_shot_control_source("heading(12deg)", "52ips", "side: 0.3R, height: 0.20R", "",)
+    );
+
+    let edited_height = update_shot_control_in_dsl(&source, ShotControl::TipHeight, -0.4)
+        .expect("tip height should be editable independently");
+    assert_eq!(
+        edited_height,
+        editable_shot_control_source("heading(12deg)", "52ips", "side: -0.10R, height: -0.4R", "",)
+    );
+
+    let edited_pair =
+        update_shot_tip_in_dsl(&source, 0.25, -0.35).expect("tip pair should update atomically");
+    assert_eq!(
+        edited_pair,
+        editable_shot_control_source("heading(12deg)", "52ips", "side: 0.25R, height: -0.35R", "",)
+    );
+}
+
+#[test]
+fn shot_control_elevation_edit_canonicalizes_jump_aliases_and_handles_omission() {
+    for (name, elevation, expected_elevation) in [
+        (
+            "explicit elevation",
+            ".elevation( 10deg )",
+            ".elevation( 22.5deg )",
+        ),
+        ("bare jump alias", ".jump()", ".elevation(22.5deg)"),
+        ("valued jump alias", ".jump( 32deg )", ".elevation(22.5deg)"),
+        ("omitted elevation", "", ".elevation(22.5deg)"),
+    ] {
+        let source = editable_shot_control_source(
+            "heading(12deg)",
+            "52ips",
+            "side: 0.1R, height: 0.2R",
+            elevation,
+        );
+        let expected = editable_shot_control_source(
+            "heading(12deg)",
+            "52ips",
+            "side: 0.1R, height: 0.2R",
+            expected_elevation,
+        );
+
+        let edited = update_shot_control_in_dsl(&source, ShotControl::Elevation, 22.5)
+            .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
+
+        assert_eq!(edited, expected, "{name}");
+    }
+}
+
+#[test]
+fn shot_control_updates_reject_non_finite_and_build_invalid_values() {
+    let source =
+        editable_shot_control_source("heading(12deg)", "52ips", "side: 0.1R, height: 0.2R", "");
+
+    for (control, value) in [
+        (ShotControl::Heading, f64::NAN),
+        (ShotControl::Speed, f64::INFINITY),
+        (ShotControl::Elevation, f64::NEG_INFINITY),
+        (ShotControl::TipSide, f64::NAN),
+        (ShotControl::TipHeight, f64::INFINITY),
+    ] {
+        assert!(
+            matches!(
+                update_shot_control_in_dsl(&source, control, value),
+                Err(ShotControlError::NonFiniteValue { .. })
+            ),
+            "{control:?} should reject {value}"
+        );
+    }
+
+    for (side, height) in [(f64::NAN, 0.0), (0.0, f64::INFINITY)] {
+        assert!(matches!(
+            update_shot_tip_in_dsl(&source, side, height),
+            Err(ShotControlError::NonFiniteValue { .. })
+        ));
+    }
+
+    for (control, value) in [
+        (ShotControl::Speed, -1.0),
+        (ShotControl::Elevation, 85.1),
+        (ShotControl::TipSide, 1.1),
+        (ShotControl::TipHeight, -1.1),
+    ] {
+        assert!(
+            matches!(
+                update_shot_control_in_dsl(&source, control, value),
+                Err(ShotControlError::Dsl(DslError::Build(_)))
+            ),
+            "{control:?} should reject build-invalid value {value}"
+        );
+    }
+
+    assert!(matches!(
+        update_shot_tip_in_dsl(&source, 1.1, 0.0),
+        Err(ShotControlError::Dsl(DslError::Build(_)))
+    ));
+
+    assert!(matches!(
+        update_shot_control_in_dsl(&source, ShotControl::Speed, f64::MAX),
+        Err(ShotControlError::Dsl(DslError::Build(
+            DslBuildError::InvalidShot(ShotError::RequiredCueSpeedNotFinite { .. })
+        )))
+    ));
+
+    for control in [ShotControl::TipSide, ShotControl::TipHeight] {
+        assert!(
+            matches!(
+                update_shot_control_in_dsl(&source, control, f64::MAX),
+                Err(ShotControlError::Dsl(DslError::Build(
+                    DslBuildError::InvalidShot(ShotError::CueTipContactOutsideBall { .. })
+                )))
+            ),
+            "{control:?} should reject a huge finite offset outside the cue ball"
+        );
+    }
+
+    assert!(matches!(
+        update_shot_tip_in_dsl(&source, f64::MAX, f64::MAX),
+        Err(ShotControlError::Dsl(DslError::Build(
+            DslBuildError::InvalidShot(ShotError::CueTipContactRadiusNotFinite { .. })
+        )))
     ));
 }

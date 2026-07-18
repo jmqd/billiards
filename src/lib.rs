@@ -6493,26 +6493,105 @@ pub fn compute_next_ball_ball_collision_during_current_phases_on_table(
     })
 }
 
-fn rail_collision_gap_quadratic_coefficients(
-    state: RawOnTableBallState,
-    phase: MotionPhase,
-    rail: Rail,
-    radius: f64,
-    table: &TableSpec,
-    config: &OnTableMotionConfig,
-) -> (f64, f64, f64) {
-    let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, radius, config);
-    match rail {
-        Rail::Top => {
-            let plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
-            (-0.5 * ay, -state.vy, plane - state.y)
+#[derive(Clone, Copy)]
+enum PlanarAxis {
+    X,
+    Y,
+}
+
+#[derive(Clone, Copy)]
+enum InwardSign {
+    Positive,
+    Negative,
+}
+
+#[derive(Clone, Copy)]
+struct RailBoundary {
+    axis: PlanarAxis,
+    contact_coordinate: f64,
+    inward_sign: InwardSign,
+}
+
+impl RailBoundary {
+    fn new(rail: Rail, radius: f64, table: &TableSpec) -> Self {
+        match rail {
+            Rail::Top => Self {
+                axis: PlanarAxis::Y,
+                contact_coordinate: table.diamond_to_inches(Diamond::eight()).as_f64() - radius,
+                inward_sign: InwardSign::Negative,
+            },
+            Rail::Bottom => Self {
+                axis: PlanarAxis::Y,
+                contact_coordinate: radius,
+                inward_sign: InwardSign::Positive,
+            },
+            Rail::Left => Self {
+                axis: PlanarAxis::X,
+                contact_coordinate: radius,
+                inward_sign: InwardSign::Positive,
+            },
+            Rail::Right => Self {
+                axis: PlanarAxis::X,
+                contact_coordinate: table.diamond_to_inches(Diamond::four()).as_f64() - radius,
+                inward_sign: InwardSign::Negative,
+            },
         }
-        Rail::Bottom => (0.5 * ay, state.vy, state.y - radius),
-        Rail::Left => (0.5 * ax, state.vx, state.x - radius),
-        Rail::Right => {
-            let plane = table.diamond_to_inches(Diamond::four()).as_f64() - radius;
-            (-0.5 * ax, -state.vx, plane - state.x)
+    }
+
+    fn gap_quadratic_coefficients(
+        self,
+        state: RawOnTableBallState,
+        phase: MotionPhase,
+        radius: f64,
+        config: &OnTableMotionConfig,
+    ) -> (f64, f64, f64) {
+        let (ax, ay) = raw_planar_acceleration_during_phase(state, phase, radius, config);
+        let (coordinate, velocity, acceleration) = match self.axis {
+            PlanarAxis::X => (state.x, state.vx, ax),
+            PlanarAxis::Y => (state.y, state.vy, ay),
+        };
+        match self.inward_sign {
+            InwardSign::Positive => (
+                0.5 * acceleration,
+                velocity,
+                coordinate - self.contact_coordinate,
+            ),
+            InwardSign::Negative => (
+                -0.5 * acceleration,
+                -velocity,
+                self.contact_coordinate - coordinate,
+            ),
         }
+    }
+
+    fn gap(self, state: RawOnTableBallState) -> f64 {
+        let coordinate = match self.axis {
+            PlanarAxis::X => state.x,
+            PlanarAxis::Y => state.y,
+        };
+        match self.inward_sign {
+            InwardSign::Positive => coordinate - self.contact_coordinate,
+            InwardSign::Negative => self.contact_coordinate - coordinate,
+        }
+    }
+
+    fn gap_derivative(self, state: RawOnTableBallState) -> f64 {
+        let velocity = match self.axis {
+            PlanarAxis::X => state.vx,
+            PlanarAxis::Y => state.vy,
+        };
+        match self.inward_sign {
+            InwardSign::Positive => velocity,
+            InwardSign::Negative => -velocity,
+        }
+    }
+
+    fn snap(self, mut state: RawOnTableBallState) -> RawOnTableBallState {
+        match self.axis {
+            PlanarAxis::X => state.x = self.contact_coordinate,
+            PlanarAxis::Y => state.y = self.contact_coordinate,
+        }
+        state
     }
 }
 
@@ -6524,61 +6603,16 @@ fn rail_gap_quadratic_derivative(a: f64, b: f64, t_seconds: f64) -> f64 {
     2.0 * a * t_seconds + b
 }
 
-fn raw_rail_gap_at_state(
-    state: RawOnTableBallState,
-    rail: Rail,
-    radius: f64,
-    table: &TableSpec,
-) -> f64 {
-    match rail {
-        Rail::Top => table.diamond_to_inches(Diamond::eight()).as_f64() - radius - state.y,
-        Rail::Bottom => state.y - radius,
-        Rail::Left => state.x - radius,
-        Rail::Right => table.diamond_to_inches(Diamond::four()).as_f64() - radius - state.x,
-    }
-}
-
-fn raw_rail_gap_derivative_at_state(state: RawOnTableBallState, rail: Rail) -> f64 {
-    match rail {
-        Rail::Top => -state.vy,
-        Rail::Bottom => state.vy,
-        Rail::Left => state.vx,
-        Rail::Right => -state.vx,
-    }
-}
-
-fn snap_raw_state_to_rail_contact(
-    mut state: RawOnTableBallState,
-    rail: Rail,
-    radius: f64,
-    table: &TableSpec,
-) -> RawOnTableBallState {
-    match rail {
-        Rail::Top => state.y = table.diamond_to_inches(Diamond::eight()).as_f64() - radius,
-        Rail::Right => state.x = table.diamond_to_inches(Diamond::four()).as_f64() - radius,
-        Rail::Bottom => state.y = radius,
-        Rail::Left => state.x = radius,
-    }
-    state
-}
-
 fn first_rail_collision_time_during_current_phase_raw(
     state: RawOnTableBallState,
     phase: MotionPhase,
-    rail: Rail,
+    boundary: RailBoundary,
     horizon: f64,
     radius: f64,
-    table: &TableSpec,
     config: &OnTableMotionConfig,
 ) -> Option<Seconds> {
-    let (a, b, c) = rail_collision_gap_quadratic_coefficients(
-        state,
-        phase.clone(),
-        rail,
-        radius,
-        table,
-        config,
-    );
+    let (a, b, c) =
+        boundary.gap_quadratic_coefficients(state, phase.clone(), radius, config);
     let tolerance = 1e-10 * horizon.max(1.0);
 
     if c <= tolerance && (b < -tolerance || (b.abs() <= tolerance && a < -tolerance)) {
@@ -6588,8 +6622,8 @@ fn first_rail_collision_time_during_current_phase_raw(
     if raw_phase_has_curved_rolling(state, phase.clone(), horizon, radius, config) {
         let state_at =
             |t_seconds| raw_state_at_current_phase(state, phase.clone(), t_seconds, radius, config);
-        let gap_at = |t_seconds| raw_rail_gap_at_state(state_at(t_seconds), rail, radius, table);
-        let derivative_at = |t_seconds| raw_rail_gap_derivative_at_state(state_at(t_seconds), rail);
+        let gap_at = |t_seconds| boundary.gap(state_at(t_seconds));
+        let derivative_at = |t_seconds| boundary.gap_derivative(state_at(t_seconds));
         return first_curved_entry_time_adaptive(
             horizon,
             gap_at,
@@ -6653,30 +6687,26 @@ pub fn compute_next_ball_rail_impact_on_table(
     let mut first_pocket_aperture_time: Option<f64> = None;
 
     for rail in [Rail::Top, Rail::Right, Rail::Bottom, Rail::Left] {
+        let boundary = RailBoundary::new(rail, radius, table);
         let Some(time_until_impact) = first_rail_collision_time_during_current_phase_raw(
             raw_state,
             phase.clone(),
-            rail,
+            boundary,
             horizon,
             radius,
-            table,
             config,
         ) else {
             continue;
         };
-        let state_at_impact = snap_raw_state_to_rail_contact(
-            raw_advance_within_phase_on_table(
+        let state_at_impact = boundary
+            .snap(raw_advance_within_phase_on_table(
                 raw_state,
                 phase.clone(),
                 time_until_impact.as_f64(),
                 radius,
                 config,
-            ),
-            rail,
-            radius,
-            table,
-        )
-        .into_on_table_state();
+            ))
+            .into_on_table_state();
         if rail_contact_lies_within_pocket_aperture(rail, &state_at_impact, table) {
             let aperture_time = time_until_impact.as_f64();
             if first_pocket_aperture_time.is_none_or(|current| aperture_time < current) {

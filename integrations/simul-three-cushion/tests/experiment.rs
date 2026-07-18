@@ -239,6 +239,49 @@ fn noisy_sensitivity_is_exactly_reproducible() {
 }
 
 #[test]
+fn trial_schedule_is_candidate_major_with_stable_replay_identity() {
+    let report = run(&config(&[
+        "--fixture",
+        "--mode",
+        "sensitivity",
+        "--seed",
+        "42",
+        "--candidates",
+        "3",
+        "--replications",
+        "2",
+        "--max-events",
+        "1",
+        "--workers",
+        "1",
+    ]))
+    .expect("sensitivity schedule should execute");
+
+    let scheduled = report
+        .trials
+        .iter()
+        .map(|trial| {
+            (
+                trial.candidate_id,
+                trial.replication_id,
+                trial.replay_key.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        scheduled,
+        [
+            (0, 0, "v1:42:0:0:0"),
+            (0, 1, "v1:42:0:1:1"),
+            (1, 0, "v1:42:1:0:0"),
+            (1, 1, "v1:42:1:1:1"),
+            (2, 0, "v1:42:2:0:0"),
+            (2, 1, "v1:42:2:1:1"),
+        ]
+    );
+}
+
+#[test]
 fn serial_and_parallel_runs_have_identical_semantic_records() {
     let serial_config = config(&[
         "--fixture",

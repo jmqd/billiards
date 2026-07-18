@@ -34,8 +34,26 @@ struct ReplayKey {
 #[derive(Clone, Copy, Debug)]
 struct TrialSpec {
     candidate: Candidate,
-    key: TrialKey,
     replay: ReplayKey,
+}
+
+impl TrialSpec {
+    fn new(candidate: Candidate, replication_id: u32) -> Self {
+        Self {
+            candidate,
+            replay: ReplayKey {
+                trial: TrialKey {
+                    candidate_id: candidate.id,
+                    replication_id,
+                },
+                common_random_group: u64::from(replication_id),
+            },
+        }
+    }
+
+    fn key(&self) -> TrialKey {
+        self.replay.trial
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -127,19 +145,7 @@ pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
     let mut specs = Vec::with_capacity(trial_capacity);
     for candidate in &candidates {
         for replication_id in 0..config.replication_budget {
-            let key = TrialKey {
-                candidate_id: candidate.id,
-                replication_id,
-            };
-            let common_random_group = u64::from(replication_id);
-            specs.push(TrialSpec {
-                candidate: *candidate,
-                key,
-                replay: ReplayKey {
-                    trial: key,
-                    common_random_group,
-                },
-            });
+            specs.push(TrialSpec::new(*candidate, replication_id));
         }
     }
 
@@ -288,7 +294,7 @@ fn execute_spec(
     };
     let result = evaluate_trial(evaluator, &spec.candidate, config, &context);
     TrialRecord {
-        key: spec.key,
+        key: spec.key(),
         replay: spec.replay,
         result,
     }
@@ -301,7 +307,7 @@ fn failed_record(config: &ExperimentConfig, spec: &TrialSpec, detail: &str) -> T
     };
     let applied = apply_execution_noise(spec.candidate.controls, config, &context);
     TrialRecord {
-        key: spec.key,
+        key: spec.key(),
         replay: spec.replay,
         result: Err(FailedTrial {
             applied,
@@ -523,31 +529,23 @@ mod tests {
         .into_config()
         .expect("fixed test configuration should validate");
         let controls = config.nominal;
-        let applied = |candidate_id, replication_id, common_random_group| {
-            let key = TrialKey {
-                candidate_id,
-                replication_id,
-            };
-            let spec = TrialSpec {
-                candidate: Candidate {
+        let applied = |candidate_id, replication_id| {
+            let spec = TrialSpec::new(
+                Candidate {
                     id: candidate_id,
                     controls,
                 },
-                key,
-                replay: ReplayKey {
-                    trial: key,
-                    common_random_group,
-                },
-            };
+                replication_id,
+            );
             failed_record(&config, &spec, "forced failure for noise-only test")
                 .result
                 .expect_err("failed_record should retain its failure")
                 .applied
         };
 
-        let first_candidate = applied(7, 11, 11);
-        let distinct_candidate = applied(99, 11, 11);
-        let next_replication = applied(7, 12, 12);
+        let first_candidate = applied(u64::MAX, u32::MAX);
+        let distinct_candidate = applied(0, u32::MAX);
+        let next_replication = applied(u64::MAX, u32::MAX - 1);
 
         assert_eq!(first_candidate, distinct_candidate);
         assert_ne!(first_candidate, next_replication);

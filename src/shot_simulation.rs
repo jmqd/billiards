@@ -1354,16 +1354,15 @@ pub fn execute_three_cushion(
     limit: ShotLimit,
 ) -> Result<ThreeCushionResult, ShotSimulationError> {
     let command = shot.command(layout)?;
-    let owned = execute_shot(physics, layout, &command, limit)?;
-    let adjudication = project_three_cushion(&owned);
+    let result = execute_core(physics, layout, &command, limit, true)?;
     Ok(ThreeCushionResult {
         completion: ShotCompletion {
-            elapsed: owned.elapsed,
-            termination: owned.termination,
-            summary: adjudication,
+            elapsed: result.elapsed,
+            termination: result.termination,
+            summary: result.adjudication,
         },
-        final_states: owned.final_states,
-        events: owned.events,
+        final_states: result.final_states,
+        events: result.events.into_boxed_slice(),
     })
 }
 

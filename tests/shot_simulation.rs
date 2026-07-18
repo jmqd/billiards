@@ -3,14 +3,14 @@ use billiards::shot_simulation::{
     project_three_cushion, BallBallContactResolution, BallId, CaromBallRole, ContactInstant,
     OwnedShotResult, PhysicsProfile, ResolvedEffect, ResolvedEvent, SceneBall, ShotControls,
     ShotLayout, ShotLimit, ShotSimulationError, ShotTermination, ThreeCushionAdjudication,
-    ThreeCushionIndeterminate, ThreeCushionMiss, ThreeCushionRoles, ThreeCushionShooter,
-    ThreeCushionShot, UnsupportedPhysicsReason,
+    ThreeCushionIndeterminate, ThreeCushionMiss, ThreeCushionResult, ThreeCushionRoles,
+    ThreeCushionShooter, ThreeCushionShot, UnsupportedPhysicsReason,
 };
 use billiards::{
-    BallBallCollisionConfig, BallSetPhysicsSpec, Inches, InchesPerSecond, InchesPerSecondSq,
-    OnTableMotionConfig, RadiansPerSecond, RadiansPerSecondSq, Rail, RailCollisionProfile,
-    RollingResistanceModel, Scale, Seconds, SlidingFrictionModel, SlidingToRollingModel,
-    SpinDecayModel,
+    BallBallCollisionConfig, BallSetPhysicsSpec, Inches, Inches2, InchesPerSecond,
+    InchesPerSecondSq, OnTableMotionConfig, RadiansPerSecond, RadiansPerSecondSq, Rail,
+    RailCollisionProfile, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
+    SlidingToRollingModel, SpinDecayModel,
 };
 
 fn fixture_layout() -> ShotLayout {
@@ -49,6 +49,34 @@ fn owned(events: Vec<ResolvedEvent>, termination: ShotTermination) -> OwnedShotR
         events: events.into_boxed_slice(),
         final_states: Box::new([]),
     }
+}
+
+fn execute_with_adjudication_parity(
+    physics: &PhysicsProfile,
+    layout: &ShotLayout,
+    shot: &ThreeCushionShot,
+    limit: ShotLimit,
+) -> ThreeCushionResult {
+    let full = execute_three_cushion(physics, layout, shot, limit).unwrap();
+    let compact = execute_three_cushion_compact(physics, layout, shot, limit).unwrap();
+
+    assert_eq!(compact.completion, full.completion);
+    assert_eq!(compact.final_states, full.final_states);
+
+    let retained = OwnedShotResult {
+        elapsed: full.completion.elapsed,
+        termination: full.completion.termination.clone(),
+        roles: ThreeCushionRoles {
+            cue: BallId::WHITE,
+            object_a: BallId::YELLOW,
+            object_b: BallId::RED,
+        },
+        events: full.events.clone(),
+        final_states: full.final_states.clone(),
+    };
+    assert_eq!(project_three_cushion(&retained), full.completion.summary);
+
+    full
 }
 
 fn canonical_profile_with(
@@ -312,14 +340,14 @@ fn either_cue_colored_ball_can_be_the_typed_shooter() {
 }
 
 #[test]
-fn event_limit_is_an_explicit_indeterminate_termination() {
-    let result = execute_three_cushion(
-        &PhysicsProfile::three_cushion_default(),
+fn event_limited_completion_matches_compact_and_retained_projection() {
+    let physics = PhysicsProfile::three_cushion_default();
+    let result = execute_with_adjudication_parity(
+        &physics,
         &fixture_layout(),
         &ThreeCushionShot::new(ThreeCushionShooter::Cue, fixture_controls()),
         ShotLimit::EventCount(0),
-    )
-    .unwrap();
+    );
     assert_eq!(
         result.completion.termination,
         ShotTermination::EventLimitReached { limit: 0 }
@@ -334,16 +362,88 @@ fn event_limit_is_an_explicit_indeterminate_termination() {
 }
 
 #[test]
-fn compact_and_owned_fact_projection_are_exactly_equal() {
+fn settled_completion_matches_compact_and_retained_projection() {
     let physics = PhysicsProfile::three_cushion_default();
-    let layout = fixture_layout();
-    let shot = ThreeCushionShot::new(ThreeCushionShooter::Cue, fixture_controls());
-    let full = execute_three_cushion(&physics, &layout, &shot, ShotLimit::EventCount(24)).unwrap();
-    let compact =
-        execute_three_cushion_compact(&physics, &layout, &shot, ShotLimit::EventCount(24)).unwrap();
+    let shot = ThreeCushionShot::new(
+        ThreeCushionShooter::Cue,
+        ShotControls::new(0.0, 0.0, 0.0, 0.0, 0.0).unwrap(),
+    );
+    let result = execute_with_adjudication_parity(
+        &physics,
+        &fixture_layout(),
+        &shot,
+        ShotLimit::UntilSettled,
+    );
 
-    assert_eq!(compact.completion, full.completion);
-    assert_eq!(compact.final_states, full.final_states);
+    assert_eq!(result.completion.termination, ShotTermination::Settled);
+    assert!(matches!(
+        result.completion.summary,
+        ThreeCushionAdjudication::Miss {
+            reason: ThreeCushionMiss::MissingObjectContact,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn unsupported_contact_completion_matches_compact_and_retained_projection() {
+    let physics = canonical_profile_with(|_, _, collision, _| {
+        collision.object_table_static_friction_coefficient = Scale::from_f64(0.1);
+    })
+    .unwrap();
+    let radius = physics.ball_set().radius.as_f64();
+    let object_y = 60.0;
+    let contact_y = object_y - 3.0_f64.sqrt() * radius;
+    let position = |x, y| Inches2::new(Inches::from_f64(x), Inches::from_f64(y));
+    let layout = ShotLayout::new(
+        &physics,
+        [
+            SceneBall::resting(
+                BallId::WHITE,
+                CaromBallRole::Cue,
+                position(50.0, contact_y - 7.5),
+            ),
+            SceneBall::resting(
+                BallId::YELLOW,
+                CaromBallRole::YellowCue,
+                position(50.0 - radius, object_y),
+            ),
+            SceneBall::resting(
+                BallId::RED,
+                CaromBallRole::Red,
+                position(50.0 + radius, object_y),
+            ),
+        ],
+    )
+    .unwrap();
+    let shot = ThreeCushionShot::new(
+        ThreeCushionShooter::Cue,
+        ShotControls::new(0.0, 100.0, 0.0, 0.0, 0.0).unwrap(),
+    );
+
+    let result =
+        execute_with_adjudication_parity(&physics, &layout, &shot, ShotLimit::UntilSettled);
+
+    assert!(
+        matches!(
+            result.completion.termination,
+            ShotTermination::UnsupportedPhysics {
+                reason: UnsupportedPhysicsReason::NonIdealSharedBallBallContact { .. }
+            }
+        ),
+        "expected unsupported shared contact, got {:?}: {:#?}",
+        result.completion.termination,
+        result.events
+    );
+    assert!(matches!(
+        result.completion.summary,
+        ThreeCushionAdjudication::Indeterminate {
+            reason: ThreeCushionIndeterminate::UnsupportedPhysics {
+                reason: UnsupportedPhysicsReason::NonIdealSharedBallBallContact { .. }
+            },
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -359,9 +459,12 @@ fn no_dsl_direct_execution_produces_a_verified_three_cushion_point() {
     )
     .unwrap();
     let shot = ThreeCushionShot::new(ThreeCushionShooter::Cue, controls);
-    let full = execute_three_cushion(&physics, &layout, &shot, ShotLimit::EventCount(64)).unwrap();
-    let compact =
-        execute_three_cushion_compact(&physics, &layout, &shot, ShotLimit::EventCount(64)).unwrap();
+    let full = execute_with_adjudication_parity(
+        &physics,
+        &layout,
+        &shot,
+        ShotLimit::EventCount(64),
+    );
 
     let ThreeCushionAdjudication::Scored(facts) = &full.completion.summary else {
         panic!("verified direct fixture must score")
@@ -369,9 +472,6 @@ fn no_dsl_direct_execution_produces_a_verified_three_cushion_point() {
     assert!(facts.object_a_first_contact.is_some());
     assert!(facts.object_b_first_contact.is_some());
     assert!(facts.cushion_contacts_before_completion >= 3);
-    assert_eq!(compact.completion, full.completion);
-    assert_eq!(compact.final_states, full.final_states);
-    assert!(!full.events.is_empty());
 }
 
 #[test]

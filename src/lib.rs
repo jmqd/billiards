@@ -2315,7 +2315,6 @@ impl PocketAwareEventCache {
     fn next_event(&self) -> Option<NBallSystemEvent> {
         let mut best: Option<NBallPocketAwareSystemEventCandidateRef<'_>> = None;
         let mut earliest_time = f64::INFINITY;
-        let mut earliest_ball_ball_time = f64::INFINITY;
 
         for (&(first_ball_index, second_ball_index), collision) in &self.ball_ball {
             let candidate = NBallPocketAwareSystemEventCandidateRef::BallBallCollision {
@@ -2325,7 +2324,6 @@ impl PocketAwareEventCache {
             };
             let candidate_time = candidate.time_seconds();
             earliest_time = earliest_time.min(candidate_time);
-            earliest_ball_ball_time = earliest_ball_ball_time.min(candidate_time);
             if best.is_none_or(|current| {
                 earlier_n_ball_pocket_aware_event_candidate_ref(candidate, current)
             }) {
@@ -2424,37 +2422,24 @@ impl PocketAwareEventCache {
         }
 
         let best = best?;
-        if earliest_ball_ball_time.is_finite()
-            && earliest_ball_ball_time - earliest_time <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
-        {
-            let mut ball_ball_pairs = self
-                .ball_ball
-                .iter()
-                .filter_map(|(&(first_ball_index, second_ball_index), collision)| {
-                    ((collision.time_until_impact.as_f64() - earliest_ball_ball_time).abs()
-                        <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS)
-                        .then_some((first_ball_index, second_ball_index))
-                })
-                .collect::<Vec<_>>();
-            ball_ball_pairs.sort_unstable();
-
-            if ball_ball_pairs.len() >= 2 {
-                let mut ball_indices = ball_ball_pairs
-                    .iter()
-                    .flat_map(|(first, second)| [*first, *second])
-                    .collect::<Vec<_>>();
-                ball_indices.sort_unstable();
-                ball_indices.dedup();
-
-                if ball_indices.len() != 2 * ball_ball_pairs.len() {
-                    return Some(NBallSystemEvent::SharedBallBallContact {
-                        time_until_contact: Seconds::new(earliest_ball_ball_time),
-                        ball_indices,
-                        ball_ball_pairs,
-                        resolution: shared_ball_ball_contact_resolution(),
-                    });
-                }
-            }
+        if let Some(summary) = shared_ball_ball_contact_summary(
+            earliest_time,
+            self.ball_ball.iter().map(
+                |(&(first_ball_index, second_ball_index), collision)| {
+                    (
+                        collision.time_until_impact.as_f64(),
+                        first_ball_index,
+                        second_ball_index,
+                    )
+                },
+            ),
+        ) {
+            return Some(NBallSystemEvent::SharedBallBallContact {
+                time_until_contact: summary.time_until_contact,
+                ball_indices: summary.ball_indices,
+                ball_ball_pairs: summary.ball_ball_pairs,
+                resolution: shared_ball_ball_contact_resolution(),
+            });
         }
 
         Some(best.to_event())
@@ -10871,7 +10856,7 @@ fn earlier_single_ball_event(
     let current_time = current.time().as_f64();
 
     candidate_time < current_time
-        || ((candidate_time - current_time).abs() <= 1e-12
+        || ((candidate_time - current_time).abs() <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
             && single_ball_event_priority(candidate) < single_ball_event_priority(current))
 }
 
@@ -10942,42 +10927,43 @@ fn earlier_n_ball_event_candidate(
     let current_time = current.event.time().as_f64();
 
     candidate_time < current_time
-        || ((candidate_time - current_time).abs() <= 1e-12 && candidate.source < current.source)
+        || ((candidate_time - current_time).abs() <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
+            && candidate.source < current.source)
 }
 
-fn shared_ball_ball_contact_from_candidates(
-    candidates: &[NBallSystemEventCandidate],
-) -> Option<NBallOnTableEvent> {
-    let earliest_time = candidates
-        .iter()
-        .map(|candidate| candidate.event.time().as_f64())
+#[derive(Clone, Debug, PartialEq)]
+struct SharedBallBallContactSummary {
+    time_until_contact: Seconds,
+    ball_indices: Vec<usize>,
+    ball_ball_pairs: Vec<(usize, usize)>,
+}
+
+fn shared_ball_ball_contact_summary<I>(
+    earliest_event_time: f64,
+    contacts: I,
+) -> Option<SharedBallBallContactSummary>
+where
+    I: Clone + Iterator<Item = (f64, usize, usize)>,
+{
+    let earliest_ball_ball_time = contacts
+        .clone()
+        .map(|(time, _, _)| time)
         .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
-    let earliest_ball_ball_time = candidates
-        .iter()
-        .filter_map(|candidate| match &candidate.event {
-            NBallOnTableEvent::BallBallCollision { collision, .. } => {
-                Some(collision.time_until_impact.as_f64())
-            }
-            _ => None,
-        })
-        .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
-    if earliest_ball_ball_time - earliest_time > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+    if !earliest_ball_ball_time.is_finite()
+        || earliest_ball_ball_time - earliest_event_time
+            > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
+    {
         return None;
     }
 
-    let mut ball_ball_pairs = candidates
-        .iter()
-        .filter_map(|candidate| match &candidate.event {
-            NBallOnTableEvent::BallBallCollision {
-                first_ball_index,
-                second_ball_index,
-                ..
-            } if (candidate.event.time().as_f64() - earliest_ball_ball_time).abs()
-                <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS =>
-            {
-                Some((*first_ball_index, *second_ball_index))
-            }
-            _ => None,
+    let mut ball_ball_pairs = contacts
+        .filter_map(|(time, first_ball_index, second_ball_index)| {
+            ((time - earliest_ball_ball_time).abs() <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS)
+                .then_some(if first_ball_index <= second_ball_index {
+                    (first_ball_index, second_ball_index)
+                } else {
+                    (second_ball_index, first_ball_index)
+                })
         })
         .collect::<Vec<_>>();
     ball_ball_pairs.sort_unstable();
@@ -10997,19 +10983,41 @@ fn shared_ball_ball_contact_from_candidates(
         return None;
     }
 
-    Some(NBallOnTableEvent::SharedBallBallContact {
+    Some(SharedBallBallContactSummary {
         time_until_contact: Seconds::new(earliest_ball_ball_time),
         ball_indices,
         ball_ball_pairs,
-        resolution: shared_ball_ball_contact_resolution(),
     })
 }
 
 fn select_earliest_n_ball_event_candidate(
     candidates: Vec<NBallSystemEventCandidate>,
 ) -> Option<NBallOnTableEvent> {
-    if let Some(shared_contact) = shared_ball_ball_contact_from_candidates(&candidates) {
-        return Some(shared_contact);
+    let earliest_event_time = candidates
+        .iter()
+        .map(|candidate| candidate.event.time().as_f64())
+        .min_by(|a, b| a.partial_cmp(b).expect("finite event times should sort"))?;
+    if let Some(summary) = shared_ball_ball_contact_summary(
+        earliest_event_time,
+        candidates.iter().filter_map(|candidate| match &candidate.event {
+            NBallOnTableEvent::BallBallCollision {
+                first_ball_index,
+                second_ball_index,
+                collision,
+            } => Some((
+                collision.time_until_impact.as_f64(),
+                *first_ball_index,
+                *second_ball_index,
+            )),
+            _ => None,
+        }),
+    ) {
+        return Some(NBallOnTableEvent::SharedBallBallContact {
+            time_until_contact: summary.time_until_contact,
+            ball_indices: summary.ball_indices,
+            ball_ball_pairs: summary.ball_ball_pairs,
+            resolution: shared_ball_ball_contact_resolution(),
+        });
     }
 
     candidates

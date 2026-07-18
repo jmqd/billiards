@@ -6,6 +6,7 @@ use billiards::{
     compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
     compute_next_ball_rail_impact_on_table,
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
+    compute_next_n_ball_event_on_table,
     resolve_n_ball_system_event_with_physics_and_pockets_on_table,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest,
     simulate_n_balls_with_rails_on_table_until_rest, AngularVelocity3, BallBallCollisionConfig,
@@ -858,8 +859,16 @@ fn airborne_ball_over_a_jaw_schedules_its_ballistic_table_contact() {
 }
 
 fn shared_three_ball_contact_fixture() -> Vec<OnTableBallState> {
+    shared_three_ball_contact_fixture_with_time_offset(0.0)
+}
+
+fn shared_three_ball_contact_fixture_with_time_offset(
+    second_contact_time_offset: f64,
+) -> Vec<OnTableBallState> {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     let shared_contact_y = -3.0_f64.sqrt() * radius;
+    let second_object_y_offset =
+        5.0 * second_contact_time_offset - 2.5 * second_contact_time_offset.powi(2);
 
     vec![
         on_table(BallState::on_table(
@@ -868,7 +877,10 @@ fn shared_three_ball_contact_fixture() -> Vec<OnTableBallState> {
             AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
         )),
         on_table(BallState::resting_at(inches2(20.0 - radius, 20.0))),
-        on_table(BallState::resting_at(inches2(20.0 + radius, 20.0))),
+        on_table(BallState::resting_at(inches2(
+            20.0 + radius,
+            20.0 + second_object_y_offset,
+        ))),
     ]
 }
 
@@ -1962,6 +1974,89 @@ fn pocket_aware_advancing_matches_rail_aware_advancing_when_pockets_are_irreleva
         ("rail impact", rail_impact),
     ] {
         assert_pocket_aware_matches_rail_aware(&states, label);
+    }
+}
+
+#[test]
+fn ordinary_and_pocket_aware_schedulers_share_the_contact_tolerance_boundary() {
+    let ball = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+
+    for (label, contact_time_offset, expect_shared_contact) in [
+        ("inside tolerance", 0.5e-12, true),
+        ("outside tolerance", 2.0e-12, false),
+    ] {
+        let states = shared_three_ball_contact_fixture_with_time_offset(contact_time_offset);
+        let first_collision = compute_next_ball_ball_collision_during_current_phases_on_table(
+            &states[0],
+            &states[1],
+            &ball,
+            &motion,
+        )
+        .expect("the first object ball should be reached");
+        let second_collision = compute_next_ball_ball_collision_during_current_phases_on_table(
+            &states[0],
+            &states[2],
+            &ball,
+            &motion,
+        )
+        .expect("the second object ball should be reached");
+        let actual_time_offset = (second_collision.time_until_impact.as_f64()
+            - first_collision.time_until_impact.as_f64())
+        .abs();
+        if expect_shared_contact {
+            assert!(
+                actual_time_offset <= 1e-12,
+                "{label}: fixture contacts were {actual_time_offset:e} seconds apart"
+            );
+        } else {
+            assert!(
+                actual_time_offset > 1e-12,
+                "{label}: fixture contacts were {actual_time_offset:e} seconds apart"
+            );
+        }
+
+        let state_refs = states.iter().collect::<Vec<_>>();
+        let ordinary = compute_next_n_ball_event_on_table(&state_refs, &ball, &motion)
+            .expect("ordinary scheduler geometry should validate")
+            .expect("ordinary scheduler should predict a collision");
+        let system_states = states
+            .into_iter()
+            .map(NBallSystemState::from)
+            .collect::<Vec<_>>();
+        let pocket_aware = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+            &system_states,
+            &ball,
+            &table,
+            &motion,
+        )
+        .expect("pocket-aware scheduler geometry should validate")
+        .expect("pocket-aware scheduler should predict a collision");
+
+        match (expect_shared_contact, &ordinary) {
+            (
+                true,
+                NBallOnTableEvent::SharedBallBallContact {
+                    ball_indices,
+                    ball_ball_pairs,
+                    ..
+                },
+            ) => {
+                assert_eq!(ball_indices, &[0, 1, 2], "{label}");
+                assert_eq!(ball_ball_pairs, &[(0, 1), (0, 2)], "{label}");
+            }
+            (
+                false,
+                NBallOnTableEvent::BallBallCollision {
+                    first_ball_index: 0,
+                    second_ball_index: 1,
+                    ..
+                },
+            ) => {}
+            (_, event) => panic!("{label}: unexpected ordinary scheduler event {event:?}"),
+        }
+        assert_events_equivalent(Some(&ordinary), Some(&pocket_aware), label);
     }
 }
 

@@ -701,9 +701,7 @@ fn unresolved_shared_object_contacts_cannot_score() {
                 ],
             ),
         ],
-        ShotTermination::UnsupportedPhysics {
-            reason: reason.clone(),
-        },
+        ShotTermination::UnsupportedPhysics { reason },
     );
 
     let adjudication = project_three_cushion(&result);

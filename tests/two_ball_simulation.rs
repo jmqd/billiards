@@ -88,7 +88,8 @@ fn sub_epsilon_duration_still_advances_two_ball_state() {
         &BallSetPhysicsSpec::default(),
         &config,
         CollisionModel::Ideal,
-    );
+    )
+    .expect("sub-epsilon two-ball simulation should succeed");
 
     assert_eq!(simulated.elapsed, dt);
     assert!(simulated.events.is_empty());

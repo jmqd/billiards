@@ -637,7 +637,8 @@ fn traced_side_spin_render_paths_sample_within_phase_curvature() {
         &table,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("side-spin path should trace for curvature sampling");
 
     let projected = path.projected_points(&table);
     let sampled = path.sampled_points(Seconds::new(0.02), &ball_set, &motion, &table);

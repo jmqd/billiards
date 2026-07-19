@@ -60,6 +60,12 @@ fn assert_gross_overlap(error: NBallGeometryError, first: usize, second: usize) 
         NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { collision_model } => {
             panic!("expected overlap error, got unsupported {collision_model:?} shared contact")
         }
+        NBallGeometryError::ZeroTimeNoProgress => {
+            panic!("expected overlap error, got zero-time no-progress failure")
+        }
+        NBallGeometryError::ZeroTimeEventLimitExceeded { limit } => {
+            panic!("expected overlap error, got zero-time event limit {limit}")
+        }
     }
 }
 
@@ -91,6 +97,12 @@ fn stationary_and_closing_gross_overlaps_are_rejected_before_events_or_impulses(
         NBallOnTableExecutionError::Geometry(error) => assert_gross_overlap(error, 0, 1),
         NBallOnTableExecutionError::NonPlanarCollisionModel { collision_model } => {
             panic!("ideal execution must not reject model {collision_model:?}")
+        }
+        NBallOnTableExecutionError::ZeroTimeNoProgress => {
+            panic!("penetrated rigid geometry unexpectedly reached zero-time no-progress detection")
+        }
+        NBallOnTableExecutionError::ZeroTimeEventLimitExceeded { limit } => {
+            panic!("penetrated rigid geometry unexpectedly exceeded zero-time event limit {limit}")
         }
     }
 }

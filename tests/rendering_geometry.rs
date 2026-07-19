@@ -504,7 +504,10 @@ fn svg_scale_factor_above_f32_integer_precision_keeps_exact_intrinsic_dimensions
     let root = svg.lines().next().expect("SVG root element");
 
     assert_eq!(svg_attr_u64(root, "width"), 1_938 * u64::from(SCALE_FACTOR));
-    assert_eq!(svg_attr_u64(root, "height"), 1_089 * u64::from(SCALE_FACTOR));
+    assert_eq!(
+        svg_attr_u64(root, "height"),
+        1_089 * u64::from(SCALE_FACTOR)
+    );
     assert_eq!(root.matches("viewBox=\"0 0 1938 1089\"").count(), 1);
 }
 
@@ -555,10 +558,16 @@ fn png_backend_renders_spin_glyphs_without_requiring_a_ball_sprite() {
         },
     );
     let visible_pixels = rendered.pixels().filter(|pixel| pixel[3] > 0).count();
-    let bbox = diff_bbox(&RgbaImage::new(rendered.width(), rendered.height()), &rendered)
-        .expect("spin glyph should produce visible raster pixels");
+    let bbox = diff_bbox(
+        &RgbaImage::new(rendered.width(), rendered.height()),
+        &rendered,
+    )
+    .expect("spin glyph should produce visible raster pixels");
 
-    assert!(visible_pixels > 20, "spin glyph should have a visible filled footprint");
+    assert!(
+        visible_pixels > 20,
+        "spin glyph should have a visible filled footprint"
+    );
     assert!(bbox.2 - bbox.0 >= 10 && bbox.3 - bbox.1 >= 10);
 }
 
@@ -664,13 +673,9 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     for state in states {
         game.add_spin_glyph_for_on_table_state(state, &ball_spec);
     }
-    let trajectory_start = rolling
-        .as_ball_state()
-        .projected_position(&table_spec);
-    let trajectory_end = trajectory_start.translate_inches(
-        Inches::from_f64(12.0),
-        Angle::from_north(0.0, 1.0),
-    );
+    let trajectory_start = rolling.as_ball_state().projected_position(&table_spec);
+    let trajectory_end =
+        trajectory_start.translate_inches(Inches::from_f64(12.0), Angle::from_north(0.0, 1.0));
     game.add_dotted_line(
         &trajectory_start,
         &trajectory_end,
@@ -732,14 +737,13 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     let trajectory_length = trajectory_dx.hypot(trajectory_dy);
     let rolling_glyph = svg_element(&svg, "data-spin-kind=\"rolling\"", 0);
     let arrow_angle = svg_attr_f32(rolling_glyph, "data-spin-angle-deg").to_radians();
-    let alignment = (trajectory_dx * arrow_angle.cos() + trajectory_dy * arrow_angle.sin())
-        / trajectory_length;
+    let alignment =
+        (trajectory_dx * arrow_angle.cos() + trajectory_dy * arrow_angle.sin()) / trajectory_length;
     assert!(
         alignment > 0.999,
         "rolling spin arrow should point along the rendered trajectory, got dot {alignment}"
     );
 }
-
 
 #[test]
 fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
@@ -1025,7 +1029,8 @@ fn svg_trace_event_markers_carry_event_labels_for_tooltips_without_visible_text(
         &table_spec,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("event-marker path should trace");
     let mut state = GameState::new(table_spec);
     state.add_dotted_ball_path_styled(
         &path,
@@ -1233,7 +1238,8 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
         &table_spec,
         &motion_config(),
         RailModel::Mirror,
-    );
+    )
+    .expect("mirror-bank path should trace");
     let points = path.projected_points(&table_spec);
     assert_eq!(
         points.len(),
@@ -1379,7 +1385,8 @@ fn rendered_ball_paths_can_use_one_shared_renderer_for_fixed_and_speed_scaled_wi
         &table_spec,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("speed-scaled raster path should trace");
     let style = BallPathStyle::new(image::Rgba([255, 255, 255, 255])).without_endpoint_clipping();
     let transparent = DiagramRenderOptions {
         scale_factor: 1,
@@ -1459,7 +1466,8 @@ fn rendered_ball_paths_emit_speed_scaled_heading_chevrons_in_svg() {
         &table_spec,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("speed-scaled SVG path should trace");
     let style = BallPathStyle::new(image::Rgba([255, 255, 255, 255])).without_endpoint_clipping();
 
     let mut state = GameState::new(table_spec);

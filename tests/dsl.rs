@@ -2012,6 +2012,19 @@ fn shot_control_inspection_matches_the_corrected_three_cushion_sample() {
 }
 
 #[test]
+fn shot_control_inspection_expands_speed_max_above_preset_ceiling() {
+    let source =
+        editable_shot_control_source("heading(12deg)", "700ips", "side: 0.0R, height: 0.0R", "");
+
+    let controls = shot_controls_from_dsl(&source)
+        .expect("a finite 700ips shot should build")
+        .expect("the fixture should contain a shot");
+
+    assert_eq!(controls.speed_ips, 700.0);
+    assert_eq!(controls.speed_max_ips, 700.0);
+}
+
+#[test]
 fn shot_control_valid_no_shot_inspects_as_none_but_rejects_updates() {
     let source = "table three_cushion_carom_10ft\nball cue at center\n";
 

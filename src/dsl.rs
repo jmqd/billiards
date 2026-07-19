@@ -2387,6 +2387,9 @@ pub fn shot_controls_from_dsl(source: &str) -> Result<Option<ShotControls>, Shot
             _ => None,
         })
         .ok_or(ShotControlError::MissingSourceMetadata { control: "speed" })?;
+    let preset_max = ShotSpeedPreset::ExceptionalPowerBreak
+        .inches_per_second()
+        .as_f64();
     let tip_contact = built_shot.shot.tip_contact();
 
     Ok(Some(ShotControls {
@@ -2397,9 +2400,7 @@ pub fn shot_controls_from_dsl(source: &str) -> Result<Option<ShotControls>, Shot
         tip_max_radius: built_shot.cue_strike.miscue_offset_limit().as_f64(),
         cue_elevation_degrees: built_shot.shot.cue_elevation().as_degrees(),
         cue_elevation_explicit: shot_source.elevation.is_some(),
-        speed_max_ips: ShotSpeedPreset::ExceptionalPowerBreak
-            .inches_per_second()
-            .as_f64(),
+        speed_max_ips: preset_max.max(speed_ips),
         cue_elevation_max_degrees: crate::MAX_CUE_ELEVATION_DEGREES,
     }))
 }

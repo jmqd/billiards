@@ -140,6 +140,39 @@
         assert(increaseHeading && !increaseHeading.disabled, 'heading control must be interactive');
         assert(speedInput && !speedInput.matches(':disabled'), 'metric speed control must be interactive');
 
+        const initialMetricSpeedMax = '56.32704';
+        assert(
+          speedInput.max === initialMetricSpeedMax,
+          'ordinary speed must initialize the precise input max to exactly 56.32704 km/h',
+        );
+
+        const abovePresetMetricSpeed = '64.008';
+        speedInput.value = abovePresetMetricSpeed;
+        speedInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+        assert(
+          dslInput.value.includes('.speed(700ips)'),
+          '64.008 km/h entered through the precise speed control must write exactly .speed(700ips)',
+        );
+        assert(
+          speedInput.value === abovePresetMetricSpeed,
+          'precise speed must resync to 64.008 km/h without clamping to the old preset ceiling',
+        );
+        assert(
+          speedRange.value === abovePresetMetricSpeed,
+          'speed range must resync to 64.008 km/h without clamping to the old preset ceiling',
+        );
+        assert(
+          speedInput.max === abovePresetMetricSpeed
+            && speedInput.getAttribute('max') === abovePresetMetricSpeed,
+          'precise speed max property and attribute must expand to exactly 64.008 km/h',
+        );
+        assert(
+          speedRange.max === abovePresetMetricSpeed
+            && speedRange.getAttribute('max') === abovePresetMetricSpeed,
+          'speed range max property and attribute must expand to exactly 64.008 km/h',
+        );
+
         const metricSpeed = '32.18688';
         speedInput.value = metricSpeed;
         speedInput.dispatchEvent(new Event('change', { bubbles: true }));

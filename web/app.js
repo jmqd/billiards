@@ -581,8 +581,7 @@ function bindShotControls() {
   speedInput.addEventListener("change", () => {
     const value = speedInput.valueAsNumber;
     if (Number.isFinite(value) && shotState) {
-      const clampedKmh = clamp(value, 0, ipsToKmh(shotState.speedMaxIps));
-      applyControlUpdate("speed", kmhToIps(clampedKmh));
+      applyControlUpdate("speed", kmhToIps(Math.max(0, value)));
     } else if (shotState) {
       syncShotControls(shotState);
     }

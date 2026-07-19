@@ -35,27 +35,51 @@ pub fn draw_dashed_line_thick_mut(
         return;
     }
     let pattern_px = dash_px + gap_px;
+    if gap_px == 0.0 {
+        draw_antialiased_thick_line_segment_mut(img, a, b, width_px, color);
+        return;
+    }
+    if pattern_px < 1.0 {
+        let duty_cycle = dash_px / pattern_px;
+        let averaged_color = Rgba([
+            color[0],
+            color[1],
+            color[2],
+            ((color[3] as f32) * duty_cycle).round() as u8,
+        ]);
+        draw_antialiased_thick_line_segment_mut(img, a, b, width_px, averaged_color);
+        return;
+    }
 
-    let dx = b.0 as f32 - a.0 as f32;
-    let dy = b.1 as f32 - a.1 as f32;
+    let dx = f64::from(b.0) - f64::from(a.0);
+    let dy = f64::from(b.1) - f64::from(a.1);
     let len = (dx * dx + dy * dy).sqrt();
     if len == 0.0 {
         return;
     }
 
-    // Unit direction and its normal
+    // Unit direction and its normal. Pattern progression stays in f64 so a valid pattern cannot
+    // stagnate when the accumulated distance grows beyond f32's integer precision.
     let ux = dx / len;
     let uy = dy / len;
-    let (nx, ny) = normal(ux, uy);
+    let (nx, ny) = normal(ux as f32, uy as f32);
     let half_w = width_px * 0.5;
+    let dash_px = f64::from(dash_px);
+    let pattern_px = f64::from(pattern_px);
 
     let mut s = 0.0;
     while s < len {
         let e = (s + dash_px).min(len);
 
         // Centre-line endpoints of this dash
-        let p0 = (a.0 as f32 + ux * s, a.1 as f32 + uy * s);
-        let p1 = (a.0 as f32 + ux * e, a.1 as f32 + uy * e);
+        let p0 = (
+            (f64::from(a.0) + ux * s) as f32,
+            (f64::from(a.1) + uy * s) as f32,
+        );
+        let p1 = (
+            (f64::from(a.0) + ux * e) as f32,
+            (f64::from(a.1) + uy * e) as f32,
+        );
 
         // Four rectangle corners = endpoints +/- half_w along the normal
         let c0 = offset(p0, nx, ny, half_w);
@@ -64,12 +88,7 @@ pub fn draw_dashed_line_thick_mut(
         let c3 = offset(p0, -nx, -ny, half_w);
 
         draw_polygon_mut(img, &[c0, c1, c2, c3], color);
-
-        let next_s = s + pattern_px;
-        if next_s <= s {
-            break;
-        }
-        s = next_s;
+        s += pattern_px;
     }
 }
 
@@ -366,6 +385,28 @@ mod tests {
 
             assert_eq!(actual, original, "{name}");
         }
+    }
+
+    #[test]
+    fn given_a_subpixel_dash_and_zero_gap_when_drawing_then_the_far_endpoint_is_painted() {
+        let color = Rgba([255, 0, 0, 255]);
+        let mut image = RgbaImage::new(101, 3);
+
+        draw_dashed_line_thick_mut(
+            &mut image,
+            (0, 1),
+            (100, 1),
+            2.0_f32.powi(-20),
+            0.0,
+            2.0,
+            color,
+        );
+
+        assert_eq!(
+            *image.get_pixel(100, 1),
+            color,
+            "a valid dash pattern must make progress across the entire segment"
+        );
     }
 
     #[test]

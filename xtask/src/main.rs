@@ -728,6 +728,20 @@ fn copy_preview_asset(source: impl AsRef<Path>, output_dir: &Path) -> Result<(),
             .file_name()
             .ok_or_else(|| format!("asset path {} has no file name", source.display()))?,
     );
+    if target.exists() {
+        let canonical_source = source.canonicalize().map_err(|error| {
+            format!("failed to resolve preview asset {}: {error}", source.display())
+        })?;
+        let canonical_target = target.canonicalize().map_err(|error| {
+            format!(
+                "failed to resolve preview asset destination {}: {error}",
+                target.display()
+            )
+        })?;
+        if canonical_source == canonical_target {
+            return Ok(());
+        }
+    }
     fs::copy(source, &target).map_err(|error| {
         format!(
             "failed to copy {} to {}: {error}",
@@ -2406,6 +2420,39 @@ mod tests {
     impl Drop for PreviewFixture {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.directory).expect("remove preview-server fixture");
+        }
+    }
+
+    #[test]
+    fn copy_preview_asset_preserves_an_asset_already_at_its_destination() {
+        let fixture = PreviewFixture::new();
+        let source = fixture.root.join("app.js");
+
+        copy_preview_asset(&source, &fixture.root)
+            .expect("copying an asset onto itself should succeed as a no-op");
+        assert_eq!(
+            fs::read(&source).expect("read same-file copy result"),
+            PREVIEW_JS_BODY,
+            "a same-file copy must not truncate the preview asset"
+        );
+
+        #[cfg(unix)]
+        {
+            let root_alias = fixture.directory.join("public-alias");
+            std::os::unix::fs::symlink(&fixture.root, &root_alias)
+                .expect("create symlink alias for preview document root");
+
+            copy_preview_asset(&source, &root_alias)
+                .expect("copying through a directory symlink onto the source should be a no-op");
+            assert_eq!(
+                fs::read(&source).expect("read canonical source after aliased copy"),
+                PREVIEW_JS_BODY,
+                "canonical same-file detection must not truncate through a symlinked directory"
+            );
+            assert_eq!(
+                fs::read(root_alias.join("app.js")).expect("read aliased copy destination"),
+                PREVIEW_JS_BODY
+            );
         }
     }
 

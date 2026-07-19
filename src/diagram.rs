@@ -289,7 +289,7 @@ impl DiagramBackend for PngBackend {
         let (tw, th) = table.dimensions();
 
         draw_raster_elements_for_layer(scene, DiagramLayerId::OverlaysBelowBalls, &mut table);
-        draw_raster_balls(scene, &mut table, tw, th);
+        draw_raster_balls(scene, &mut table);
         draw_raster_elements_for_layer(scene, DiagramLayerId::OverlaysAboveBalls, &mut table);
 
         let scale_factor = options.scale_factor.max(1);
@@ -1300,7 +1300,7 @@ fn draw_raster_spin_arc(
     }
 }
 
-fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage, tw: u32, th: u32) {
+fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage) {
     for ball in &scene.balls {
         let ball_png = assets::ball_img(ball.ty.clone());
         let mut ball_img: RgbaImage =
@@ -1318,13 +1318,9 @@ fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage, tw: u32, th: u
         );
         let (bw, bh) = ball_img.dimensions();
         let center = scene.viewport.position_to_scene_point(&ball.position);
-        let px = center.x.round() as i32;
-        let py = center.y.round() as i32;
-        let mut px_shifted = px - (bw as i32 / 2);
-        let mut py_shifted = py - (bh as i32 / 2);
-        px_shifted = px_shifted.clamp(0, (tw - bw) as i32);
-        py_shifted = py_shifted.clamp(0, (th - bh) as i32);
-        overlay(&mut *table, &ball_img, px_shifted.into(), py_shifted.into());
+        let px = center.x.round() as i64 - i64::from(bw) / 2;
+        let py = center.y.round() as i64 - i64::from(bh) / 2;
+        overlay(&mut *table, &ball_img, px, py);
     }
 }
 

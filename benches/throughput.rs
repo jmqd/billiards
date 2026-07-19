@@ -195,14 +195,17 @@ fn run_single_ball_trace_batch(
     motion: &OnTableMotionConfig,
 ) {
     for state in states {
-        black_box(trace_ball_path_with_rails_on_table(
-            black_box(state),
-            black_box(BallPathStop::UntilRest),
-            black_box(ball_set),
-            black_box(table),
-            black_box(motion),
-            black_box(billiards::RailModel::SpinAware),
-        ));
+        black_box(
+            trace_ball_path_with_rails_on_table(
+                black_box(state),
+                black_box(BallPathStop::UntilRest),
+                black_box(ball_set),
+                black_box(table),
+                black_box(motion),
+                black_box(billiards::RailModel::SpinAware),
+            )
+            .expect("throughput single-ball trace benchmark should succeed"),
+        );
     }
 }
 

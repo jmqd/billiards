@@ -1808,8 +1808,11 @@ fn usage_text() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use billiards::diagram::BallStyle;
     use std::collections::BTreeMap;
     use std::net::Shutdown;
+    use std::process::{Child, Command as ProcessCommand, Stdio};
+    use std::sync::mpsc;
 
     fn assert_close(actual: f64, expected: f64) {
         let delta = (actual - expected).abs();
@@ -2188,6 +2191,9 @@ mod tests {
                     label: Some("C"),
                     radius: 10.0,
                     radius_inches: 1.0,
+                    style: BallStyle::Plain,
+                    paint: None,
+                    gradient: None,
                 }],
                 frames: vec![
                     ScenarioPlaybackFrameReport {

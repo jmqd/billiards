@@ -1975,6 +1975,7 @@ impl std::error::Error for DslParseError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PhysicsConfigKind {
+    CueStrike,
     BallBall,
     RailResponse,
 }
@@ -2058,6 +2059,11 @@ pub enum DslBuildError {
     MissingShotAimMethod,
     MissingShotMethod {
         method: String,
+    },
+    InvalidShotMethodValue {
+        method: String,
+        value: f64,
+        expected: String,
     },
     UnknownCueStrike(String),
     UnknownBallBallConfig(String),
@@ -2197,6 +2203,14 @@ impl std::fmt::Display for DslBuildError {
             Self::MissingShotMethod { method } => {
                 write!(f, "shot is missing .{method}(...)")
             }
+            Self::InvalidShotMethodValue {
+                method,
+                value,
+                expected,
+            } => write!(
+                f,
+                "shot has invalid .{method} value {value}; expected {expected}"
+            ),
             Self::UnknownCueStrike(name) => write!(f, "unknown cue_strike '{name}'"),
             Self::UnknownBallBallConfig(name) => write!(f, "unknown ball_ball '{name}'"),
             Self::UnknownRailResponse(name) => write!(f, "unknown rail_response '{name}'"),
@@ -2707,7 +2721,13 @@ fn build_cue_strike(def: &CueStrikeDef) -> Result<CueStrikeConfig, DslBuildError
     for method in &def.methods {
         match method {
             CueStrikeMethodExpr::MassRatio(value) => {
-                set_once(&mut cue_mass_ratio, Scale::from_f64(*value), || {
+                let value = validate_finite_physics_value(
+                    PhysicsConfigKind::CueStrike,
+                    &def.name,
+                    "mass_ratio",
+                    *value,
+                )?;
+                set_once(&mut cue_mass_ratio, value, || {
                     DslBuildError::DuplicateCueStrikeMethod {
                         name: def.name.clone(),
                         method: "mass_ratio".to_string(),
@@ -2715,7 +2735,13 @@ fn build_cue_strike(def: &CueStrikeDef) -> Result<CueStrikeConfig, DslBuildError
                 })?;
             }
             CueStrikeMethodExpr::EnergyLoss(value) => {
-                set_once(&mut collision_energy_loss, Scale::from_f64(*value), || {
+                let value = validate_finite_physics_value(
+                    PhysicsConfigKind::CueStrike,
+                    &def.name,
+                    "energy_loss",
+                    *value,
+                )?;
+                set_once(&mut collision_energy_loss, value, || {
                     DslBuildError::DuplicateCueStrikeMethod {
                         name: def.name.clone(),
                         method: "energy_loss".to_string(),
@@ -2723,7 +2749,13 @@ fn build_cue_strike(def: &CueStrikeDef) -> Result<CueStrikeConfig, DslBuildError
                 })?;
             }
             CueStrikeMethodExpr::EndmassRatio(value) => {
-                set_once(&mut endmass_ratio, Scale::from_f64(*value), || {
+                let value = validate_finite_physics_value(
+                    PhysicsConfigKind::CueStrike,
+                    &def.name,
+                    "endmass_ratio",
+                    *value,
+                )?;
+                set_once(&mut endmass_ratio, value, || {
                     DslBuildError::DuplicateCueStrikeMethod {
                         name: def.name.clone(),
                         method: "endmass_ratio".to_string(),
@@ -3324,6 +3356,10 @@ fn build_shot(
     let (side, height) = tip.ok_or_else(|| DslBuildError::MissingShotMethod {
         method: "tip".to_string(),
     })?;
+    let cue_ball_launch_speed_ips =
+        validate_finite_shot_method_value("speed", cue_ball_launch_speed_ips)?;
+    let side = validate_finite_shot_method_value("tip side", side)?;
+    let height = validate_finite_shot_method_value("tip height", height)?;
     let cue_strike_name = cue_strike_name.ok_or_else(|| DslBuildError::MissingShotMethod {
         method: "using".to_string(),
     })?;
@@ -3382,7 +3418,7 @@ fn validate_non_negative_physics_value(
     method: &str,
     value: f64,
 ) -> Result<Scale, DslBuildError> {
-    if value >= 0.0 {
+    if value.is_finite() && value >= 0.0 {
         Ok(Scale::from_f64(value))
     } else {
         Err(DslBuildError::InvalidPhysicsConfigValue {
@@ -3391,6 +3427,37 @@ fn validate_non_negative_physics_value(
             method: method.to_string(),
             value,
             expected: "a non-negative value".to_string(),
+        })
+    }
+}
+
+fn validate_finite_physics_value(
+    kind: PhysicsConfigKind,
+    name: &str,
+    method: &str,
+    value: f64,
+) -> Result<Scale, DslBuildError> {
+    if value.is_finite() {
+        Ok(Scale::from_f64(value))
+    } else {
+        Err(DslBuildError::InvalidPhysicsConfigValue {
+            kind,
+            name: name.to_string(),
+            method: method.to_string(),
+            value,
+            expected: "a finite value".to_string(),
+        })
+    }
+}
+
+fn validate_finite_shot_method_value(method: &str, value: f64) -> Result<f64, DslBuildError> {
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(DslBuildError::InvalidShotMethodValue {
+            method: method.to_string(),
+            value,
+            expected: "a finite value".to_string(),
         })
     }
 }

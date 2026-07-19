@@ -206,6 +206,7 @@ fn report_is_stable_and_distinguishes_non_misses() {
         .expect("report should write twice");
     assert_eq!(first, second);
     let text = String::from_utf8(first).expect("report is UTF-8");
+    assert!(text.contains("META,mode=sensitivity,shooter=yellow,"));
     assert!(text.contains("outcome,detail"));
     assert!(text.contains(",indeterminate,event limit"));
     assert!(text.contains(",failed,invalid shot"));

@@ -10,10 +10,28 @@ pub enum Shooter {
     Yellow,
 }
 
+impl fmt::Display for Shooter {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::White => "white",
+            Self::Yellow => "yellow",
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum Mode {
     Sensitivity,
     Search,
+}
+
+impl fmt::Display for Mode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Sensitivity => "sensitivity",
+            Self::Search => "search",
+        })
+    }
 }
 
 /// A location in carom-table diamond coordinates.
@@ -247,8 +265,8 @@ impl ExperimentReport {
         writeln!(
             output,
             "META,mode={},shooter={},master_seed={},seed_protocol={},candidate_count={},trial_count={}",
-            DisplayMode(self.mode),
-            DisplayShooter(self.shooter),
+            self.mode,
+            self.shooter,
             self.master_seed,
             self.seed_protocol,
             self.candidates.len(),
@@ -317,27 +335,5 @@ fn csv_field(value: &str) -> String {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_owned()
-    }
-}
-
-struct DisplayMode(Mode);
-
-impl fmt::Display for DisplayMode {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self.0 {
-            Mode::Sensitivity => "sensitivity",
-            Mode::Search => "search",
-        })
-    }
-}
-
-struct DisplayShooter(Shooter);
-
-impl fmt::Display for DisplayShooter {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self.0 {
-            Shooter::White => "white",
-            Shooter::Yellow => "yellow",
-        })
     }
 }

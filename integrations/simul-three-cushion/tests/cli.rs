@@ -311,7 +311,9 @@ fn report_is_stable_and_distinguishes_non_misses() {
                 replication_id: 0,
                 replay_key: "v1:3:0".into(),
                 applied: controls,
-                disposition: TrialDisposition::Indeterminate("event limit".into()),
+                disposition: TrialDisposition::Indeterminate(
+                    "event, \"limit\"\r\ncontinued".into(),
+                ),
             },
             TrialReport {
                 candidate_id: 3,
@@ -332,6 +334,12 @@ fn report_is_stable_and_distinguishes_non_misses() {
     let text = String::from_utf8(first).expect("report is UTF-8");
     assert!(text.contains("META,mode=sensitivity,shooter=yellow,"));
     assert!(text.contains("outcome,detail"));
-    assert!(text.contains(",indeterminate,event limit"));
-    assert!(text.contains(",failed,invalid shot"));
+    assert!(text.contains(concat!(
+        "TRIAL,3,0,v1:3:0,25.000000000,150.000000000,0.000000000,",
+        "0.000000000,0.000000000,indeterminate,\"event, \"\"limit\"\"\r\ncontinued\"\n",
+    )));
+    assert!(text.contains(concat!(
+        "TRIAL,3,1,v1:3:1,25.000000000,150.000000000,0.000000000,",
+        "0.000000000,0.000000000,failed,invalid shot\n",
+    )));
 }

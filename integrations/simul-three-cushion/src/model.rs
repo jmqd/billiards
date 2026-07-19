@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use std::{fmt, io};
+use std::{borrow::Cow, fmt, io};
 
 use clap::ValueEnum;
 
@@ -330,10 +330,10 @@ fn display_option_usize(value: Option<usize>) -> String {
     value.map_or_else(String::new, |number| number.to_string())
 }
 
-fn csv_field(value: &str) -> String {
+fn csv_field(value: &str) -> Cow<'_, str> {
     if value.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", value.replace('"', "\"\""))
+        Cow::Owned(format!("\"{}\"", value.replace('"', "\"\"")))
     } else {
-        value.to_owned()
+        Cow::Borrowed(value)
     }
 }

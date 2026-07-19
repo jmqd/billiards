@@ -284,7 +284,8 @@ impl DiagramBackend for PngBackend {
     type Output = Vec<u8>;
 
     fn render(scene: &DiagramScene, options: &DiagramRenderOptions) -> Self::Output {
-        let mut table = raster_background(scene);
+        let canvas_dimensions = raster_dimensions(scene.viewport);
+        let mut table = raster_background(scene, canvas_dimensions);
         let (tw, th) = table.dimensions();
 
         draw_raster_elements_for_layer(scene, DiagramLayerId::OverlaysBelowBalls, &mut table);
@@ -313,24 +314,162 @@ impl DiagramBackend for PngBackend {
     }
 }
 
-fn raster_background(scene: &DiagramScene) -> RgbaImage {
-    let legacy_dimensions = (LEGACY_WIDTH_PX as u32, LEGACY_HEIGHT_PX as u32);
+fn raster_dimensions(viewport: DiagramViewport) -> (u32, u32) {
+    fn validate(name: &str, value: f32) -> u32 {
+        if !value.is_finite()
+            || value <= 0.0
+            || value.fract() != 0.0
+            || f64::from(value) > f64::from(u32::MAX)
+        {
+            panic!(
+                "invalid DiagramViewport.{name} ({value:?}) for PNG rendering: canvas dimensions must be finite, positive, integral, and representable as u32"
+            );
+        }
+        value as u32
+    }
+
+    (
+        validate("width_px", viewport.width_px),
+        validate("height_px", viewport.height_px),
+    )
+}
+
+fn raster_background(scene: &DiagramScene, dimensions: (u32, u32)) -> RgbaImage {
     match scene.background {
-        DiagramBackground::Transparent => RgbaImage::new(legacy_dimensions.0, legacy_dimensions.1),
+        DiagramBackground::Transparent => RgbaImage::new(dimensions.0, dimensions.1),
         DiagramBackground::Table => match scene.table_spec.kind {
-            TableKind::Pool => {
-                image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
-                    .expect("broken table asset")
-                    .into_rgba8()
-            }
+            TableKind::Pool => raster_pool_table(scene.viewport, dimensions),
             TableKind::ThreeCushionCarom => raster_three_cushion_carom_table(
                 &scene.table_spec,
                 scene.viewport,
-                legacy_dimensions.0,
-                legacy_dimensions.1,
+                dimensions.0,
+                dimensions.1,
             ),
         },
     }
+}
+
+fn raster_pool_table(viewport: DiagramViewport, dimensions: (u32, u32)) -> RgbaImage {
+    if viewport == DiagramViewport::default() {
+        return decode_pool_table_asset();
+    }
+
+    let (destination_x, destination_y) = raster_pool_destination_splits(viewport, dimensions);
+    let table = decode_pool_table_asset();
+    let legacy_dimensions = (LEGACY_WIDTH_PX as u32, LEGACY_HEIGHT_PX as u32);
+    assert_eq!(
+        table.dimensions(),
+        legacy_dimensions,
+        "pool table asset dimensions must match the legacy DiagramViewport"
+    );
+
+    let source_x = [
+        0,
+        PLAYFIELD_LEFT_PX as u32,
+        PLAYFIELD_RIGHT_PX as u32,
+        legacy_dimensions.0,
+    ];
+    let source_y = [
+        0,
+        PLAYFIELD_TOP_PX as u32,
+        PLAYFIELD_BOTTOM_PX as u32,
+        legacy_dimensions.1,
+    ];
+    let mut output = RgbaImage::new(dimensions.0, dimensions.1);
+
+    for row in 0..3 {
+        let source_height = source_y[row + 1] - source_y[row];
+        let destination_height = destination_y[row + 1] - destination_y[row];
+        if destination_height == 0 {
+            continue;
+        }
+
+        for column in 0..3 {
+            let source_width = source_x[column + 1] - source_x[column];
+            let destination_width = destination_x[column + 1] - destination_x[column];
+            if destination_width == 0 {
+                continue;
+            }
+
+            let source = image::imageops::crop_imm(
+                &table,
+                source_x[column],
+                source_y[row],
+                source_width,
+                source_height,
+            )
+            .to_image();
+            let tile = resize(
+                &source,
+                destination_width,
+                destination_height,
+                FilterType::CatmullRom,
+            );
+            overlay(
+                &mut output,
+                &tile,
+                i64::from(destination_x[column]),
+                i64::from(destination_y[row]),
+            );
+        }
+    }
+
+    output
+}
+
+fn decode_pool_table_asset() -> RgbaImage {
+    image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
+        .expect("broken table asset")
+        .into_rgba8()
+}
+
+fn raster_pool_destination_splits(
+    viewport: DiagramViewport,
+    dimensions: (u32, u32),
+) -> ([u32; 4], [u32; 4]) {
+    fn bound(name: &str, value: f32, extent: u32) -> u32 {
+        if !value.is_finite() || value < 0.0 || f64::from(value) > f64::from(extent) {
+            panic!(
+                "invalid DiagramViewport.{name} ({value:?}) for PNG pool background: playfield bounds must be finite and within the canvas extent 0..={extent}"
+            );
+        }
+        value.round() as u32
+    }
+
+    let left = bound(
+        "playfield_left_px",
+        viewport.playfield_left_px,
+        dimensions.0,
+    );
+    let right = bound(
+        "playfield_right_px",
+        viewport.playfield_right_px,
+        dimensions.0,
+    );
+    let top = bound("playfield_top_px", viewport.playfield_top_px, dimensions.1);
+    let bottom = bound(
+        "playfield_bottom_px",
+        viewport.playfield_bottom_px,
+        dimensions.1,
+    );
+
+    if left >= right {
+        panic!(
+            "invalid PNG pool playfield x bounds ({:?}..{:?}): DiagramViewport.playfield_left_px must precede playfield_right_px by at least one raster pixel",
+            viewport.playfield_left_px, viewport.playfield_right_px
+        );
+    }
+    if top >= bottom {
+        panic!(
+            "invalid PNG pool playfield y bounds ({:?}..{:?}): DiagramViewport.playfield_top_px must precede playfield_bottom_px by at least one raster pixel",
+            viewport.playfield_top_px, viewport.playfield_bottom_px
+        );
+    }
+
+    (
+        [0, left, right, dimensions.0],
+        [0, top, bottom, dimensions.1],
+    )
 }
 
 fn raster_three_cushion_carom_table(

@@ -38,15 +38,37 @@ fn render_with_viewport(state: &GameState, viewport: DiagramViewport) -> RgbaIma
         background: DiagramBackground::Transparent,
         ..DiagramRenderOptions::default()
     };
-    let mut scene = state.to_diagram_scene(&options);
+    render_with_viewport_and_options(state, viewport, &options)
+}
+
+fn render_with_viewport_and_options(
+    state: &GameState,
+    viewport: DiagramViewport,
+    options: &DiagramRenderOptions,
+) -> RgbaImage {
+    let mut scene = state.to_diagram_scene(options);
     scene.viewport = viewport;
     load_from_memory(&render_scene_to_bytes(
         &scene,
         DiagramOutputFormat::Png,
-        &options,
+        options,
     ))
     .expect("png decode")
     .into_rgba8()
+}
+
+fn viewport_400_by_800() -> DiagramViewport {
+    let legacy = DiagramViewport::default();
+    let x_scale = 400.0 / legacy.width_px;
+    let y_scale = 800.0 / legacy.height_px;
+    DiagramViewport {
+        width_px: 400.0,
+        height_px: 800.0,
+        playfield_left_px: legacy.playfield_left_px * x_scale,
+        playfield_right_px: legacy.playfield_right_px * x_scale,
+        playfield_top_px: legacy.playfield_top_px * y_scale,
+        playfield_bottom_px: legacy.playfield_bottom_px * y_scale,
+    }
 }
 
 fn diff_bbox(a: &RgbaImage, b: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
@@ -401,6 +423,172 @@ fn default_viewport_preserves_legacy_table_anchor_pixels() {
     for (position, expected) in cases {
         let actual = viewport.position_to_scene_point(&position);
         assert_eq!((actual.x, actual.y), expected);
+    }
+}
+
+#[test]
+fn png_output_dimensions_follow_custom_viewport_for_every_background() {
+    let viewport = viewport_400_by_800();
+    let cases = [
+        (
+            "transparent",
+            TableSpec::brunswick_gc4_9ft(),
+            DiagramBackground::Transparent,
+        ),
+        (
+            "pool table",
+            TableSpec::brunswick_gc4_9ft(),
+            DiagramBackground::Table,
+        ),
+        (
+            "three-cushion table",
+            TableSpec::three_cushion_carom_10ft(),
+            DiagramBackground::Table,
+        ),
+    ];
+
+    for (name, table_spec, background) in cases {
+        let image = render_with_viewport_and_options(
+            &GameState::new(table_spec),
+            viewport,
+            &DiagramRenderOptions {
+                scale_factor: 1,
+                background,
+            },
+        );
+
+        assert_eq!(image.dimensions(), (400, 800), "{name}");
+    }
+}
+
+#[test]
+fn png_scale_factor_multiplies_custom_viewport_dimensions() {
+    let image = render_with_viewport_and_options(
+        &GameState::default(),
+        viewport_400_by_800(),
+        &DiagramRenderOptions {
+            scale_factor: 2,
+            background: DiagramBackground::Transparent,
+        },
+    );
+
+    assert_eq!(image.dimensions(), (800, 1600));
+}
+
+#[test]
+fn png_marker_uses_custom_viewport_playfield_coordinates() {
+    let viewport = viewport_400_by_800();
+    let anchor = Position::new(1u8, 6u8);
+    let expected = viewport.position_to_scene_point(&anchor);
+    let options = DiagramRenderOptions {
+        background: DiagramBackground::Transparent,
+        ..DiagramRenderOptions::default()
+    };
+    let empty = render_with_viewport_and_options(&GameState::default(), viewport, &options);
+    let mut marked = GameState::default();
+    marked.add_event_marker_styled(
+        &anchor,
+        EventMarkerStyle {
+            enabled: true,
+            color: image::Rgba([255, 0, 255, 255]),
+            radius_px: 7.0,
+            layer: OverlayLayer::AboveBalls,
+        },
+    );
+    let marked = render_with_viewport_and_options(&marked, viewport, &options);
+
+    let (min_x, min_y, max_x, max_y) =
+        diff_bbox(&empty, &marked).expect("custom-viewport marker should render");
+    let actual = ((min_x + max_x) as f32 / 2.0, (min_y + max_y) as f32 / 2.0);
+
+    assert!(
+        (actual.0 - expected.x).abs() <= 1.0 && (actual.1 - expected.y).abs() <= 1.0,
+        "marker center {actual:?} should align with custom viewport point ({}, {})",
+        expected.x,
+        expected.y,
+    );
+}
+
+#[test]
+fn png_rejects_invalid_viewport_dimensions() {
+    const TOO_LARGE_FOR_U32: f32 = 4_294_967_296.0;
+    let cases = [
+        ("zero width", 0.0, 800.0),
+        ("zero height", 400.0, 0.0),
+        ("negative width", -1.0, 800.0),
+        ("negative height", 400.0, -1.0),
+        ("fractional width", 400.5, 800.0),
+        ("fractional height", 400.0, 800.5),
+        ("NaN width", f32::NAN, 800.0),
+        ("NaN height", 400.0, f32::NAN),
+        ("infinite width", f32::INFINITY, 800.0),
+        ("infinite height", 400.0, f32::INFINITY),
+        ("unrepresentable width", TOO_LARGE_FOR_U32, 800.0),
+        ("unrepresentable height", 400.0, TOO_LARGE_FOR_U32),
+    ];
+    let options = DiagramRenderOptions {
+        background: DiagramBackground::Transparent,
+        ..DiagramRenderOptions::default()
+    };
+
+    for (name, width_px, height_px) in cases {
+        let mut scene = GameState::default().to_diagram_scene(&options);
+        scene.viewport = DiagramViewport {
+            width_px,
+            height_px,
+            ..viewport_400_by_800()
+        };
+
+        let result = std::panic::catch_unwind(|| {
+            render_scene_to_bytes(&scene, DiagramOutputFormat::Png, &options)
+        });
+
+        assert!(result.is_err(), "PNG rendering should reject {name}");
+    }
+}
+
+#[test]
+fn png_pool_table_moves_cloth_boundaries_with_non_proportional_viewport() {
+    fn is_pool_rail(pixel: &image::Rgba<u8>) -> bool {
+        let [red, green, blue, alpha] = pixel.0;
+        alpha >= 240 && red <= 170 && green <= 195 && blue <= 100
+    }
+
+    fn is_pool_cloth(pixel: &image::Rgba<u8>) -> bool {
+        let [red, green, blue, alpha] = pixel.0;
+        alpha >= 240 && red >= 180 && green >= 195 && blue >= 100
+    }
+
+    let viewport = DiagramViewport {
+        width_px: 1089.0,
+        height_px: 1938.0,
+        playfield_left_px: 250.0,
+        playfield_right_px: 1070.0,
+        playfield_top_px: 200.0,
+        playfield_bottom_px: 1840.0,
+    };
+    let image = render_with_viewport_and_options(
+        &GameState::new(TableSpec::brunswick_gc4_9ft()),
+        viewport,
+        &DiagramRenderOptions {
+            scale_factor: 1,
+            background: DiagramBackground::Table,
+        },
+    );
+    let samples = [
+        ("left", (242, 1073), (258, 1073)),
+        ("top", (713, 192), (713, 208)),
+    ];
+
+    for (edge, rail_point, cloth_point) in samples {
+        assert!(
+            is_pool_rail(image.get_pixel(rail_point.0, rail_point.1)),
+            "{edge} sample immediately outside the requested playfield should be rail"
+        );
+        assert!(
+            is_pool_cloth(image.get_pixel(cloth_point.0, cloth_point.1)),
+            "{edge} sample immediately inside the requested playfield should be cloth"
+        );
     }
 }
 

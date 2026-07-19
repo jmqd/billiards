@@ -761,8 +761,8 @@ fn draw_raster_elements_for_layer(
                     table,
                     to_pixel(start),
                     to_pixel(end),
-                    style.dash_px,
-                    style.gap_px,
+                    style.dash_px(),
+                    style.gap_px(),
                     style.width_px,
                     style.color,
                 );
@@ -1948,8 +1948,8 @@ fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramEle
                 stroke,
                 opacity,
                 style.width_px,
-                style.dash_px,
-                style.gap_px
+                style.dash_px(),
+                style.gap_px()
             ));
         }
         DiagramElement::SmoothPolyline { points, style } => {

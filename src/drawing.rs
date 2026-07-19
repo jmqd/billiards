@@ -26,6 +26,16 @@ pub fn draw_dashed_line_thick_mut(
     width_px: f32,
     color: Rgba<u8>,
 ) {
+    if !dash_px.is_finite()
+        || dash_px <= 0.0
+        || !gap_px.is_finite()
+        || gap_px < 0.0
+        || !(dash_px + gap_px).is_finite()
+    {
+        return;
+    }
+    let pattern_px = dash_px + gap_px;
+
     let dx = b.0 as f32 - a.0 as f32;
     let dy = b.1 as f32 - a.1 as f32;
     let len = (dx * dx + dy * dy).sqrt();
@@ -55,7 +65,11 @@ pub fn draw_dashed_line_thick_mut(
 
         draw_polygon_mut(img, &[c0, c1, c2, c3], color);
 
-        s += dash_px + gap_px;
+        let next_s = s + pattern_px;
+        if next_s <= s {
+            break;
+        }
+        s = next_s;
     }
 }
 
@@ -319,6 +333,39 @@ mod tests {
         );
 
         assert_eq!(changed_pixel_count(&image), 0);
+    }
+
+    #[test]
+    fn given_an_invalid_dash_pattern_when_drawing_then_pixels_are_unchanged() {
+        let original = RgbaImage::from_pixel(16, 8, Rgba([1, 2, 3, 4]));
+        let cases = [
+            ("zero-sum pattern", 0.0, 0.0),
+            ("negative dash", -1.0, 2.0),
+            ("negative gap", 2.0, -1.0),
+            ("NaN dash", f32::NAN, 1.0),
+            ("positive-infinite dash", f32::INFINITY, 1.0),
+            ("negative-infinite dash", f32::NEG_INFINITY, 1.0),
+            ("NaN gap", 1.0, f32::NAN),
+            ("positive-infinite gap", 1.0, f32::INFINITY),
+            ("negative-infinite gap", 1.0, f32::NEG_INFINITY),
+            ("finite pattern with overflowing span", f32::MAX, f32::MAX),
+        ];
+
+        for (name, dash_px, gap_px) in cases {
+            let mut actual = original.clone();
+
+            draw_dashed_line_thick_mut(
+                &mut actual,
+                (2, 4),
+                (13, 4),
+                dash_px,
+                gap_px,
+                2.0,
+                Rgba([255, 0, 0, 255]),
+            );
+
+            assert_eq!(actual, original, "{name}");
+        }
     }
 
     #[test]

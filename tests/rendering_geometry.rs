@@ -5,7 +5,7 @@ use billiards::{
     trace_ball_path_with_rails_on_table,
     visualization::{
         AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
-        EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
+        DashedLineStyleError, EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
     },
     Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
     DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2, InchesPerSecond,
@@ -308,6 +308,66 @@ fn thirty_degree_top_rail_bank_state(table: &TableSpec) -> OnTableBallState {
 }
 
 #[test]
+fn dashed_line_style_accepts_a_zero_gap() {
+    let result = DashedLineStyle::new(image::Rgba([255, 0, 255, 255])).with_pattern(4.0, 0.0);
+
+    assert!(
+        result.is_ok(),
+        "a zero gap should produce a continuous dash pattern"
+    );
+}
+
+#[test]
+fn dashed_line_style_rejects_invalid_patterns() {
+    let color = image::Rgba([255, 0, 255, 255]);
+    let cases = [
+        ("zero dash", 0.0, 1.0, DashedLineStyleError::DashLength),
+        ("negative dash", -1.0, 1.0, DashedLineStyleError::DashLength),
+        ("NaN dash", f32::NAN, 1.0, DashedLineStyleError::DashLength),
+        (
+            "positive-infinite dash",
+            f32::INFINITY,
+            1.0,
+            DashedLineStyleError::DashLength,
+        ),
+        (
+            "negative-infinite dash",
+            f32::NEG_INFINITY,
+            1.0,
+            DashedLineStyleError::DashLength,
+        ),
+        ("negative gap", 1.0, -1.0, DashedLineStyleError::GapLength),
+        ("NaN gap", 1.0, f32::NAN, DashedLineStyleError::GapLength),
+        (
+            "positive-infinite gap",
+            1.0,
+            f32::INFINITY,
+            DashedLineStyleError::GapLength,
+        ),
+        (
+            "negative-infinite gap",
+            1.0,
+            f32::NEG_INFINITY,
+            DashedLineStyleError::GapLength,
+        ),
+        (
+            "finite pattern with overflowing span",
+            f32::MAX,
+            f32::MAX,
+            DashedLineStyleError::PatternSpanOverflow,
+        ),
+    ];
+
+    for (name, dash_px, gap_px, expected) in cases {
+        let error = DashedLineStyle::new(color)
+            .with_pattern(dash_px, gap_px)
+            .expect_err(name);
+
+        assert_eq!(error, expected, "{name}");
+    }
+}
+
+#[test]
 fn rendered_ball_uses_the_table_geometry_diameter() {
     let empty = render(&GameState::default());
     let with_ball = render(&cue_ball_at("2", "4"));
@@ -361,9 +421,9 @@ fn raster_primitives_share_a_non_default_viewport_anchor() {
     let ball = cue_ball_at("2", "4");
 
     let mut line = GameState::default();
-    let mut line_style = DashedLineStyle::new(color);
-    line_style.dash_px = 1000.0;
-    line_style.gap_px = 1.0;
+    let mut line_style = DashedLineStyle::new(color)
+        .with_pattern(1000.0, 1.0)
+        .expect("finite positive dash and finite positive gap should be valid");
     line_style.width_px = 3.0;
     line.add_dotted_line_styled(
         &Position::new(1u8, 4u8),

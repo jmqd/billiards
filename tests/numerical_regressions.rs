@@ -57,8 +57,7 @@ fn airborne_grazing_contact_between_one_millisecond_samples_is_not_tunneled() {
     let landing_time = 0.2;
     let height = 1.0;
     let vertical_velocity =
-        (0.5 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * landing_time * landing_time
-            - height)
+        (0.5 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * landing_time * landing_time - height)
             / landing_time;
     let relative_speed = 100.0;
     let closest_time = 0.1005;
@@ -226,11 +225,9 @@ fn cancellation_safe_downward_table_contact_stays_positive_and_finite() {
             + downward_speed);
     let predicted = time_until_airborne_ball_reaches_table(&state)
         .expect("finite downward trajectory must reach the table");
-    let settled = settle_airborne_ball_on_next_table_contact(
-        &state,
-        &BallSetPhysicsSpec::default(),
-    )
-    .expect("finite downward trajectory must settle");
+    let settled =
+        settle_airborne_ball_on_next_table_contact(&state, &BallSetPhysicsSpec::default())
+            .expect("finite downward trajectory must settle");
     let predicted_time = predicted.as_f64();
     let settled_time = settled.time_until_contact.as_f64();
     let contact_height = settled.state_at_contact.height.as_f64();
@@ -435,22 +432,64 @@ fn subthreshold_touching_airborne_on_table_pair_still_predicts_zero_time_collisi
         ))),
     ];
 
-    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+    {
+        let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+            &states,
+            &ball,
+            &TableSpec::default(),
+            &zero_threshold_motion(),
+        )
+        .expect("the exactly touching mixed-height fixture should remain valid");
+
+        let Some(NBallSystemEvent::AirborneBallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            contact,
+        }) = event
+        else {
+            panic!("expected a subthreshold immediate mixed-height collision, got {event:?}");
+        };
+        assert_eq!((first_ball_index, second_ball_index), (0, 1));
+        assert_eq!(contact.time_until_contact.as_f64(), 0.0);
+    }
+
+    let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
         &states,
         &ball,
         &TableSpec::default(),
         &zero_threshold_motion(),
-    )
-    .expect("the exactly touching mixed-height fixture should remain valid");
-
-    let Some(NBallSystemEvent::AirborneBallBallCollision {
-        first_ball_index,
-        second_ball_index,
-        contact,
-    }) = event
-    else {
-        panic!("expected a subthreshold immediate mixed-height collision, got {event:?}");
-    };
-    assert_eq!((first_ball_index, second_ball_index), (0, 1));
-    assert_eq!(contact.time_until_contact.as_f64(), 0.0);
+        CollisionModel::Ideal,
+        &BallBallCollisionConfig::default(),
+        RailModel::Mirror,
+        &RailCollisionProfile::default(),
+        Some(1),
+    );
+    assert!(
+        !matches!(
+            &simulation,
+            Err(billiards::NBallGeometryError::ZeroTimeNoProgress)
+        ),
+        "the predicted mixed-height t=0 collision must make progress when executed"
+    );
+    let simulation = simulation.expect("the predicted mixed-height collision should be executable");
+    assert!(
+        matches!(
+            simulation.events.as_slice(),
+            [NBallSystemEvent::AirborneBallBallCollision {
+                first_ball_index: 0,
+                second_ball_index: 1,
+                contact,
+            }] if contact.time_until_contact.as_f64() == 0.0
+        ),
+        "the fallible simulation must execute the predicted zero-time collision, got {:?}",
+        simulation.events
+    );
+    assert!(
+        simulation
+            .states
+            .iter()
+            .zip(&states)
+            .any(|(after, before)| after != before),
+        "executing the zero-time collision must change at least one ball state"
+    );
 }

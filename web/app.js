@@ -361,9 +361,31 @@ function commitRenderedReport(report, elapsedMs, source) {
   setStatus(renderedStatus, "ok");
 }
 
+function failRenderWorker(message) {
+  cancelScheduledRender();
+  renderWorker?.terminate();
+  renderWorker = null;
+  inFlightRender = null;
+  configuredSourceValid = false;
+  wasmReady = false;
+  renderButton.disabled = true;
+  resetButton.disabled = true;
+  setShotControlsAvailable(false);
+  markPreviewStale(true);
+  setStatus(message, "error");
+}
+
 function handleRenderWorkerMessage(event) {
-  const request = inFlightRender;
   const response = event.data ?? {};
+  if (response.fatal === true) {
+    const detail = typeof response.error === "string" && response.error
+      ? `The background renderer failed to initialize: ${response.error}`
+      : "The background renderer failed to initialize. Reload to retry.";
+    failRenderWorker(detail);
+    return;
+  }
+
+  const request = inFlightRender;
   if (!request || response.id !== request.id) return;
   inFlightRender = null;
 
@@ -393,16 +415,7 @@ function handleRenderWorkerMessage(event) {
 
 function handleRenderWorkerError(event) {
   event.preventDefault();
-  renderWorker?.terminate();
-  renderWorker = null;
-  inFlightRender = null;
-  configuredSourceValid = false;
-  wasmReady = false;
-  renderButton.disabled = true;
-  resetButton.disabled = true;
-  setShotControlsAvailable(false);
-  markPreviewStale(true);
-  setStatus(event.message || "The background renderer stopped unexpectedly. Reload to retry.", "error");
+  failRenderWorker(event.message || "The background renderer stopped unexpectedly. Reload to retry.");
 }
 
 function applySuccessfulControlUpdate(update) {

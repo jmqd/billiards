@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Render worker fatal initialization behavior probe</title>
+</head>
+<body>
+  <output id="result">RUNNING</output>
+  <script type="module">
+    const result = document.querySelector('#result');
+    const assert = (condition, message) => {
+      if (!condition) throw new Error(message);
+    };
+    const withTimeout = (promise, message) => {
+      let timeoutId;
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timeoutId = window.setTimeout(() => reject(new Error(message)), 10000);
+        }),
+      ]).finally(() => window.clearTimeout(timeoutId));
+    };
+    const delay = (milliseconds) => new Promise((resolve) => {
+      window.setTimeout(resolve, milliseconds);
+    });
+
+    const run = async () => {
+      const initializationError = 'injected Wasm initialization rejection';
+      const renderCalledMessage = 'test-only-render-export-called';
+      const wasmModuleSource = `
+        export default async function init() {
+          throw new Error(${JSON.stringify(initializationError)});
+        }
+
+        export function render_svg_report_from_dsl() {
+          globalThis.postMessage({ testOnly: ${JSON.stringify(renderCalledMessage)} });
+          throw new Error('render export invoked after failed Wasm initialization');
+        }
+      `;
+      const wasmModuleUrl = URL.createObjectURL(new Blob(
+        [wasmModuleSource],
+        { type: 'text/javascript' },
+      ));
+      let workerModuleUrl;
+      let worker;
+
+      try {
+        const response = await fetch('./render-worker.js');
+        assert(response.ok, `render worker source request failed with HTTP ${response.status}`);
+        const workerSource = await response.text();
+        const expectedImport = 'from "./pkg/billiards.js";';
+        const replacementImport = `from ${JSON.stringify(wasmModuleUrl)};`;
+        const importOccurrences = workerSource.split(expectedImport).length - 1;
+        assert(
+          importOccurrences === 1,
+          `expected exactly one replaceable Wasm import, found ${importOccurrences}`,
+        );
+        const rewrittenWorkerSource = workerSource.replace(expectedImport, replacementImport);
+        assert(
+          rewrittenWorkerSource !== workerSource && !rewrittenWorkerSource.includes(expectedImport),
+          'render worker Wasm import replacement did not occur',
+        );
+
+        workerModuleUrl = URL.createObjectURL(new Blob(
+          [rewrittenWorkerSource],
+          { type: 'text/javascript' },
+        ));
+        worker = new Worker(workerModuleUrl, { type: 'module' });
+
+        const messages = [];
+        let resolveFirstMessage;
+        const firstMessage = new Promise((resolve) => { resolveFirstMessage = resolve; });
+        worker.addEventListener('message', (event) => {
+          messages.push(event.data);
+          if (messages.length === 1) resolveFirstMessage(event.data);
+        });
+
+        worker.postMessage({ id: 41, source: 'table carom\nshot cue 1 0' });
+        const fatalResponse = await withTimeout(
+          firstMessage,
+          'render worker did not report rejected Wasm initialization',
+        );
+
+        assert(fatalResponse?.fatal === true, 'initialization rejection must be marked fatal');
+        assert(
+          typeof fatalResponse.error === 'string'
+            && fatalResponse.error.includes(initializationError),
+          'fatal response must include the Wasm initialization error',
+        );
+        assert(
+          !Object.hasOwn(fatalResponse, 'id'),
+          'fatal initialization response must not be associated with a scenario id',
+        );
+        assert(
+          !messages.some((message) => message?.testOnly === renderCalledMessage),
+          'render export must not run after Wasm initialization rejects',
+        );
+
+        worker.postMessage({ id: 42, source: 'table carom\nshot cue 1 0' });
+        await delay(200);
+        assert(
+          messages.length === 1,
+          'fatal initialization must produce one response and close without retrying',
+        );
+        assert(
+          !messages.some((message) => message?.testOnly === renderCalledMessage),
+          'render export must remain unused after a request posted following the fatal response',
+        );
+      } finally {
+        worker?.terminate();
+        if (workerModuleUrl) URL.revokeObjectURL(workerModuleUrl);
+        URL.revokeObjectURL(wasmModuleUrl);
+      }
+    };
+
+    try {
+      await run();
+      document.documentElement.dataset.testStatus = 'passed';
+      result.textContent = 'PASS';
+    } catch (error) {
+      document.documentElement.dataset.testStatus = 'failed';
+      result.textContent = `FAIL: ${error.message}`;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

@@ -32,6 +32,7 @@
         super();
         this.messages = [];
         this.messageWaiters = [];
+        this.terminationCalls = 0;
         workerCreated.resolve(this);
       }
 
@@ -53,7 +54,13 @@
         this.dispatchEvent(new MessageEvent('message', { data }));
       }
 
-      terminate() {}
+      get terminated() {
+        return this.terminationCalls > 0;
+      }
+
+      terminate() {
+        this.terminationCalls += 1;
+      }
     }
     const controlShortTimers = () => {
       const nativeSetTimeout = window.setTimeout;
@@ -175,6 +182,14 @@
         const speedRange = document.querySelector('#speed-range');
         const speedHint = document.querySelector('#speed-hint');
         const speedUnit = speedInput?.nextElementSibling;
+        const previewCard = document.querySelector('.wasm-report-card');
+        const previewState = document.querySelector('#preview-state');
+        const renderButton = document.querySelector('#render-button');
+        const resetButton = document.querySelector('#reset-button');
+        const downloadButton = document.querySelector('#download-button');
+        const shotControls = document.querySelector('#shot-controls');
+        const shotFieldsets = [...shotControls.querySelectorAll('fieldset')];
+        const status = document.querySelector('#status');
         assert(Number.isFinite(headingInput.valueAsNumber), 'Wasm must expose the configured heading');
         assert(increaseHeading && !increaseHeading.disabled, 'heading control must be interactive');
         assert(speedInput && !speedInput.matches(':disabled'), 'metric speed control must be interactive');
@@ -311,6 +326,51 @@
         assert(
           preview.querySelector('[data-render-version="newest"]'),
           'the newest worker result must become the visible preview',
+        );
+
+        const messagesBeforeFatal = worker.messages.length;
+        const fatalError = 'synthetic Wasm initialization failure';
+        worker.respond({ fatal: true, error: fatalError });
+
+        assert(
+          worker.terminated && worker.terminationCalls === 1,
+          `fatal initialization must terminate the worker exactly once, got ${worker.terminationCalls}`,
+        );
+        assert(
+          renderButton.disabled && resetButton.disabled,
+          'fatal initialization must disable render and reset actions',
+        );
+        assert(
+          shotControls.hidden
+            && shotFieldsets.length > 0
+            && shotFieldsets.every((fieldset) => fieldset.disabled)
+            && increaseHeading.matches(':disabled')
+            && speedInput.matches(':disabled'),
+          'fatal initialization must hide and disable every interactive shot control',
+        );
+        assert(
+          preview.querySelector('[data-render-version="newest"]'),
+          'fatal initialization must retain the last successful preview',
+        );
+        assert(
+          previewCard.dataset.previewStale === 'true'
+            && previewCard.classList.contains('is-stale')
+            && !previewState.hidden,
+          'fatal initialization must visibly mark the retained preview stale',
+        );
+        assert(
+          downloadButton.disabled && preview.querySelector('#inline-download-button')?.disabled,
+          'fatal initialization must disable downloads of the stale preview',
+        );
+        assert(
+          status.classList.contains('error') && status.textContent.includes(fatalError),
+          'fatal initialization status must identify the Wasm initialization failure',
+        );
+
+        controlledTimers.flush();
+        assert(
+          worker.messages.length === messagesBeforeFatal,
+          'fatal initialization must not request or retry another worker render',
         );
       } finally {
         shotControlInspections.restore();

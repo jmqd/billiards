@@ -1523,12 +1523,9 @@ fn first_linear_sphere_entry_time(
     }
 
     let cross = [
-        center_direction[1] * velocity_direction[2]
-            - center_direction[2] * velocity_direction[1],
-        center_direction[2] * velocity_direction[0]
-            - center_direction[0] * velocity_direction[2],
-        center_direction[0] * velocity_direction[1]
-            - center_direction[1] * velocity_direction[0],
+        center_direction[1] * velocity_direction[2] - center_direction[2] * velocity_direction[1],
+        center_direction[2] * velocity_direction[0] - center_direction[0] * velocity_direction[2],
+        center_direction[0] * velocity_direction[1] - center_direction[1] * velocity_direction[0],
     ];
     let perpendicular_ratio = vector_norm_3d(cross);
     let contact_ratio = contact_distance / center_distance;
@@ -1537,12 +1534,11 @@ fn first_linear_sphere_entry_time(
     }
 
     let perpendicular_distance = (perpendicular_ratio * center_distance).min(contact_distance);
-    let distance_from_closest_approach =
-        (contact_distance * contact_distance - perpendicular_distance * perpendicular_distance)
-            .max(0.0)
-            .sqrt();
-    let travel_distance =
-        -center_distance * radial_direction - distance_from_closest_approach;
+    let distance_from_closest_approach = (contact_distance * contact_distance
+        - perpendicular_distance * perpendicular_distance)
+        .max(0.0)
+        .sqrt();
+    let travel_distance = -center_distance * radial_direction - distance_from_closest_approach;
     if travel_distance < 0.0 {
         return None;
     }
@@ -2655,6 +2651,30 @@ pub enum BallPathStop {
     RailImpacts(usize),
 }
 
+/// Error returned when a single-ball rail trace cannot continue safely.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BallPathError {
+    ZeroTimeNoProgress,
+    ZeroTimeEventLimitExceeded { limit: usize },
+}
+
+impl fmt::Display for BallPathError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ZeroTimeNoProgress => write!(
+                formatter,
+                "zero-time event left the constrained single-ball state unchanged"
+            ),
+            Self::ZeroTimeEventLimitExceeded { limit } => write!(
+                formatter,
+                "single-ball trace exceeded the limit of {limit} consecutive zero-time events"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for BallPathError {}
+
 /// One visible segment of a traced single-ball path.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BallPathSegment {
@@ -2954,9 +2974,9 @@ pub enum RestingOnTableStateError {
     NotResting,
 }
 
-/// Error returned when an aggregate N-ball input violates rigid on-table geometry.
+/// Error returned when N-ball geometry is invalid or its continuing executor cannot make progress.
 ///
-/// Exact frozen contacts are valid. Only a sub-microinch arithmetic residue is positionally
+/// Exact frozen contacts are valid inputs. Only a sub-microinch arithmetic residue is positionally
 /// recovered; material penetration is rejected before event prediction or impulse resolution.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NBallGeometryError {
@@ -2970,6 +2990,10 @@ pub enum NBallGeometryError {
     },
     UnsupportedNonIdealSharedBallBallContact {
         collision_model: CollisionModel,
+    },
+    ZeroTimeNoProgress,
+    ZeroTimeEventLimitExceeded {
+        limit: usize,
     },
 }
 
@@ -3006,6 +3030,14 @@ impl fmt::Display for NBallGeometryError {
                     "shared ball-ball contact with {collision_model:?} requires a full-state coupled solver"
                 )
             }
+            NBallGeometryError::ZeroTimeNoProgress => write!(
+                formatter,
+                "zero-time event left the constrained N-ball state unchanged"
+            ),
+            NBallGeometryError::ZeroTimeEventLimitExceeded { limit } => write!(
+                formatter,
+                "N-ball simulation exceeded the limit of {limit} consecutive zero-time events"
+            ),
         }
     }
 }
@@ -3020,11 +3052,42 @@ impl std::error::Error for NBallGeometryError {}
 pub enum NBallOnTableExecutionError {
     Geometry(NBallGeometryError),
     NonPlanarCollisionModel { collision_model: CollisionModel },
+    ZeroTimeNoProgress,
+    ZeroTimeEventLimitExceeded { limit: usize },
 }
 
 impl From<NBallGeometryError> for NBallOnTableExecutionError {
     fn from(error: NBallGeometryError) -> Self {
         Self::Geometry(error)
+    }
+}
+
+impl fmt::Display for NBallOnTableExecutionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Geometry(error) => error.fmt(formatter),
+            Self::NonPlanarCollisionModel { collision_model } => write!(
+                formatter,
+                "{collision_model:?} collision response can leave the table plane"
+            ),
+            Self::ZeroTimeNoProgress => write!(
+                formatter,
+                "zero-time event left the constrained on-table state unchanged"
+            ),
+            Self::ZeroTimeEventLimitExceeded { limit } => write!(
+                formatter,
+                "on-table simulation exceeded the limit of {limit} consecutive zero-time events"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for NBallOnTableExecutionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Geometry(error) => Some(error),
+            _ => None,
+        }
     }
 }
 
@@ -5374,13 +5437,15 @@ fn raw_compute_next_transition_on_table(
                 time_until_transition,
             })
         }
-        MotionPhase::Spinning => time_until_vertical_axis_spin_stops_f64(state.wz, config).map(
-            |time_until_transition| NextTransition {
-                phase_before: MotionPhase::Spinning,
-                phase_after: MotionPhase::Rest,
-                time_until_transition: Seconds::new(time_until_transition),
-            },
-        ),
+        MotionPhase::Spinning => {
+            time_until_vertical_axis_spin_stops_f64(state.wz, config).map(|time_until_transition| {
+                NextTransition {
+                    phase_before: MotionPhase::Spinning,
+                    phase_after: MotionPhase::Rest,
+                    time_until_transition: Seconds::new(time_until_transition),
+                }
+            })
+        }
         MotionPhase::Airborne => {
             unreachable!("on-table motion helpers cannot predict airborne transitions")
         }
@@ -6356,11 +6421,8 @@ pub fn compute_next_ball_ball_collision_on_table(
     let vx = b_state.velocity.x().as_f64() - a_state.velocity.x().as_f64();
     let vy = b_state.velocity.y().as_f64() - a_state.velocity.y().as_f64();
     let contact_distance = 2.0 * ball.radius.as_f64();
-    let impact_time = first_linear_sphere_entry_time(
-        [rx, ry, 0.0],
-        [vx, vy, 0.0],
-        contact_distance,
-    )?;
+    let impact_time =
+        first_linear_sphere_entry_time([rx, ry, 0.0], [vx, vy, 0.0], contact_distance)?;
     let time_until_impact = Seconds::new(impact_time);
 
     Some(PredictedBallBallCollision {
@@ -11259,6 +11321,34 @@ fn advance_n_on_table_balls_without_event(
 const SIMULTANEOUS_EVENT_TOLERANCE_SECONDS: f64 = 1e-12;
 const SHARED_BALL_BALL_CONTACT_STATE_EPSILON: f64 = 1e-9;
 const MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS: usize = 256;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ZeroTimeProgressFailure {
+    NoProgress,
+    EventLimitExceeded,
+}
+
+fn check_zero_time_event_progress(
+    step_elapsed: f64,
+    state_changed: bool,
+    consecutive_zero_time_events: &mut usize,
+) -> Result<(), ZeroTimeProgressFailure> {
+    if step_elapsed > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+        *consecutive_zero_time_events = 0;
+        return Ok(());
+    }
+
+    *consecutive_zero_time_events += 1;
+    if !state_changed {
+        return Err(ZeroTimeProgressFailure::NoProgress);
+    }
+    if *consecutive_zero_time_events >= MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS {
+        return Err(ZeroTimeProgressFailure::EventLimitExceeded);
+    }
+
+    Ok(())
+}
+
 const SHARED_BALL_BALL_CONTACT_POSITION_RELATIVE_TOLERANCE: f64 = 1e-7;
 const TP_B29_HERTZ_COMPLIANCE_PER_NEWTON: f64 = 7.266e-7;
 const STANDARD_BALL_MASS_KILOGRAMS: f64 = 0.17;
@@ -11399,18 +11489,6 @@ fn on_table_ball_state_collision_delta(before: &OnTableBallState, after: &OnTabl
             .abs()
         + (before_state.angular_velocity.z().as_f64() - after_state.angular_velocity.z().as_f64())
             .abs()
-}
-
-fn n_ball_on_table_collision_delta(before: &[OnTableBallState], after: &[OnTableBallState]) -> f64 {
-    if before.len() != after.len() {
-        return f64::INFINITY;
-    }
-
-    before
-        .iter()
-        .zip(after)
-        .map(|(before, after)| on_table_ball_state_collision_delta(before, after))
-        .sum()
 }
 
 fn n_ball_system_collision_delta(before: &[NBallSystemState], after: &[NBallSystemState]) -> f64 {
@@ -13356,6 +13434,7 @@ where
     let mut elapsed = Seconds::zero();
     let mut remaining = dt.as_f64();
     let mut events = Vec::new();
+    let mut consecutive_zero_time_events = 0usize;
 
     while remaining > 0.0 {
         let Some(next_event) = find_next_event(&a_state, &b_state)? else {
@@ -13396,6 +13475,20 @@ where
             "next two-ball event must not go backwards in time"
         );
 
+        let state_changed = a_state != advanced.a || b_state != advanced.b;
+        check_zero_time_event_progress(
+            step_elapsed,
+            state_changed,
+            &mut consecutive_zero_time_events,
+        )
+        .map_err(|failure| match failure {
+            ZeroTimeProgressFailure::NoProgress => NBallOnTableExecutionError::ZeroTimeNoProgress,
+            ZeroTimeProgressFailure::EventLimitExceeded => {
+                NBallOnTableExecutionError::ZeroTimeEventLimitExceeded {
+                    limit: MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS,
+                }
+            }
+        })?;
         a_state = advanced.a;
         b_state = advanced.b;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
@@ -13579,24 +13672,22 @@ where
             "next n-ball event must not go backwards in time"
         );
 
-        let states_before = states;
+        check_zero_time_event_progress(
+            step_elapsed,
+            states != advanced.states,
+            &mut consecutive_zero_time_events,
+        )
+        .map_err(|failure| match failure {
+            ZeroTimeProgressFailure::NoProgress => NBallOnTableExecutionError::ZeroTimeNoProgress,
+            ZeroTimeProgressFailure::EventLimitExceeded => {
+                NBallOnTableExecutionError::ZeroTimeEventLimitExceeded {
+                    limit: MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS,
+                }
+            }
+        })?;
         states = advanced.states;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
         events.push(event);
-
-        // A zero-time event with no kinematic change would be selected again on the next loop.
-        // Continue through real zero-time collision cascades, but stop on this no-progress case.
-        if step_elapsed <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
-            consecutive_zero_time_events += 1;
-            if consecutive_zero_time_events >= MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS
-                || n_ball_on_table_collision_delta(&states_before, &states)
-                    <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON
-            {
-                break;
-            }
-        } else {
-            consecutive_zero_time_events = 0;
-        }
     }
 
     Ok(NBallOnTableSimulation {
@@ -14354,9 +14445,9 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limi
             "next pocket-aware n-ball event must not go backwards in time"
         );
 
-        let states_before = states.clone();
-        states = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
-            &states,
+        let states_before = &states;
+        let states_after = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
+            states_before,
             &event,
             ball,
             table,
@@ -14366,25 +14457,26 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limi
             rail_model,
             rail_profile,
         )?;
+        check_zero_time_event_progress(
+            step_elapsed,
+            states_before != &states_after,
+            &mut consecutive_zero_time_events,
+        )
+        .map_err(|failure| match failure {
+            ZeroTimeProgressFailure::NoProgress => NBallGeometryError::ZeroTimeNoProgress,
+            ZeroTimeProgressFailure::EventLimitExceeded => {
+                NBallGeometryError::ZeroTimeEventLimitExceeded {
+                    limit: MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS,
+                }
+            }
+        })?;
+        states = states_after;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
         events.push(event.clone());
 
         // Rebuild after every resolved event so cached event times and hidden simultaneous-contact
         // side effects stay exactly aligned with manual step-and-recompute simulation.
         cache = PocketAwareEventCache::build(&states, ball, table, motion);
-        // A zero-time event with no kinematic change would be selected again on the next loop.
-        // Continue through real zero-time collision cascades, but stop on this no-progress case.
-        if step_elapsed <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
-            consecutive_zero_time_events += 1;
-            if consecutive_zero_time_events >= MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS
-                || n_ball_system_collision_delta(&states_before, &states)
-                    <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON
-            {
-                break;
-            }
-        } else {
-            consecutive_zero_time_events = 0;
-        }
     }
 
     Ok(NBallSystemSimulation {
@@ -14564,6 +14656,8 @@ fn push_visible_ball_path_segment(
 ///
 /// The returned path stores event vertices; [`BallPath::sampled_points`] and rendered path helpers
 /// densify those segments with phase-aware motion sampling for curved sliding or rolling motion.
+/// A zero-time event whose collision response leaves the constrained state unchanged returns
+/// [`BallPathError::ZeroTimeNoProgress`] rather than returning a truncated, still-moving path.
 pub fn trace_ball_path_with_rail_profile_on_table(
     state: &OnTableBallState,
     stop: BallPathStop,
@@ -14572,11 +14666,12 @@ pub fn trace_ball_path_with_rail_profile_on_table(
     motion: &OnTableMotionConfig,
     rail_model: RailModel,
     rail_profile: &RailCollisionProfile,
-) -> BallPath {
+) -> Result<BallPath, BallPathError> {
     let mut current = state.clone();
     let mut elapsed = Seconds::zero();
     let mut rail_impacts = 0usize;
     let mut segments = Vec::new();
+    let mut consecutive_zero_time_events = 0usize;
     let mut remaining_time = match stop {
         BallPathStop::Duration(dt) => {
             assert!(dt.as_f64() >= 0.0, "trace duration must be non-negative");
@@ -14642,18 +14737,15 @@ pub fn trace_ball_path_with_rail_profile_on_table(
             }
         }
 
-        match next_event {
+        let state_changed = match next_event {
             SingleBallOnTableEvent::MotionTransition(transition) => {
-                if step_time <= f64::EPSILON {
-                    break;
-                }
-
                 let end = advance_on_table_ball_without_event(
                     &current,
                     transition.time_until_transition,
                     ball,
                     motion,
                 );
+                let state_changed = current != end;
                 push_visible_ball_path_segment(
                     &mut segments,
                     &current,
@@ -14662,11 +14754,13 @@ pub fn trace_ball_path_with_rail_profile_on_table(
                 );
                 current = end;
                 elapsed = Seconds::new(elapsed.as_f64() + step_time);
+                state_changed
             }
             SingleBallOnTableEvent::RailImpact(impact) => {
                 let rail = impact.rail;
                 let impact_duration = impact.time_until_impact;
                 let impact_state = impact.state_at_impact;
+                let impact_state_changed = current != impact_state;
                 push_visible_ball_path_segment(
                     &mut segments,
                     &current,
@@ -14679,19 +14773,33 @@ pub fn trace_ball_path_with_rail_profile_on_table(
 
                 if let Some(remaining) = remaining_rail_impacts.as_mut() {
                     *remaining = remaining.saturating_sub(1);
-                    if *remaining == 0 {
-                        break;
-                    }
                 }
 
-                current = collide_ball_rail_on_table_with_radius_and_profile(
+                let post_impact = collide_ball_rail_on_table_with_radius_and_profile(
                     &current,
                     rail,
                     ball.radius.clone(),
                     rail_model,
                     rail_profile,
                 );
+                let state_changed = impact_state_changed || current != post_impact;
+                current = post_impact;
+                state_changed
             }
+        };
+
+        check_zero_time_event_progress(step_time, state_changed, &mut consecutive_zero_time_events)
+            .map_err(|failure| match failure {
+                ZeroTimeProgressFailure::NoProgress => BallPathError::ZeroTimeNoProgress,
+                ZeroTimeProgressFailure::EventLimitExceeded => {
+                    BallPathError::ZeroTimeEventLimitExceeded {
+                        limit: MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS,
+                    }
+                }
+            })?;
+
+        if remaining_rail_impacts == Some(0) {
+            break;
         }
 
         if let Some(remaining) = remaining_time.as_mut() {
@@ -14699,13 +14807,13 @@ pub fn trace_ball_path_with_rail_profile_on_table(
         }
     }
 
-    BallPath {
+    Ok(BallPath {
         initial_state: state.clone(),
         final_state: current,
         elapsed,
         rail_impacts,
         segments,
-    }
+    })
 }
 
 /// Trace a single ball forward over the table while resolving rail impacts using explicit rail
@@ -14713,6 +14821,7 @@ pub fn trace_ball_path_with_rail_profile_on_table(
 ///
 /// The returned path stores event vertices; [`BallPath::sampled_points`] and rendered path helpers
 /// densify those segments with phase-aware motion sampling for curved sliding or rolling motion.
+/// Frozen zero-time contacts are reported through [`BallPathError`].
 pub fn trace_ball_path_with_rail_config_on_table(
     state: &OnTableBallState,
     stop: BallPathStop,
@@ -14721,7 +14830,7 @@ pub fn trace_ball_path_with_rail_config_on_table(
     motion: &OnTableMotionConfig,
     rail_model: RailModel,
     rail_config: &RailCollisionConfig,
-) -> BallPath {
+) -> Result<BallPath, BallPathError> {
     trace_ball_path_with_rail_profile_on_table(
         state,
         stop,
@@ -14738,6 +14847,7 @@ pub fn trace_ball_path_with_rail_config_on_table(
 ///
 /// This compatibility wrapper uses the default rail-response coefficients. Prefer
 /// `trace_ball_path_with_rail_config_on_table(...)` when restitution should be explicit.
+/// Frozen zero-time contacts are reported through [`BallPathError`].
 pub fn trace_ball_path_with_rails_on_table(
     state: &OnTableBallState,
     stop: BallPathStop,
@@ -14745,7 +14855,7 @@ pub fn trace_ball_path_with_rails_on_table(
     table: &TableSpec,
     motion: &OnTableMotionConfig,
     rail_model: RailModel,
-) -> BallPath {
+) -> Result<BallPath, BallPathError> {
     trace_ball_path_with_rail_profile_on_table(
         state,
         stop,

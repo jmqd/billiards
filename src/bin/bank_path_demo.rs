@@ -79,7 +79,8 @@ fn main() {
         &table,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("demo ball path should trace without a frozen rail contact");
 
     let path_render =
         BallPathRenderOptions::default().with_width_mode(BallPathWidthMode::ScaleBySpeed);

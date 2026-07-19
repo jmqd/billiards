@@ -5,10 +5,10 @@ use billiards::{
     compute_next_two_ball_event_with_rails_on_table, simulate_two_balls_with_rail_config_on_table,
     simulate_two_balls_with_rails_on_table, AngularVelocity3, BallSetPhysicsSpec, BallState,
     CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail,
-    RailCollisionConfig, RailModel, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
-    SpinDecayModel, TableSpec, TwoBallEventBall, TwoBallOnTableEvent, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    MotionTransitionConfig, NBallOnTableExecutionError, OnTableBallState, OnTableMotionConfig,
+    RadiansPerSecondSq, Rail, RailCollisionConfig, RailModel, RollingResistanceModel, Scale,
+    Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec, TwoBallEventBall,
+    TwoBallOnTableEvent, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -382,6 +382,33 @@ fn advancing_with_rails_and_no_future_event_returns_the_original_two_ball_state(
     assert!(advanced.event.is_none());
     assert_eq!(advanced.a, a);
     assert_eq!(advanced.b, b);
+}
+
+#[test]
+fn finite_two_ball_rail_simulation_reports_frozen_contact_no_progress() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let frozen = on_table(BallState::on_table(
+        inches2(10.0, top_plane),
+        Velocity2::zero(),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let passive = on_table(BallState::resting_at(inches2(30.0, 20.0)));
+
+    let error = simulate_two_balls_with_rails_on_table(
+        &frozen,
+        &passive,
+        Seconds::new(0.1),
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    )
+    .expect_err("an unchanged zero-time rail response must stop finite continuation");
+
+    assert_eq!(error, NBallOnTableExecutionError::ZeroTimeNoProgress);
 }
 
 #[test]

@@ -16,7 +16,7 @@ use crate::{
         BallPathRenderOptions, BallPathWidthMode, EventMarkerStyle, GhostBallStyle,
         LabelOverlayStyle, PathColorMode, SmoothPolylineStyle,
     },
-    Angle, Ball, BallBallCollisionConfig, BallPath, BallPathSegment, BallPathStop,
+    Angle, Ball, BallBallCollisionConfig, BallPath, BallPathError, BallPathSegment, BallPathStop,
     BallSetPhysicsSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact,
     Diamond, GameState, GameType, HumanShotSpeedValidation, Inches, InchesPerSecond, MotionPhase,
     MotionPhaseThresholds, NBallGeometryError, NBallSystemEvent, NBallSystemSimulation,
@@ -322,7 +322,9 @@ impl DslScenario {
                 second_ball: self.game_state.balls()[second_ball_index].ty.clone(),
                 error,
             },
-            error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { .. } => {
+            error @ (NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { .. }
+            | NBallGeometryError::ZeroTimeNoProgress
+            | NBallGeometryError::ZeroTimeEventLimitExceeded { .. }) => {
                 DslBuildError::UnsupportedNBallPhysics { error }
             }
         }
@@ -742,7 +744,7 @@ impl DslScenario {
             return Ok(None);
         };
 
-        Ok(Some(trace_ball_path_with_rail_profile_on_table(
+        let path = trace_ball_path_with_rail_profile_on_table(
             &initial_state,
             stop,
             ball_set,
@@ -750,7 +752,9 @@ impl DslScenario {
             motion,
             rail_model,
             rail_profile,
-        )))
+        )
+        .map_err(DslBuildError::BallPath)?;
+        Ok(Some(path))
     }
 
     pub fn trace_shot_path_with_rails_on_table(
@@ -2087,6 +2091,7 @@ pub enum DslBuildError {
     UnsupportedNBallPhysics {
         error: NBallGeometryError,
     },
+    BallPath(BallPathError),
 }
 
 impl std::fmt::Display for DslBuildError {
@@ -2240,6 +2245,7 @@ impl std::fmt::Display for DslBuildError {
                 "invalid layout: balls '{first_ball:?}' and '{second_ball:?}' violate rigid geometry: {error}"
             ),
             Self::UnsupportedNBallPhysics { error } => write!(f, "unsupported N-ball physics: {error}"),
+            Self::BallPath(error) => write!(f, "ball path trace failed: {error}"),
         }
     }
 }

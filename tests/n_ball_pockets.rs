@@ -10,11 +10,12 @@ use billiards::{
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest,
     simulate_n_balls_with_rails_on_table_until_rest, AngularVelocity3, BallBallCollisionConfig,
     BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq,
-    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallOnTableEvent, NBallSystemEvent,
-    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJaw, PocketJawGeometry,
-    PocketShapeSpec, PredictedAirborneBallBallCollision, RadiansPerSecondSq, Rail, RailModel,
-    RollingResistanceModel, Scale, Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec,
-    Velocity2, CENTER_SPOT, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
+    MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallGeometryError, NBallOnTableEvent,
+    NBallSystemEvent, NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJaw,
+    PocketJawGeometry, PocketShapeSpec, PredictedAirborneBallBallCollision, RadiansPerSecondSq,
+    Rail, RailModel, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel, SpinDecayModel,
+    TableSpec, Velocity2, CENTER_SPOT, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
+    TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -2564,6 +2565,31 @@ fn simulating_with_pockets_until_rest_keeps_pocketed_balls_out_of_play_and_stops
             impact,
         } if impact.rail == Rail::Right
     )));
+}
+
+#[test]
+fn pocket_aware_until_rest_reports_frozen_rail_contact_no_progress() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let frozen = on_table(BallState::on_table(
+        inches2(10.0, top_plane),
+        Velocity2::zero(),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let passive = on_table(BallState::resting_at(inches2(30.0, 20.0)));
+
+    let error = simulate_n_balls_with_rails_and_pockets_on_table_until_rest(
+        &[frozen, passive],
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    )
+    .expect_err("an unchanged zero-time rail response must not look like successful rest");
+
+    assert_eq!(error, NBallGeometryError::ZeroTimeNoProgress);
 }
 
 #[test]

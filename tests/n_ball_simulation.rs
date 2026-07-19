@@ -235,3 +235,28 @@ fn simulating_n_balls_with_rails_until_rest_records_rail_impacts_and_ends_at_res
         );
     }
 }
+
+#[test]
+fn rail_aware_until_rest_reports_frozen_contact_no_progress() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let frozen = on_table(BallState::on_table(
+        inches2(10.0, top_plane),
+        Velocity2::zero(),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let passive = on_table(BallState::resting_at(inches2(30.0, 20.0)));
+
+    let error = simulate_n_balls_with_rails_on_table_until_rest(
+        &[frozen, passive],
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    )
+    .expect_err("an unchanged zero-time rail response must not look like successful rest");
+
+    assert_eq!(error, NBallOnTableExecutionError::ZeroTimeNoProgress);
+}

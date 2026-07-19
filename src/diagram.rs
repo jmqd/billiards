@@ -11,9 +11,7 @@ use bigdecimal::ToPrimitive;
 use image::codecs::png::PngEncoder;
 use image::imageops::{overlay, resize, FilterType};
 use image::{ImageEncoder, ImageFormat, Rgba, RgbaImage};
-use imageproc::drawing::{
-    draw_filled_circle_mut, draw_line_segment_mut, draw_polygon_mut,
-};
+use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut, draw_polygon_mut};
 use imageproc::point::Point;
 
 const LEGACY_WIDTH_PX: f32 = 1089.0;
@@ -54,6 +52,17 @@ const SIDE_POCKET_DRAWING_LINER_SCALE: f32 = 1.37;
 // Side-pocket mouth cut angle in the rendered top-view bed-edge frame.
 const SIDE_POCKET_CUT_ANGLE_DEG: f32 = 8.0;
 const CUSHION_BEVEL_IN: f32 = 1.0;
+const CAROM_RAIL: [u8; 4] = [0x65, 0x31, 0x1f, 0xff];
+const CAROM_RAIL_GRAIN_DARK: [u8; 4] = [0x4a, 0x20, 0x16, 0xff];
+const CAROM_RAIL_GRAIN_LIGHT: [u8; 4] = [0x7b, 0x3e, 0x27, 0xff];
+const CAROM_CLOTH_TOP: [u8; 3] = [0x0a, 0xa7, 0xd0];
+const CAROM_CLOTH_MIDDLE: [u8; 3] = [0x08, 0x7d, 0xa4];
+const CAROM_CLOTH_BOTTOM: [u8; 3] = [0x07, 0x5b, 0x7c];
+const CAROM_CUSHION: [u8; 4] = [0x0e, 0x97, 0xbd, 0xff];
+const CAROM_CUSHION_NOSE: [u8; 4] = [0x88, 0xec, 0xff, 0xff];
+const CAROM_CUSHION_BACK: [u8; 4] = [0x06, 0x4f, 0x69, 0xff];
+const CAROM_SIGHT: [u8; 4] = [0xf6, 0xf0, 0xde, 0xff];
+const CAROM_SIGHT_BORDER: [u8; 4] = [0x9b, 0x8c, 0x63, 0xff];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiagramOutputFormat {
@@ -275,15 +284,8 @@ impl DiagramBackend for PngBackend {
     type Output = Vec<u8>;
 
     fn render(scene: &DiagramScene, options: &DiagramRenderOptions) -> Self::Output {
-        let table_asset: RgbaImage =
-            image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
-                .expect("broken table asset")
-                .into_rgba8();
-        let (tw, th) = table_asset.dimensions();
-        let mut table = match scene.background {
-            DiagramBackground::Table => table_asset,
-            DiagramBackground::Transparent => RgbaImage::new(tw, th),
-        };
+        let mut table = raster_background(scene);
+        let (tw, th) = table.dimensions();
 
         draw_raster_elements_for_layer(scene, DiagramLayerId::OverlaysBelowBalls, &mut table);
         draw_raster_balls(scene, &mut table, tw, th);
@@ -299,12 +301,7 @@ impl DiagramBackend for PngBackend {
             let output_height = th
                 .checked_mul(scale_factor)
                 .expect("scaled PNG height overflow");
-            resize(
-                &table,
-                output_width,
-                output_height,
-                FilterType::CatmullRom,
-            )
+            resize(&table, output_width, output_height, FilterType::CatmullRom)
         };
         let (ow, oh) = output.dimensions();
 
@@ -314,6 +311,297 @@ impl DiagramBackend for PngBackend {
             .expect("PNG encode failed");
         buf
     }
+}
+
+fn raster_background(scene: &DiagramScene) -> RgbaImage {
+    let legacy_dimensions = (LEGACY_WIDTH_PX as u32, LEGACY_HEIGHT_PX as u32);
+    match scene.background {
+        DiagramBackground::Transparent => RgbaImage::new(legacy_dimensions.0, legacy_dimensions.1),
+        DiagramBackground::Table => match scene.table_spec.kind {
+            TableKind::Pool => {
+                image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
+                    .expect("broken table asset")
+                    .into_rgba8()
+            }
+            TableKind::ThreeCushionCarom => raster_three_cushion_carom_table(
+                &scene.table_spec,
+                scene.viewport,
+                legacy_dimensions.0,
+                legacy_dimensions.1,
+            ),
+        },
+    }
+}
+
+fn raster_three_cushion_carom_table(
+    table_spec: &TableSpec,
+    viewport: DiagramViewport,
+    width: u32,
+    height: u32,
+) -> RgbaImage {
+    let mut table = RgbaImage::from_pixel(width, height, Rgba(CAROM_RAIL));
+    draw_raster_carom_rail_grain(&mut table, viewport);
+    draw_raster_carom_cloth(&mut table, viewport);
+
+    let left = viewport.playfield_left_px;
+    let right = viewport.playfield_right_px;
+    let top = viewport.playfield_top_px;
+    let bottom = viewport.playfield_bottom_px;
+    let cushion_x = viewport.x_inches_for_table(table_spec, 2.25);
+    let cushion_y = viewport.y_inches_for_table(table_spec, 2.25);
+    let cushion = Rgba(CAROM_CUSHION);
+
+    draw_polygon_mut(
+        &mut table,
+        &[
+            raster_point(left, top),
+            raster_point(right, top),
+            raster_point(right + cushion_x, top - cushion_y),
+            raster_point(left - cushion_x, top - cushion_y),
+        ],
+        cushion,
+    );
+    draw_polygon_mut(
+        &mut table,
+        &[
+            raster_point(left, bottom),
+            raster_point(right, bottom),
+            raster_point(right + cushion_x, bottom + cushion_y),
+            raster_point(left - cushion_x, bottom + cushion_y),
+        ],
+        cushion,
+    );
+    draw_polygon_mut(
+        &mut table,
+        &[
+            raster_point(left, top),
+            raster_point(left, bottom),
+            raster_point(left - cushion_x, bottom + cushion_y),
+            raster_point(left - cushion_x, top - cushion_y),
+        ],
+        cushion,
+    );
+    draw_polygon_mut(
+        &mut table,
+        &[
+            raster_point(right, top),
+            raster_point(right, bottom),
+            raster_point(right + cushion_x, bottom + cushion_y),
+            raster_point(right + cushion_x, top - cushion_y),
+        ],
+        cushion,
+    );
+
+    let nose = Rgba(CAROM_CUSHION_NOSE);
+    draw_raster_thick_line(&mut table, (left, top), (right, top), 3.2, nose);
+    draw_raster_thick_line(&mut table, (left, bottom), (right, bottom), 3.2, nose);
+    draw_raster_thick_line(&mut table, (left, top), (left, bottom), 3.2, nose);
+    draw_raster_thick_line(&mut table, (right, top), (right, bottom), 3.2, nose);
+
+    let back = Rgba(CAROM_CUSHION_BACK);
+    draw_raster_thick_line(
+        &mut table,
+        (left - cushion_x, top - cushion_y),
+        (right + cushion_x, top - cushion_y),
+        3.2,
+        back,
+    );
+    draw_raster_thick_line(
+        &mut table,
+        (left - cushion_x, bottom + cushion_y),
+        (right + cushion_x, bottom + cushion_y),
+        3.2,
+        back,
+    );
+    draw_raster_thick_line(
+        &mut table,
+        (left - cushion_x, top - cushion_y),
+        (left - cushion_x, bottom + cushion_y),
+        3.2,
+        back,
+    );
+    draw_raster_thick_line(
+        &mut table,
+        (right + cushion_x, top - cushion_y),
+        (right + cushion_x, bottom + cushion_y),
+        3.2,
+        back,
+    );
+
+    draw_raster_three_cushion_carom_sights(&mut table, table_spec, viewport);
+    table
+}
+
+fn draw_raster_carom_rail_grain(table: &mut RgbaImage, viewport: DiagramViewport) {
+    let image_width = table.width();
+    let image_height = table.height();
+    let width = image_width as f32;
+    let height = image_height as f32;
+    let max_x = image_width.saturating_sub(1) as f32;
+    let max_y = image_height.saturating_sub(1) as f32;
+    let left = viewport.playfield_left_px.clamp(0.0, width) as u32;
+    let right = viewport.playfield_right_px.clamp(0.0, width) as u32;
+    let top = viewport.playfield_top_px.clamp(0.0, height) as u32;
+    let bottom = viewport.playfield_bottom_px.clamp(0.0, height) as u32;
+    let rail_top = (top as f32).min(max_y);
+    let rail_bottom = (bottom as f32).min(max_y);
+    let dark = Rgba(CAROM_RAIL_GRAIN_DARK);
+    let light = Rgba(CAROM_RAIL_GRAIN_LIGHT);
+
+    for y in (14..top).step_by(38) {
+        draw_line_segment_mut(table, (0.0, y as f32), (max_x, y as f32), dark);
+        draw_line_segment_mut(table, (0.0, (y + 5) as f32), (max_x, (y + 5) as f32), light);
+    }
+    for y in ((bottom + 14).min(image_height)..image_height).step_by(38) {
+        draw_line_segment_mut(table, (0.0, y as f32), (max_x, y as f32), dark);
+        let highlight_y = (y + 5).min(image_height.saturating_sub(1)) as f32;
+        draw_line_segment_mut(table, (0.0, highlight_y), (max_x, highlight_y), light);
+    }
+    for x in (14..left).step_by(38) {
+        draw_line_segment_mut(table, (x as f32, rail_top), (x as f32, rail_bottom), dark);
+        draw_line_segment_mut(
+            table,
+            ((x + 5) as f32, rail_top),
+            ((x + 5) as f32, rail_bottom),
+            light,
+        );
+    }
+    for x in ((right + 14).min(image_width)..image_width).step_by(38) {
+        draw_line_segment_mut(table, (x as f32, rail_top), (x as f32, rail_bottom), dark);
+        let highlight_x = (x + 5).min(image_width.saturating_sub(1)) as f32;
+        draw_line_segment_mut(
+            table,
+            (highlight_x, rail_top),
+            (highlight_x, rail_bottom),
+            light,
+        );
+    }
+}
+
+fn draw_raster_carom_cloth(table: &mut RgbaImage, viewport: DiagramViewport) {
+    let left = viewport
+        .playfield_left_px
+        .round()
+        .clamp(0.0, table.width() as f32) as u32;
+    let right = viewport
+        .playfield_right_px
+        .round()
+        .clamp(0.0, table.width() as f32) as u32;
+    let top = viewport
+        .playfield_top_px
+        .round()
+        .clamp(0.0, table.height() as f32) as u32;
+    let bottom = viewport
+        .playfield_bottom_px
+        .round()
+        .clamp(0.0, table.height() as f32) as u32;
+    if left >= right || top >= bottom {
+        return;
+    }
+
+    let cloth_width = f64::from((right - left).max(1));
+    let cloth_height = f64::from((bottom - top).max(1));
+    for y in top..bottom {
+        let y_fraction = f64::from(y - top) / cloth_height;
+        for x in left..right {
+            let x_fraction = f64::from(x - left) / cloth_width;
+            let gradient_offset = (x_fraction + y_fraction) * 0.5;
+            let rgb = if gradient_offset <= 0.55 {
+                interpolate_rgb(CAROM_CLOTH_TOP, CAROM_CLOTH_MIDDLE, gradient_offset / 0.55)
+            } else {
+                interpolate_rgb(
+                    CAROM_CLOTH_MIDDLE,
+                    CAROM_CLOTH_BOTTOM,
+                    (gradient_offset - 0.55) / 0.45,
+                )
+            };
+            table.put_pixel(x, y, Rgba([rgb[0], rgb[1], rgb[2], 0xff]));
+        }
+    }
+}
+
+fn draw_raster_three_cushion_carom_sights(
+    table: &mut RgbaImage,
+    table_spec: &TableSpec,
+    viewport: DiagramViewport,
+) {
+    let left = viewport.playfield_left_px;
+    let right = viewport.playfield_right_px;
+    let top = viewport.playfield_top_px;
+    let bottom = viewport.playfield_bottom_px;
+    let cloth_width = right - left;
+    let cloth_height = bottom - top;
+    let sight_setback_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_SETBACK_IN);
+    let sight_setback_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_SETBACK_IN);
+    let sight_half_along_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_WIDTH_IN) * 0.5;
+    let sight_half_along_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_WIDTH_IN) * 0.5;
+    let sight_half_cross_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_HEIGHT_IN) * 0.5;
+    let sight_half_cross_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_HEIGHT_IN) * 0.5;
+
+    for fraction in [0.25, 0.5, 0.75] {
+        let x = left + fraction * cloth_width;
+        draw_raster_carom_sight(
+            table,
+            x,
+            top - sight_setback_y,
+            sight_half_along_x,
+            sight_half_cross_y,
+        );
+        draw_raster_carom_sight(
+            table,
+            x,
+            bottom + sight_setback_y,
+            sight_half_along_x,
+            sight_half_cross_y,
+        );
+    }
+
+    for fraction in [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875] {
+        let y = bottom - fraction * cloth_height;
+        draw_raster_carom_sight(
+            table,
+            left - sight_setback_x,
+            y,
+            sight_half_cross_x,
+            sight_half_along_y,
+        );
+        draw_raster_carom_sight(
+            table,
+            right + sight_setback_x,
+            y,
+            sight_half_cross_x,
+            sight_half_along_y,
+        );
+    }
+}
+
+fn draw_raster_carom_sight(
+    table: &mut RgbaImage,
+    center_x: f32,
+    center_y: f32,
+    half_width: f32,
+    half_height: f32,
+) {
+    let points = [
+        raster_point(center_x, center_y - half_height),
+        raster_point(center_x + half_width, center_y),
+        raster_point(center_x, center_y + half_height),
+        raster_point(center_x - half_width, center_y),
+    ];
+    draw_polygon_mut(table, &points, Rgba(CAROM_SIGHT_BORDER));
+
+    let inner_scale = 0.78;
+    let inner_points = [
+        raster_point(center_x, center_y - half_height * inner_scale),
+        raster_point(center_x + half_width * inner_scale, center_y),
+        raster_point(center_x, center_y + half_height * inner_scale),
+        raster_point(center_x - half_width * inner_scale, center_y),
+    ];
+    draw_polygon_mut(table, &inner_points, Rgba(CAROM_SIGHT));
+}
+
+fn raster_point(x: f32, y: f32) -> Point<i32> {
+    Point::new(x.round() as i32, y.round() as i32)
 }
 
 pub struct SvgBackend;
@@ -585,10 +873,7 @@ fn draw_raster_spin_glyph(
     let glyph_radius = (radius * style.glyph_radius_fraction).clamp(8.5, 13.0);
     let badge_offset = radius * 0.72;
     let glyph_center = (center.x + badge_offset, center.y - badge_offset);
-    let glyph_center_i32 = (
-        glyph_center.0.round() as i32,
-        glyph_center.1.round() as i32,
-    );
+    let glyph_center_i32 = (glyph_center.0.round() as i32, glyph_center.1.round() as i32);
     let stroke_width = (radius * 0.135).clamp(2.4, 4.0);
     let metrics = spin_glyph_metrics(angular_velocity, linear_velocity, ball_radius);
 
@@ -607,10 +892,7 @@ fn draw_raster_spin_glyph(
 
     if metrics.total_rps <= SPIN_GLYPH_STUN_RPS {
         let arm = glyph_radius * 0.48;
-        for (start, end) in [
-            ((-arm, -arm), (arm, arm)),
-            ((arm, -arm), (-arm, arm)),
-        ] {
+        for (start, end) in [((-arm, -arm), (arm, arm)), ((arm, -arm), (-arm, arm))] {
             let start = (glyph_center.0 + start.0, glyph_center.1 + start.1);
             let end = (glyph_center.0 + end.0, glyph_center.1 + end.1);
             draw_raster_thick_line(
@@ -625,7 +907,12 @@ fn draw_raster_spin_glyph(
                 start,
                 end,
                 stroke_width * 1.35,
-                Rgba([SPIN_GLYPH_GREY[0], SPIN_GLYPH_GREY[1], SPIN_GLYPH_GREY[2], 255]),
+                Rgba([
+                    SPIN_GLYPH_GREY[0],
+                    SPIN_GLYPH_GREY[1],
+                    SPIN_GLYPH_GREY[2],
+                    255,
+                ]),
             );
         }
         return;
@@ -724,8 +1011,14 @@ fn draw_raster_spin_glyph(
         draw_raster_triangle(
             table,
             arrow_tip,
-            (base.0 + normal.0 * head * 0.55, base.1 + normal.1 * head * 0.55),
-            (base.0 - normal.0 * head * 0.55, base.1 - normal.1 * head * 0.55),
+            (
+                base.0 + normal.0 * head * 0.55,
+                base.1 + normal.1 * head * 0.55,
+            ),
+            (
+                base.0 - normal.0 * head * 0.55,
+                base.1 - normal.1 * head * 0.55,
+            ),
             z_color,
         );
     }

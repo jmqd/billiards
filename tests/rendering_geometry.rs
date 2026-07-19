@@ -980,6 +980,96 @@ fn svg_three_cushion_table_is_pocketless_with_carom_sights_and_balls() {
 }
 
 #[test]
+fn png_three_cushion_table_replaces_pool_pocket_wells_with_continuous_surfaces() {
+    fn neighborhood_counts(
+        image: &RgbaImage,
+        center: (u32, u32),
+        radius: u32,
+    ) -> (usize, usize, usize) {
+        let min_x = center.0.saturating_sub(radius);
+        let max_x = center.0.saturating_add(radius).min(image.width() - 1);
+        let min_y = center.1.saturating_sub(radius);
+        let max_y = center.1.saturating_add(radius).min(image.height() - 1);
+        let mut dark = 0;
+        let mut opaque_colored_surface = 0;
+        let mut total = 0;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let [red, green, blue, alpha] = image.get_pixel(x, y).0;
+                let min_channel = red.min(green).min(blue);
+                let max_channel = red.max(green).max(blue);
+                let is_colored = max_channel.saturating_sub(min_channel) >= 24;
+                let is_opaque = alpha >= 240;
+                let is_dark = is_opaque && max_channel <= 64;
+                dark += usize::from(is_dark);
+                opaque_colored_surface += usize::from(is_opaque && !is_dark && is_colored);
+                total += 1;
+            }
+        }
+
+        (dark, opaque_colored_surface, total)
+    }
+
+    let options = DiagramRenderOptions {
+        background: DiagramBackground::Table,
+        ..DiagramRenderOptions::default()
+    };
+    let pool = render_with_options(&GameState::new(TableSpec::brunswick_gc4_9ft()), &options);
+    let carom = render_with_options(
+        &GameState::new(TableSpec::three_cushion_carom_10ft()),
+        &options,
+    );
+    let viewport = DiagramViewport::default();
+    let center_y = (viewport.playfield_top_px + viewport.playfield_bottom_px) * 0.5;
+    let pocket_locations = [
+        (
+            "top-left corner",
+            viewport.playfield_left_px,
+            viewport.playfield_top_px,
+        ),
+        (
+            "top-right corner",
+            viewport.playfield_right_px,
+            viewport.playfield_top_px,
+        ),
+        ("left side", viewport.playfield_left_px, center_y),
+        ("right side", viewport.playfield_right_px, center_y),
+        (
+            "bottom-left corner",
+            viewport.playfield_left_px,
+            viewport.playfield_bottom_px,
+        ),
+        (
+            "bottom-right corner",
+            viewport.playfield_right_px,
+            viewport.playfield_bottom_px,
+        ),
+    ];
+    const NEIGHBORHOOD_RADIUS_PX: u32 = 30;
+
+    for (name, x, y) in pocket_locations {
+        let center = (x.round() as u32, y.round() as u32);
+        let (pool_dark, _, pool_total) = neighborhood_counts(&pool, center, NEIGHBORHOOD_RADIUS_PX);
+        let (carom_dark, carom_surface, carom_total) =
+            neighborhood_counts(&carom, center, NEIGHBORHOOD_RADIUS_PX);
+
+        assert!(
+            pool_dark * 3 >= pool_total,
+            "pool {name} neighborhood contained only {pool_dark}/{pool_total} dark pixels; expected a broad pocket well"
+        );
+        assert!(
+            carom_dark * 5 <= carom_total,
+            "carom {name} neighborhood contained {carom_dark}/{carom_total} dark pixels; expected no broad pocket well"
+        );
+        assert!(
+            carom_surface * 5 >= carom_total * 4,
+            "carom {name} neighborhood contained only {carom_surface}/{carom_total} opaque cloth/cushion/rail pixels"
+        );
+    }
+}
+
+#[test]
 fn svg_table_uses_installed_leather_rims_and_cloth_shelves() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 

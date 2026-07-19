@@ -6721,7 +6721,7 @@ fn first_rail_collision_time_during_current_phase_raw(
         let before_t = (t - tolerance.min(0.5 * t)).max(0.0);
         let before_gap = rail_gap_quadratic_value(a, b, c, before_t);
         let derivative = rail_gap_quadratic_derivative(a, b, t);
-        if before_gap > -tolerance && derivative <= tolerance {
+        if before_gap > -tolerance && derivative < -tolerance {
             return Some(Seconds::new(t));
         }
     }

@@ -295,6 +295,33 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
 }
 
 #[test]
+fn direct_non_finite_heading_literals_fail_shot_validation() {
+    for (name, heading) in [
+        ("NaN", "NaNdeg"),
+        ("positive infinity", "infdeg"),
+        ("negative infinity", "-infdeg"),
+    ] {
+        let input = format!(
+            "ball cue at center\n\
+             cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+             shot(cue).heading({heading}).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n"
+        );
+
+        let error = parse_dsl_to_scenario(&input)
+            .expect_err("a parsed non-finite direct heading should fail shot validation");
+        match error {
+            DslError::Build(DslBuildError::InvalidShot(ShotError::HeadingNotFinite {
+                heading,
+            })) => assert!(
+                heading.as_degrees().is_nan(),
+                "{name} should resolve to a non-finite Angle"
+            ),
+            other => panic!("{name}: expected InvalidShot(HeadingNotFinite), got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn shot_speed_literals_accept_mph_and_kph() {
     let mph = parse_dsl_to_scenario(
         "ball cue at center\n\

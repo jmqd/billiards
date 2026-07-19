@@ -165,6 +165,38 @@ fn shot_accepts_nonnegative_cue_speed_and_preserves_inputs() {
 }
 
 #[test]
+fn shot_rejects_non_finite_heading() {
+    for (name, heading) in [
+        (
+            "NaN horizontal component",
+            billiards::Angle::from_north(f64::NAN, 1.0),
+        ),
+        (
+            "NaN vertical component",
+            billiards::Angle::from_north(1.0, f64::NAN),
+        ),
+        (
+            "NaN horizontal and vertical components",
+            billiards::Angle::from_north(f64::NAN, f64::NAN),
+        ),
+    ] {
+        let error = Shot::new(heading, InchesPerSecond::new("18"), CueTipContact::center())
+            .expect_err("a non-finite heading should be rejected");
+
+        match error {
+            ShotError::HeadingNotFinite {
+                heading: rejected_heading,
+            } => assert_eq!(
+                rejected_heading.as_degrees().to_bits(),
+                heading.as_degrees().to_bits(),
+                "{name} should be preserved in the typed error"
+            ),
+            other => panic!("{name}: expected non-finite heading error, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn shot_can_be_constructed_from_a_cue_ball_launch_speed() {
     let cue = CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.1))
         .expect("cue config should validate");

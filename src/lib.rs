@@ -3632,6 +3632,9 @@ pub enum ShotError {
         side_offset: Scale,
         height_offset: Scale,
     },
+    HeadingNotFinite {
+        heading: Angle,
+    },
     NegativeCueSpeed {
         cue_speed: InchesPerSecond,
     },
@@ -3822,6 +3825,10 @@ impl Shot {
         cue_speed: InchesPerSecond,
         tip_contact: CueTipContact,
     ) -> Result<Self, ShotError> {
+        if !heading.as_degrees().is_finite() {
+            return Err(ShotError::HeadingNotFinite { heading });
+        }
+
         if cue_speed.as_f64() < 0.0 {
             return Err(ShotError::NegativeCueSpeed { cue_speed });
         }

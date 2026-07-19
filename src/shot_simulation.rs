@@ -912,7 +912,8 @@ impl ThreeCushionAccumulator {
                 first,
                 second,
                 resolution,
-            } = effect else {
+            } = effect
+            else {
                 continue;
             };
             if *resolution == BallBallContactResolution::SharedCoupledCausalityUnresolved {
@@ -1188,13 +1189,17 @@ fn execute_core(
     let mut consecutive_zero_time_events = 0usize;
     let mut cache =
         PocketAwareEventCache::build(&states, &physics.ball, &physics.table, &physics.motion);
-    let mut pending: Option<ResolvedEvent> = None;
+    let mut pending: Option<(Seconds, Vec<ResolvedEffect>)> = None;
     let mut retained = Vec::new();
     let mut accumulator = ThreeCushionAccumulator::default();
     let mut observed_event_count = 0usize;
 
-    let mut flush = |pending: &mut Option<ResolvedEvent>| {
-        if let Some(event) = pending.take() {
+    let mut flush = |pending: &mut Option<(Seconds, Vec<ResolvedEffect>)>| {
+        if let Some((at, effects)) = pending.take() {
+            let event = ResolvedEvent {
+                at,
+                effects: effects.into_boxed_slice(),
+            };
             accumulator.observe(observed_event_count, &event, roles);
             observed_event_count += 1;
             if retain_events {
@@ -1257,20 +1262,15 @@ fn execute_core(
             });
         }
 
-        if pending.as_ref().is_some_and(|pending| {
-            (pending.at.as_f64() - absolute.as_f64()).abs() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
+        if pending.as_ref().is_some_and(|(at, _)| {
+            (at.as_f64() - absolute.as_f64()).abs() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
         }) {
             flush(&mut pending);
         }
-        if let Some(pending) = pending.as_mut() {
-            let mut combined = pending.effects.to_vec();
+        if let Some((_, combined)) = pending.as_mut() {
             combined.extend(effects);
-            pending.effects = combined.into_boxed_slice();
         } else {
-            pending = Some(ResolvedEvent {
-                at: absolute,
-                effects: effects.into_boxed_slice(),
-            });
+            pending = Some((absolute, effects));
         }
 
         elapsed = absolute;

@@ -316,6 +316,66 @@ fn canonical_layout_order_makes_execution_invariant_to_input_order() {
 }
 
 #[test]
+fn simultaneous_corner_rail_contacts_are_coalesced_in_scheduler_order() {
+    let physics = PhysicsProfile::three_cushion_default();
+    let layout = ShotLayout::new(
+        &physics,
+        [
+            SceneBall::resting(
+                BallId::WHITE,
+                CaromBallRole::Cue,
+                carom_position_from_diamonds(3.5, 7.5).unwrap(),
+            ),
+            SceneBall::resting(
+                BallId::YELLOW,
+                CaromBallRole::YellowCue,
+                carom_position_from_diamonds(1.0, 1.0).unwrap(),
+            ),
+            SceneBall::resting(
+                BallId::RED,
+                CaromBallRole::Red,
+                carom_position_from_diamonds(2.0, 1.0).unwrap(),
+            ),
+        ],
+    )
+    .unwrap();
+    let shot = ThreeCushionShot::new(
+        ThreeCushionShooter::Cue,
+        ShotControls::new(45.0, 100.0, 0.0, 0.0, 0.0).unwrap(),
+    );
+
+    let result = execute_three_cushion(&physics, &layout, &shot, ShotLimit::EventCount(2)).unwrap();
+
+    assert_eq!(
+        result.completion.termination,
+        ShotTermination::EventLimitReached { limit: 2 }
+    );
+    assert!(matches!(
+        result.completion.summary,
+        ThreeCushionAdjudication::Indeterminate {
+            reason: ThreeCushionIndeterminate::EventLimitReached { limit: 2 },
+            ..
+        }
+    ));
+    assert_eq!(result.events.len(), 1);
+    let event = &result.events[0];
+    assert_eq!(event.at, result.completion.elapsed);
+    assert_eq!(
+        event.effects.as_ref(),
+        &[
+            ResolvedEffect::BallRailContact {
+                ball: BallId::WHITE,
+                rail: Rail::Right,
+            },
+            ResolvedEffect::BallRailContact {
+                ball: BallId::WHITE,
+                rail: Rail::Top,
+            },
+        ]
+    );
+}
+
+#[test]
 fn either_cue_colored_ball_can_be_the_typed_shooter() {
     let physics = PhysicsProfile::three_cushion_default();
     let layout = fixture_layout();

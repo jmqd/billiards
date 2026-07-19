@@ -39,6 +39,20 @@
       </div>
     </figure>
   </div>
+  <div class="card">
+    <figure data-viewer id="duration-zero-viewer">
+      <div data-viewer-controls data-table-detail-default="full"></div>
+      <svg viewBox="0 0 200 100" aria-label="Zero-duration playback test diagram">
+        <g data-layer="table"></g>
+        <g data-layer="overlays-below-balls"></g>
+        <g data-layer="balls"></g>
+        <g data-layer="overlays-above-balls"></g>
+      </svg>
+      <div data-playback>
+        <script type="application/json" data-playback-data>{"duration":0,"events":[],"balls":[["zero","#ffffff",null,6,1]],"frames":[[0,[["zero",20,30,0,0,0,0,0,0,0]]],[0,[["zero",80,65,0,0,0,0,0,0,0]]]]}</script>
+      </div>
+    </figure>
+  </div>
   <script src="./billiards-viewer.js"></script>
   <script>
     window.addEventListener('DOMContentLoaded', () => {
@@ -95,6 +109,17 @@
         ballsToggle.dispatchEvent(new Event('change', { bubbles: true }));
         assert(playbackLayer.style.display !== 'none', 'Balls toggle must restore playback balls');
         assert(staticBallLayer.style.display === 'none', 'restoring playback balls must keep static balls hidden');
+
+        const durationZeroViewer = document.querySelector('#duration-zero-viewer');
+        const durationZeroPlayButton = durationZeroViewer.querySelector('[data-playback-play]');
+        durationZeroPlayButton.click();
+        assert(pendingAnimationFrames.size === 0, 'zero-duration playback must not schedule an animation frame');
+        assert(durationZeroPlayButton.getAttribute('aria-label') === 'Play', 'zero-duration playback must retain its Play label');
+        assert(durationZeroPlayButton.getAttribute('title') === 'Play', 'zero-duration playback must retain its Play title');
+        const durationZeroSlider = durationZeroViewer.querySelector('[data-playback-slider]');
+        assert(durationZeroSlider.value === '1', 'zero-duration playback must finish on its final tied frame');
+        const durationZeroBall = durationZeroViewer.querySelector('[data-layer="balls"] .playback-ball');
+        assert(numberAttribute(durationZeroBall, 'cx') === 80 && numberAttribute(durationZeroBall, 'cy') === 65, 'zero-duration playback must synchronously render its final tied frame');
 
         const playButton = viewer.querySelector('[data-playback-play]');
         playButton.click();

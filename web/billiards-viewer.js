@@ -612,6 +612,7 @@
         let playStartedAt = 0;
         let playStartTime = 0;
         let playTargetTime = null;
+        let playTargetFrame = null;
         const setPlayButtonState = (isPlaying) => {
           if (!playButton) return;
           playButton.textContent = isPlaying ? '⏸' : '▶';
@@ -624,6 +625,7 @@
           if (animationId !== null) cancelAnimationFrame(animationId);
           animationId = null;
           playTargetTime = null;
+          playTargetFrame = null;
           setPlayButtonState(false);
         };
         const nearestFrameForTime = (time) => {
@@ -642,13 +644,18 @@
           stopPlayback();
           const duration = Math.max(0, Number(playback.duration) || 0);
           const boundedTarget = Number.isFinite(targetTime) ? Math.max(0, Math.min(duration, targetTime)) : null;
+          const effectiveTargetTime = boundedTarget ?? duration;
+          const targetFrame = boundedTarget === null
+            ? playback.frames.length - 1
+            : nearestFrameForTime(boundedTarget);
           playStartTime = frameTime(startIndex);
-          if (boundedTarget !== null && boundedTarget <= playStartTime + eventHitWindow) {
-            paintPlayback(nearestFrameForTime(boundedTarget));
+          if (effectiveTargetTime <= playStartTime + eventHitWindow) {
+            paintPlayback(targetFrame);
             return;
           }
           playing = true;
           playTargetTime = boundedTarget;
+          playTargetFrame = targetFrame;
           setPlayButtonState(true);
           playStartedAt = performance.now();
           paintPlayback(startIndex);
@@ -660,12 +667,11 @@
             return;
           }
           if (!playing) return;
-          const duration = Math.max(0, Number(playback.duration) || 0);
-          const targetTime = playTargetTime === null ? duration : playTargetTime;
+          const targetTime = playTargetTime ?? Math.max(0, Number(playback.duration) || 0);
           const elapsed = ((now - playStartedAt) / 1000) * playbackSpeed();
           const time = playStartTime + elapsed;
-          if (duration > 0 && time >= targetTime - eventHitWindow) {
-            paintPlayback(nearestFrameForTime(targetTime));
+          if (time >= targetTime - eventHitWindow) {
+            paintPlayback(playTargetFrame);
             stopPlayback();
             return;
           }

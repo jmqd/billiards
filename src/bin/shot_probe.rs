@@ -46,6 +46,12 @@ enum ProbeStyleArg {
     Draw,
 }
 
+const DEFAULT_PROBE_STYLES: &[ProbeStyleArg] = &[
+    ProbeStyleArg::ForceFollow,
+    ProbeStyleArg::Stun,
+    ProbeStyleArg::Draw,
+];
+
 impl ProbeStyleArg {
     fn label(self) -> &'static str {
         match self {
@@ -195,13 +201,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     validate_cut_angles(&cut_angles)?;
 
     let styles = if args.style.is_empty() {
-        vec![
-            ProbeStyleArg::ForceFollow,
-            ProbeStyleArg::Stun,
-            ProbeStyleArg::Draw,
-        ]
+        DEFAULT_PROBE_STYLES
     } else {
-        args.style.clone()
+        &args.style
     };
 
     let output_dir = args.output_dir.clone().unwrap_or_else(default_output_dir);
@@ -236,7 +238,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         format_decimal(args.side_offset_r),
     );
 
-    for style in styles {
+    for &style in styles {
         for &speed in &speeds {
             for &cut_angle in &cut_angles {
                 let probe = build_probe_case(

@@ -194,6 +194,93 @@ fn carom_table_dsl_builds_pocketless_table_game_and_carom_balls() {
 }
 
 #[test]
+fn system_states_reconstruct_visible_ball_positions_types_and_specs() {
+    let scenario = parse_dsl_to_scenario(
+        "table three_cushion_carom_10ft\n\
+         game three_cushion\n\
+         ball cue at (1.0, 1.0)\n\
+         ball yellow at (2.0, 4.0)\n\
+         ball red at (3.0, 7.0)\n",
+    )
+    .expect("expected carom DSL to build");
+    let on_table = BallState::on_table(
+        Inches2::new("15", "20"),
+        Velocity2::new("3", "4"),
+        AngularVelocity3::new(1.0, 2.0, 3.0),
+    );
+    let airborne = BallState::airborne(
+        Inches2::new("35", "45"),
+        "8",
+        Velocity2::new("5", "6"),
+        "7",
+        AngularVelocity3::new(4.0, 5.0, 6.0),
+    );
+    let captured = OnTableBallState::try_from(BallState::on_table(
+        Inches2::new("55", "65"),
+        Velocity2::new("0", "0"),
+        AngularVelocity3::zero(),
+    ))
+    .expect("captured state should be on-table");
+    let expected_on_table = on_table.projected_position(&scenario.game_state.table_spec);
+    let expected_airborne = airborne.projected_position(&scenario.game_state.table_spec);
+
+    let rendered = scenario.game_state_for_system_states(&[
+        NBallSystemState::OnTable(
+            OnTableBallState::try_from(on_table).expect("cue state should be on-table"),
+        ),
+        NBallSystemState::Airborne(airborne),
+        NBallSystemState::Pocketed {
+            pocket: Pocket::TopRight,
+            state_at_capture: captured,
+        },
+    ]);
+
+    assert_eq!(rendered.balls().len(), 2);
+    assert!(
+        rendered.select_ball(BallType::Red).is_none(),
+        "pocketed balls should be omitted"
+    );
+    let cue = rendered.select_ball(BallType::Cue).expect("rendered cue");
+    let yellow = rendered
+        .select_ball(BallType::YellowCue)
+        .expect("rendered yellow cue");
+    assert_close(
+        cue.position.x.magnitude.to_f64().expect("cue x"),
+        expected_on_table
+            .x
+            .magnitude
+            .to_f64()
+            .expect("expected cue x"),
+    );
+    assert_close(
+        cue.position.y.magnitude.to_f64().expect("cue y"),
+        expected_on_table
+            .y
+            .magnitude
+            .to_f64()
+            .expect("expected cue y"),
+    );
+    assert_close(
+        yellow.position.x.magnitude.to_f64().expect("yellow x"),
+        expected_airborne
+            .x
+            .magnitude
+            .to_f64()
+            .expect("expected yellow x"),
+    );
+    assert_close(
+        yellow.position.y.magnitude.to_f64().expect("yellow y"),
+        expected_airborne
+            .y
+            .magnitude
+            .to_f64()
+            .expect("expected yellow y"),
+    );
+    assert_close(cue.spec.radius.as_f64(), CAROM_BALL_RADIUS.as_f64());
+    assert_close(yellow.spec.radius.as_f64(), CAROM_BALL_RADIUS.as_f64());
+}
+
+#[test]
 fn given_an_invalid_second_statement_when_parsing_then_the_error_offset_points_at_the_bad_token() {
     let err = parse_dsl("ball cue at center\nball nine nope").expect_err("expected parse failure");
 

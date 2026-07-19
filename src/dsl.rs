@@ -613,20 +613,17 @@ impl DslScenario {
             .balls()
             .iter()
             .zip(states)
-            .filter_map(|(ball, state)| match state {
-                NBallSystemState::OnTable(on_table) => Some(Ball {
+            .filter_map(|(ball, state)| {
+                if matches!(state, NBallSystemState::Pocketed { .. }) {
+                    return None;
+                }
+                Some(Ball {
                     ty: ball.ty.clone(),
-                    position: on_table
+                    position: state
                         .as_ball_state()
                         .projected_position(&self.game_state.table_spec),
                     spec: ball.spec.clone(),
-                }),
-                NBallSystemState::Airborne(airborne) => Some(Ball {
-                    ty: ball.ty.clone(),
-                    position: airborne.projected_position(&self.game_state.table_spec),
-                    spec: ball.spec.clone(),
-                }),
-                NBallSystemState::Pocketed { .. } => None,
+                })
             })
             .collect::<Vec<_>>();
         let mut game_state = GameState::with_balls(self.game_state.table_spec.clone(), balls);

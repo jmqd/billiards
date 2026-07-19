@@ -26,8 +26,8 @@ wasm-web:
     wasm-bindgen --target web --out-dir web/pkg --no-typescript target/wasm32-unknown-unknown/release/billiards.wasm
     @echo "Built web/pkg. Serve ./web with any static file server."
 
-wasm-web-serve: wasm-web
-    python -m http.server 8000 --directory web
+wasm-web-serve:
+    cargo xtask wasm-preview --serve
 
 perf:
     cargo bench --bench physics -- --quick

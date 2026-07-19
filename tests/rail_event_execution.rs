@@ -1,14 +1,14 @@
 use billiards::{
     advance_motion_on_table, advance_to_next_two_ball_event_with_rail_config_on_table,
     advance_to_next_two_ball_event_with_rails_on_table,
-    collide_ball_rail_on_table_with_radius_and_config,
+    collide_ball_rail_on_table_with_radius_and_config, compute_next_ball_rail_impact_on_table,
     compute_next_two_ball_event_with_rails_on_table, simulate_two_balls_with_rail_config_on_table,
     simulate_two_balls_with_rails_on_table, AngularVelocity3, BallSetPhysicsSpec, BallState,
     CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail,
-    RailCollisionConfig, RailModel, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
-    SpinDecayModel, TableSpec, TwoBallEventBall, TwoBallOnTableEvent, Velocity2,
-    TYPICAL_BALL_RADIUS,
+    MotionTransitionConfig, NBallOnTableExecutionError, OnTableBallState, OnTableMotionConfig,
+    RadiansPerSecondSq, Rail, RailCollisionConfig, RailModel, RollingResistanceModel, Scale,
+    Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec, TwoBallEventBall,
+    TwoBallOnTableEvent, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -104,6 +104,60 @@ fn advancing_to_a_ball_a_rail_impact_reflects_that_ball_and_advances_ball_b_too(
     assert_close(
         advanced.b.as_ball_state().angular_velocity.z().as_f64(),
         4.0,
+    );
+}
+
+#[test]
+fn rolling_ball_that_stops_exactly_at_rail_selects_rest_instead_of_zero_speed_impact() {
+    let table = TableSpec::default();
+    let ball = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let radius = ball.radius.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let a = on_table(BallState::on_table(
+        inches2(10.0, top_plane - 10.0),
+        Velocity2::new("0", "10"),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let b = on_table(BallState::resting_at(inches2(30.0, 30.0)));
+
+    let impact = compute_next_ball_rail_impact_on_table(&a, &ball, &table, &motion);
+    assert!(
+        impact.is_none(),
+        "the zero-normal-speed double root is a stop, not a rail impact; got {impact:?}"
+    );
+
+    let advanced = advance_to_next_two_ball_event_with_rails_on_table(
+        &a,
+        &b,
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    )
+    .expect("test geometry should validate");
+
+    match advanced
+        .event
+        .as_ref()
+        .expect("the rolling ball should transition to rest")
+    {
+        TwoBallOnTableEvent::MotionTransition { ball, transition } => {
+            assert_eq!(*ball, TwoBallEventBall::A);
+            assert_eq!(transition.phase_before, MotionPhase::Rolling);
+            assert_eq!(transition.phase_after, MotionPhase::Rest);
+            assert_close(transition.time_until_transition.as_f64(), 2.0);
+        }
+        other => panic!("expected the exact-boundary stop transition, got {other:?}"),
+    }
+
+    assert_close(advanced.elapsed.as_f64(), 2.0);
+    assert_close(advanced.a.as_ball_state().position.y().as_f64(), top_plane);
+    assert_close(advanced.a.as_ball_state().speed().as_f64(), 0.0);
+    assert_eq!(
+        advanced.a.as_ball_state().motion_phase(ball.radius),
+        MotionPhase::Rest
     );
 }
 
@@ -382,6 +436,33 @@ fn advancing_with_rails_and_no_future_event_returns_the_original_two_ball_state(
     assert!(advanced.event.is_none());
     assert_eq!(advanced.a, a);
     assert_eq!(advanced.b, b);
+}
+
+#[test]
+fn finite_two_ball_rail_simulation_reports_frozen_contact_no_progress() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let frozen = on_table(BallState::on_table(
+        inches2(10.0, top_plane),
+        Velocity2::zero(),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+    let passive = on_table(BallState::resting_at(inches2(30.0, 20.0)));
+
+    let error = simulate_two_balls_with_rails_on_table(
+        &frozen,
+        &passive,
+        Seconds::new(0.1),
+        &BallSetPhysicsSpec::default(),
+        &table,
+        &motion_config(),
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    )
+    .expect_err("an unchanged zero-time rail response must stop finite continuation");
+
+    assert_eq!(error, NBallOnTableExecutionError::ZeroTimeNoProgress);
 }
 
 #[test]

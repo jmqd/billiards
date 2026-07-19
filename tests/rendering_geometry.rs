@@ -1,9 +1,11 @@
-use billiards::diagram::{DiagramLayerId, DiagramOutputFormat, DiagramViewport};
+use billiards::diagram::{
+    render_scene_to_bytes, DiagramLayerId, DiagramOutputFormat, DiagramViewport,
+};
 use billiards::{
     trace_ball_path_with_rails_on_table,
     visualization::{
-        AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, EventMarkerStyle,
-        GhostBallStyle, LabelOverlayStyle,
+        AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
+        DashedLineStyleError, EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
     },
     Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
     DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2, InchesPerSecond,
@@ -29,6 +31,44 @@ fn render_with_options(state: &GameState, options: &DiagramRenderOptions) -> Rgb
 fn render_svg_with_options(state: &GameState, options: &DiagramRenderOptions) -> String {
     String::from_utf8(state.render_2d_diagram_with_options(DiagramOutputFormat::Svg, options))
         .expect("svg should be utf-8")
+}
+
+fn render_with_viewport(state: &GameState, viewport: DiagramViewport) -> RgbaImage {
+    let options = DiagramRenderOptions {
+        background: DiagramBackground::Transparent,
+        ..DiagramRenderOptions::default()
+    };
+    render_with_viewport_and_options(state, viewport, &options)
+}
+
+fn render_with_viewport_and_options(
+    state: &GameState,
+    viewport: DiagramViewport,
+    options: &DiagramRenderOptions,
+) -> RgbaImage {
+    let mut scene = state.to_diagram_scene(options);
+    scene.viewport = viewport;
+    load_from_memory(&render_scene_to_bytes(
+        &scene,
+        DiagramOutputFormat::Png,
+        options,
+    ))
+    .expect("png decode")
+    .into_rgba8()
+}
+
+fn viewport_400_by_800() -> DiagramViewport {
+    let legacy = DiagramViewport::default();
+    let x_scale = 400.0 / legacy.width_px;
+    let y_scale = 800.0 / legacy.height_px;
+    DiagramViewport {
+        width_px: 400.0,
+        height_px: 800.0,
+        playfield_left_px: legacy.playfield_left_px * x_scale,
+        playfield_right_px: legacy.playfield_right_px * x_scale,
+        playfield_top_px: legacy.playfield_top_px * y_scale,
+        playfield_bottom_px: legacy.playfield_bottom_px * y_scale,
+    }
 }
 
 fn diff_bbox(a: &RgbaImage, b: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
@@ -334,6 +374,66 @@ fn thirty_degree_top_rail_bank_state(table: &TableSpec) -> OnTableBallState {
 }
 
 #[test]
+fn dashed_line_style_accepts_a_zero_gap() {
+    let result = DashedLineStyle::new(image::Rgba([255, 0, 255, 255])).with_pattern(4.0, 0.0);
+
+    assert!(
+        result.is_ok(),
+        "a zero gap should produce a continuous dash pattern"
+    );
+}
+
+#[test]
+fn dashed_line_style_rejects_invalid_patterns() {
+    let color = image::Rgba([255, 0, 255, 255]);
+    let cases = [
+        ("zero dash", 0.0, 1.0, DashedLineStyleError::DashLength),
+        ("negative dash", -1.0, 1.0, DashedLineStyleError::DashLength),
+        ("NaN dash", f32::NAN, 1.0, DashedLineStyleError::DashLength),
+        (
+            "positive-infinite dash",
+            f32::INFINITY,
+            1.0,
+            DashedLineStyleError::DashLength,
+        ),
+        (
+            "negative-infinite dash",
+            f32::NEG_INFINITY,
+            1.0,
+            DashedLineStyleError::DashLength,
+        ),
+        ("negative gap", 1.0, -1.0, DashedLineStyleError::GapLength),
+        ("NaN gap", 1.0, f32::NAN, DashedLineStyleError::GapLength),
+        (
+            "positive-infinite gap",
+            1.0,
+            f32::INFINITY,
+            DashedLineStyleError::GapLength,
+        ),
+        (
+            "negative-infinite gap",
+            1.0,
+            f32::NEG_INFINITY,
+            DashedLineStyleError::GapLength,
+        ),
+        (
+            "finite pattern with overflowing span",
+            f32::MAX,
+            f32::MAX,
+            DashedLineStyleError::PatternSpanOverflow,
+        ),
+    ];
+
+    for (name, dash_px, gap_px, expected) in cases {
+        let error = DashedLineStyle::new(color)
+            .with_pattern(dash_px, gap_px)
+            .expect_err(name);
+
+        assert_eq!(error, expected, "{name}");
+    }
+}
+
+#[test]
 fn rendered_ball_uses_the_table_geometry_diameter() {
     let empty = render(&GameState::default());
     let with_ball = render(&cue_ball_at("2", "4"));
@@ -353,6 +453,263 @@ fn rendered_ball_is_centered_on_the_requested_table_position() {
 
     assert_eq!((min_x + max_x) / 2, 539);
     assert_eq!((min_y + max_y) / 2, 969);
+}
+
+#[test]
+fn default_viewport_preserves_legacy_table_anchor_pixels() {
+    let viewport = DiagramViewport::default();
+    let cases = [
+        (Position::new(0u8, 0u8), (110.0, 1828.0)),
+        (Position::new(2u8, 4u8), (539.0, 969.0)),
+        (Position::new(4u8, 8u8), (968.0, 110.0)),
+    ];
+
+    for (position, expected) in cases {
+        let actual = viewport.position_to_scene_point(&position);
+        assert_eq!((actual.x, actual.y), expected);
+    }
+}
+
+#[test]
+fn png_output_dimensions_follow_custom_viewport_for_every_background() {
+    let viewport = viewport_400_by_800();
+    let cases = [
+        (
+            "transparent",
+            TableSpec::brunswick_gc4_9ft(),
+            DiagramBackground::Transparent,
+        ),
+        (
+            "pool table",
+            TableSpec::brunswick_gc4_9ft(),
+            DiagramBackground::Table,
+        ),
+        (
+            "three-cushion table",
+            TableSpec::three_cushion_carom_10ft(),
+            DiagramBackground::Table,
+        ),
+    ];
+
+    for (name, table_spec, background) in cases {
+        let image = render_with_viewport_and_options(
+            &GameState::new(table_spec),
+            viewport,
+            &DiagramRenderOptions {
+                scale_factor: 1,
+                background,
+            },
+        );
+
+        assert_eq!(image.dimensions(), (400, 800), "{name}");
+    }
+}
+
+#[test]
+fn png_scale_factor_multiplies_custom_viewport_dimensions() {
+    let image = render_with_viewport_and_options(
+        &GameState::default(),
+        viewport_400_by_800(),
+        &DiagramRenderOptions {
+            scale_factor: 2,
+            background: DiagramBackground::Transparent,
+        },
+    );
+
+    assert_eq!(image.dimensions(), (800, 1600));
+}
+
+#[test]
+fn png_marker_uses_custom_viewport_playfield_coordinates() {
+    let viewport = viewport_400_by_800();
+    let anchor = Position::new(1u8, 6u8);
+    let expected = viewport.position_to_scene_point(&anchor);
+    let options = DiagramRenderOptions {
+        background: DiagramBackground::Transparent,
+        ..DiagramRenderOptions::default()
+    };
+    let empty = render_with_viewport_and_options(&GameState::default(), viewport, &options);
+    let mut marked = GameState::default();
+    marked.add_event_marker_styled(
+        &anchor,
+        EventMarkerStyle {
+            enabled: true,
+            color: image::Rgba([255, 0, 255, 255]),
+            radius_px: 7.0,
+            layer: OverlayLayer::AboveBalls,
+        },
+    );
+    let marked = render_with_viewport_and_options(&marked, viewport, &options);
+
+    let (min_x, min_y, max_x, max_y) =
+        diff_bbox(&empty, &marked).expect("custom-viewport marker should render");
+    let actual = ((min_x + max_x) as f32 / 2.0, (min_y + max_y) as f32 / 2.0);
+
+    assert!(
+        (actual.0 - expected.x).abs() <= 1.0 && (actual.1 - expected.y).abs() <= 1.0,
+        "marker center {actual:?} should align with custom viewport point ({}, {})",
+        expected.x,
+        expected.y,
+    );
+}
+
+#[test]
+fn png_rejects_invalid_viewport_dimensions() {
+    const TOO_LARGE_FOR_U32: f32 = 4_294_967_296.0;
+    let cases = [
+        ("zero width", 0.0, 800.0),
+        ("zero height", 400.0, 0.0),
+        ("negative width", -1.0, 800.0),
+        ("negative height", 400.0, -1.0),
+        ("fractional width", 400.5, 800.0),
+        ("fractional height", 400.0, 800.5),
+        ("NaN width", f32::NAN, 800.0),
+        ("NaN height", 400.0, f32::NAN),
+        ("infinite width", f32::INFINITY, 800.0),
+        ("infinite height", 400.0, f32::INFINITY),
+        ("unrepresentable width", TOO_LARGE_FOR_U32, 800.0),
+        ("unrepresentable height", 400.0, TOO_LARGE_FOR_U32),
+    ];
+    let options = DiagramRenderOptions {
+        background: DiagramBackground::Transparent,
+        ..DiagramRenderOptions::default()
+    };
+
+    for (name, width_px, height_px) in cases {
+        let mut scene = GameState::default().to_diagram_scene(&options);
+        scene.viewport = DiagramViewport {
+            width_px,
+            height_px,
+            ..viewport_400_by_800()
+        };
+
+        let result = std::panic::catch_unwind(|| {
+            render_scene_to_bytes(&scene, DiagramOutputFormat::Png, &options)
+        });
+
+        assert!(result.is_err(), "PNG rendering should reject {name}");
+    }
+}
+
+#[test]
+fn png_pool_table_moves_cloth_boundaries_with_non_proportional_viewport() {
+    fn is_pool_rail(pixel: &image::Rgba<u8>) -> bool {
+        let [red, green, blue, alpha] = pixel.0;
+        alpha >= 240 && red <= 170 && green <= 195 && blue <= 100
+    }
+
+    fn is_pool_cloth(pixel: &image::Rgba<u8>) -> bool {
+        let [red, green, blue, alpha] = pixel.0;
+        alpha >= 240 && red >= 180 && green >= 195 && blue >= 100
+    }
+
+    let viewport = DiagramViewport {
+        width_px: 1089.0,
+        height_px: 1938.0,
+        playfield_left_px: 250.0,
+        playfield_right_px: 1070.0,
+        playfield_top_px: 200.0,
+        playfield_bottom_px: 1840.0,
+    };
+    let image = render_with_viewport_and_options(
+        &GameState::new(TableSpec::brunswick_gc4_9ft()),
+        viewport,
+        &DiagramRenderOptions {
+            scale_factor: 1,
+            background: DiagramBackground::Table,
+        },
+    );
+    let samples = [
+        ("left", (242, 1073), (258, 1073)),
+        ("top", (713, 192), (713, 208)),
+    ];
+
+    for (edge, rail_point, cloth_point) in samples {
+        assert!(
+            is_pool_rail(image.get_pixel(rail_point.0, rail_point.1)),
+            "{edge} sample immediately outside the requested playfield should be rail"
+        );
+        assert!(
+            is_pool_cloth(image.get_pixel(cloth_point.0, cloth_point.1)),
+            "{edge} sample immediately inside the requested playfield should be cloth"
+        );
+    }
+}
+
+#[test]
+fn raster_primitives_share_a_non_default_viewport_anchor() {
+    let viewport = DiagramViewport {
+        width_px: 1089.0,
+        height_px: 1938.0,
+        playfield_left_px: 250.0,
+        playfield_right_px: 1070.0,
+        playfield_top_px: 200.0,
+        playfield_bottom_px: 1840.0,
+    };
+    let anchor = Position::new(2u8, 4u8);
+    let expected_center = (660.0, 1020.0);
+    let color = image::Rgba([255, 0, 255, 255]);
+
+    let ball = cue_ball_at("2", "4");
+
+    let mut line = GameState::default();
+    let mut line_style = DashedLineStyle::new(color)
+        .with_pattern(1000.0, 1.0)
+        .expect("finite positive dash and finite positive gap should be valid");
+    line_style.width_px = 3.0;
+    line.add_dotted_line_styled(
+        &Position::new(1u8, 4u8),
+        &Position::new(3u8, 4u8),
+        line_style,
+    );
+
+    let mut marker = GameState::default();
+    marker.add_event_marker_styled(
+        &anchor,
+        EventMarkerStyle {
+            enabled: true,
+            color,
+            radius_px: 7.0,
+            layer: OverlayLayer::AboveBalls,
+        },
+    );
+
+    let mut ghost = GameState::default();
+    ghost.add_ghost_ball(&anchor, color, image::Rgba([0, 0, 0, 0]));
+
+    let mut label = GameState::default();
+    label.add_text_label_styled(
+        &anchor,
+        "8",
+        LabelOverlayStyle {
+            enabled: true,
+            color,
+            layer: OverlayLayer::AboveBalls,
+            offset_x_px: -5,
+            offset_y_px: -7,
+            scale_px: 2,
+        },
+    );
+
+    for (name, state) in [
+        ("ball", &ball),
+        ("line", &line),
+        ("marker", &marker),
+        ("ghost", &ghost),
+        ("label", &label),
+    ] {
+        let image = render_with_viewport(state, viewport);
+        let blank = RgbaImage::new(image.width(), image.height());
+        let (min_x, min_y, max_x, max_y) =
+            diff_bbox(&blank, &image).unwrap_or_else(|| panic!("{name} should render"));
+        let actual_center = ((min_x + max_x) as f32 / 2.0, (min_y + max_y) as f32 / 2.0);
+
+        assert!(
+            (actual_center.0 - expected_center.0).abs() <= 1.0
+                && (actual_center.1 - expected_center.1).abs() <= 1.0,
+            "{name} center {actual_center:?} should align with viewport anchor {expected_center:?}",
+        );
+    }
 }
 
 #[test]
@@ -439,7 +796,10 @@ fn svg_scale_factor_above_f32_integer_precision_keeps_exact_intrinsic_dimensions
     let root = svg.lines().next().expect("SVG root element");
 
     assert_eq!(svg_attr_u64(root, "width"), 1_938 * u64::from(SCALE_FACTOR));
-    assert_eq!(svg_attr_u64(root, "height"), 1_089 * u64::from(SCALE_FACTOR));
+    assert_eq!(
+        svg_attr_u64(root, "height"),
+        1_089 * u64::from(SCALE_FACTOR)
+    );
     assert_eq!(root.matches("viewBox=\"0 0 1938 1089\"").count(), 1);
 }
 
@@ -490,10 +850,16 @@ fn png_backend_renders_spin_glyphs_without_requiring_a_ball_sprite() {
         },
     );
     let visible_pixels = rendered.pixels().filter(|pixel| pixel[3] > 0).count();
-    let bbox = diff_bbox(&RgbaImage::new(rendered.width(), rendered.height()), &rendered)
-        .expect("spin glyph should produce visible raster pixels");
+    let bbox = diff_bbox(
+        &RgbaImage::new(rendered.width(), rendered.height()),
+        &rendered,
+    )
+    .expect("spin glyph should produce visible raster pixels");
 
-    assert!(visible_pixels > 20, "spin glyph should have a visible filled footprint");
+    assert!(
+        visible_pixels > 20,
+        "spin glyph should have a visible filled footprint"
+    );
     assert!(bbox.2 - bbox.0 >= 10 && bbox.3 - bbox.1 >= 10);
 }
 
@@ -689,8 +1055,8 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     ));
     let follow = on_table(BallState::on_table(
         inches2(30.0, 42.0),
-        Velocity2::new("0", "24"),
-        AngularVelocity3::new(-48.0 / radius, 0.0, 0.0),
+        Velocity2::new("0", "352"),
+        AngularVelocity3::new(-704.0 / radius, 0.0, 0.0),
     ));
     let english = on_table(BallState::on_table(
         inches2(36.0, 48.0),
@@ -718,13 +1084,9 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     for state in states {
         game.add_spin_glyph_for_on_table_state(state, &ball_spec);
     }
-    let trajectory_start = rolling
-        .as_ball_state()
-        .projected_position(&table_spec);
-    let trajectory_end = trajectory_start.translate_inches(
-        Inches::from_f64(12.0),
-        Angle::from_north(0.0, 1.0),
-    );
+    let trajectory_start = rolling.as_ball_state().projected_position(&table_spec);
+    let trajectory_end =
+        trajectory_start.translate_inches(Inches::from_f64(12.0), Angle::from_north(0.0, 1.0));
     game.add_dotted_line(
         &trajectory_start,
         &trajectory_end,
@@ -761,20 +1123,38 @@ fn svg_backend_emits_compact_spin_glyphs_with_angle_and_spin_speed_data() {
     assert!(svg.contains("role=\"img\" aria-label=\"spin:"));
     assert!(svg.contains("#7f858c"));
     assert!(svg.contains("omega="));
+    let follow_glyph = svg_element(&svg, "data-spin-kind=\"follow\"", 0);
+    assert!(follow_glyph.contains("data-spin-slip-ips=\"352.000\""));
+    let follow_aria = follow_glyph
+        .split_once("aria-label=\"")
+        .expect("follow spin glyph should have an accessible label")
+        .1
+        .split_once('"')
+        .expect("follow spin glyph accessible label should be terminated")
+        .0;
+    let follow_title = follow_glyph
+        .split_once("<title>")
+        .expect("follow spin glyph should have a title")
+        .1
+        .split_once("</title>")
+        .expect("follow spin glyph title should be terminated")
+        .0;
+    assert_eq!(follow_title, follow_aria);
+    assert!(follow_title.contains("v=(0.0, 32.2) km/h"));
+    assert!(follow_title.contains("roll slip=32.2 km/h"));
     let trajectory = svg_element(&svg, "class=\"overlay dashed-line\"", 0);
     let trajectory_dx = svg_attr_f32(trajectory, "x2") - svg_attr_f32(trajectory, "x1");
     let trajectory_dy = svg_attr_f32(trajectory, "y2") - svg_attr_f32(trajectory, "y1");
     let trajectory_length = trajectory_dx.hypot(trajectory_dy);
     let rolling_glyph = svg_element(&svg, "data-spin-kind=\"rolling\"", 0);
     let arrow_angle = svg_attr_f32(rolling_glyph, "data-spin-angle-deg").to_radians();
-    let alignment = (trajectory_dx * arrow_angle.cos() + trajectory_dy * arrow_angle.sin())
-        / trajectory_length;
+    let alignment =
+        (trajectory_dx * arrow_angle.cos() + trajectory_dy * arrow_angle.sin()) / trajectory_length;
     assert!(
         alignment > 0.999,
         "rolling spin arrow should point along the rendered trajectory, got dot {alignment}"
     );
 }
-
 
 #[test]
 fn svg_table_uses_cut_pockets_eighteen_sights_and_diamond_style_materials() {
@@ -1011,6 +1391,96 @@ fn svg_three_cushion_table_is_pocketless_with_carom_sights_and_balls() {
 }
 
 #[test]
+fn png_three_cushion_table_replaces_pool_pocket_wells_with_continuous_surfaces() {
+    fn neighborhood_counts(
+        image: &RgbaImage,
+        center: (u32, u32),
+        radius: u32,
+    ) -> (usize, usize, usize) {
+        let min_x = center.0.saturating_sub(radius);
+        let max_x = center.0.saturating_add(radius).min(image.width() - 1);
+        let min_y = center.1.saturating_sub(radius);
+        let max_y = center.1.saturating_add(radius).min(image.height() - 1);
+        let mut dark = 0;
+        let mut opaque_colored_surface = 0;
+        let mut total = 0;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let [red, green, blue, alpha] = image.get_pixel(x, y).0;
+                let min_channel = red.min(green).min(blue);
+                let max_channel = red.max(green).max(blue);
+                let is_colored = max_channel.saturating_sub(min_channel) >= 24;
+                let is_opaque = alpha >= 240;
+                let is_dark = is_opaque && max_channel <= 64;
+                dark += usize::from(is_dark);
+                opaque_colored_surface += usize::from(is_opaque && !is_dark && is_colored);
+                total += 1;
+            }
+        }
+
+        (dark, opaque_colored_surface, total)
+    }
+
+    let options = DiagramRenderOptions {
+        background: DiagramBackground::Table,
+        ..DiagramRenderOptions::default()
+    };
+    let pool = render_with_options(&GameState::new(TableSpec::brunswick_gc4_9ft()), &options);
+    let carom = render_with_options(
+        &GameState::new(TableSpec::three_cushion_carom_10ft()),
+        &options,
+    );
+    let viewport = DiagramViewport::default();
+    let center_y = (viewport.playfield_top_px + viewport.playfield_bottom_px) * 0.5;
+    let pocket_locations = [
+        (
+            "top-left corner",
+            viewport.playfield_left_px,
+            viewport.playfield_top_px,
+        ),
+        (
+            "top-right corner",
+            viewport.playfield_right_px,
+            viewport.playfield_top_px,
+        ),
+        ("left side", viewport.playfield_left_px, center_y),
+        ("right side", viewport.playfield_right_px, center_y),
+        (
+            "bottom-left corner",
+            viewport.playfield_left_px,
+            viewport.playfield_bottom_px,
+        ),
+        (
+            "bottom-right corner",
+            viewport.playfield_right_px,
+            viewport.playfield_bottom_px,
+        ),
+    ];
+    const NEIGHBORHOOD_RADIUS_PX: u32 = 30;
+
+    for (name, x, y) in pocket_locations {
+        let center = (x.round() as u32, y.round() as u32);
+        let (pool_dark, _, pool_total) = neighborhood_counts(&pool, center, NEIGHBORHOOD_RADIUS_PX);
+        let (carom_dark, carom_surface, carom_total) =
+            neighborhood_counts(&carom, center, NEIGHBORHOOD_RADIUS_PX);
+
+        assert!(
+            pool_dark * 3 >= pool_total,
+            "pool {name} neighborhood contained only {pool_dark}/{pool_total} dark pixels; expected a broad pocket well"
+        );
+        assert!(
+            carom_dark * 5 <= carom_total,
+            "carom {name} neighborhood contained {carom_dark}/{carom_total} dark pixels; expected no broad pocket well"
+        );
+        assert!(
+            carom_surface * 5 >= carom_total * 4,
+            "carom {name} neighborhood contained only {carom_surface}/{carom_total} opaque cloth/cushion/rail pixels"
+        );
+    }
+}
+
+#[test]
 fn svg_table_uses_installed_leather_rims_and_cloth_shelves() {
     let svg = render_svg_with_options(&cue_ball_at("2", "4"), &DiagramRenderOptions::default());
 
@@ -1060,7 +1530,8 @@ fn svg_trace_event_markers_carry_event_labels_for_tooltips_without_visible_text(
         &table_spec,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("event-marker path should trace");
     let mut state = GameState::new(table_spec);
     state.add_dotted_ball_path_styled(
         &path,
@@ -1268,7 +1739,8 @@ fn adding_a_dotted_ball_path_matches_manually_drawing_its_projected_segments() {
         &table_spec,
         &motion_config(),
         RailModel::Mirror,
-    );
+    )
+    .expect("mirror-bank path should trace");
     let points = path.projected_points(&table_spec);
     assert_eq!(
         points.len(),
@@ -1414,7 +1886,8 @@ fn rendered_ball_paths_can_use_one_shared_renderer_for_fixed_and_speed_scaled_wi
         &table_spec,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("speed-scaled raster path should trace");
     let style = BallPathStyle::new(image::Rgba([255, 255, 255, 255])).without_endpoint_clipping();
     let transparent = DiagramRenderOptions {
         scale_factor: 1,
@@ -1494,7 +1967,8 @@ fn rendered_ball_paths_emit_speed_scaled_heading_chevrons_in_svg() {
         &table_spec,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("speed-scaled SVG path should trace");
     let style = BallPathStyle::new(image::Rgba([255, 255, 255, 255])).without_endpoint_clipping();
 
     let mut state = GameState::new(table_spec);

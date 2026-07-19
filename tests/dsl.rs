@@ -1,8 +1,9 @@
 use bigdecimal::ToPrimitive;
 use billiards::dsl::{
-    parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, BallRef, CoordinateAxis,
-    DslBuildError, DslError, DslParseError, RailSide, ScenarioBallTimelineSegment,
-    ScenarioBallTrace, ScenarioShotTrace, ScenarioTraceRenderOptions,
+    parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, shot_controls_from_dsl,
+    update_shot_control_in_dsl, update_shot_tip_in_dsl, BallRef, CoordinateAxis, DslBuildError,
+    DslError, DslParseError, RailSide, ScenarioBallTimelineSegment, ScenarioBallTrace,
+    ScenarioShotTrace, ScenarioTraceRenderOptions, ShotControl, ShotControlError, ShotControls,
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
@@ -13,8 +14,8 @@ use billiards::{
     MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemSimulation,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, PlayingConditions, Pocket,
     RadiansPerSecondSq, RailCollisionProfile, RailModel, RollingResistanceModel, Seconds,
-    ShotSpeedPreset, SlidingFrictionModel, SpinDecayModel, TableKind, Velocity2, CAROM_BALL_RADIUS,
-    TYPICAL_BALL_RADIUS,
+    ShotError, ShotSpeedPreset, SlidingFrictionModel, SpinDecayModel, TableKind, Velocity2,
+    CAROM_BALL_RADIUS, TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, Rgba};
 
@@ -65,15 +66,46 @@ fn parse_dsl_returns_a_crate_owned_error_with_a_byte_offset() {
     );
 }
 
+fn assert_repeated_singleton_offset(name: &str, keyword: &str, input: &str) {
+    let second_keyword_offset = input
+        .match_indices(keyword)
+        .nth(1)
+        .expect("fixture has a repeated singleton keyword")
+        .0;
+
+    let err = parse_dsl(input).expect_err("singleton declarations may only appear once");
+
+    assert_eq!(
+        err.offset, second_keyword_offset,
+        "repeated {name} should be reported at its second keyword"
+    );
+}
+
 #[test]
-fn rejects_repeated_singleton_declarations() {
-    for input in [
-        "table brunswick_gc4_9ft\ntable three_cushion_carom_10ft\n",
-        "game nine_ball\ngame three_cushion\n",
-        "trace(max_events: 1)\ntrace(max_events: 2)\n",
-    ] {
-        parse_dsl(input).expect_err("singleton declarations may only appear once");
-    }
+fn rejects_repeated_singleton_table_at_the_second_keyword() {
+    assert_repeated_singleton_offset(
+        "table",
+        "table",
+        "table brunswick_gc4_9ft\n# intervening comment\ntable three_cushion_carom_10ft\n",
+    );
+}
+
+#[test]
+fn rejects_repeated_singleton_game_at_the_second_keyword() {
+    assert_repeated_singleton_offset(
+        "game",
+        "game",
+        "game nine_ball\npos marker = (1.0, 2.0)\n    game three_cushion\n",
+    );
+}
+
+#[test]
+fn rejects_repeated_singleton_trace_at_the_second_keyword() {
+    assert_repeated_singleton_offset(
+        "trace",
+        "trace",
+        "trace(max_events: 1)\nball cue at center\ntrace(max_events: 2)\n",
+    );
 }
 
 #[test]
@@ -260,6 +292,33 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
             .motion_phase(TYPICAL_BALL_RADIUS.clone()),
         MotionPhase::Rolling
     );
+}
+
+#[test]
+fn direct_non_finite_heading_literals_fail_shot_validation() {
+    for (name, heading) in [
+        ("NaN", "NaNdeg"),
+        ("positive infinity", "infdeg"),
+        ("negative infinity", "-infdeg"),
+    ] {
+        let input = format!(
+            "ball cue at center\n\
+             cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+             shot(cue).heading({heading}).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n"
+        );
+
+        let error = parse_dsl_to_scenario(&input)
+            .expect_err("a parsed non-finite direct heading should fail shot validation");
+        match error {
+            DslError::Build(DslBuildError::InvalidShot(ShotError::HeadingNotFinite {
+                heading,
+            })) => assert!(
+                heading.as_degrees().is_nan(),
+                "{name} should resolve to a non-finite Angle"
+            ),
+            other => panic!("{name}: expected InvalidShot(HeadingNotFinite), got {other:?}"),
+        }
+    }
 }
 
 #[test]
@@ -605,7 +664,8 @@ fn traced_side_spin_render_paths_sample_within_phase_curvature() {
         &table,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("side-spin path should trace for curvature sampling");
 
     let projected = path.projected_points(&table);
     let sampled = path.sampled_points(Seconds::new(0.02), &ball_set, &motion, &table);
@@ -1035,7 +1095,7 @@ fn preferred_trace_can_stop_at_an_event_limit() {
 }
 
 #[test]
-fn named_simulation_can_default_preferred_trace_to_an_event_limit() {
+fn preferred_trace_uses_the_lower_of_requested_and_preset_event_limits() {
     let scenario = parse_dsl_to_scenario(
         "ball cue at (2.0, 3.0)\n\
          ball one at (2.18, 4.12)\n\
@@ -1043,29 +1103,45 @@ fn named_simulation_can_default_preferred_trace_to_an_event_limit() {
          ball_ball(human).normal_restitution(0.95).tangential_friction(0.06)\n\
          rail_response(clean).normal_restitution(0.7).tangential_friction(0.17)\n\
          rails(table).default(clean)\n\
-         simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).max_events(1)\n\
+         simulation(human_table).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(table).max_events(2)\n\
          shot(cue).heading(9deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
     )
     .expect("expected shot DSL to build");
-    let trace = scenario
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let explicit = scenario
+        .simulate_shot_trace_with_simulation_on_table_until_rest(&ball_set, &motion, "human_table")
+        .expect("explicit named simulation should succeed");
+    let preferred = scenario
         .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
-            &BallSetPhysicsSpec::default(),
-            &motion_config(),
+            &ball_set,
+            &motion,
             CollisionModel::ThrowAware,
             RailModel::SpinAware,
         )
-        .expect("preferred trace should succeed")
-        .expect("scenario should contain a shot");
+        .expect("preferred simulation should succeed");
 
-    assert_eq!(
-        scenario
-            .simulation_named("human_table")
-            .expect("named simulation")
-            .max_events,
-        Some(1)
-    );
-    assert_eq!(trace.simulation.events.len(), 1);
-    assert_eq!(trace.event_log.len(), 1);
+    assert_eq!(preferred, explicit);
+
+    for (case, requested_limit, expected_events) in [
+        ("requested below preset", 1, 1),
+        ("requested equal to preset", 2, 2),
+        ("requested above preset", 3, 2),
+    ] {
+        let trace = scenario
+            .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+                &ball_set,
+                &motion,
+                CollisionModel::ThrowAware,
+                RailModel::SpinAware,
+                requested_limit,
+            )
+            .expect("preferred trace should succeed")
+            .expect("scenario should contain a shot");
+
+        assert_eq!(trace.simulation.events.len(), expected_events, "{case}");
+        assert_eq!(trace.event_log.len(), expected_events, "{case}");
+    }
 }
 
 #[test]
@@ -1275,6 +1351,137 @@ fn scenario_trace_can_limit_rendered_simulation_events() {
     assert_eq!(scenario.trace_max_events, Some(8));
 }
 
+fn timeline_subdivision_ball_trace() -> ScenarioBallTrace {
+    let start = BallState::airborne(
+        Inches2::new("20", "24"),
+        "1000",
+        Velocity2::new("8", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let first_end = BallState::airborne(
+        Inches2::new("50", "24"),
+        "1000",
+        Velocity2::new("8", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let zero_duration_end = BallState::airborne(
+        Inches2::new("55", "24"),
+        "1000",
+        Velocity2::new("-3", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+
+    ScenarioBallTrace {
+        ball: BallType::Cue,
+        initial_state: start.clone(),
+        final_state: NBallSystemState::Airborne(zero_duration_end.clone()),
+        segments: Vec::new(),
+        timeline_segments: vec![
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::zero(),
+                start,
+                end: first_end.clone(),
+                duration: Seconds::new(1.0),
+            },
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::new(1.0),
+                start: first_end,
+                end: zero_duration_end,
+                duration: Seconds::zero(),
+            },
+        ],
+    }
+}
+
+fn timeline_subdivision_shot_trace() -> ScenarioShotTrace {
+    let ball_trace = timeline_subdivision_ball_trace();
+    ScenarioShotTrace {
+        simulation: NBallSystemSimulation {
+            states: vec![ball_trace.final_state.clone()],
+            elapsed: Seconds::new(1.0),
+            events: Vec::new(),
+        },
+        event_log: Vec::new(),
+        ball_traces: vec![ball_trace],
+        ball_set: BallSetPhysicsSpec::default(),
+        motion: motion_config(),
+    }
+}
+
+fn assert_projected_x_coordinates(
+    points: &[billiards::Position],
+    expected: &[f64],
+    table: &billiards::TableSpec,
+) {
+    assert_eq!(points.len(), expected.len());
+    for (point, expected_x) in points.iter().zip(expected) {
+        assert_close(
+            table.diamond_to_inches(point.x.clone()).as_f64(),
+            *expected_x,
+        );
+    }
+}
+
+#[test]
+fn timeline_sampling_evenly_subdivides_and_uses_exact_stored_endpoints() {
+    let table = billiards::TableSpec::default();
+    let points = timeline_subdivision_ball_trace().sampled_points(
+        Seconds::new(0.3),
+        &BallSetPhysicsSpec::default(),
+        &motion_config(),
+        &table,
+    );
+
+    assert_projected_x_coordinates(&points, &[20.0, 22.0, 24.0, 26.0, 50.0, 55.0], &table);
+}
+
+#[test]
+fn timeline_sampling_with_an_invalid_step_falls_back_to_segment_endpoints() {
+    let table = billiards::TableSpec::default();
+    for step in [Seconds::zero(), Seconds::new(-0.3)] {
+        let points = timeline_subdivision_ball_trace().sampled_points(
+            step,
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            &table,
+        );
+
+        assert_projected_x_coordinates(&points, &[20.0, 50.0, 55.0], &table);
+    }
+}
+
+#[test]
+fn timeline_playback_evenly_subdivides_a_non_divisible_duration() {
+    let frames = timeline_subdivision_shot_trace().playback_frames(Seconds::new(0.3));
+    let expected_times = [0.0, 0.25, 0.5, 0.75, 1.0];
+
+    assert_eq!(frames.len(), expected_times.len());
+    for (frame, expected_time) in frames.iter().zip(expected_times) {
+        assert_close(frame.time.as_f64(), expected_time);
+    }
+    let terminal_cue = frames
+        .last()
+        .expect("terminal playback frame")
+        .balls
+        .iter()
+        .find(|ball| ball.ball == BallType::Cue)
+        .expect("cue ball at the zero-duration terminal segment");
+    assert_close(terminal_cue.state.position.x().as_f64(), 55.0);
+}
+
+#[test]
+fn timeline_playback_rejects_non_positive_steps() {
+    let trace = timeline_subdivision_shot_trace();
+
+    for step in [Seconds::zero(), Seconds::new(-0.3)] {
+        let result = std::panic::catch_unwind(|| trace.playback_frames(step));
+        assert!(result.is_err(), "playback should reject step {step:?}");
+    }
+}
+
 #[test]
 fn playback_frames_snap_to_logged_event_times_and_sample_between_them() {
     let scenario = parse_dsl_to_scenario(
@@ -1343,6 +1550,68 @@ fn playback_frames_snap_to_logged_event_times_and_sample_between_them() {
 }
 
 #[test]
+fn playback_uses_the_pre_event_state_just_before_a_segment_boundary() {
+    let pre_event = BallState::airborne(
+        Inches2::new("20", "24"),
+        "1000",
+        Velocity2::new("10", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let at_event = BallState::airborne(
+        Inches2::new("30", "24"),
+        "1000",
+        Velocity2::new("10", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let post_event = BallState::airborne(
+        Inches2::new("30", "24"),
+        "1000",
+        Velocity2::new("-7", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let after_event = BallState::airborne(
+        Inches2::new("23", "24"),
+        "1000",
+        Velocity2::new("-7", "0"),
+        "0",
+        AngularVelocity3::zero(),
+    );
+    let trace = ScenarioBallTrace {
+        ball: BallType::Cue,
+        initial_state: pre_event.clone(),
+        final_state: NBallSystemState::Airborne(after_event.clone()),
+        segments: Vec::new(),
+        timeline_segments: vec![
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::zero(),
+                start: pre_event,
+                end: at_event,
+                duration: Seconds::new(1.0),
+            },
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::new(1.0),
+                start: post_event,
+                end: after_event,
+                duration: Seconds::new(1.0),
+            },
+        ],
+    };
+
+    let sampled = trace
+        .state_at_elapsed(
+            Seconds::new(1.0 - 0.5e-9),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
+        .expect("ball should remain visible immediately before the event");
+
+    assert_close(sampled.velocity.x().as_f64(), 10.0);
+}
+
+#[test]
 fn playback_uses_the_post_event_state_at_an_exact_segment_boundary() {
     let pre_event = BallState::on_table(
         Inches2::new("20", "24"),
@@ -1388,7 +1657,11 @@ fn playback_uses_the_post_event_state_at_an_exact_segment_boundary() {
     };
 
     let sampled = trace
-        .state_at_elapsed(Seconds::new(1.0), &BallSetPhysicsSpec::default(), &motion_config())
+        .state_at_elapsed(
+            Seconds::new(1.0),
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+        )
         .expect("ball should remain visible after the event");
 
     assert_eq!(sampled, post_event);
@@ -1690,5 +1963,352 @@ fn rejects_duplicate_shot_methods() {
     assert!(matches!(
         err,
         DslError::Build(DslBuildError::DuplicateShotMethod { method }) if method == "heading"
+    ));
+}
+
+fn editable_shot_control_source(aim: &str, speed: &str, tip: &str, elevation: &str) -> String {
+    format!(
+        "ball cue at center\n\
+         ball nine at (2.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).{aim}.speed({speed}).tip({tip}){elevation}.using(default)\n"
+    )
+}
+
+#[test]
+fn shot_control_inspection_matches_the_corrected_three_cushion_sample() {
+    let source = "# Legal three-cushion scoring shot: cue contacts yellow, then left/top/right cushions, then red.\n\
+                  table three_cushion_carom_10ft\n\
+                  game three_cushion\n\
+                  ball cue at (3.354, 3.309)\n\
+                  ball yellow at (2.491, 5.838)\n\
+                  ball red at (2.762, 3.888)\n\
+                  cue_strike(default).mass_ratio(1.0).energy_loss(0.08)\n\
+                  ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)\n\
+                  rail_response(lively).normal_restitution(0.82).tangential_friction(0.02)\n\
+                  rails(carom).default(lively)\n\
+                  simulation(default).collision_model(throw_aware).ball_ball(carom).rail_model(spin_aware).rails(carom).conditions(heated_carom).max_events(24)\n\
+                  trace(max_events: 24)\n\
+                  shot(cue).heading(341.141deg).speed(108ips).tip(side: 0.39R, height: 0.11R).using(default)";
+
+    let controls = shot_controls_from_dsl(source)
+        .expect("the corrected sample should build")
+        .expect("the corrected sample should contain a shot");
+
+    assert_eq!(
+        controls,
+        ShotControls {
+            heading_degrees: 341.141,
+            speed_ips: 108.0,
+            tip_side: 0.39,
+            tip_height: 0.11,
+            tip_max_radius: 0.5,
+            cue_elevation_degrees: 1.384,
+            cue_elevation_explicit: false,
+            speed_max_ips: 616.0,
+            cue_elevation_max_degrees: 85.0,
+        }
+    );
+}
+
+#[test]
+fn shot_control_inspection_expands_speed_max_above_preset_ceiling() {
+    let source =
+        editable_shot_control_source("heading(12deg)", "700ips", "side: 0.0R, height: 0.0R", "");
+
+    let controls = shot_controls_from_dsl(&source)
+        .expect("a finite 700ips shot should build")
+        .expect("the fixture should contain a shot");
+
+    assert_eq!(controls.speed_ips, 700.0);
+    assert_eq!(controls.speed_max_ips, 700.0);
+}
+
+#[test]
+fn shot_control_valid_no_shot_inspects_as_none_but_rejects_updates() {
+    let source = "table three_cushion_carom_10ft\nball cue at center\n";
+
+    assert_eq!(
+        shot_controls_from_dsl(source).expect("a shotless layout is valid DSL"),
+        None
+    );
+    assert!(matches!(
+        update_shot_control_in_dsl(source, ShotControl::Speed, 64.0),
+        Err(ShotControlError::NoShot)
+    ));
+    assert!(matches!(
+        update_shot_tip_in_dsl(source, 0.1, 0.2),
+        Err(ShotControlError::NoShot)
+    ));
+}
+
+#[test]
+fn shot_control_direct_heading_edit_preserves_unicode_crlf_and_multiline_chains() {
+    let source = "# Café shot 🎱 — preserve these bytes\r\nball cue at center\r\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\r\nshot(cue)\r\n  .heading( 12deg )\r\n  .speed(48ips)\r\n  .tip(side: 0.10R, height: 0.20R)\r\n  .using(default)\r\n";
+    let expected = "# Café shot 🎱 — preserve these bytes\r\nball cue at center\r\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\r\nshot(cue)\r\n  .heading( 271.25deg )\r\n  .speed(48ips)\r\n  .tip(side: 0.10R, height: 0.20R)\r\n  .using(default)\r\n";
+
+    let previous_controls = shot_controls_from_dsl(source)
+        .expect("the original direct-heading shot should build")
+        .expect("the fixture should contain a shot");
+
+    let edited = update_shot_control_in_dsl(source, ShotControl::Heading, 271.25)
+        .expect("a direct heading literal should be editable");
+
+    assert_eq!(edited.source, expected);
+    assert_eq!(
+        edited.controls,
+        ShotControls {
+            heading_degrees: 271.25,
+            ..previous_controls
+        }
+    );
+}
+
+#[test]
+fn shot_control_heading_edit_replaces_each_derived_aim_method_only() {
+    for (name, aim) in [
+        ("to_pocket", "to_pocket(nine, top-right)"),
+        ("pocket alias", "pocket(nine, top-right)"),
+        ("two-sided cut", "cut(nine, left(32deg))"),
+        ("left cut alias", "cut_left(nine, 32)"),
+        ("right cut alias", "cut_right(nine, 18)"),
+    ] {
+        let source = editable_shot_control_source(aim, "64ips", "side: 0.0R, height: 0.0R", "");
+        let expected = editable_shot_control_source(
+            "heading(123.5deg)",
+            "64ips",
+            "side: 0.0R, height: 0.0R",
+            "",
+        );
+
+        let previous_controls = shot_controls_from_dsl(&source)
+            .unwrap_or_else(|error| panic!("{name} original should build: {error}"))
+            .unwrap_or_else(|| panic!("{name} fixture should contain a shot"));
+
+        let edited = update_shot_control_in_dsl(&source, ShotControl::Heading, 123.5)
+            .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
+
+        assert_eq!(edited.source, expected, "{name}");
+        assert_eq!(
+            edited.controls,
+            ShotControls {
+                heading_degrees: 123.5,
+                ..previous_controls
+            },
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn shot_control_speed_edit_accepts_every_input_form_and_emits_canonical_ips() {
+    for (name, speed) in [
+        ("numeric ips", "52ips"),
+        ("numeric mph", "10mph"),
+        ("numeric kph", "16.09344kph"),
+        ("named preset", "medium-fast"),
+    ] {
+        let source =
+            editable_shot_control_source("heading(12deg)", speed, "side: 0.0R, height: 0.0R", "");
+        let expected = editable_shot_control_source(
+            "heading(12deg)",
+            "700ips",
+            "side: 0.0R, height: 0.0R",
+            "",
+        );
+
+        let previous_controls = shot_controls_from_dsl(&source)
+            .unwrap_or_else(|error| panic!("{name} original should build: {error}"))
+            .unwrap_or_else(|| panic!("{name} fixture should contain a shot"));
+
+        let edited = update_shot_control_in_dsl(&source, ShotControl::Speed, 700.0)
+            .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
+
+        assert_eq!(edited.source, expected, "{name}");
+        assert_eq!(
+            edited.controls,
+            ShotControls {
+                speed_ips: 700.0,
+                speed_max_ips: 700.0,
+                ..previous_controls
+            },
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn shot_control_tip_edits_preserve_untouched_literals_and_support_atomic_updates() {
+    let source =
+        editable_shot_control_source("heading(12deg)", "52ips", "side: -0.10R, height: 0.20R", "");
+
+    let previous_controls = shot_controls_from_dsl(&source)
+        .expect("the original tip shot should build")
+        .expect("the fixture should contain a shot");
+
+    let edited_side = update_shot_control_in_dsl(&source, ShotControl::TipSide, 0.3)
+        .expect("tip side should be editable independently");
+    assert_eq!(
+        edited_side.source,
+        editable_shot_control_source("heading(12deg)", "52ips", "side: 0.3R, height: 0.20R", "",)
+    );
+    assert_eq!(
+        edited_side.controls,
+        ShotControls {
+            tip_side: 0.3,
+            ..previous_controls
+        }
+    );
+
+    let edited_height = update_shot_control_in_dsl(&source, ShotControl::TipHeight, -0.4)
+        .expect("tip height should be editable independently");
+    assert_eq!(
+        edited_height.source,
+        editable_shot_control_source("heading(12deg)", "52ips", "side: -0.10R, height: -0.4R", "",)
+    );
+    assert_eq!(
+        edited_height.controls,
+        ShotControls {
+            tip_height: -0.4,
+            ..previous_controls
+        }
+    );
+
+    let edited_pair =
+        update_shot_tip_in_dsl(&source, 0.25, -0.35).expect("tip pair should update atomically");
+    assert_eq!(
+        edited_pair.source,
+        editable_shot_control_source("heading(12deg)", "52ips", "side: 0.25R, height: -0.35R", "",)
+    );
+    assert_eq!(
+        edited_pair.controls,
+        ShotControls {
+            tip_side: 0.25,
+            tip_height: -0.35,
+            ..previous_controls
+        }
+    );
+}
+
+#[test]
+fn shot_control_elevation_edit_canonicalizes_jump_aliases_and_handles_omission() {
+    for (name, elevation, expected_elevation) in [
+        (
+            "explicit elevation",
+            ".elevation( 10deg )",
+            ".elevation( 22.5deg )",
+        ),
+        ("bare jump alias", ".jump()", ".elevation(22.5deg)"),
+        ("valued jump alias", ".jump( 32deg )", ".elevation(22.5deg)"),
+        ("omitted elevation", "", ".elevation(22.5deg)"),
+    ] {
+        let source = editable_shot_control_source(
+            "heading(12deg)",
+            "52ips",
+            "side: 0.1R, height: 0.2R",
+            elevation,
+        );
+        let expected = editable_shot_control_source(
+            "heading(12deg)",
+            "52ips",
+            "side: 0.1R, height: 0.2R",
+            expected_elevation,
+        );
+
+        let previous_controls = shot_controls_from_dsl(&source)
+            .unwrap_or_else(|error| panic!("{name} original should build: {error}"))
+            .unwrap_or_else(|| panic!("{name} fixture should contain a shot"));
+
+        let edited = update_shot_control_in_dsl(&source, ShotControl::Elevation, 22.5)
+            .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
+
+        assert_eq!(edited.source, expected, "{name}");
+        assert_close(edited.controls.cue_elevation_degrees, 22.5);
+        let mut controls_with_original_elevation = edited.controls;
+        controls_with_original_elevation.cue_elevation_degrees =
+            previous_controls.cue_elevation_degrees;
+        assert_eq!(
+            controls_with_original_elevation,
+            ShotControls {
+                cue_elevation_explicit: true,
+                ..previous_controls
+            },
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn shot_control_updates_reject_non_finite_and_build_invalid_values() {
+    let source =
+        editable_shot_control_source("heading(12deg)", "52ips", "side: 0.1R, height: 0.2R", "");
+
+    for (control, value) in [
+        (ShotControl::Heading, f64::NAN),
+        (ShotControl::Speed, f64::INFINITY),
+        (ShotControl::Elevation, f64::NEG_INFINITY),
+        (ShotControl::TipSide, f64::NAN),
+        (ShotControl::TipHeight, f64::INFINITY),
+    ] {
+        assert!(
+            matches!(
+                update_shot_control_in_dsl(&source, control, value),
+                Err(ShotControlError::NonFiniteValue { .. })
+            ),
+            "{control:?} should reject {value}"
+        );
+    }
+
+    for (side, height) in [(f64::NAN, 0.0), (0.0, f64::INFINITY)] {
+        assert!(matches!(
+            update_shot_tip_in_dsl(&source, side, height),
+            Err(ShotControlError::NonFiniteValue { .. })
+        ));
+    }
+
+    for (control, value) in [
+        (ShotControl::Speed, -1.0),
+        (ShotControl::Elevation, 85.1),
+        (ShotControl::TipSide, 1.1),
+        (ShotControl::TipHeight, -1.1),
+    ] {
+        assert!(
+            matches!(
+                update_shot_control_in_dsl(&source, control, value),
+                Err(ShotControlError::Dsl(DslError::Build(_)))
+            ),
+            "{control:?} should reject build-invalid value {value}"
+        );
+    }
+
+    assert!(matches!(
+        update_shot_tip_in_dsl(&source, 1.1, 0.0),
+        Err(ShotControlError::Dsl(DslError::Build(_)))
+    ));
+
+    assert!(matches!(
+        update_shot_control_in_dsl(&source, ShotControl::Speed, f64::MAX),
+        Err(ShotControlError::Dsl(DslError::Build(
+            DslBuildError::InvalidShot(ShotError::RequiredCueSpeedNotFinite { .. })
+        )))
+    ));
+
+    for control in [ShotControl::TipSide, ShotControl::TipHeight] {
+        assert!(
+            matches!(
+                update_shot_control_in_dsl(&source, control, f64::MAX),
+                Err(ShotControlError::Dsl(DslError::Build(
+                    DslBuildError::InvalidShot(ShotError::CueTipContactOutsideBall { .. })
+                )))
+            ),
+            "{control:?} should reject a huge finite offset outside the cue ball"
+        );
+    }
+
+    assert!(matches!(
+        update_shot_tip_in_dsl(&source, f64::MAX, f64::MAX),
+        Err(ShotControlError::Dsl(DslError::Build(
+            DslBuildError::InvalidShot(ShotError::CueTipContactRadiusNotFinite { .. })
+        )))
     ));
 }

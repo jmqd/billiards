@@ -3,13 +3,14 @@ use billiards::shot_simulation::{
     project_three_cushion, BallBallContactResolution, BallId, CaromBallRole, ContactInstant,
     OwnedShotResult, PhysicsProfile, ResolvedEffect, ResolvedEvent, SceneBall, ShotControls,
     ShotLayout, ShotLimit, ShotSimulationError, ShotTermination, ThreeCushionAdjudication,
-    ThreeCushionIndeterminate, ThreeCushionMiss, ThreeCushionRoles, ThreeCushionShooter,
-    ThreeCushionShot, UnsupportedPhysicsReason,
+    ThreeCushionIndeterminate, ThreeCushionMiss, ThreeCushionResult, ThreeCushionRoles,
+    ThreeCushionShooter, ThreeCushionShot, UnsupportedPhysicsReason,
 };
 use billiards::{
-    BallSetPhysicsSpec, Inches, InchesPerSecond, InchesPerSecondSq, OnTableMotionConfig,
-    RadiansPerSecond, RadiansPerSecondSq, Rail, RailCollisionProfile, RollingResistanceModel, Scale,
-    Seconds, SlidingFrictionModel, SlidingToRollingModel, SpinDecayModel,
+    BallBallCollisionConfig, BallSetPhysicsSpec, Inches, Inches2, InchesPerSecond,
+    InchesPerSecondSq, OnTableMotionConfig, RadiansPerSecond, RadiansPerSecondSq, Rail,
+    RailCollisionProfile, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
+    SlidingToRollingModel, SpinDecayModel,
 };
 
 fn fixture_layout() -> ShotLayout {
@@ -50,10 +51,39 @@ fn owned(events: Vec<ResolvedEvent>, termination: ShotTermination) -> OwnedShotR
     }
 }
 
+fn execute_with_adjudication_parity(
+    physics: &PhysicsProfile,
+    layout: &ShotLayout,
+    shot: &ThreeCushionShot,
+    limit: ShotLimit,
+) -> ThreeCushionResult {
+    let full = execute_three_cushion(physics, layout, shot, limit).unwrap();
+    let compact = execute_three_cushion_compact(physics, layout, shot, limit).unwrap();
+
+    assert_eq!(compact.completion, full.completion);
+    assert_eq!(compact.final_states, full.final_states);
+
+    let retained = OwnedShotResult {
+        elapsed: full.completion.elapsed,
+        termination: full.completion.termination.clone(),
+        roles: ThreeCushionRoles {
+            cue: BallId::WHITE,
+            object_a: BallId::YELLOW,
+            object_b: BallId::RED,
+        },
+        events: full.events.clone(),
+        final_states: full.final_states.clone(),
+    };
+    assert_eq!(project_three_cushion(&retained), full.completion.summary);
+
+    full
+}
+
 fn canonical_profile_with(
     alter: impl FnOnce(
         &mut BallSetPhysicsSpec,
         &mut OnTableMotionConfig,
+        &mut BallBallCollisionConfig,
         &mut RailCollisionProfile,
     ),
 ) -> Result<PhysicsProfile, ShotSimulationError> {
@@ -61,14 +91,15 @@ fn canonical_profile_with(
     let mut ball = baseline.ball_set().clone();
     let mut motion = baseline.motion().clone();
     let mut rails = baseline.rails().clone();
-    alter(&mut ball, &mut motion, &mut rails);
+    let mut collision = baseline.collision().clone();
+    alter(&mut ball, &mut motion, &mut collision, &mut rails);
 
     PhysicsProfile::new(
         baseline.table().clone(),
         ball,
         motion,
         baseline.collision_model(),
-        baseline.collision().clone(),
+        collision,
         baseline.rail_model(),
         rails,
     )
@@ -104,6 +135,33 @@ fn controls_reject_every_non_finite_scalar() {
 }
 
 #[test]
+fn controls_validate_radial_tip_bound_at_construction_and_preserve_offsets() {
+    let inside_radius = 1.0 - 1e-9;
+    let side_offset = 0.6 * inside_radius;
+    let height_offset = -0.8 * inside_radius;
+    let controls = ShotControls::new(25.0, 100.0, side_offset, height_offset, 0.0)
+        .expect("a tip contact just inside the radial bound is valid");
+
+    assert_eq!(controls.side_tip_offset(), side_offset);
+    assert_eq!(controls.height_tip_offset(), height_offset);
+
+    let outside_radius = 1.0 + 1e-9;
+    let result = ShotControls::new(
+        25.0,
+        100.0,
+        0.6 * outside_radius,
+        -0.8 * outside_radius,
+        0.0,
+    );
+    assert!(matches!(
+        result,
+        Err(ShotSimulationError::Shot(
+            billiards::ShotError::CueTipContactOutsideBall { .. }
+        ))
+    ));
+}
+
+#[test]
 fn physics_profile_rejects_out_of_domain_coefficients_before_execution() {
     let table = billiards::TableSpec::three_cushion_carom_10ft();
     let mut ball = table.default_ball_set_physics_spec();
@@ -124,30 +182,53 @@ fn physics_profile_rejects_out_of_domain_coefficients_before_execution() {
 }
 
 #[test]
+fn physics_profile_accepts_ideal_ball_collision_restitution() {
+    canonical_profile_with(|_, _, collision, _| {
+        *collision = BallBallCollisionConfig::ideal();
+    })
+    .expect("ideal ball collision with normal restitution 1.0 is valid");
+}
+
+#[test]
+fn physics_profile_accepts_unit_normal_restitution_for_every_rail() {
+    canonical_profile_with(|_, _, _, rails| {
+        for rail in [
+            &mut rails.top,
+            &mut rails.right,
+            &mut rails.bottom,
+            &mut rails.left,
+        ] {
+            rail.normal_restitution = Scale::from_f64(1.0);
+        }
+    })
+    .expect("normal restitution 1.0 is valid for every rail");
+}
+
+#[test]
 fn physics_profile_accepts_zero_airborne_restitution_but_rejects_one() {
-    assert!(canonical_profile_with(|ball, _, _| {
+    assert!(canonical_profile_with(|ball, _, _, _| {
         ball.airborne_table_contact.normal_restitution = Scale::zero();
     })
     .is_ok());
 
-    assert_invalid_profile(canonical_profile_with(|ball, _, _| {
+    assert_invalid_profile(canonical_profile_with(|ball, _, _, _| {
         ball.airborne_table_contact.normal_restitution = Scale::from_f64(1.0);
     }));
 }
 
 #[test]
 fn physics_profile_rejects_zero_motion_rates() {
-    let zero_sliding = canonical_profile_with(|_, motion, _| {
+    let zero_sliding = canonical_profile_with(|_, motion, _, _| {
         motion.sliding_friction = SlidingFrictionModel::ConstantAcceleration {
             acceleration_magnitude: InchesPerSecondSq::new(Inches::zero()),
         };
     });
-    let zero_spin = canonical_profile_with(|_, motion, _| {
+    let zero_spin = canonical_profile_with(|_, motion, _, _| {
         motion.spin_decay = SpinDecayModel::ConstantAngularDeceleration {
             angular_deceleration: RadiansPerSecondSq::zero(),
         };
     });
-    let zero_rolling = canonical_profile_with(|_, motion, _| {
+    let zero_rolling = canonical_profile_with(|_, motion, _, _| {
         motion.rolling_resistance = RollingResistanceModel::ConstantDeceleration {
             linear_deceleration: InchesPerSecondSq::new(Inches::zero()),
         };
@@ -160,28 +241,27 @@ fn physics_profile_rejects_zero_motion_rates() {
 
 #[test]
 fn physics_profile_rejects_a_rail_contact_height_ratio_above_one() {
-    assert_invalid_profile(canonical_profile_with(|_, _, rails| {
+    assert_invalid_profile(canonical_profile_with(|_, _, _, rails| {
         rails.top.effective_contact_height_ratio = Scale::from_f64(1.000_001);
     }));
 }
 
 #[test]
 fn physics_profile_rejects_every_negative_phase_tolerance() {
-    let negative_airborne_height = canonical_profile_with(|_, motion, _| {
+    let negative_airborne_height = canonical_profile_with(|_, motion, _, _| {
         motion.phase.thresholds.airborne_height = Inches::from_f64(-1.0);
     });
-    let negative_airborne_vertical_speed = canonical_profile_with(|_, motion, _| {
+    let negative_airborne_vertical_speed = canonical_profile_with(|_, motion, _, _| {
         motion.phase.thresholds.airborne_vertical_speed =
             InchesPerSecond::new(Inches::from_f64(-1.0));
     });
-    let negative_rest_linear_speed = canonical_profile_with(|_, motion, _| {
-        motion.phase.thresholds.rest_linear_speed =
-            InchesPerSecond::new(Inches::from_f64(-1.0));
+    let negative_rest_linear_speed = canonical_profile_with(|_, motion, _, _| {
+        motion.phase.thresholds.rest_linear_speed = InchesPerSecond::new(Inches::from_f64(-1.0));
     });
-    let negative_rest_angular_speed = canonical_profile_with(|_, motion, _| {
+    let negative_rest_angular_speed = canonical_profile_with(|_, motion, _, _| {
         motion.phase.thresholds.rest_angular_speed = RadiansPerSecond::new(-1.0);
     });
-    let negative_no_slip_epsilon = canonical_profile_with(|_, motion, _| {
+    let negative_no_slip_epsilon = canonical_profile_with(|_, motion, _, _| {
         motion.phase.sliding_to_rolling = SlidingToRollingModel::Thresholded {
             contact_speed_epsilon: InchesPerSecond::new(Inches::from_f64(-1.0)),
         };
@@ -260,14 +340,14 @@ fn either_cue_colored_ball_can_be_the_typed_shooter() {
 }
 
 #[test]
-fn event_limit_is_an_explicit_indeterminate_termination() {
-    let result = execute_three_cushion(
-        &PhysicsProfile::three_cushion_default(),
+fn event_limited_completion_matches_compact_and_retained_projection() {
+    let physics = PhysicsProfile::three_cushion_default();
+    let result = execute_with_adjudication_parity(
+        &physics,
         &fixture_layout(),
         &ThreeCushionShot::new(ThreeCushionShooter::Cue, fixture_controls()),
         ShotLimit::EventCount(0),
-    )
-    .unwrap();
+    );
     assert_eq!(
         result.completion.termination,
         ShotTermination::EventLimitReached { limit: 0 }
@@ -282,16 +362,88 @@ fn event_limit_is_an_explicit_indeterminate_termination() {
 }
 
 #[test]
-fn compact_and_owned_fact_projection_are_exactly_equal() {
+fn settled_completion_matches_compact_and_retained_projection() {
     let physics = PhysicsProfile::three_cushion_default();
-    let layout = fixture_layout();
-    let shot = ThreeCushionShot::new(ThreeCushionShooter::Cue, fixture_controls());
-    let full = execute_three_cushion(&physics, &layout, &shot, ShotLimit::EventCount(24)).unwrap();
-    let compact =
-        execute_three_cushion_compact(&physics, &layout, &shot, ShotLimit::EventCount(24)).unwrap();
+    let shot = ThreeCushionShot::new(
+        ThreeCushionShooter::Cue,
+        ShotControls::new(0.0, 0.0, 0.0, 0.0, 0.0).unwrap(),
+    );
+    let result = execute_with_adjudication_parity(
+        &physics,
+        &fixture_layout(),
+        &shot,
+        ShotLimit::UntilSettled,
+    );
 
-    assert_eq!(compact.completion, full.completion);
-    assert_eq!(compact.final_states, full.final_states);
+    assert_eq!(result.completion.termination, ShotTermination::Settled);
+    assert!(matches!(
+        result.completion.summary,
+        ThreeCushionAdjudication::Miss {
+            reason: ThreeCushionMiss::MissingObjectContact,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn unsupported_contact_completion_matches_compact_and_retained_projection() {
+    let physics = canonical_profile_with(|_, _, collision, _| {
+        collision.object_table_static_friction_coefficient = Scale::from_f64(0.1);
+    })
+    .unwrap();
+    let radius = physics.ball_set().radius.as_f64();
+    let object_y = 60.0;
+    let contact_y = object_y - 3.0_f64.sqrt() * radius;
+    let position = |x, y| Inches2::new(Inches::from_f64(x), Inches::from_f64(y));
+    let layout = ShotLayout::new(
+        &physics,
+        [
+            SceneBall::resting(
+                BallId::WHITE,
+                CaromBallRole::Cue,
+                position(50.0, contact_y - 7.5),
+            ),
+            SceneBall::resting(
+                BallId::YELLOW,
+                CaromBallRole::YellowCue,
+                position(50.0 - radius, object_y),
+            ),
+            SceneBall::resting(
+                BallId::RED,
+                CaromBallRole::Red,
+                position(50.0 + radius, object_y),
+            ),
+        ],
+    )
+    .unwrap();
+    let shot = ThreeCushionShot::new(
+        ThreeCushionShooter::Cue,
+        ShotControls::new(0.0, 100.0, 0.0, 0.0, 0.0).unwrap(),
+    );
+
+    let result =
+        execute_with_adjudication_parity(&physics, &layout, &shot, ShotLimit::UntilSettled);
+
+    assert!(
+        matches!(
+            result.completion.termination,
+            ShotTermination::UnsupportedPhysics {
+                reason: UnsupportedPhysicsReason::NonIdealSharedBallBallContact { .. }
+            }
+        ),
+        "expected unsupported shared contact, got {:?}: {:#?}",
+        result.completion.termination,
+        result.events
+    );
+    assert!(matches!(
+        result.completion.summary,
+        ThreeCushionAdjudication::Indeterminate {
+            reason: ThreeCushionIndeterminate::UnsupportedPhysics {
+                reason: UnsupportedPhysicsReason::NonIdealSharedBallBallContact { .. }
+            },
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -307,9 +459,8 @@ fn no_dsl_direct_execution_produces_a_verified_three_cushion_point() {
     )
     .unwrap();
     let shot = ThreeCushionShot::new(ThreeCushionShooter::Cue, controls);
-    let full = execute_three_cushion(&physics, &layout, &shot, ShotLimit::EventCount(64)).unwrap();
-    let compact =
-        execute_three_cushion_compact(&physics, &layout, &shot, ShotLimit::EventCount(64)).unwrap();
+    let full =
+        execute_with_adjudication_parity(&physics, &layout, &shot, ShotLimit::EventCount(64));
 
     let ThreeCushionAdjudication::Scored(facts) = &full.completion.summary else {
         panic!("verified direct fixture must score")
@@ -317,9 +468,6 @@ fn no_dsl_direct_execution_produces_a_verified_three_cushion_point() {
     assert!(facts.object_a_first_contact.is_some());
     assert!(facts.object_b_first_contact.is_some());
     assert!(facts.cushion_contacts_before_completion >= 3);
-    assert_eq!(compact.completion, full.completion);
-    assert_eq!(compact.final_states, full.final_states);
-    assert!(!full.events.is_empty());
 }
 
 #[test]
@@ -553,9 +701,7 @@ fn unresolved_shared_object_contacts_cannot_score() {
                 ],
             ),
         ],
-        ShotTermination::UnsupportedPhysics {
-            reason: reason.clone(),
-        },
+        ShotTermination::UnsupportedPhysics { reason },
     );
 
     let adjudication = project_three_cushion(&result);

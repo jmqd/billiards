@@ -260,13 +260,8 @@ fn default_radius_collision_is_invariant_to_contact_refinement_overlap() {
     );
 
     assert_close(
-        refined
-            .a_after
-            .as_ball_state()
-            .angular_velocity
-            .z()
-            .as_f64(),
-        exact.a_after.as_ball_state().angular_velocity.z().as_f64(),
+        refined.a_after.angular_velocity.z().as_f64(),
+        exact.a_after.angular_velocity.z().as_f64(),
     );
     assert_eq!(refined, explicit);
 }

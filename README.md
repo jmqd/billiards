@@ -69,24 +69,27 @@ For more:
 
 ## Browser SVG generator
 
-The Rust renderer can be compiled to Wasm and served from a generated static
-preview page:
+The Rust renderer can be compiled to Wasm and hosted by the built-in preview server:
+
+```bash
+nix develop -c cargo xtask wasm-preview --serve
+```
+
+Then open the `Serving Wasm preview at ...` URL printed by the command. The xtask
+server has no Python dependency. To build the static preview without starting the
+server:
 
 ```bash
 nix develop -c cargo xtask wasm-preview
 ```
 
-Then open the `Serving Wasm preview at ...` URL printed by the command. For a
-build-only artifact that you can serve yourself:
-
-```bash
-nix develop -c cargo xtask wasm-preview --no-serve
-```
-
-The generated page accepts `.billiards` DSL text, renders through the Wasm
-`render_svg_report_from_dsl` binding, previews the SVG, and includes the same
-table-detail and playback controls used by the validation gallery. Generated
-preview output lives in `target/wasm-preview/`.
+The generated page keeps `.billiards` DSL text authoritative while exposing synchronized
+heading, cue-tip, shot-speed, and cue-elevation instruments. User-facing shot speeds are shown in
+km/h with the nearest named-speed hint; DSL and simulation values retain their explicit source
+units. Edits in either representation re-render through the Wasm
+`render_svg_report_from_dsl` binding; the report includes the same table-detail and playback
+controls used by the validation gallery. Generated preview output lives in
+`target/wasm-preview/`.
 
 ## Thanks
 

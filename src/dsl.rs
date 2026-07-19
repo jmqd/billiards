@@ -16,7 +16,7 @@ use crate::{
         BallPathRenderOptions, BallPathWidthMode, EventMarkerStyle, GhostBallStyle,
         LabelOverlayStyle, PathColorMode, SmoothPolylineStyle,
     },
-    Angle, Ball, BallBallCollisionConfig, BallPath, BallPathSegment, BallPathStop,
+    Angle, Ball, BallBallCollisionConfig, BallPath, BallPathError, BallPathSegment, BallPathStop,
     BallSetPhysicsSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact,
     Diamond, GameState, GameType, HumanShotSpeedValidation, Inches, InchesPerSecond, MotionPhase,
     MotionPhaseThresholds, NBallGeometryError, NBallSystemEvent, NBallSystemSimulation,
@@ -84,6 +84,27 @@ struct EffectiveSimulationPhysics {
     rail_model: RailModel,
     rail_profile: RailCollisionProfile,
     max_events: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ScenarioTraceStop {
+    UntilRest,
+    EventLimit(usize),
+}
+
+impl ScenarioTraceStop {
+    fn constrained_by(self, max_events: Option<usize>) -> Self {
+        let Some(max_events) = max_events else {
+            return self;
+        };
+
+        match self {
+            Self::UntilRest => Self::EventLimit(max_events),
+            Self::EventLimit(requested_max_events) => {
+                Self::EventLimit(requested_max_events.min(max_events))
+            }
+        }
+    }
 }
 
 impl DslScenario {
@@ -174,26 +195,16 @@ impl DslScenario {
         simulation_name: &str,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
         let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-        if let Some(max_events) = simulation.max_events {
-            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
-                ball_set,
-                &simulation.motion,
-                simulation.collision_model,
-                &simulation.collision_config,
-                simulation.rail_model,
-                &simulation.rail_profile,
-                max_events,
-            )
-        } else {
-            self.simulate_shot_trace_with_physics_on_table_until_rest(
-                ball_set,
-                &simulation.motion,
-                simulation.collision_model,
-                &simulation.collision_config,
-                simulation.rail_model,
-                &simulation.rail_profile,
-            )
-        }
+        let stop = ScenarioTraceStop::UntilRest.constrained_by(simulation.max_events);
+        self.execute_shot_trace_with_physics_on_table(
+            ball_set,
+            &simulation.motion,
+            simulation.collision_model,
+            &simulation.collision_config,
+            simulation.rail_model,
+            &simulation.rail_profile,
+            stop,
+        )
     }
 
     pub fn trace_shot_path_with_simulation_on_table(
@@ -311,7 +322,9 @@ impl DslScenario {
                 second_ball: self.game_state.balls()[second_ball_index].ty.clone(),
                 error,
             },
-            error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { .. } => {
+            error @ (NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { .. }
+            | NBallGeometryError::ZeroTimeNoProgress
+            | NBallGeometryError::ZeroTimeEventLimitExceeded { .. }) => {
                 DslBuildError::UnsupportedNBallPhysics { error }
             }
         }
@@ -411,24 +424,61 @@ impl DslScenario {
         rail_model: RailModel,
         rail_profile: &RailCollisionProfile,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
-            return Ok(None);
-        };
-        let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
-            &initial_states,
+        self.execute_shot_trace_with_physics_on_table(
             ball_set,
-            &self.game_state.table_spec,
             motion,
             collision_model,
             collision_config,
             rail_model,
             rail_profile,
+            ScenarioTraceStop::UntilRest,
         )
+    }
+
+    fn execute_shot_trace_with_physics_on_table(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        collision_config: &BallBallCollisionConfig,
+        rail_model: RailModel,
+        rail_profile: &RailCollisionProfile,
+        stop: ScenarioTraceStop,
+    ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
+            return Ok(None);
+        };
+        let simulation = match stop {
+            ScenarioTraceStop::UntilRest => {
+                simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
+                    &initial_states,
+                    ball_set,
+                    &self.game_state.table_spec,
+                    motion,
+                    collision_model,
+                    collision_config,
+                    rail_model,
+                    rail_profile,
+                )
+            }
+            ScenarioTraceStop::EventLimit(max_events) => {
+                simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+                    &initial_states,
+                    ball_set,
+                    &self.game_state.table_spec,
+                    motion,
+                    collision_model,
+                    collision_config,
+                    rail_model,
+                    rail_profile,
+                    Some(max_events),
+                )
+            }
+        }
         .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
-        let initial_system_states = initial_states;
         let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
         let ball_traces = self.ball_traces_from_simulation(
-            &initial_system_states,
+            &initial_states,
             &simulation,
             ball_set,
             motion,
@@ -457,42 +507,15 @@ impl DslScenario {
         rail_profile: &RailCollisionProfile,
         max_events: usize,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
-            return Ok(None);
-        };
-        let initial_system_states = initial_states;
-        let simulation =
-            simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
-                &initial_system_states,
-                ball_set,
-                &self.game_state.table_spec,
-                motion,
-                collision_model,
-                collision_config,
-                rail_model,
-                rail_profile,
-                Some(max_events),
-            )
-            .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
-        let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
-        let ball_traces = self.ball_traces_from_simulation(
-            &initial_system_states,
-            &simulation,
+        self.execute_shot_trace_with_physics_on_table(
             ball_set,
             motion,
             collision_model,
             collision_config,
             rail_model,
             rail_profile,
-        )?;
-
-        Ok(Some(ScenarioShotTrace {
-            simulation,
-            event_log,
-            ball_traces,
-            ball_set: ball_set.clone(),
-            motion: motion.clone(),
-        }))
+            ScenarioTraceStop::EventLimit(max_events),
+        )
     }
 
     pub fn simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
@@ -502,13 +525,14 @@ impl DslScenario {
         collision_model: CollisionModel,
         rail_model: RailModel,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        self.simulate_shot_trace_with_physics_on_table_until_rest(
+        self.execute_shot_trace_with_physics_on_table(
             ball_set,
             motion,
             collision_model,
             &BallBallCollisionConfig::human_tuned(),
             rail_model,
             &RailCollisionProfile::default(),
+            ScenarioTraceStop::UntilRest,
         )
     }
 
@@ -519,34 +543,27 @@ impl DslScenario {
         collision_model: CollisionModel,
         rail_model: RailModel,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        let stop = ScenarioTraceStop::UntilRest;
         if let Some(simulation_name) = self.preferred_simulation_name() {
             let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-            if let Some(max_events) = simulation.max_events {
-                self.simulate_shot_trace_with_physics_on_table_until_event_limit(
-                    ball_set,
-                    &simulation.motion,
-                    simulation.collision_model,
-                    &simulation.collision_config,
-                    simulation.rail_model,
-                    &simulation.rail_profile,
-                    max_events,
-                )
-            } else {
-                self.simulate_shot_trace_with_physics_on_table_until_rest(
-                    ball_set,
-                    &simulation.motion,
-                    simulation.collision_model,
-                    &simulation.collision_config,
-                    simulation.rail_model,
-                    &simulation.rail_profile,
-                )
-            }
+            self.execute_shot_trace_with_physics_on_table(
+                ball_set,
+                &simulation.motion,
+                simulation.collision_model,
+                &simulation.collision_config,
+                simulation.rail_model,
+                &simulation.rail_profile,
+                stop.constrained_by(simulation.max_events),
+            )
         } else {
-            self.simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+            self.execute_shot_trace_with_physics_on_table(
                 ball_set,
                 motion,
                 collision_model,
+                &BallBallCollisionConfig::human_tuned(),
                 rail_model,
+                &RailCollisionProfile::default(),
+                stop,
             )
         }
     }
@@ -559,31 +576,27 @@ impl DslScenario {
         rail_model: RailModel,
         max_events: usize,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
+        let stop = ScenarioTraceStop::EventLimit(max_events);
         if let Some(simulation_name) = self.preferred_simulation_name() {
             let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-            let max_events = simulation
-                .max_events
-                .map_or(max_events, |simulation_max_events| {
-                    max_events.min(simulation_max_events)
-                });
-            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
+            self.execute_shot_trace_with_physics_on_table(
                 ball_set,
                 &simulation.motion,
                 simulation.collision_model,
                 &simulation.collision_config,
                 simulation.rail_model,
                 &simulation.rail_profile,
-                max_events,
+                stop.constrained_by(simulation.max_events),
             )
         } else {
-            self.simulate_shot_trace_with_physics_on_table_until_event_limit(
+            self.execute_shot_trace_with_physics_on_table(
                 ball_set,
                 motion,
                 collision_model,
                 &BallBallCollisionConfig::human_tuned(),
                 rail_model,
                 &RailCollisionProfile::default(),
-                max_events,
+                stop,
             )
         }
     }
@@ -731,7 +744,7 @@ impl DslScenario {
             return Ok(None);
         };
 
-        Ok(Some(trace_ball_path_with_rail_profile_on_table(
+        let path = trace_ball_path_with_rail_profile_on_table(
             &initial_state,
             stop,
             ball_set,
@@ -739,7 +752,9 @@ impl DslScenario {
             motion,
             rail_model,
             rail_profile,
-        )))
+        )
+        .map_err(DslBuildError::BallPath)?;
+        Ok(Some(path))
     }
 
     pub fn trace_shot_path_with_rails_on_table(
@@ -888,9 +903,8 @@ impl ScenarioShotTrace {
                 let start = segment.start_time.as_f64();
                 let duration = segment.duration.as_f64();
                 times.push(start);
-                let sample_count = ((duration / max_time_step).ceil() as usize).max(1);
-                for step in 1..=sample_count {
-                    times.push(start + duration * step as f64 / sample_count as f64);
+                for sample in TimelineSubdivision::new(duration, Some(max_time_step)) {
+                    times.push(start + sample.elapsed.as_f64());
                 }
             }
         }
@@ -1181,6 +1195,48 @@ pub struct ScenarioBallTimelineSegment {
     pub duration: Seconds,
 }
 
+struct TimelineSubdivisionSample {
+    elapsed: Seconds,
+    is_endpoint: bool,
+}
+
+struct TimelineSubdivision {
+    duration: f64,
+    sample_count: usize,
+    next_sample: usize,
+}
+
+impl TimelineSubdivision {
+    fn new(duration: f64, max_time_step: Option<f64>) -> Self {
+        let sample_count = max_time_step.map_or(1, |max_time_step| {
+            ((duration / max_time_step).ceil() as usize).max(1)
+        });
+        Self {
+            duration,
+            sample_count,
+            next_sample: 1,
+        }
+    }
+}
+
+impl Iterator for TimelineSubdivision {
+    type Item = TimelineSubdivisionSample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_sample == 0 {
+            return None;
+        }
+
+        let sample_index = self.next_sample;
+        let is_endpoint = sample_index == self.sample_count;
+        self.next_sample = if is_endpoint { 0 } else { sample_index + 1 };
+        Some(TimelineSubdivisionSample {
+            elapsed: Seconds::new(self.duration * sample_index as f64 / self.sample_count as f64),
+            is_endpoint,
+        })
+    }
+}
+
 impl ScenarioBallTrace {
     fn pocket_terminal_point(&self) -> Option<Position> {
         match &self.final_state {
@@ -1203,7 +1259,7 @@ impl ScenarioBallTrace {
             if target_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS < start_time {
                 return Some(segment.start.clone());
             }
-            if target_time < end_time - SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+            if target_time < end_time {
                 let segment_elapsed = (target_time - start_time).clamp(0.0, duration);
                 if segment_elapsed <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
                     return Some(segment.start.clone());
@@ -1342,20 +1398,17 @@ impl ScenarioBallTrace {
         table_spec: &TableSpec,
     ) -> Vec<Position> {
         let mut points = vec![self.initial_state.projected_position(table_spec)];
-        let max_time_step = max_time_step.as_f64().max(0.0);
+        let max_time_step = max_time_step.as_f64();
+        let subdivision_step =
+            (max_time_step.is_finite() && max_time_step > 0.0).then_some(max_time_step);
         for segment in &self.timeline_segments {
-            let duration = segment.duration.as_f64().max(0.0);
-            let sample_count = if max_time_step > 0.0 {
-                (duration / max_time_step).ceil().max(1.0) as usize
-            } else {
-                1
-            };
-            for sample_index in 1..=sample_count {
-                let elapsed = Seconds::new(duration * sample_index as f64 / sample_count as f64);
-                let state = if sample_index == sample_count {
+            for sample in
+                TimelineSubdivision::new(segment.duration.as_f64().max(0.0), subdivision_step)
+            {
+                let state = if sample.is_endpoint {
                     segment.end.clone()
                 } else {
-                    advance_timeline_ball_state(&segment.start, elapsed, ball, motion)
+                    advance_timeline_ball_state(&segment.start, sample.elapsed, ball, motion)
                 };
                 let projected = state.projected_position(table_spec);
                 if points.last() != Some(&projected) {
@@ -1738,6 +1791,76 @@ pub struct ShotDef {
     pub methods: Vec<ShotMethodExpr>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct ShotSourceMetadata {
+    aim: Option<ShotAimSource>,
+    speed_literal: Option<ByteSpan>,
+    tip: Option<ShotTipSource>,
+    elevation: Option<ShotElevationSource>,
+}
+
+#[derive(Debug)]
+struct ParsedShotDef {
+    def: ShotDef,
+    source: ShotSourceMetadata,
+}
+
+#[derive(Debug)]
+struct ParsedDslDoc {
+    doc: DslDoc,
+    shot_source: Option<ShotSourceMetadata>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShotAimSource {
+    method: ByteSpan,
+    heading_literal: Option<ByteSpan>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShotTipSource {
+    method: ByteSpan,
+    side_literal: ByteSpan,
+    height_literal: ByteSpan,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShotElevationSource {
+    method: ByteSpan,
+    literal: Option<ByteSpan>,
+    is_jump: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ByteSpan {
+    start: usize,
+    end: usize,
+}
+
+impl ByteSpan {
+    fn between(start: usize, input: &Stream<'_>) -> Self {
+        Self {
+            start,
+            end: input.current_token_start(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ParsedShotMethod {
+    expr: ShotMethodExpr,
+    source: ParsedShotMethodSource,
+}
+
+#[derive(Debug)]
+enum ParsedShotMethodSource {
+    Aim(ShotAimSource),
+    Speed { literal: ByteSpan },
+    Tip(ShotTipSource),
+    Elevation(ShotElevationSource),
+    Other,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShotCutDirection {
     Left,
@@ -1968,6 +2091,7 @@ pub enum DslBuildError {
     UnsupportedNBallPhysics {
         error: NBallGeometryError,
     },
+    BallPath(BallPathError),
 }
 
 impl std::fmt::Display for DslBuildError {
@@ -2121,6 +2245,7 @@ impl std::fmt::Display for DslBuildError {
                 "invalid layout: balls '{first_ball:?}' and '{second_ball:?}' violate rigid geometry: {error}"
             ),
             Self::UnsupportedNBallPhysics { error } => write!(f, "unsupported N-ball physics: {error}"),
+            Self::BallPath(error) => write!(f, "ball path trace failed: {error}"),
         }
     }
 }
@@ -2144,19 +2269,99 @@ impl std::fmt::Display for DslError {
 
 impl std::error::Error for DslError {}
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShotControls {
+    pub heading_degrees: f64,
+    pub speed_ips: f64,
+    pub tip_side: f64,
+    pub tip_height: f64,
+    pub tip_max_radius: f64,
+    pub cue_elevation_degrees: f64,
+    pub cue_elevation_explicit: bool,
+    pub speed_max_ips: f64,
+    pub cue_elevation_max_degrees: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShotControlUpdate {
+    pub source: String,
+    pub controls: ShotControls,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShotControl {
+    Heading,
+    Speed,
+    Elevation,
+    TipSide,
+    TipHeight,
+}
+
+impl std::str::FromStr for ShotControl {
+    type Err = ShotControlError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        match name {
+            "heading" => Ok(Self::Heading),
+            "speed" => Ok(Self::Speed),
+            "elevation" => Ok(Self::Elevation),
+            "tip-side" => Ok(Self::TipSide),
+            "tip-height" => Ok(Self::TipHeight),
+            _ => Err(ShotControlError::UnknownControl(name.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShotControlError {
+    Dsl(DslError),
+    NoShot,
+    UnknownControl(String),
+    NonFiniteValue { control: &'static str },
+    MissingSourceMetadata { control: &'static str },
+}
+
+impl std::fmt::Display for ShotControlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dsl(error) => write!(f, "{error}"),
+            Self::NoShot => write!(f, "the DSL does not contain a shot"),
+            Self::UnknownControl(control) => write!(f, "unknown shot control '{control}'"),
+            Self::NonFiniteValue { control } => {
+                write!(f, "shot control '{control}' requires a finite value")
+            }
+            Self::MissingSourceMetadata { control } => {
+                write!(f, "shot control '{control}' has no editable source range")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ShotControlError {}
+
+impl From<DslError> for ShotControlError {
+    fn from(error: DslError) -> Self {
+        Self::Dsl(error)
+    }
+}
+
 type Stream<'i> = LocatingSlice<&'i str>;
 
 type ParseError<'i> = ErrMode<InputError<Stream<'i>>>;
 
 type ParseResult<'i, T> = Result<T, ParseError<'i>>;
 
-fn parse_dsl_inner(input: &str) -> ParseResult<'_, DslDoc> {
+fn parse_dsl_inner(input: &str) -> ParseResult<'_, ParsedDslDoc> {
     let mut stream = LocatingSlice::new(input);
     dsl_doc.parse_next(&mut stream)
 }
 
-pub fn parse_dsl(input: &str) -> Result<DslDoc, DslParseError> {
+fn parse_dsl_with_metadata(input: &str) -> Result<ParsedDslDoc, DslParseError> {
     parse_dsl_inner(input).map_err(parse_error)
+}
+
+pub fn parse_dsl(input: &str) -> Result<DslDoc, DslParseError> {
+    parse_dsl_with_metadata(input).map(|parsed| parsed.doc)
 }
 
 pub fn parse_dsl_to_game_state(input: &str) -> Result<GameState, DslError> {
@@ -2167,6 +2372,204 @@ pub fn parse_dsl_to_game_state(input: &str) -> Result<GameState, DslError> {
 pub fn parse_dsl_to_scenario(input: &str) -> Result<DslScenario, DslError> {
     let doc = parse_dsl(input).map_err(DslError::Parse)?;
     build_scenario(&doc).map_err(DslError::Build)
+}
+
+pub fn shot_controls_from_dsl(source: &str) -> Result<Option<ShotControls>, ShotControlError> {
+    let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
+    let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
+    shot_controls_from_parsed_dsl(&parsed, &scenario)
+}
+
+fn shot_controls_from_parsed_dsl(
+    parsed: &ParsedDslDoc,
+    scenario: &DslScenario,
+) -> Result<Option<ShotControls>, ShotControlError> {
+    let Some(built_shot) = scenario.shot.as_ref() else {
+        return Ok(None);
+    };
+    let shot_def =
+        shot_def(&parsed.doc).ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })?;
+    let shot_source = parsed
+        .shot_source
+        .ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })?;
+    let speed_ips = shot_def
+        .methods
+        .iter()
+        .find_map(|method| match method {
+            ShotMethodExpr::SpeedIps(speed_ips) => Some(*speed_ips),
+            _ => None,
+        })
+        .ok_or(ShotControlError::MissingSourceMetadata { control: "speed" })?;
+    let preset_max = ShotSpeedPreset::ExceptionalPowerBreak
+        .inches_per_second()
+        .as_f64();
+    let tip_contact = built_shot.shot.tip_contact();
+
+    Ok(Some(ShotControls {
+        heading_degrees: built_shot.shot.heading().as_degrees(),
+        speed_ips,
+        tip_side: tip_contact.side_offset().as_f64(),
+        tip_height: tip_contact.height_offset().as_f64(),
+        tip_max_radius: built_shot.cue_strike.miscue_offset_limit().as_f64(),
+        cue_elevation_degrees: built_shot.shot.cue_elevation().as_degrees(),
+        cue_elevation_explicit: shot_source.elevation.is_some(),
+        speed_max_ips: preset_max.max(speed_ips),
+        cue_elevation_max_degrees: crate::MAX_CUE_ELEVATION_DEGREES,
+    }))
+}
+
+pub fn update_shot_control_in_dsl(
+    source: &str,
+    control: ShotControl,
+    value: f64,
+) -> Result<ShotControlUpdate, ShotControlError> {
+    let control_name = match control {
+        ShotControl::Heading => "heading",
+        ShotControl::Speed => "speed",
+        ShotControl::Elevation => "elevation",
+        ShotControl::TipSide => "tip-side",
+        ShotControl::TipHeight => "tip-height",
+    };
+    if !value.is_finite() {
+        return Err(ShotControlError::NonFiniteValue {
+            control: control_name,
+        });
+    }
+
+    let source_metadata = editable_shot_source(source)?;
+    let number = format_shot_control_number(value);
+    let mut candidate = source.to_string();
+    match control {
+        ShotControl::Heading => {
+            let aim = source_metadata
+                .aim
+                .ok_or(ShotControlError::MissingSourceMetadata { control: "heading" })?;
+            if let Some(literal) = aim.heading_literal {
+                replace_source_span(&mut candidate, literal, &format!("{number}deg"));
+            } else {
+                replace_source_span(&mut candidate, aim.method, &format!("heading({number}deg)"));
+            }
+        }
+        ShotControl::Speed => {
+            let literal = source_metadata
+                .speed_literal
+                .ok_or(ShotControlError::MissingSourceMetadata { control: "speed" })?;
+            replace_source_span(&mut candidate, literal, &format!("{number}ips"));
+        }
+        ShotControl::TipSide => {
+            let literal = source_metadata
+                .tip
+                .ok_or(ShotControlError::MissingSourceMetadata { control: "tip" })?
+                .side_literal;
+            replace_source_span(&mut candidate, literal, &format!("{number}R"));
+        }
+        ShotControl::TipHeight => {
+            let literal = source_metadata
+                .tip
+                .ok_or(ShotControlError::MissingSourceMetadata { control: "tip" })?
+                .height_literal;
+            replace_source_span(&mut candidate, literal, &format!("{number}R"));
+        }
+        ShotControl::Elevation => match source_metadata.elevation {
+            Some(elevation) if elevation.is_jump => replace_source_span(
+                &mut candidate,
+                elevation.method,
+                &format!("elevation({number}deg)"),
+            ),
+            Some(elevation) => {
+                let literal = elevation
+                    .literal
+                    .ok_or(ShotControlError::MissingSourceMetadata {
+                        control: "elevation",
+                    })?;
+                replace_source_span(&mut candidate, literal, &format!("{number}deg"));
+            }
+            None => {
+                let tip = source_metadata
+                    .tip
+                    .ok_or(ShotControlError::MissingSourceMetadata { control: "tip" })?;
+                candidate.insert_str(tip.method.end, &format!(".elevation({number}deg)"));
+            }
+        },
+    }
+
+    validate_edited_shot_source(candidate)
+}
+
+pub fn update_shot_tip_in_dsl(
+    source: &str,
+    side: f64,
+    height: f64,
+) -> Result<ShotControlUpdate, ShotControlError> {
+    if !side.is_finite() {
+        return Err(ShotControlError::NonFiniteValue {
+            control: "tip side",
+        });
+    }
+    if !height.is_finite() {
+        return Err(ShotControlError::NonFiniteValue {
+            control: "tip height",
+        });
+    }
+
+    let source_metadata = editable_shot_source(source)?;
+    let tip = source_metadata
+        .tip
+        .ok_or(ShotControlError::MissingSourceMetadata { control: "tip" })?;
+    let side_literal = format!("{}R", format_shot_control_number(side));
+    let height_literal = format!("{}R", format_shot_control_number(height));
+    let mut replacements = [
+        (tip.side_literal, side_literal),
+        (tip.height_literal, height_literal),
+    ];
+    replacements.sort_unstable_by(|(left, _), (right, _)| right.start.cmp(&left.start));
+
+    let mut candidate = source.to_string();
+    for (span, replacement) in replacements {
+        replace_source_span(&mut candidate, span, &replacement);
+    }
+    validate_edited_shot_source(candidate)
+}
+
+fn shot_def(doc: &DslDoc) -> Option<&ShotDef> {
+    doc.entries.iter().find_map(|entry| match entry {
+        DslEntry::Shot(shot) => Some(shot),
+        _ => None,
+    })
+}
+
+fn editable_shot_source(source: &str) -> Result<ShotSourceMetadata, ShotControlError> {
+    let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
+    let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
+    if scenario.shot.is_none() {
+        return Err(ShotControlError::NoShot);
+    }
+    parsed
+        .shot_source
+        .ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })
+}
+
+fn validate_edited_shot_source(candidate: String) -> Result<ShotControlUpdate, ShotControlError> {
+    let parsed = parse_dsl_with_metadata(&candidate).map_err(DslError::Parse)?;
+    let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
+    let controls =
+        shot_controls_from_parsed_dsl(&parsed, &scenario)?.ok_or(ShotControlError::NoShot)?;
+    Ok(ShotControlUpdate {
+        source: candidate,
+        controls,
+    })
+}
+
+fn replace_source_span(source: &mut String, span: ByteSpan, replacement: &str) {
+    source.replace_range(span.start..span.end, replacement);
+}
+
+fn format_shot_control_number(value: f64) -> String {
+    if value == 0.0 {
+        "0".to_string()
+    } else {
+        value.to_string()
+    }
 }
 
 pub fn build_game_state(doc: &DslDoc) -> Result<GameState, DslBuildError> {
@@ -3053,27 +3456,34 @@ fn parse_error(err: ParseError<'_>) -> DslParseError {
     DslParseError { message, offset }
 }
 
-fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
+fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedDslDoc> {
     let mut doc = DslDoc {
         table: None,
         game: None,
         trace_max_events: None,
         entries: Vec::new(),
     };
-    let mut duplicate_singleton = false;
+    let mut duplicate_singleton = None;
+    let mut shot_source = None;
 
     repeat(0.., statement)
         .fold(
             || (),
-            |(), entry| match entry {
+            |(), (entry, entry_start)| match entry {
                 DslStatement::Table(table) => {
-                    duplicate_singleton |= doc.table.replace(table).is_some();
+                    if doc.table.replace(table).is_some() {
+                        duplicate_singleton.get_or_insert(entry_start);
+                    }
                 }
                 DslStatement::Game(game) => {
-                    duplicate_singleton |= doc.game.replace(game).is_some();
+                    if doc.game.replace(game).is_some() {
+                        duplicate_singleton.get_or_insert(entry_start);
+                    }
                 }
                 DslStatement::TraceMaxEvents(max_events) => {
-                    duplicate_singleton |= doc.trace_max_events.replace(max_events).is_some();
+                    if doc.trace_max_events.replace(max_events).is_some() {
+                        duplicate_singleton.get_or_insert(entry_start);
+                    }
                 }
                 DslStatement::Alias(alias) => doc.entries.push(DslEntry::Alias(alias)),
                 DslStatement::Ball(placement) => doc.entries.push(DslEntry::Ball(placement)),
@@ -3082,22 +3492,25 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslDoc> {
                 DslStatement::RailResponse(def) => doc.entries.push(DslEntry::RailResponse(def)),
                 DslStatement::Rails(def) => doc.entries.push(DslEntry::Rails(def)),
                 DslStatement::Simulation(def) => doc.entries.push(DslEntry::Simulation(def)),
-                DslStatement::Shot(def) => doc.entries.push(DslEntry::Shot(def)),
+                DslStatement::Shot(parsed) => {
+                    shot_source = Some(parsed.source);
+                    doc.entries.push(DslEntry::Shot(parsed.def));
+                }
                 DslStatement::Empty => {}
             },
         )
         .parse_next(input)?;
 
-    if duplicate_singleton {
-        return Err(ErrMode::Cut(InputError::at(*input)));
+    if let Some(duplicate_start) = duplicate_singleton {
+        return Err(ErrMode::Cut(InputError::at(duplicate_start)));
     }
 
     let _ = terminated(hws0, eof).parse_next(input)?;
 
-    Ok(doc)
+    Ok(ParsedDslDoc { doc, shot_source })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 enum DslStatement {
     Table(TableRef),
     Game(GameRef),
@@ -3109,12 +3522,13 @@ enum DslStatement {
     RailResponse(RailResponseDef),
     Rails(RailsDef),
     Simulation(SimulationDef),
-    Shot(ShotDef),
+    Shot(ParsedShotDef),
     Empty,
 }
 
-fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
+fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (DslStatement, Stream<'a>)> {
     let _ = hws0.parse_next(input)?;
+    let statement_start = *input;
     let stmt = alt((
         comment_line,
         blank_line,
@@ -3132,7 +3546,7 @@ fn statement<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     ))
     .parse_next(input)?;
     let _ = hws0.parse_next(input)?;
-    Ok(stmt)
+    Ok((stmt, statement_start))
 }
 
 fn comment_line<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
@@ -3254,8 +3668,26 @@ fn simulation_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> 
 fn shot_stmt<'a>(input: &mut Stream<'a>) -> ParseResult<'a, DslStatement> {
     let _ = "shot".parse_next(input)?;
     let ball = delimited('(', delimited(hws0, ball_ref, hws0), ')').parse_next(input)?;
-    let methods = repeat(0.., shot_method_segment).parse_next(input)?;
-    Ok(DslStatement::Shot(ShotDef { ball, methods }))
+    let parsed_methods: Vec<ParsedShotMethod> =
+        repeat(0.., shot_method_segment).parse_next(input)?;
+    let mut methods = Vec::with_capacity(parsed_methods.len());
+    let mut source = ShotSourceMetadata::default();
+
+    for parsed in parsed_methods {
+        match parsed.source {
+            ParsedShotMethodSource::Aim(aim) => source.aim = Some(aim),
+            ParsedShotMethodSource::Speed { literal } => source.speed_literal = Some(literal),
+            ParsedShotMethodSource::Tip(tip) => source.tip = Some(tip),
+            ParsedShotMethodSource::Elevation(elevation) => source.elevation = Some(elevation),
+            ParsedShotMethodSource::Other => {}
+        }
+        methods.push(parsed.expr);
+    }
+
+    Ok(DslStatement::Shot(ParsedShotDef {
+        def: ShotDef { ball, methods },
+        source,
+    }))
 }
 
 fn hws0<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ()> {
@@ -3525,13 +3957,13 @@ fn simulation_max_events_method<'a>(
     Ok(SimulationMethodExpr::MaxEvents(value))
 }
 
-fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
     let _ = preceded(peek(preceded(chain_ws0, '.')), chain_ws0).parse_next(input)?;
     let _ = '.'.parse_next(input)?;
     shot_method.parse_next(input)
 }
 
-fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
     alt((
         preceded(peek("heading"), cut_err(shot_heading_method)),
         preceded(peek("to_pocket"), cut_err(shot_to_pocket_method)),
@@ -3548,20 +3980,44 @@ fn shot_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
     .parse_next(input)
 }
 
-fn shot_heading_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_heading_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "heading".parse_next(input)?;
-    let value = delimited('(', delimited(hws0, degrees_literal, hws0), ')').parse_next(input)?;
-    Ok(ShotMethodExpr::HeadingDegrees(value))
+    let (value, literal) =
+        delimited('(', delimited(hws0, located_degrees_literal, hws0), ')').parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::HeadingDegrees(value),
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: Some(literal),
+        }),
+    })
 }
 
-fn shot_to_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_to_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "to_pocket".parse_next(input)?;
-    shot_pocket_arguments.parse_next(input)
+    let expr = shot_pocket_arguments.parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
-fn shot_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_pocket_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "pocket".parse_next(input)?;
-    shot_pocket_arguments.parse_next(input)
+    let expr = shot_pocket_arguments.parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
 fn shot_pocket_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -3581,19 +4037,43 @@ fn shot_pocket_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMeth
     })
 }
 
-fn shot_cut_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_cut_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "cut".parse_next(input)?;
-    shot_cut_arguments(input)
+    let expr = shot_cut_arguments(input)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
-fn shot_cut_left_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_cut_left_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "cut_left".parse_next(input)?;
-    shot_one_sided_cut_arguments(input, ShotCutDirection::Left)
+    let expr = shot_one_sided_cut_arguments(input, ShotCutDirection::Left)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
-fn shot_cut_right_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_cut_right_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "cut_right".parse_next(input)?;
-    shot_one_sided_cut_arguments(input, ShotCutDirection::Right)
+    let expr = shot_one_sided_cut_arguments(input, ShotCutDirection::Right)?;
+    Ok(ParsedShotMethod {
+        expr,
+        source: ParsedShotMethodSource::Aim(ShotAimSource {
+            method: ByteSpan::between(method_start, input),
+            heading_literal: None,
+        }),
+    })
 }
 
 fn shot_cut_arguments<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
@@ -3641,23 +4121,28 @@ fn shot_one_sided_cut_arguments<'a>(
     })
 }
 
-fn shot_speed_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_speed_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
     let _ = "speed".parse_next(input)?;
-    let value = delimited('(', delimited(hws0, speed_literal, hws0), ')').parse_next(input)?;
-    Ok(ShotMethodExpr::SpeedIps(value))
+    let (value, literal) =
+        delimited('(', delimited(hws0, located_speed_literal, hws0), ')').parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::SpeedIps(value),
+        source: ParsedShotMethodSource::Speed { literal },
+    })
 }
 
-fn shot_tip_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_tip_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "tip".parse_next(input)?;
-    let (side, height) = delimited(
+    let ((side, side_literal), (height, height_literal)) = delimited(
         '(',
         delimited(
             hws0,
             (
-                preceded(("side", hws0, ':', hws0), radius_scale_literal),
+                preceded(("side", hws0, ':', hws0), located_radius_scale_literal),
                 preceded(
                     (hws0, ',', hws0, "height", hws0, ':', hws0),
-                    radius_scale_literal,
+                    located_radius_scale_literal,
                 ),
             ),
             hws0,
@@ -3665,27 +4150,78 @@ fn shot_tip_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr
         ')',
     )
     .parse_next(input)?;
-    Ok(ShotMethodExpr::Tip { side, height })
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::Tip { side, height },
+        source: ParsedShotMethodSource::Tip(ShotTipSource {
+            method: ByteSpan::between(method_start, input),
+            side_literal,
+            height_literal,
+        }),
+    })
 }
 
-fn shot_elevation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_elevation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "elevation".parse_next(input)?;
-    let value = delimited('(', delimited(hws0, degrees_literal, hws0), ')').parse_next(input)?;
-    Ok(ShotMethodExpr::ElevationDegrees(value))
+    let (value, literal) =
+        delimited('(', delimited(hws0, located_degrees_literal, hws0), ')').parse_next(input)?;
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::ElevationDegrees(value),
+        source: ParsedShotMethodSource::Elevation(ShotElevationSource {
+            method: ByteSpan::between(method_start, input),
+            literal: Some(literal),
+            is_jump: false,
+        }),
+    })
 }
 
-fn shot_jump_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_jump_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
+    let method_start = input.current_token_start();
     let _ = "jump".parse_next(input)?;
-    let value = delimited('(', delimited(hws0, opt(degrees_literal), hws0), ')')
-        .parse_next(input)?
-        .unwrap_or(DEFAULT_JUMP_CUE_ELEVATION_DEGREES);
-    Ok(ShotMethodExpr::ElevationDegrees(value))
+    let located = delimited(
+        '(',
+        delimited(hws0, opt(located_degrees_literal), hws0),
+        ')',
+    )
+    .parse_next(input)?;
+    let (value, literal) = located
+        .map(|(value, literal)| (value, Some(literal)))
+        .unwrap_or((DEFAULT_JUMP_CUE_ELEVATION_DEGREES, None));
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::ElevationDegrees(value),
+        source: ParsedShotMethodSource::Elevation(ShotElevationSource {
+            method: ByteSpan::between(method_start, input),
+            literal,
+            is_jump: true,
+        }),
+    })
 }
 
-fn shot_using_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ShotMethodExpr> {
+fn shot_using_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedShotMethod> {
     let _ = "using".parse_next(input)?;
     let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
-    Ok(ShotMethodExpr::Using(name.to_string()))
+    Ok(ParsedShotMethod {
+        expr: ShotMethodExpr::Using(name.to_string()),
+        source: ParsedShotMethodSource::Other,
+    })
+}
+
+fn located_degrees_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, ByteSpan)> {
+    let start = input.current_token_start();
+    let value = degrees_literal.parse_next(input)?;
+    Ok((value, ByteSpan::between(start, input)))
+}
+
+fn located_speed_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, ByteSpan)> {
+    let start = input.current_token_start();
+    let value = speed_literal.parse_next(input)?;
+    Ok((value, ByteSpan::between(start, input)))
+}
+
+fn located_radius_scale_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, (f64, ByteSpan)> {
+    let start = input.current_token_start();
+    let value = radius_scale_literal.parse_next(input)?;
+    Ok((value, ByteSpan::between(start, input)))
 }
 
 fn collision_model_literal<'a>(input: &mut Stream<'a>) -> ParseResult<'a, CollisionModel> {

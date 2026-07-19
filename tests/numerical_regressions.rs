@@ -3,10 +3,12 @@ use billiards::{
     compute_next_ball_ball_collision_on_table,
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
     compute_next_transition_on_table, settle_airborne_ball_on_next_table_contact,
-    time_until_airborne_ball_reaches_table, AngularVelocity3, BallSetPhysicsSpec, BallState, Inches,
-    Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhase, MotionPhaseConfig,
-    MotionPhaseThresholds, MotionTransitionConfig, NBallSystemEvent, NBallSystemState,
-    OnTableBallState, OnTableMotionConfig, RadiansPerSecond, RadiansPerSecondSq,
+    simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit,
+    time_until_airborne_ball_reaches_table, AngularVelocity3, BallBallCollisionConfig,
+    BallSetPhysicsSpec, BallState, CollisionModel, Inches, Inches2, InchesPerSecond,
+    InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionPhaseThresholds,
+    MotionTransitionConfig, NBallSystemEvent, NBallSystemState, OnTableBallState,
+    OnTableMotionConfig, RadiansPerSecond, RadiansPerSecondSq, RailCollisionProfile, RailModel,
     RollingResistanceModel, Seconds, SlidingFrictionModel, SlidingToRollingModel, SpinDecayModel,
     TableSpec, Velocity2, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
 };
@@ -246,4 +248,209 @@ fn cancellation_safe_downward_table_contact_stays_positive_and_finite() {
     );
     assert_eq!(settled_time, predicted_time);
     assert_eq!(contact_height, 0.0);
+}
+
+#[test]
+fn separating_touching_mixed_pair_recollides_after_sliding_friction_reverses_motion() {
+    let ball = BallSetPhysicsSpec::default();
+    let radius = ball.radius.as_f64();
+    let airborne = BallState::airborne(
+        inches2(20.0, 20.0),
+        Inches::zero(),
+        Velocity2::zero(),
+        Inches::from_f64(10.0),
+        AngularVelocity3::zero(),
+    );
+    let airborne_table_contact = time_until_airborne_ball_reaches_table(&airborne)
+        .expect("an upward launch from table height must return to the table")
+        .as_f64();
+    let sliding = BallState::on_table(
+        inches2(20.0 + 2.0 * radius, 20.0),
+        velocity2(0.01, 0.0),
+        AngularVelocity3::new(0.0, (0.01 - 1.0) / radius, 0.0),
+    );
+    let states = [
+        NBallSystemState::Airborne(airborne),
+        NBallSystemState::OnTable(on_table(sliding)),
+    ];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states,
+        &ball,
+        &TableSpec::default(),
+        &zero_threshold_motion(),
+    )
+    .expect("fixture geometry should validate");
+
+    let Some(NBallSystemEvent::AirborneBallBallCollision { contact, .. }) = event else {
+        panic!("expected re-entry collision before airborne table contact, got {event:?}");
+    };
+    let collision_time = contact.time_until_contact.as_f64();
+    assert!(
+        collision_time > 0.0,
+        "initial separation must exclude the touching t=0 root"
+    );
+    assert!(
+        (collision_time - 0.0354).abs() < 1e-4,
+        "expected 3-D re-entry near 0.0354 s, got {collision_time}"
+    );
+    assert!(
+        collision_time < airborne_table_contact,
+        "re-entry collision at {collision_time} must precede table contact at {airborne_table_contact}"
+    );
+}
+
+#[test]
+fn subthreshold_touching_airborne_pair_does_not_stall_event_loop_at_zero_time() {
+    let ball = BallSetPhysicsSpec::default();
+    let diameter = 2.0 * ball.radius.as_f64();
+    let shared_height = Inches::from_f64(1.0);
+    let shared_vertical_velocity = Inches::zero();
+    let states = [
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0, 20.0),
+            shared_height.clone(),
+            Velocity2::zero(),
+            shared_vertical_velocity.clone(),
+            AngularVelocity3::zero(),
+        )),
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0 + diameter, 20.0),
+            shared_height,
+            velocity2(-1e-11, 0.0),
+            shared_vertical_velocity,
+            AngularVelocity3::zero(),
+        )),
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(40.0, 20.0),
+            Inches::from_f64(0.25),
+            velocity2(1.0, 0.0),
+            Inches::zero(),
+            AngularVelocity3::zero(),
+        )),
+    ];
+
+    let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+        &states,
+        &ball,
+        &TableSpec::default(),
+        &zero_threshold_motion(),
+        CollisionModel::Ideal,
+        &BallBallCollisionConfig::default(),
+        RailModel::Mirror,
+        &RailCollisionProfile::default(),
+        Some(4),
+    )
+    .expect("the exactly touching airborne fixture should remain valid");
+
+    let zero_time_airborne_contacts = simulation
+        .events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                NBallSystemEvent::AirborneBallBallCollision { contact, .. }
+                    if contact.time_until_contact.as_f64() == 0.0
+            )
+        })
+        .count();
+    assert!(
+        simulation.elapsed.as_f64() > 0.0,
+        "the event loop must advance past a subthreshold t=0 contact; events={}, zero_time_airborne_contacts={zero_time_airborne_contacts}, elapsed={:e}",
+        simulation.events.len(),
+        simulation.elapsed.as_f64()
+    );
+    assert!(
+        matches!(
+            simulation.events.first(),
+            Some(NBallSystemEvent::BallTableBounce {
+                ball_index: 2,
+                contact,
+            }) if contact.time_until_contact.as_f64() > 0.0
+        ),
+        "the first resolved event should be the unrelated ball's later table contact, got {:?}",
+        simulation.events.first()
+    );
+}
+
+#[test]
+fn suprathreshold_touching_airborne_pair_still_predicts_zero_time_collision() {
+    let ball = BallSetPhysicsSpec::default();
+    let diameter = 2.0 * ball.radius.as_f64();
+    let states = [
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0, 20.0),
+            Inches::from_f64(1.0),
+            Velocity2::zero(),
+            Inches::zero(),
+            AngularVelocity3::zero(),
+        )),
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0 + diameter, 20.0),
+            Inches::from_f64(1.0),
+            velocity2(-1e-6, 0.0),
+            Inches::zero(),
+            AngularVelocity3::zero(),
+        )),
+    ];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states,
+        &ball,
+        &TableSpec::default(),
+        &zero_threshold_motion(),
+    )
+    .expect("the exactly touching airborne fixture should remain valid");
+
+    let Some(NBallSystemEvent::AirborneBallBallCollision {
+        first_ball_index,
+        second_ball_index,
+        contact,
+    }) = event
+    else {
+        panic!("expected a suprathreshold immediate airborne collision, got {event:?}");
+    };
+    assert_eq!((first_ball_index, second_ball_index), (0, 1));
+    assert_eq!(contact.time_until_contact.as_f64(), 0.0);
+}
+
+#[test]
+fn subthreshold_touching_airborne_on_table_pair_still_predicts_zero_time_collision() {
+    let ball = BallSetPhysicsSpec::default();
+    let diameter = 2.0 * ball.radius.as_f64();
+    let airborne_height = 0.25;
+    let horizontal_separation = (diameter * diameter - airborne_height * airborne_height).sqrt();
+    let states = [
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0, 20.0),
+            Inches::from_f64(airborne_height),
+            velocity2(1e-11, 0.0),
+            Inches::zero(),
+            AngularVelocity3::zero(),
+        )),
+        NBallSystemState::OnTable(on_table(BallState::on_table(
+            inches2(20.0 + horizontal_separation, 20.0),
+            Velocity2::zero(),
+            AngularVelocity3::zero(),
+        ))),
+    ];
+
+    let event = compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &states,
+        &ball,
+        &TableSpec::default(),
+        &zero_threshold_motion(),
+    )
+    .expect("the exactly touching mixed-height fixture should remain valid");
+
+    let Some(NBallSystemEvent::AirborneBallBallCollision {
+        first_ball_index,
+        second_ball_index,
+        contact,
+    }) = event
+    else {
+        panic!("expected a subthreshold immediate mixed-height collision, got {event:?}");
+    };
+    assert_eq!((first_ball_index, second_ball_index), (0, 1));
+    assert_eq!(contact.time_until_contact.as_f64(), 0.0);
 }

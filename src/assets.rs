@@ -1,5 +1,4 @@
-use crate::{BallType, Position};
-use bigdecimal::ToPrimitive;
+use crate::BallType;
 
 const TOPMOST: f32 = 110.;
 const RIGHTMOST: f32 = 968.;
@@ -53,28 +52,9 @@ pub fn ball_img(ball: BallType) -> Vec<u8> {
     }
 }
 
-/// Maps a diamond-grid position (x∈0‥4, y∈0‥8) to fractional coordinates inside
-/// the playing surface of the pool table. This is useful to do pixel math.
-#[allow(unused)]
-pub fn diamond_to_pixel(pos: &Position) -> (i32, i32) {
-    let x_px = LEFTMOST + (pos.x.magnitude.to_f32().unwrap() / 4.0) * (RIGHTMOST - LEFTMOST);
-    let y_px = BOTTOMMOST - (pos.y.magnitude.to_f32().unwrap() / 8.0) * (BOTTOMMOST - TOPMOST);
-
-    (x_px.round() as i32, y_px.round() as i32)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Position, CENTER_SPOT, TOP_RIGHT_DIAMOND};
-
-    #[test]
-    fn given_known_table_anchor_positions_when_mapping_to_pixels_then_expected_anchor_pixels_are_returned(
-    ) {
-        assert_eq!(diamond_to_pixel(&Position::new(0u8, 0u8)), (110, 1828));
-        assert_eq!(diamond_to_pixel(&CENTER_SPOT), (539, 969));
-        assert_eq!(diamond_to_pixel(&TOP_RIGHT_DIAMOND), (968, 110));
-    }
 
     #[test]
     fn given_the_current_table_asset_when_computing_the_ideal_ball_size_then_the_expected_sprite_diameter_is_returned(

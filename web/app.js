@@ -1,27 +1,105 @@
-import init, { render_svg_report_from_dsl } from "./pkg/billiards.js";
+import init, {
+  shot_controls_from_dsl,
+  update_shot_control_in_dsl,
+  update_shot_tip_in_dsl,
+} from "./pkg/billiards.js";
 
-const sampleDsl = `table brunswick_gc4_9ft
-ball cue at center
-ball one at (2.18, 4.12)
-cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
-shot(cue).heading(0deg).speed(medium-soft).tip(side: -0.35R, height: -0.35R).using(default)
-trace(max_events: 8)
-`;
+const sampleDsl = `# Legal three-cushion scoring shot: cue contacts yellow, then left/top/right cushions, then red.
+# Goal: compact plus-English scoring path across three different cushions.
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (3.354, 3.309)
+ball yellow at (2.491, 5.838)
+ball red at (2.762, 3.888)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(24)
+trace(max_events: 24)
+shot(cue).heading(341.141deg).speed(108ips).tip(side: 0.39R, height: 0.11R).using(default)`;
+
+const TEXTAREA_RENDER_DELAY_MS = 250;
+const CONTROL_RENDER_DELAY_MS = 75;
+const TIP_PAD_VIEW_RADIUS = 1.12;
+const IPS_TO_KMH = 0.09144;
 
 const input = document.querySelector("#dsl-input");
 const status = document.querySelector("#status");
 const preview = document.querySelector("#preview");
 const previewCard = document.querySelector(".wasm-report-card");
+const previewState = document.querySelector("#preview-state");
 const renderButton = document.querySelector("#render-button");
 const resetButton = document.querySelector("#reset-button");
 const downloadButton = document.querySelector("#download-button");
+const shotControlsPanel = document.querySelector("#shot-controls");
+const shotFieldsets = [...shotControlsPanel.querySelectorAll("fieldset")];
+
+const headingDial = document.querySelector("#heading-dial");
+const headingNeedle = document.querySelector("#heading-needle");
+const headingInput = document.querySelector("#heading-input");
+const headingNudges = [...document.querySelectorAll("[data-heading-delta]")];
+
+const tipPad = document.querySelector("#tip-pad");
+const tipPadDescription = document.querySelector("#tip-pad-description");
+const tipLimitRing = document.querySelector("#tip-limit-ring");
+const tipPointer = document.querySelector("#tip-pointer");
+const tipSideRange = document.querySelector("#tip-side-range");
+const tipSideInput = document.querySelector("#tip-side-input");
+const tipHeightRange = document.querySelector("#tip-height-range");
+const tipHeightInput = document.querySelector("#tip-height-input");
+
+const speedRange = document.querySelector("#speed-range");
+const speedInput = document.querySelector("#speed-input");
+const speedHint = document.querySelector("#speed-hint");
+const elevationRange = document.querySelector("#elevation-range");
+const elevationInput = document.querySelector("#elevation-input");
+const elevationMode = document.querySelector("#elevation-mode");
 
 let lastSvg = "";
+let renderWorker = null;
+let renderTimer = null;
+let renderSequence = 0;
+let inFlightRender = null;
+let configuredSource = null;
+let configuredSourceValid = false;
+let renderedSource = null;
+let renderedStatus = "";
+let shotState = null;
+let syncingControls = false;
+let wasmReady = false;
+let headingPointerId = null;
+let tipPointerId = null;
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function parseWasmJson(value) {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
 
 function setStatus(message, kind = "") {
   status.textContent = message;
   status.classList.toggle("ok", kind === "ok");
   status.classList.toggle("error", kind === "error");
+}
+
+function markPreviewStale(stale) {
+  const showStaleState = stale && Boolean(lastSvg);
+  const downloadsDisabled = stale || !lastSvg;
+  previewCard.classList.toggle("is-stale", showStaleState);
+  previewCard.dataset.previewStale = showStaleState ? "true" : "false";
+  previewState.hidden = !showStaleState;
+  downloadButton.disabled = downloadsDisabled;
+  const inlineDownloadButton = preview.querySelector("#inline-download-button");
+  if (inlineDownloadButton) inlineDownloadButton.disabled = downloadsDisabled;
 }
 
 function setPreviewMessage(message) {
@@ -31,11 +109,10 @@ function setPreviewMessage(message) {
   element.className = "empty-preview";
   element.textContent = message;
   preview.appendChild(element);
-  if (previewCard) {
-    previewCard.dataset.scenarioEvents = "none";
-    previewCard.dataset.scenarioEventCount = "0";
-    previewCard.dataset.scenarioPlayback = "no-playback";
-  }
+  previewCard.dataset.scenarioEvents = "none";
+  previewCard.dataset.scenarioEventCount = "0";
+  previewCard.dataset.scenarioPlayback = "no-playback";
+  markPreviewStale(false);
 }
 
 function escapeHtml(value) {
@@ -45,7 +122,6 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
-
 
 function eventLogHtml(events) {
   if (events.length === 0) {
@@ -71,7 +147,7 @@ function eventBucket(events) {
   return "multi";
 }
 
-function reportHtml(report, elapsedMs) {
+function reportHtml(report, elapsedMs, source) {
   const events = Array.isArray(report.events)
     ? report.events.map((event) => Array.isArray(event)
       ? { label: String(event[0] ?? ""), time: Number(event[1]), summary: String(event[2] ?? ""), title: String(event[3] ?? "") }
@@ -84,12 +160,10 @@ function reportHtml(report, elapsedMs) {
   const eventCount = events.length;
   const viewerControlsHtml = window.BilliardsReportViewer.viewerControlsHtml({ tableDetailDefault: "full" });
   const playbackPanelHtml = window.BilliardsReportViewer.playbackPanelHtml(playback);
-  if (previewCard) {
-    previewCard.dataset.scenarioSearch = `${input.value} ${events.map((event) => event.summary).join(" ")}`.toLowerCase();
-    previewCard.dataset.scenarioEvents = eventBucket(events);
-    previewCard.dataset.scenarioEventCount = String(eventCount);
-    previewCard.dataset.scenarioPlayback = playback ? "with-playback" : "no-playback";
-  }
+  previewCard.dataset.scenarioSearch = `${source} ${events.map((event) => event.summary).join(" ")}`.toLowerCase();
+  previewCard.dataset.scenarioEvents = eventBucket(events);
+  previewCard.dataset.scenarioEventCount = String(eventCount);
+  previewCard.dataset.scenarioPlayback = playback ? "with-playback" : "no-playback";
   return `
     <div class="card-workspace">
       <div class="card-overview card-overview-full">
@@ -114,28 +188,441 @@ function reportHtml(report, elapsedMs) {
     </div>`;
 }
 
-function render() {
+function normalizeHeading(value) {
+  const wrapped = value % 360;
+  if (Object.is(wrapped, -0)) return 0;
+  return wrapped < 0 ? wrapped + 360 : wrapped;
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+function formatControlNumber(value) {
+  return String(Number(Number(value).toFixed(6)));
+}
+
+function ipsToKmh(value) {
+  return Number(value) * IPS_TO_KMH;
+}
+
+function kmhToIps(value) {
+  return Number(formatControlNumber(Number(value) / IPS_TO_KMH));
+}
+
+function setShotControlsAvailable(available) {
+  shotControlsPanel.hidden = !available;
+  shotFieldsets.forEach((fieldset) => {
+    fieldset.disabled = !available;
+  });
+  if (!available) shotState = null;
+}
+
+function syncShotControls(controls) {
+  syncingControls = true;
   try {
-    const startedAt = performance.now();
-    const report = JSON.parse(render_svg_report_from_dsl(input.value));
-    lastSvg = report.svg;
-    const elapsedMs = Math.round(performance.now() - startedAt);
-    preview.innerHTML = reportHtml(report, elapsedMs);
-    preview.querySelector("#inline-download-button")?.addEventListener("click", downloadSvg);
-    window.BilliardsReportViewer?.initialize(preview);
-    downloadButton.disabled = false;
-    const sizeKiB = (new Blob([lastSvg], { type: "image/svg+xml" }).size / 1024).toFixed(1);
-    const frames = report.playback?.frames?.length ?? 0;
-    setStatus(`Rendered ${sizeKiB} KiB SVG in ${elapsedMs} ms${frames ? ` with ${frames} playback frames` : ""}.`, "ok");
-  } catch (error) {
-    downloadButton.disabled = true;
-    setPreviewMessage("The renderer rejected this scenario. See the error below the editor.");
-    setStatus(error instanceof Error ? error.message : String(error), "error");
+    shotState = controls;
+    setShotControlsAvailable(true);
+
+    const heading = normalizeHeading(Number(controls.headingDegrees));
+    const speedKmh = ipsToKmh(controls.speedIps);
+    const tipSide = Number(controls.tipSide);
+    const tipHeight = Number(controls.tipHeight);
+    const tipMaxRadius = Number(controls.tipMaxRadius);
+    const elevation = Number(controls.cueElevationDegrees);
+    const speedMaxKmh = ipsToKmh(controls.speedMaxIps);
+    const elevationMax = Number(controls.cueElevationMaxDegrees);
+
+    const headingText = formatControlNumber(heading);
+    headingInput.value = headingText;
+    headingDial.setAttribute("aria-valuenow", headingText);
+    headingDial.setAttribute("aria-valuetext", `${headingText} degrees`);
+    headingNeedle.style.setProperty("--heading-degrees", `${headingText}deg`);
+
+    const tipMinimum = formatControlNumber(-tipMaxRadius);
+    const tipMaximum = formatControlNumber(tipMaxRadius);
+    const tipSideText = formatControlNumber(tipSide);
+    const tipHeightText = formatControlNumber(tipHeight);
+    const tipMaxRadiusText = formatControlNumber(tipMaxRadius);
+    [tipSideRange, tipSideInput, tipHeightRange, tipHeightInput].forEach((control) => {
+      control.min = tipMinimum;
+      control.max = tipMaximum;
+    });
+    tipSideRange.value = tipSideText;
+    tipSideInput.value = tipSideText;
+    tipHeightRange.value = tipHeightText;
+    tipHeightInput.value = tipHeightText;
+    tipSideRange.setAttribute("aria-valuetext", `${tipSideText} R`);
+    tipHeightRange.setAttribute("aria-valuetext", `${tipHeightText} R`);
+    tipLimitRing.setAttribute("r", tipMaxRadiusText);
+    tipPointer.setAttribute("cx", tipSideText);
+    tipPointer.setAttribute("cy", formatControlNumber(-tipHeight));
+    tipPadDescription.textContent = `Current contact is ${tipSideText} R side and ${tipHeightText} R height. Drag within the ${tipMaxRadiusText} R clean-contact limit; side and height controls provide keyboard access.`;
+
+    const speedText = formatControlNumber(speedKmh);
+    const speedMaxText = formatControlNumber(speedMaxKmh);
+    const speedHintText = String(controls.speedHint);
+    speedRange.max = speedMaxText;
+    speedInput.max = speedMaxText;
+    speedRange.value = speedText;
+    speedInput.value = speedText;
+    speedHint.value = speedHintText;
+    speedHint.textContent = speedHintText;
+    speedRange.setAttribute("aria-valuetext", `${speedText} kilometers per hour, ${speedHintText}`);
+
+    const elevationText = formatControlNumber(elevation);
+    elevationRange.max = formatControlNumber(elevationMax);
+    elevationInput.max = formatControlNumber(elevationMax);
+    elevationRange.value = elevationText;
+    elevationInput.value = elevationText;
+    elevationRange.setAttribute("aria-valuetext", `${elevationText} degrees`);
+    elevationMode.value = controls.cueElevationExplicit ? "Explicit" : "Default";
+    elevationMode.textContent = elevationMode.value;
+  } finally {
+    syncingControls = false;
   }
 }
 
+function inspectShotControls(source = input.value) {
+  try {
+    const controls = parseWasmJson(shot_controls_from_dsl(source));
+    if (controls === null) {
+      setShotControlsAvailable(false);
+    } else {
+      syncShotControls(controls);
+    }
+    input.removeAttribute("aria-invalid");
+    input.removeAttribute("aria-errormessage");
+    return true;
+  } catch (error) {
+    setShotControlsAvailable(false);
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-errormessage", "status");
+    markPreviewStale(true);
+    setStatus(errorMessage(error), "error");
+    return false;
+  }
+}
+
+function cancelScheduledRender() {
+  if (renderTimer === null) return;
+  window.clearTimeout(renderTimer);
+  renderTimer = null;
+}
+
+function configureSource(source) {
+  cancelScheduledRender();
+  configuredSource = source;
+  configuredSourceValid = false;
+  markPreviewStale(source !== renderedSource);
+  if (source === renderedSource && renderedStatus) setStatus(renderedStatus, "ok");
+}
+
+function requestConfiguredRender() {
+  renderTimer = null;
+  if (!wasmReady || !renderWorker || inFlightRender || !configuredSourceValid || configuredSource === renderedSource) return;
+
+  const request = { id: ++renderSequence, source: configuredSource };
+  inFlightRender = request;
+  renderWorker.postMessage(request);
+}
+
+function scheduleConfiguredRender(delay) {
+  configuredSourceValid = true;
+  cancelScheduledRender();
+  if (delay <= 0) {
+    requestConfiguredRender();
+    return;
+  }
+  renderTimer = window.setTimeout(requestConfiguredRender, delay);
+}
+
+function renderCurrentSource({ inspect = true, delay = 0 } = {}) {
+  if (!wasmReady) return;
+  const source = input.value;
+  configureSource(source);
+  if (inspect && !inspectShotControls(source)) return;
+  scheduleConfiguredRender(delay);
+}
+
+function commitRenderedReport(report, elapsedMs, source) {
+  const html = reportHtml(report, elapsedMs, source);
+
+  preview.innerHTML = html;
+  preview.querySelector("#inline-download-button")?.addEventListener("click", downloadSvg);
+  window.BilliardsReportViewer.initialize(preview);
+  lastSvg = report.svg;
+  renderedSource = source;
+  downloadButton.disabled = false;
+  markPreviewStale(false);
+
+  const sizeKiB = (new Blob([lastSvg], { type: "image/svg+xml" }).size / 1024).toFixed(1);
+  const frames = report.playback?.frames?.length ?? 0;
+  renderedStatus = `Rendered ${sizeKiB} KiB SVG in ${elapsedMs} ms${frames ? ` with ${frames} playback frames` : ""}.`;
+  setStatus(renderedStatus, "ok");
+}
+
+function failRenderWorker(message) {
+  cancelScheduledRender();
+  renderWorker?.terminate();
+  renderWorker = null;
+  inFlightRender = null;
+  configuredSourceValid = false;
+  wasmReady = false;
+  renderButton.disabled = true;
+  resetButton.disabled = true;
+  setShotControlsAvailable(false);
+  markPreviewStale(true);
+  setStatus(message, "error");
+}
+
+function handleRenderWorkerMessage(event) {
+  const response = event.data ?? {};
+  if (response.fatal === true) {
+    const detail = typeof response.error === "string" && response.error
+      ? `The background renderer failed to initialize: ${response.error}`
+      : "The background renderer failed to initialize. Reload to retry.";
+    failRenderWorker(detail);
+    return;
+  }
+
+  const request = inFlightRender;
+  if (!request || response.id !== request.id) return;
+  inFlightRender = null;
+
+  if (request.source !== configuredSource) {
+    requestConfiguredRender();
+    return;
+  }
+
+  if (typeof response.error === "string") {
+    if (!lastSvg) setPreviewMessage("The renderer rejected this scenario. See the exact error below the editor.");
+    markPreviewStale(true);
+    setStatus(response.error, "error");
+    return;
+  }
+
+  try {
+    commitRenderedReport(response.report, response.elapsedMs, request.source);
+  } catch (error) {
+    if (!lastSvg) setPreviewMessage("The renderer rejected this scenario. See the exact error below the editor.");
+    markPreviewStale(true);
+    setStatus(errorMessage(error), "error");
+    return;
+  }
+
+  if (configuredSource !== renderedSource) requestConfiguredRender();
+}
+
+function handleRenderWorkerError(event) {
+  event.preventDefault();
+  failRenderWorker(event.message || "The background renderer stopped unexpectedly. Reload to retry.");
+}
+
+function applySuccessfulControlUpdate(update) {
+  input.value = update.source;
+  syncShotControls(update.controls);
+  configureSource(update.source);
+  input.removeAttribute("aria-invalid");
+  input.removeAttribute("aria-errormessage");
+  scheduleConfiguredRender(CONTROL_RENDER_DELAY_MS);
+}
+
+function applyControlUpdate(control, value) {
+  if (!wasmReady || syncingControls || !shotState || !Number.isFinite(value)) return;
+  try {
+    const update = parseWasmJson(update_shot_control_in_dsl(input.value, control, value));
+    applySuccessfulControlUpdate(update);
+  } catch (error) {
+    syncShotControls(shotState);
+    setStatus(errorMessage(error), "error");
+  }
+}
+
+function clampTip(side, height) {
+  const limit = Number(shotState?.tipMaxRadius ?? 0);
+  const radius = Math.hypot(side, height);
+  if (radius <= limit || radius === 0) return [side, height];
+  const scale = limit / radius;
+  return [side * scale, height * scale];
+}
+
+function applyTipUpdate(side, height) {
+  if (!wasmReady || syncingControls || !shotState || !Number.isFinite(side) || !Number.isFinite(height)) return;
+  const [clampedSide, clampedHeight] = clampTip(side, height);
+  try {
+    const update = parseWasmJson(update_shot_tip_in_dsl(input.value, clampedSide, clampedHeight));
+    applySuccessfulControlUpdate(update);
+  } catch (error) {
+    syncShotControls(shotState);
+    setStatus(errorMessage(error), "error");
+  }
+}
+
+function applyTipAxisUpdate(control, value) {
+  if (!shotState || !Number.isFinite(value)) return;
+  const isSide = control === "tip-side";
+  const otherAxis = Number(isSide ? shotState.tipHeight : shotState.tipSide);
+  const limit = Number(shotState.tipMaxRadius);
+  const axisLimit = Math.sqrt(Math.max(0, limit * limit - otherAxis * otherAxis));
+  applyControlUpdate(control, clamp(value, -axisLimit, axisLimit));
+}
+
+function applyHeadingDelta(delta) {
+  if (!shotState) return;
+  const heading = Number((Number(shotState.headingDegrees) + delta).toFixed(10));
+  applyControlUpdate("heading", normalizeHeading(heading));
+}
+
+function headingFromPointer(event) {
+  const bounds = headingDial.getBoundingClientRect();
+  const x = event.clientX - bounds.left - bounds.width / 2;
+  const y = event.clientY - bounds.top - bounds.height / 2;
+  const degrees = normalizeHeading(Math.atan2(x, -y) * 180 / Math.PI);
+  return Math.round(degrees * 10) / 10;
+}
+
+function tipFromPointer(event) {
+  const bounds = tipPad.getBoundingClientRect();
+  const side = ((event.clientX - bounds.left) / bounds.width * 2 - 1) * TIP_PAD_VIEW_RADIUS;
+  const height = (1 - (event.clientY - bounds.top) / bounds.height * 2) * TIP_PAD_VIEW_RADIUS;
+  return clampTip(Math.round(side * 100) / 100, Math.round(height * 100) / 100);
+}
+
+function rangeKeyValue(event, current, step, minimum, maximum) {
+  let next = null;
+  const arrowStep = event.shiftKey ? step * 10 : step;
+  if (event.key === "ArrowUp" || event.key === "ArrowRight") next = current + arrowStep;
+  if (event.key === "ArrowDown" || event.key === "ArrowLeft") next = current - arrowStep;
+  if (event.key === "PageUp") next = current + step * 10;
+  if (event.key === "PageDown") next = current - step * 10;
+  if (event.key === "Home") next = minimum;
+  if (event.key === "End") next = maximum;
+  if (next === null || !Number.isFinite(next)) return null;
+  event.preventDefault();
+  return clamp(Number(next.toFixed(10)), minimum, maximum);
+}
+
+function bindShotControls() {
+  headingDial.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    headingPointerId = event.pointerId;
+    headingDial.setPointerCapture(event.pointerId);
+    applyControlUpdate("heading", headingFromPointer(event));
+  });
+  headingDial.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== headingPointerId) return;
+    applyControlUpdate("heading", headingFromPointer(event));
+  });
+  const endHeadingDrag = (event) => {
+    if (event.pointerId === headingPointerId) headingPointerId = null;
+  };
+  headingDial.addEventListener("pointerup", endHeadingDrag);
+  headingDial.addEventListener("pointercancel", endHeadingDrag);
+  headingDial.addEventListener("keydown", (event) => {
+    let nextHeading = null;
+    const arrowStep = event.shiftKey ? 1 : 0.1;
+    if (event.key === "ArrowUp" || event.key === "ArrowRight") nextHeading = Number(shotState?.headingDegrees) + arrowStep;
+    if (event.key === "ArrowDown" || event.key === "ArrowLeft") nextHeading = Number(shotState?.headingDegrees) - arrowStep;
+    if (event.key === "PageUp") nextHeading = Number(shotState?.headingDegrees) + 1;
+    if (event.key === "PageDown") nextHeading = Number(shotState?.headingDegrees) - 1;
+    if (event.key === "Home") nextHeading = 0;
+    if (event.key === "End") nextHeading = 359.9;
+    if (nextHeading === null || !Number.isFinite(nextHeading)) return;
+    event.preventDefault();
+    applyControlUpdate("heading", normalizeHeading(Number(nextHeading.toFixed(10))));
+  });
+  headingInput.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    const current = headingInput.valueAsNumber;
+    if (!Number.isFinite(current)) return;
+    event.preventDefault();
+    const direction = event.key === "ArrowUp" ? 1 : -1;
+    const delta = direction * (event.shiftKey ? 1 : 0.1);
+    applyControlUpdate("heading", normalizeHeading(Number((current + delta).toFixed(10))));
+  });
+  headingInput.addEventListener("change", () => {
+    const value = headingInput.valueAsNumber;
+    if (Number.isFinite(value)) applyControlUpdate("heading", normalizeHeading(value));
+    else if (shotState) syncShotControls(shotState);
+  });
+  headingNudges.forEach((button) => {
+    button.addEventListener("click", () => applyHeadingDelta(Number(button.dataset.headingDelta)));
+  });
+
+  tipPad.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    tipPointerId = event.pointerId;
+    tipPad.setPointerCapture(event.pointerId);
+    applyTipUpdate(...tipFromPointer(event));
+  });
+  tipPad.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== tipPointerId) return;
+    applyTipUpdate(...tipFromPointer(event));
+  });
+  const endTipDrag = (event) => {
+    if (event.pointerId === tipPointerId) tipPointerId = null;
+  };
+  tipPad.addEventListener("pointerup", endTipDrag);
+  tipPad.addEventListener("pointercancel", endTipDrag);
+
+  tipSideRange.addEventListener("input", () => applyTipAxisUpdate("tip-side", Number(tipSideRange.value)));
+  tipHeightRange.addEventListener("input", () => applyTipAxisUpdate("tip-height", Number(tipHeightRange.value)));
+  tipSideRange.addEventListener("keydown", (event) => {
+    if (!shotState) return;
+    const next = rangeKeyValue(event, Number(shotState.tipSide), 0.01, -Number(shotState.tipMaxRadius), Number(shotState.tipMaxRadius));
+    if (next !== null) applyTipAxisUpdate("tip-side", next);
+  });
+  tipHeightRange.addEventListener("keydown", (event) => {
+    if (!shotState) return;
+    const next = rangeKeyValue(event, Number(shotState.tipHeight), 0.01, -Number(shotState.tipMaxRadius), Number(shotState.tipMaxRadius));
+    if (next !== null) applyTipAxisUpdate("tip-height", next);
+  });
+  tipSideInput.addEventListener("change", () => {
+    const value = tipSideInput.valueAsNumber;
+    if (Number.isFinite(value)) applyTipAxisUpdate("tip-side", value);
+    else if (shotState) syncShotControls(shotState);
+  });
+  tipHeightInput.addEventListener("change", () => {
+    const value = tipHeightInput.valueAsNumber;
+    if (Number.isFinite(value)) applyTipAxisUpdate("tip-height", value);
+    else if (shotState) syncShotControls(shotState);
+  });
+
+  speedRange.addEventListener("input", () => applyControlUpdate("speed", kmhToIps(Number(speedRange.value))));
+  speedRange.addEventListener("keydown", (event) => {
+    if (!shotState) return;
+    const next = rangeKeyValue(event, ipsToKmh(shotState.speedIps), 0.1, 0, ipsToKmh(shotState.speedMaxIps));
+    if (next !== null) applyControlUpdate("speed", kmhToIps(next));
+  });
+  speedInput.addEventListener("change", () => {
+    const value = speedInput.valueAsNumber;
+    if (Number.isFinite(value) && shotState) {
+      applyControlUpdate("speed", kmhToIps(Math.max(0, value)));
+    } else if (shotState) {
+      syncShotControls(shotState);
+    }
+  });
+
+  elevationRange.addEventListener("input", () => applyControlUpdate("elevation", Number(elevationRange.value)));
+  elevationRange.addEventListener("keydown", (event) => {
+    if (!shotState) return;
+    const next = rangeKeyValue(event, Number(shotState.cueElevationDegrees), 0.1, 0, Number(shotState.cueElevationMaxDegrees));
+    if (next !== null) applyControlUpdate("elevation", next);
+  });
+  elevationInput.addEventListener("change", () => {
+    const value = elevationInput.valueAsNumber;
+    if (Number.isFinite(value) && shotState) {
+      applyControlUpdate("elevation", clamp(value, 0, Number(shotState.cueElevationMaxDegrees)));
+    } else if (shotState) {
+      syncShotControls(shotState);
+    }
+  });
+}
+
 function downloadSvg() {
-  if (!lastSvg) return;
+  if (!lastSvg || previewCard.dataset.previewStale === "true") return;
   const blob = new Blob([lastSvg], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -149,24 +636,37 @@ function downloadSvg() {
 
 async function boot() {
   input.value = sampleDsl;
+  setShotControlsAvailable(false);
   renderButton.disabled = true;
   resetButton.disabled = true;
   downloadButton.disabled = true;
 
   try {
+    renderWorker = new Worker(new URL("./render-worker.js", import.meta.url), { type: "module" });
+    renderWorker.addEventListener("message", handleRenderWorkerMessage);
+    renderWorker.addEventListener("error", handleRenderWorkerError);
+
     await init();
+    if (!renderWorker) return;
+    wasmReady = true;
     renderButton.disabled = false;
     resetButton.disabled = false;
-    renderButton.addEventListener("click", render);
+
+    bindShotControls();
+    input.addEventListener("input", () => renderCurrentSource({ delay: TEXTAREA_RENDER_DELAY_MS }));
+    renderButton.addEventListener("click", () => renderCurrentSource());
     resetButton.addEventListener("click", () => {
       input.value = sampleDsl;
-      render();
+      renderCurrentSource();
     });
     downloadButton.addEventListener("click", downloadSvg);
-    render();
+    renderCurrentSource();
   } catch (error) {
+    renderWorker?.terminate();
+    renderWorker = null;
+    setShotControlsAvailable(false);
     setPreviewMessage("Wasm package not loaded. Run `just wasm-web`, then serve the `web/` directory over HTTP.");
-    setStatus(error instanceof Error ? error.message : String(error), "error");
+    setStatus(errorMessage(error), "error");
   }
 }
 

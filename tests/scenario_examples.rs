@@ -1179,7 +1179,7 @@ fn advanced_z_route_pockets_the_eight_and_finishes_on_the_nine_line() {
         scenario
             .game_state
             .table_spec
-            .diamond_to_inches(target.y.clone())
+            .diamond_to_inches(target.y)
             .as_f64(),
     );
     let position_error = angle_between_degrees(

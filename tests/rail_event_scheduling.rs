@@ -72,6 +72,121 @@ fn a_rolling_ball_predicts_a_top_rail_impact_before_it_stops() {
     );
 }
 
+#[test]
+fn every_rail_preserves_boundary_orientation_contact_direction_and_snapping() {
+    let table = TableSpec::three_cushion_carom_10ft();
+    let ball = BallSetPhysicsSpec::three_cushion_carom();
+    let radius = ball.radius.as_f64();
+    let right_plane = table.diamond_to_inches(Diamond::four()).as_f64() - radius;
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let center_x = 0.5 * (radius + right_plane);
+    let center_y = 0.5 * (radius + top_plane);
+    let gap: f64 = 1.234_567;
+    let expected_time = (10.0 - (100.0 - 10.0 * gap).sqrt()) / 5.0;
+
+    for (rail, contact_x, contact_y, inside_x, inside_y, vx, vy, wx, wy) in [
+        (
+            Rail::Top,
+            center_x,
+            top_plane,
+            center_x,
+            top_plane - gap,
+            0.0,
+            10.0,
+            -10.0 / radius,
+            0.0,
+        ),
+        (
+            Rail::Right,
+            right_plane,
+            center_y,
+            right_plane - gap,
+            center_y,
+            10.0,
+            0.0,
+            0.0,
+            10.0 / radius,
+        ),
+        (
+            Rail::Bottom,
+            center_x,
+            radius,
+            center_x,
+            radius + gap,
+            0.0,
+            -10.0,
+            10.0 / radius,
+            0.0,
+        ),
+        (
+            Rail::Left,
+            radius,
+            center_y,
+            radius + gap,
+            center_y,
+            -10.0,
+            0.0,
+            0.0,
+            -10.0 / radius,
+        ),
+    ] {
+        let approaching = on_table(BallState::on_table(
+            inches2(inside_x, inside_y),
+            Velocity2::new(Inches::from_f64(vx), Inches::from_f64(vy)),
+            AngularVelocity3::new(wx, wy, 0.0),
+        ));
+        let impact =
+            compute_next_ball_rail_impact_on_table(&approaching, &ball, &table, &motion_config())
+                .unwrap_or_else(|| {
+                    panic!("{rail:?} should be reached while the ball is approaching")
+                });
+
+        assert_eq!(impact.rail, rail);
+        assert_close(impact.time_until_impact.as_f64(), expected_time);
+        let impact_state = impact.state_at_impact.as_ball_state();
+        let (actual_normal, expected_normal) = match rail {
+            Rail::Top | Rail::Bottom => (impact_state.position.y().as_f64(), contact_y),
+            Rail::Left | Rail::Right => (impact_state.position.x().as_f64(), contact_x),
+        };
+        assert_eq!(
+            actual_normal.to_bits(),
+            expected_normal.to_bits(),
+            "{rail:?} impact must be snapped exactly to its contact coordinate"
+        );
+
+        let at_contact_approaching = on_table(BallState::on_table(
+            inches2(contact_x, contact_y),
+            Velocity2::new(Inches::from_f64(vx), Inches::from_f64(vy)),
+            AngularVelocity3::new(wx, wy, 0.0),
+        ));
+        let immediate = compute_next_ball_rail_impact_on_table(
+            &at_contact_approaching,
+            &ball,
+            &table,
+            &motion_config(),
+        )
+        .unwrap_or_else(|| panic!("{rail:?} approaching contact should schedule immediately"));
+        assert_eq!(immediate.rail, rail);
+        assert_eq!(immediate.time_until_impact.as_f64(), 0.0);
+
+        let at_contact_separating = on_table(BallState::on_table(
+            inches2(contact_x, contact_y),
+            Velocity2::new(Inches::from_f64(-vx), Inches::from_f64(-vy)),
+            AngularVelocity3::new(-wx, -wy, 0.0),
+        ));
+        assert!(
+            compute_next_ball_rail_impact_on_table(
+                &at_contact_separating,
+                &ball,
+                &table,
+                &motion_config(),
+            )
+            .is_none(),
+            "{rail:?} separating contact must not schedule a repeated impact"
+        );
+    }
+}
+
 fn rolling_ball_with_side_spin(x: f64, y: f64, vertical_spin: f64) -> OnTableBallState {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
     on_table(BallState::on_table(

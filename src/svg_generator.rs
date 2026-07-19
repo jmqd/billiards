@@ -1,11 +1,11 @@
 use std::fmt::Write as _;
 
-use crate::diagram::DiagramViewport;
+use crate::diagram::{ball_visual, DiagramViewport};
 use crate::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
 use crate::visualization::{PathColorMode, DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS};
 use crate::{
-    human_tuned_preview_motion_config, BallType, CollisionModel, DiagramBackground,
-    DiagramRenderOptions, RailModel, Seconds, TableSpec,
+    human_tuned_preview_motion_config, CollisionModel, DiagramBackground, DiagramRenderOptions,
+    RailModel, Seconds, TableSpec,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -31,6 +31,50 @@ impl Default for SvgGeneratorOptions {
             path_color_mode: PathColorMode::Solid,
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScenarioPlaybackReport {
+    pub duration: f64,
+    pub events: Vec<ScenarioPlaybackEventReport>,
+    pub balls: Vec<ScenarioPlaybackBallVisual>,
+    pub frames: Vec<ScenarioPlaybackFrameReport>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScenarioPlaybackEventReport {
+    pub label: String,
+    pub time: f64,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScenarioPlaybackBallVisual {
+    pub id: &'static str,
+    pub fill: &'static str,
+    pub label: Option<&'static str>,
+    pub radius: f32,
+    pub radius_inches: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScenarioPlaybackFrameReport {
+    pub time: f64,
+    pub balls: Vec<ScenarioPlaybackBallReport>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScenarioPlaybackBallReport {
+    pub id: &'static str,
+    pub x: f32,
+    pub y: f32,
+    pub height_inches: f64,
+    pub vx_ips: f64,
+    pub vy_ips: f64,
+    pub vz_ips: f64,
+    pub wx_rps: f64,
+    pub wy_rps: f64,
+    pub wz_rps: f64,
 }
 
 struct RenderedSvgScenario {
@@ -81,12 +125,12 @@ pub fn render_svg_report_from_dsl_with_options(
     }
     json.push_str("],\"playback\":");
     if let Some(trace) = &rendered.trace {
-        push_playback_json(
-            &mut json,
+        let playback = build_scenario_playback_report(
             trace,
             &rendered.table_spec,
             Seconds::new(options.trace_sample_step_seconds),
         );
+        serialize_scenario_playback_report(&mut json, &playback);
     } else {
         json.push_str("null");
     }
@@ -159,12 +203,11 @@ fn trace_render_options(options: &SvgGeneratorOptions) -> ScenarioTraceRenderOpt
     trace_options
 }
 
-fn push_playback_json(
-    json: &mut String,
+pub fn build_scenario_playback_report(
     trace: &ScenarioShotTrace,
     table_spec: &TableSpec,
     max_time_step: Seconds,
-) {
+) -> ScenarioPlaybackReport {
     let viewport = DiagramViewport::default();
     let ball_spec = table_spec.default_ball_spec();
     let ball_radius = viewport.ball_radius_px(table_spec, &ball_spec);
@@ -174,124 +217,128 @@ fn push_playback_json(
         .map_or(0.0, |frame| frame.time.as_f64())
         .max(trace.simulation.elapsed.as_f64());
 
-    write!(json, "{{\"duration\":{duration:.6},\"events\":[")
+    ScenarioPlaybackReport {
+        duration,
+        events: trace
+            .event_log
+            .iter()
+            .enumerate()
+            .map(|(index, event)| ScenarioPlaybackEventReport {
+                label: format!("({})", index + 1),
+                time: event.time.as_f64(),
+                summary: event.kind.format_human(),
+            })
+            .collect(),
+        balls: trace
+            .ball_traces
+            .iter()
+            .map(|ball_trace| {
+                let visual = ball_visual(&ball_trace.ball);
+                ScenarioPlaybackBallVisual {
+                    id: visual.id,
+                    fill: visual.fill,
+                    label: visual.label,
+                    radius: ball_radius,
+                    radius_inches: ball_spec.radius.as_f64(),
+                }
+            })
+            .collect(),
+        frames: frames
+            .into_iter()
+            .map(|frame| ScenarioPlaybackFrameReport {
+                time: frame.time.as_f64(),
+                balls: frame
+                    .balls
+                    .into_iter()
+                    .map(|ball| {
+                        let state = &ball.state;
+                        let visual = ball_visual(&ball.ball);
+                        let center =
+                            viewport.position_to_scene_point(&state.projected_position(table_spec));
+                        ScenarioPlaybackBallReport {
+                            id: visual.id,
+                            x: center.x,
+                            y: center.y,
+                            height_inches: state.height.as_f64(),
+                            vx_ips: state.velocity.x().as_f64(),
+                            vy_ips: state.velocity.y().as_f64(),
+                            vz_ips: state.vertical_velocity.as_f64(),
+                            wx_rps: state.angular_velocity.x().as_f64(),
+                            wy_rps: state.angular_velocity.y().as_f64(),
+                            wz_rps: state.angular_velocity.z().as_f64(),
+                        }
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+pub fn serialize_scenario_playback_report(json: &mut String, playback: &ScenarioPlaybackReport) {
+    write!(json, "{{\"duration\":{:.6},\"events\":[", playback.duration)
         .expect("writing JSON to string should not fail");
-    for (index, event) in trace.event_log.iter().enumerate() {
+
+    for (index, event) in playback.events.iter().enumerate() {
         if index > 0 {
             json.push(',');
         }
-        let label = format!("({})", index + 1);
         json.push('[');
-        push_json_string(json, &label);
-        write!(json, ",{:.6},", event.time.as_f64())
-            .expect("writing JSON to string should not fail");
-        push_json_string(json, &event.kind.format_human());
+        push_json_string(json, &event.label);
+        write!(json, ",{:.6},", event.time).expect("writing JSON to string should not fail");
+        push_json_string(json, &event.summary);
         json.push(']');
     }
 
     json.push_str("],\"balls\":[");
-    for (index, ball_trace) in trace.ball_traces.iter().enumerate() {
+    for (index, ball) in playback.balls.iter().enumerate() {
         if index > 0 {
             json.push(',');
         }
         json.push('[');
-        push_json_string(json, playback_ball_id(&ball_trace.ball));
+        push_json_string(json, ball.id);
         json.push(',');
-        push_json_string(json, playback_ball_fill(&ball_trace.ball));
+        push_json_string(json, ball.fill);
         json.push(',');
-        if let Some(label) = playback_ball_label(&ball_trace.ball) {
+        if let Some(label) = ball.label {
             push_json_string(json, label);
         } else {
             json.push_str("null");
         }
-        write!(
-            json,
-            ",{:.3},{:.6}]",
-            ball_radius,
-            ball_spec.radius.as_f64()
-        )
-        .expect("writing JSON to string should not fail");
+        write!(json, ",{:.3},{:.6}]", ball.radius, ball.radius_inches)
+            .expect("writing JSON to string should not fail");
     }
 
     json.push_str("],\"frames\":[");
-    for (frame_index, frame) in frames.iter().enumerate() {
+    for (frame_index, frame) in playback.frames.iter().enumerate() {
         if frame_index > 0 {
             json.push(',');
         }
-        write!(json, "[{:.6},[", frame.time.as_f64())
-            .expect("writing JSON to string should not fail");
+        write!(json, "[{:.6},[", frame.time).expect("writing JSON to string should not fail");
         for (ball_index, ball) in frame.balls.iter().enumerate() {
             if ball_index > 0 {
                 json.push(',');
             }
-            let state = &ball.state;
-            let center = viewport.position_to_scene_point(&state.projected_position(table_spec));
             json.push('[');
-            push_json_string(json, playback_ball_id(&ball.ball));
+            push_json_string(json, ball.id);
             write!(
                 json,
                 ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}]",
-                center.x,
-                center.y,
-                state.height.as_f64(),
-                state.velocity.x().as_f64(),
-                state.velocity.y().as_f64(),
-                state.vertical_velocity.as_f64(),
-                state.angular_velocity.x().as_f64(),
-                state.angular_velocity.y().as_f64(),
-                state.angular_velocity.z().as_f64()
+                ball.x,
+                ball.y,
+                ball.height_inches,
+                ball.vx_ips,
+                ball.vy_ips,
+                ball.vz_ips,
+                ball.wx_rps,
+                ball.wy_rps,
+                ball.wz_rps
             )
             .expect("writing JSON to string should not fail");
         }
         json.push_str("]]");
     }
+
     json.push_str("]}");
-}
-
-fn playback_ball_id(ball_type: &BallType) -> &'static str {
-    match ball_type {
-        BallType::Cue => "cue",
-        BallType::One => "one",
-        BallType::Two => "two",
-        BallType::Three => "three",
-        BallType::Four => "four",
-        BallType::Five => "five",
-        BallType::Six => "six",
-        BallType::Seven => "seven",
-        BallType::Eight => "eight",
-        BallType::Nine => "nine",
-        BallType::YellowCue => "yellow",
-        BallType::Red => "red",
-    }
-}
-
-fn playback_ball_fill(ball_type: &BallType) -> &'static str {
-    match ball_type {
-        BallType::Cue => "#f8f4e8",
-        BallType::One | BallType::Nine | BallType::YellowCue => "#f1c232",
-        BallType::Two => "#2458c8",
-        BallType::Three | BallType::Red => "#c82828",
-        BallType::Four => "#6f3fa8",
-        BallType::Five => "#e27a22",
-        BallType::Six => "#25834b",
-        BallType::Seven => "#8f2d20",
-        BallType::Eight => "#111111",
-    }
-}
-
-fn playback_ball_label(ball_type: &BallType) -> Option<&'static str> {
-    match ball_type {
-        BallType::Cue | BallType::YellowCue | BallType::Red => None,
-        BallType::One => Some("1"),
-        BallType::Two => Some("2"),
-        BallType::Three => Some("3"),
-        BallType::Four => Some("4"),
-        BallType::Five => Some("5"),
-        BallType::Six => Some("6"),
-        BallType::Seven => Some("7"),
-        BallType::Eight => Some("8"),
-        BallType::Nine => Some("9"),
-    }
 }
 
 fn push_json_string(out: &mut String, value: &str) {

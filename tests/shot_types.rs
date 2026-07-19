@@ -15,6 +15,29 @@ fn assert_close(actual: f64, expected: f64) {
 }
 
 #[test]
+fn metric_speed_converts_inches_per_second_to_kilometers_per_hour() {
+    assert_close(InchesPerSecond::new("352").as_kmh(), 32.18688);
+}
+
+#[test]
+fn metric_speed_presets_expose_friendly_human_labels() {
+    for (preset, expected) in [
+        (ShotSpeedPreset::Touch, "touch speed"),
+        (ShotSpeedPreset::Power, "power speed"),
+        (
+            ShotSpeedPreset::TypicalPowerBreak,
+            "typical power-break speed",
+        ),
+        (
+            ShotSpeedPreset::ExceptionalPowerBreak,
+            "exceptional power-break speed",
+        ),
+    ] {
+        assert_eq!(preset.human_label(), expected, "{preset:?}");
+    }
+}
+
+#[test]
 fn dr_dave_shot_speed_presets_round_trip_and_format_nearest_speed() {
     assert_eq!(ShotSpeedPreset::Medium.as_str(), "medium");
     assert_eq!(ShotSpeedPreset::Medium.to_string(), "medium");
@@ -139,6 +162,38 @@ fn shot_accepts_nonnegative_cue_speed_and_preserves_inputs() {
     assert_close(shot.heading().as_degrees(), 0.0);
     assert_close(shot.cue_speed().as_f64(), 18.0);
     assert_eq!(shot.tip_contact(), &tip_contact);
+}
+
+#[test]
+fn shot_rejects_non_finite_heading() {
+    for (name, heading) in [
+        (
+            "NaN horizontal component",
+            billiards::Angle::from_north(f64::NAN, 1.0),
+        ),
+        (
+            "NaN vertical component",
+            billiards::Angle::from_north(1.0, f64::NAN),
+        ),
+        (
+            "NaN horizontal and vertical components",
+            billiards::Angle::from_north(f64::NAN, f64::NAN),
+        ),
+    ] {
+        let error = Shot::new(heading, InchesPerSecond::new("18"), CueTipContact::center())
+            .expect_err("a non-finite heading should be rejected");
+
+        match error {
+            ShotError::HeadingNotFinite {
+                heading: rejected_heading,
+            } => assert_eq!(
+                rejected_heading.as_degrees().to_bits(),
+                heading.as_degrees().to_bits(),
+                "{name} should be preserved in the typed error"
+            ),
+            other => panic!("{name}: expected non-finite heading error, got {other:?}"),
+        }
+    }
 }
 
 #[test]

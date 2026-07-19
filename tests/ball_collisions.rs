@@ -161,8 +161,8 @@ fn an_ideal_collision_does_not_attract_separating_balls() {
 
     let (a_after, b_after) = collide_ball_ball_on_table(&a, &b, CollisionModel::Ideal);
 
-    assert_eq!(a_after, a);
-    assert_eq!(b_after, b);
+    assert_eq!(&a_after, a.as_ball_state());
+    assert_eq!(&b_after, b.as_ball_state());
 }
 
 #[test]

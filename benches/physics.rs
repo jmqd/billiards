@@ -378,14 +378,17 @@ fn pocket_capture_signature(capture: &billiards::PredictedBallPocketCapture) -> 
 
 fn run_direct_single_ball_shot_to_completion() {
     let (seeded, ball_set, table, motion) = direct_seeded_single_ball();
-    black_box(trace_ball_path_with_rails_on_table(
-        &seeded,
-        BallPathStop::UntilRest,
-        &ball_set,
-        &table,
-        &motion,
-        RailModel::SpinAware,
-    ));
+    black_box(
+        trace_ball_path_with_rails_on_table(
+            &seeded,
+            BallPathStop::UntilRest,
+            &ball_set,
+            &table,
+            &motion,
+            RailModel::SpinAware,
+        )
+        .expect("direct single-ball trace benchmark should succeed"),
+    );
 }
 
 fn run_dsl_single_ball_shot_to_completion_from_parse() {
@@ -656,14 +659,17 @@ fn bench_core_functions(c: &mut Criterion) {
         "trace_ball_path_with_rails_on_table/bank_duration_1s",
         |b| {
             b.iter(|| {
-                black_box(trace_ball_path_with_rails_on_table(
-                    black_box(&bank_state),
-                    black_box(BallPathStop::Duration(Seconds::new(1.0))),
-                    black_box(&ball_set),
-                    black_box(&table),
-                    black_box(&motion),
-                    black_box(RailModel::Mirror),
-                ))
+                black_box(
+                    trace_ball_path_with_rails_on_table(
+                        black_box(&bank_state),
+                        black_box(BallPathStop::Duration(Seconds::new(1.0))),
+                        black_box(&ball_set),
+                        black_box(&table),
+                        black_box(&motion),
+                        black_box(RailModel::Mirror),
+                    )
+                    .expect("bank-duration ball-path benchmark should succeed"),
+                )
             })
         },
     );

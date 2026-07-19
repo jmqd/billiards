@@ -2,10 +2,10 @@ use bigdecimal::ToPrimitive;
 use billiards::{
     advance_motion_on_table, human_tuned_preview_motion_config,
     trace_ball_path_with_rail_profile_on_table, trace_ball_path_with_rails_on_table,
-    AngularVelocity3, BallPathStop, BallSetPhysicsSpec, BallState, Diamond, Inches, Inches2,
-    InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
+    AngularVelocity3, BallPathError, BallPathStop, BallSetPhysicsSpec, BallState, Diamond, Inches,
+    Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig,
     OnTableBallState, OnTableMotionConfig, RadiansPerSecondSq, Rail, RailAngleReference,
-    RailCollisionProfile, RailModel, RailTangentDirection, RollingResistanceModel,
+    RailCollisionProfile, RailModel, RailTangentDirection, RollingResistanceModel, Seconds,
     SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 
@@ -92,7 +92,8 @@ fn tracing_a_thirty_degree_mirror_bank_produces_a_two_segment_path() {
         &table,
         &motion_config(),
         RailModel::Mirror,
-    );
+    )
+    .expect("mirror-bank path should trace");
 
     assert_eq!(path.rail_impacts, 1);
     assert_eq!(path.segments.len(), 2);
@@ -133,7 +134,8 @@ fn sub_epsilon_duration_still_advances_a_ball_path() {
         &table,
         &motion,
         RailModel::Mirror,
-    );
+    )
+    .expect("sub-epsilon path should trace");
 
     assert_eq!(path.elapsed, dt);
     assert_eq!(path.final_state.as_ball_state(), &expected.state);
@@ -150,7 +152,8 @@ fn sampling_with_a_large_time_step_matches_the_event_vertex_path() {
         &table,
         &motion,
         RailModel::Mirror,
-    );
+    )
+    .expect("mirror-bank path should trace");
 
     assert_eq!(
         path.sampled_points(
@@ -174,7 +177,8 @@ fn sampling_with_a_small_time_step_inserts_intermediate_points() {
         &table,
         &motion,
         RailModel::SpinAware,
-    );
+    )
+    .expect("spin-aware bank path should trace");
 
     let coarse = path.projected_points(&table);
     let sampled = path.sampled_points(
@@ -231,7 +235,8 @@ fn tracing_until_one_rail_impact_stops_at_the_bank_point() {
         &table,
         &motion_config(),
         RailModel::Mirror,
-    );
+    )
+    .expect("rail-limited path should trace");
 
     assert_eq!(path.rail_impacts, 1);
     assert_eq!(path.segments.len(), 1);
@@ -269,7 +274,8 @@ fn tracing_from_a_zero_time_rail_impact_executes_the_rebound() {
         &table,
         &motion_config(),
         RailModel::Mirror,
-    );
+    )
+    .expect("incoming zero-time rail impact should resolve");
 
     assert_eq!(path.rail_impacts, 1);
     assert_close(path.elapsed.as_f64(), 0.1);
@@ -282,6 +288,36 @@ fn tracing_from_a_zero_time_rail_impact_executes_the_rebound() {
         "the traced ball should carry the resolved outbound rail velocity"
     );
     assert_eq!(path.segments.len(), 1);
+}
+
+#[test]
+fn frozen_rail_contact_with_inward_cloth_acceleration_reports_no_progress_for_continuing_paths() {
+    let table = TableSpec::default();
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - radius;
+    let state = on_table(BallState::on_table(
+        inches2(10.0, top_plane),
+        Velocity2::zero(),
+        AngularVelocity3::new(-10.0 / radius, 0.0, 0.0),
+    ));
+
+    for stop in [
+        BallPathStop::Duration(Seconds::new(0.1)),
+        BallPathStop::RailImpacts(1),
+        BallPathStop::UntilRest,
+    ] {
+        let error = trace_ball_path_with_rails_on_table(
+            &state,
+            stop,
+            &BallSetPhysicsSpec::default(),
+            &table,
+            &motion_config(),
+            RailModel::Mirror,
+        )
+        .expect_err("an unchanged zero-time rail response must stop path continuation");
+
+        assert_eq!(error, BallPathError::ZeroTimeNoProgress);
+    }
 }
 
 #[test]
@@ -319,7 +355,8 @@ fn corner_five_benchmark_track_reaches_the_formula_predicted_third_rail_target()
         &motion,
         RailModel::SpinAware,
         &profile,
-    );
+    )
+    .expect("corner-five benchmark path should trace");
 
     assert_eq!(path.rail_impacts, 3);
     let final_position = path.final_state.as_ball_state().projected_position(&table);

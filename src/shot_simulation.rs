@@ -249,12 +249,12 @@ impl PhysicsProfile {
                     .to_f64()
                     .is_some_and(|magnitude| magnitude >= 0.0)
         };
-        let valid_restitution = |value: &Scale| {
-            finite_scale(value) && (0.0..1.0).contains(&value.as_f64())
-        };
-        let valid_unit_interval_scale = |value: &Scale| {
-            finite_scale(value) && (0.0..=1.0).contains(&value.as_f64())
-        };
+        let valid_restitution =
+            |value: &Scale| finite_scale(value) && (0.0..=1.0).contains(&value.as_f64());
+        let valid_lossy_restitution =
+            |value: &Scale| finite_scale(value) && (0.0..1.0).contains(&value.as_f64());
+        let valid_unit_interval_scale =
+            |value: &Scale| finite_scale(value) && (0.0..=1.0).contains(&value.as_f64());
         if !finite_inches(&table.diamond_length) || table.diamond_length.as_f64() <= 0.0 {
             return Err(ShotSimulationError::InvalidPhysicsProfile(
                 "table diamond length must be finite and positive",
@@ -287,7 +287,7 @@ impl PhysicsProfile {
                 "ball radius must be finite and positive",
             ));
         }
-        if !valid_restitution(&ball.airborne_table_contact.normal_restitution)
+        if !valid_lossy_restitution(&ball.airborne_table_contact.normal_restitution)
             || !valid_nonnegative_scale(&ball.airborne_table_contact.sliding_friction_coefficient)
             || !ball
                 .airborne_table_contact
@@ -434,8 +434,7 @@ impl PhysicsProfile {
 pub struct ShotControls {
     heading_degrees: f64,
     cue_ball_speed_inches_per_second: f64,
-    side_tip_offset: f64,
-    height_tip_offset: f64,
+    tip_contact: CueTipContact,
     cue_elevation_degrees: f64,
 }
 
@@ -468,7 +467,7 @@ impl ShotControls {
                 cue_elevation_degrees,
             ));
         }
-        CueTipContact::new(
+        let tip_contact = CueTipContact::new(
             Scale::from_f64(side_tip_offset),
             Scale::from_f64(height_tip_offset),
         )
@@ -477,8 +476,7 @@ impl ShotControls {
         Ok(Self {
             heading_degrees: heading_degrees.rem_euclid(360.0),
             cue_ball_speed_inches_per_second,
-            side_tip_offset,
-            height_tip_offset,
+            tip_contact,
             cue_elevation_degrees,
         })
     }
@@ -492,11 +490,11 @@ impl ShotControls {
     }
 
     pub fn side_tip_offset(&self) -> f64 {
-        self.side_tip_offset
+        self.tip_contact.side_offset().as_f64()
     }
 
     pub fn height_tip_offset(&self) -> f64 {
-        self.height_tip_offset
+        self.tip_contact.height_offset().as_f64()
     }
 
     pub fn cue_elevation_degrees(&self) -> f64 {
@@ -508,11 +506,7 @@ impl ShotControls {
         let elevation_radians = self.cue_elevation_degrees.to_radians();
         let heading = Angle::from_north(heading_radians.sin(), heading_radians.cos());
         let elevation = Angle::from_north(elevation_radians.sin(), elevation_radians.cos());
-        let tip = CueTipContact::new(
-            Scale::from_f64(self.side_tip_offset),
-            Scale::from_f64(self.height_tip_offset),
-        )
-        .map_err(ShotSimulationError::Shot)?;
+        let tip = self.tip_contact.clone();
         Shot::new_for_cue_ball_launch_speed(
             heading,
             InchesPerSecond::new(Inches::from_f64(self.cue_ball_speed_inches_per_second)),
@@ -1360,16 +1354,15 @@ pub fn execute_three_cushion(
     limit: ShotLimit,
 ) -> Result<ThreeCushionResult, ShotSimulationError> {
     let command = shot.command(layout)?;
-    let owned = execute_shot(physics, layout, &command, limit)?;
-    let adjudication = project_three_cushion(&owned);
+    let result = execute_core(physics, layout, &command, limit, true)?;
     Ok(ThreeCushionResult {
         completion: ShotCompletion {
-            elapsed: owned.elapsed,
-            termination: owned.termination,
-            summary: adjudication,
+            elapsed: result.elapsed,
+            termination: result.termination,
+            summary: result.adjudication,
         },
-        final_states: owned.final_states,
-        events: owned.events,
+        final_states: result.final_states,
+        events: result.events.into_boxed_slice(),
     })
 }
 

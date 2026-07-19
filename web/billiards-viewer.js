@@ -17,6 +17,7 @@
     ['rail', 'Rails and pockets only'],
   ];
   const playbackHelpText = 'Scrub the physics frames in either direction, set playback speed from 1x down to 1/16x for slow motion, toggle Trace paths to hide static trajectory lines, or use the icon buttons: rewind to the first frame, step one frame back or forward, play/pause, or play to the next logged event. The default 2.5 ms physics frames update at about 25 frame changes per second at 1/16x. Balls are sampled by the Rust physics solver; black ticks show instantaneous travel direction. Spin badges use green arrows for natural roll, blue for follow, orange for draw, amber for skid, purple arcs for side spin, and a gray X for no spin.';
+  const inchesPerSecondToKmh = (value) => value * 0.09144;
 
   const escapeHtml = (value) => String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -461,7 +462,7 @@
           const glyphRadius = Math.max(8.5, Math.min(13.0, radius * 0.58));
           const badgeOffset = radius * 0.72;
           const strokeWidth = Math.max(2.4, Math.min(4.0, radius * 0.135));
-          const titleText = `spin: v=(${metrics.vx.toFixed(1)}, ${metrics.vy.toFixed(1)}) ips; omega=(${metrics.wx.toFixed(1)}, ${metrics.wy.toFixed(1)}, ${metrics.wz.toFixed(1)}) rad/s; roll slip=${metrics.rollSlip.toFixed(1)} ips; roll ratio=${metrics.rollRatio.toFixed(2)}; side=${metrics.wz.toFixed(1)} rad/s`;
+          const titleText = `spin: v=(${inchesPerSecondToKmh(metrics.vx).toFixed(1)}, ${inchesPerSecondToKmh(metrics.vy).toFixed(1)}) km/h; omega=(${metrics.wx.toFixed(1)}, ${metrics.wy.toFixed(1)}, ${metrics.wz.toFixed(1)}) rad/s; roll slip=${inchesPerSecondToKmh(metrics.rollSlip).toFixed(1)} km/h; roll ratio=${metrics.rollRatio.toFixed(2)}; side=${metrics.wz.toFixed(1)} rad/s`;
           const group = svgNode(playbackLayer, 'g', {
             class: 'playback-spin-glyph ball-spin-glyph',
             role: 'img',
@@ -611,6 +612,7 @@
         let playStartedAt = 0;
         let playStartTime = 0;
         let playTargetTime = null;
+        let playTargetFrame = null;
         const setPlayButtonState = (isPlaying) => {
           if (!playButton) return;
           playButton.textContent = isPlaying ? '⏸' : '▶';
@@ -623,6 +625,7 @@
           if (animationId !== null) cancelAnimationFrame(animationId);
           animationId = null;
           playTargetTime = null;
+          playTargetFrame = null;
           setPlayButtonState(false);
         };
         const nearestFrameForTime = (time) => {
@@ -641,13 +644,18 @@
           stopPlayback();
           const duration = Math.max(0, Number(playback.duration) || 0);
           const boundedTarget = Number.isFinite(targetTime) ? Math.max(0, Math.min(duration, targetTime)) : null;
+          const effectiveTargetTime = boundedTarget ?? duration;
+          const targetFrame = boundedTarget === null
+            ? playback.frames.length - 1
+            : nearestFrameForTime(boundedTarget);
           playStartTime = frameTime(startIndex);
-          if (boundedTarget !== null && boundedTarget <= playStartTime + eventHitWindow) {
-            paintPlayback(nearestFrameForTime(boundedTarget));
+          if (effectiveTargetTime <= playStartTime + eventHitWindow) {
+            paintPlayback(targetFrame);
             return;
           }
           playing = true;
           playTargetTime = boundedTarget;
+          playTargetFrame = targetFrame;
           setPlayButtonState(true);
           playStartedAt = performance.now();
           paintPlayback(startIndex);
@@ -659,12 +667,11 @@
             return;
           }
           if (!playing) return;
-          const duration = Math.max(0, Number(playback.duration) || 0);
-          const targetTime = playTargetTime === null ? duration : playTargetTime;
+          const targetTime = playTargetTime ?? Math.max(0, Number(playback.duration) || 0);
           const elapsed = ((now - playStartedAt) / 1000) * playbackSpeed();
           const time = playStartTime + elapsed;
-          if (duration > 0 && time >= targetTime - eventHitWindow) {
-            paintPlayback(nearestFrameForTime(targetTime));
+          if (time >= targetTime - eventHitWindow) {
+            paintPlayback(playTargetFrame);
             stopPlayback();
             return;
           }

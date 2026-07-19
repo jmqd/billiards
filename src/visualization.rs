@@ -1,11 +1,33 @@
 use crate::{Inches, OverlayLayer, TYPICAL_BALL_RADIUS};
 use image::Rgba;
+use std::fmt;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DashedLineStyleError {
+    DashLength,
+    GapLength,
+    PatternSpanOverflow,
+}
+
+impl fmt::Display for DashedLineStyleError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DashLength => {
+                formatter.write_str("dash length must be finite and greater than zero")
+            }
+            Self::GapLength => formatter.write_str("gap length must be finite and non-negative"),
+            Self::PatternSpanOverflow => formatter.write_str("dash and gap total must be finite"),
+        }
+    }
+}
+
+impl std::error::Error for DashedLineStyleError {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DashedLineStyle {
     pub color: Rgba<u8>,
-    pub dash_px: f32,
-    pub gap_px: f32,
+    dash_px: f32,
+    gap_px: f32,
     pub width_px: f32,
     pub layer: OverlayLayer,
 }
@@ -19,6 +41,30 @@ impl DashedLineStyle {
             width_px: 2.0,
             layer: OverlayLayer::BelowBalls,
         }
+    }
+
+    pub fn with_pattern(mut self, dash_px: f32, gap_px: f32) -> Result<Self, DashedLineStyleError> {
+        if !dash_px.is_finite() || dash_px <= 0.0 {
+            return Err(DashedLineStyleError::DashLength);
+        }
+        if !gap_px.is_finite() || gap_px < 0.0 {
+            return Err(DashedLineStyleError::GapLength);
+        }
+        if !(dash_px + gap_px).is_finite() {
+            return Err(DashedLineStyleError::PatternSpanOverflow);
+        }
+
+        self.dash_px = dash_px;
+        self.gap_px = gap_px;
+        Ok(self)
+    }
+
+    pub fn dash_px(&self) -> f32 {
+        self.dash_px
+    }
+
+    pub fn gap_px(&self) -> f32 {
+        self.gap_px
     }
 
     pub fn on_layer(mut self, layer: OverlayLayer) -> Self {

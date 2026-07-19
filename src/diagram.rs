@@ -5,15 +5,13 @@ use crate::visualization::{
 use crate::{assets, drawing};
 use crate::{
     Angle, AngularVelocity3, BallSpec, BallType, DiagramBackground, DiagramRenderOptions, Inches,
-    OverlayLayer, Position, TableKind, TableSpec, Velocity2,
+    InchesPerSecond, OverlayLayer, Position, TableKind, TableSpec, Velocity2,
 };
 use bigdecimal::ToPrimitive;
 use image::codecs::png::PngEncoder;
 use image::imageops::{overlay, resize, FilterType};
 use image::{ImageEncoder, ImageFormat, Rgba, RgbaImage};
-use imageproc::drawing::{
-    draw_filled_circle_mut, draw_line_segment_mut, draw_polygon_mut,
-};
+use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut, draw_polygon_mut};
 use imageproc::point::Point;
 
 const LEGACY_WIDTH_PX: f32 = 1089.0;
@@ -54,6 +52,17 @@ const SIDE_POCKET_DRAWING_LINER_SCALE: f32 = 1.37;
 // Side-pocket mouth cut angle in the rendered top-view bed-edge frame.
 const SIDE_POCKET_CUT_ANGLE_DEG: f32 = 8.0;
 const CUSHION_BEVEL_IN: f32 = 1.0;
+const CAROM_RAIL: [u8; 4] = [0x65, 0x31, 0x1f, 0xff];
+const CAROM_RAIL_GRAIN_DARK: [u8; 4] = [0x4a, 0x20, 0x16, 0xff];
+const CAROM_RAIL_GRAIN_LIGHT: [u8; 4] = [0x7b, 0x3e, 0x27, 0xff];
+const CAROM_CLOTH_TOP: [u8; 3] = [0x0a, 0xa7, 0xd0];
+const CAROM_CLOTH_MIDDLE: [u8; 3] = [0x08, 0x7d, 0xa4];
+const CAROM_CLOTH_BOTTOM: [u8; 3] = [0x07, 0x5b, 0x7c];
+const CAROM_CUSHION: [u8; 4] = [0x0e, 0x97, 0xbd, 0xff];
+const CAROM_CUSHION_NOSE: [u8; 4] = [0x88, 0xec, 0xff, 0xff];
+const CAROM_CUSHION_BACK: [u8; 4] = [0x06, 0x4f, 0x69, 0xff];
+const CAROM_SIGHT: [u8; 4] = [0xf6, 0xf0, 0xde, 0xff];
+const CAROM_SIGHT_BORDER: [u8; 4] = [0x9b, 0x8c, 0x63, 0xff];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiagramOutputFormat {
@@ -275,15 +284,9 @@ impl DiagramBackend for PngBackend {
     type Output = Vec<u8>;
 
     fn render(scene: &DiagramScene, options: &DiagramRenderOptions) -> Self::Output {
-        let table_asset: RgbaImage =
-            image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
-                .expect("broken table asset")
-                .into_rgba8();
-        let (tw, th) = table_asset.dimensions();
-        let mut table = match scene.background {
-            DiagramBackground::Table => table_asset,
-            DiagramBackground::Transparent => RgbaImage::new(tw, th),
-        };
+        let canvas_dimensions = raster_dimensions(scene.viewport);
+        let mut table = raster_background(scene, canvas_dimensions);
+        let (tw, th) = table.dimensions();
 
         draw_raster_elements_for_layer(scene, DiagramLayerId::OverlaysBelowBalls, &mut table);
         draw_raster_balls(scene, &mut table, tw, th);
@@ -299,12 +302,7 @@ impl DiagramBackend for PngBackend {
             let output_height = th
                 .checked_mul(scale_factor)
                 .expect("scaled PNG height overflow");
-            resize(
-                &table,
-                output_width,
-                output_height,
-                FilterType::CatmullRom,
-            )
+            resize(&table, output_width, output_height, FilterType::CatmullRom)
         };
         let (ow, oh) = output.dimensions();
 
@@ -314,6 +312,435 @@ impl DiagramBackend for PngBackend {
             .expect("PNG encode failed");
         buf
     }
+}
+
+fn raster_dimensions(viewport: DiagramViewport) -> (u32, u32) {
+    fn validate(name: &str, value: f32) -> u32 {
+        if !value.is_finite()
+            || value <= 0.0
+            || value.fract() != 0.0
+            || f64::from(value) > f64::from(u32::MAX)
+        {
+            panic!(
+                "invalid DiagramViewport.{name} ({value:?}) for PNG rendering: canvas dimensions must be finite, positive, integral, and representable as u32"
+            );
+        }
+        value as u32
+    }
+
+    (
+        validate("width_px", viewport.width_px),
+        validate("height_px", viewport.height_px),
+    )
+}
+
+fn raster_background(scene: &DiagramScene, dimensions: (u32, u32)) -> RgbaImage {
+    match scene.background {
+        DiagramBackground::Transparent => RgbaImage::new(dimensions.0, dimensions.1),
+        DiagramBackground::Table => match scene.table_spec.kind {
+            TableKind::Pool => raster_pool_table(scene.viewport, dimensions),
+            TableKind::ThreeCushionCarom => raster_three_cushion_carom_table(
+                &scene.table_spec,
+                scene.viewport,
+                dimensions.0,
+                dimensions.1,
+            ),
+        },
+    }
+}
+
+fn raster_pool_table(viewport: DiagramViewport, dimensions: (u32, u32)) -> RgbaImage {
+    if viewport == DiagramViewport::default() {
+        return decode_pool_table_asset();
+    }
+
+    let (destination_x, destination_y) = raster_pool_destination_splits(viewport, dimensions);
+    let table = decode_pool_table_asset();
+    let legacy_dimensions = (LEGACY_WIDTH_PX as u32, LEGACY_HEIGHT_PX as u32);
+    assert_eq!(
+        table.dimensions(),
+        legacy_dimensions,
+        "pool table asset dimensions must match the legacy DiagramViewport"
+    );
+
+    let source_x = [
+        0,
+        PLAYFIELD_LEFT_PX as u32,
+        PLAYFIELD_RIGHT_PX as u32,
+        legacy_dimensions.0,
+    ];
+    let source_y = [
+        0,
+        PLAYFIELD_TOP_PX as u32,
+        PLAYFIELD_BOTTOM_PX as u32,
+        legacy_dimensions.1,
+    ];
+    let mut output = RgbaImage::new(dimensions.0, dimensions.1);
+
+    for row in 0..3 {
+        let source_height = source_y[row + 1] - source_y[row];
+        let destination_height = destination_y[row + 1] - destination_y[row];
+        if destination_height == 0 {
+            continue;
+        }
+
+        for column in 0..3 {
+            let source_width = source_x[column + 1] - source_x[column];
+            let destination_width = destination_x[column + 1] - destination_x[column];
+            if destination_width == 0 {
+                continue;
+            }
+
+            let source = image::imageops::crop_imm(
+                &table,
+                source_x[column],
+                source_y[row],
+                source_width,
+                source_height,
+            )
+            .to_image();
+            let tile = resize(
+                &source,
+                destination_width,
+                destination_height,
+                FilterType::CatmullRom,
+            );
+            overlay(
+                &mut output,
+                &tile,
+                i64::from(destination_x[column]),
+                i64::from(destination_y[row]),
+            );
+        }
+    }
+
+    output
+}
+
+fn decode_pool_table_asset() -> RgbaImage {
+    image::load_from_memory_with_format(assets::TABLE_DIAGRAM, ImageFormat::Png)
+        .expect("broken table asset")
+        .into_rgba8()
+}
+
+fn raster_pool_destination_splits(
+    viewport: DiagramViewport,
+    dimensions: (u32, u32),
+) -> ([u32; 4], [u32; 4]) {
+    fn bound(name: &str, value: f32, extent: u32) -> u32 {
+        if !value.is_finite() || value < 0.0 || f64::from(value) > f64::from(extent) {
+            panic!(
+                "invalid DiagramViewport.{name} ({value:?}) for PNG pool background: playfield bounds must be finite and within the canvas extent 0..={extent}"
+            );
+        }
+        value.round() as u32
+    }
+
+    let left = bound(
+        "playfield_left_px",
+        viewport.playfield_left_px,
+        dimensions.0,
+    );
+    let right = bound(
+        "playfield_right_px",
+        viewport.playfield_right_px,
+        dimensions.0,
+    );
+    let top = bound("playfield_top_px", viewport.playfield_top_px, dimensions.1);
+    let bottom = bound(
+        "playfield_bottom_px",
+        viewport.playfield_bottom_px,
+        dimensions.1,
+    );
+
+    if left >= right {
+        panic!(
+            "invalid PNG pool playfield x bounds ({:?}..{:?}): DiagramViewport.playfield_left_px must precede playfield_right_px by at least one raster pixel",
+            viewport.playfield_left_px, viewport.playfield_right_px
+        );
+    }
+    if top >= bottom {
+        panic!(
+            "invalid PNG pool playfield y bounds ({:?}..{:?}): DiagramViewport.playfield_top_px must precede playfield_bottom_px by at least one raster pixel",
+            viewport.playfield_top_px, viewport.playfield_bottom_px
+        );
+    }
+
+    (
+        [0, left, right, dimensions.0],
+        [0, top, bottom, dimensions.1],
+    )
+}
+
+fn raster_three_cushion_carom_table(
+    table_spec: &TableSpec,
+    viewport: DiagramViewport,
+    width: u32,
+    height: u32,
+) -> RgbaImage {
+    let mut table = RgbaImage::from_pixel(width, height, Rgba(CAROM_RAIL));
+    draw_raster_carom_rail_grain(&mut table, viewport);
+    draw_raster_carom_cloth(&mut table, viewport);
+
+    let left = viewport.playfield_left_px;
+    let right = viewport.playfield_right_px;
+    let top = viewport.playfield_top_px;
+    let bottom = viewport.playfield_bottom_px;
+    let cushion_x = viewport.x_inches_for_table(table_spec, 2.25);
+    let cushion_y = viewport.y_inches_for_table(table_spec, 2.25);
+    let cushion = Rgba(CAROM_CUSHION);
+
+    draw_polygon_mut(
+        &mut table,
+        &[
+            raster_point(left, top),
+            raster_point(right, top),
+            raster_point(right + cushion_x, top - cushion_y),
+            raster_point(left - cushion_x, top - cushion_y),
+        ],
+        cushion,
+    );
+    draw_polygon_mut(
+        &mut table,
+        &[
+            raster_point(left, bottom),
+            raster_point(right, bottom),
+            raster_point(right + cushion_x, bottom + cushion_y),
+            raster_point(left - cushion_x, bottom + cushion_y),
+        ],
+        cushion,
+    );
+    draw_polygon_mut(
+        &mut table,
+        &[
+            raster_point(left, top),
+            raster_point(left, bottom),
+            raster_point(left - cushion_x, bottom + cushion_y),
+            raster_point(left - cushion_x, top - cushion_y),
+        ],
+        cushion,
+    );
+    draw_polygon_mut(
+        &mut table,
+        &[
+            raster_point(right, top),
+            raster_point(right, bottom),
+            raster_point(right + cushion_x, bottom + cushion_y),
+            raster_point(right + cushion_x, top - cushion_y),
+        ],
+        cushion,
+    );
+
+    let nose = Rgba(CAROM_CUSHION_NOSE);
+    draw_raster_thick_line(&mut table, (left, top), (right, top), 3.2, nose);
+    draw_raster_thick_line(&mut table, (left, bottom), (right, bottom), 3.2, nose);
+    draw_raster_thick_line(&mut table, (left, top), (left, bottom), 3.2, nose);
+    draw_raster_thick_line(&mut table, (right, top), (right, bottom), 3.2, nose);
+
+    let back = Rgba(CAROM_CUSHION_BACK);
+    draw_raster_thick_line(
+        &mut table,
+        (left - cushion_x, top - cushion_y),
+        (right + cushion_x, top - cushion_y),
+        3.2,
+        back,
+    );
+    draw_raster_thick_line(
+        &mut table,
+        (left - cushion_x, bottom + cushion_y),
+        (right + cushion_x, bottom + cushion_y),
+        3.2,
+        back,
+    );
+    draw_raster_thick_line(
+        &mut table,
+        (left - cushion_x, top - cushion_y),
+        (left - cushion_x, bottom + cushion_y),
+        3.2,
+        back,
+    );
+    draw_raster_thick_line(
+        &mut table,
+        (right + cushion_x, top - cushion_y),
+        (right + cushion_x, bottom + cushion_y),
+        3.2,
+        back,
+    );
+
+    draw_raster_three_cushion_carom_sights(&mut table, table_spec, viewport);
+    table
+}
+
+fn draw_raster_carom_rail_grain(table: &mut RgbaImage, viewport: DiagramViewport) {
+    let image_width = table.width();
+    let image_height = table.height();
+    let width = image_width as f32;
+    let height = image_height as f32;
+    let max_x = image_width.saturating_sub(1) as f32;
+    let max_y = image_height.saturating_sub(1) as f32;
+    let left = viewport.playfield_left_px.clamp(0.0, width) as u32;
+    let right = viewport.playfield_right_px.clamp(0.0, width) as u32;
+    let top = viewport.playfield_top_px.clamp(0.0, height) as u32;
+    let bottom = viewport.playfield_bottom_px.clamp(0.0, height) as u32;
+    let rail_top = (top as f32).min(max_y);
+    let rail_bottom = (bottom as f32).min(max_y);
+    let dark = Rgba(CAROM_RAIL_GRAIN_DARK);
+    let light = Rgba(CAROM_RAIL_GRAIN_LIGHT);
+
+    for y in (14..top).step_by(38) {
+        draw_line_segment_mut(table, (0.0, y as f32), (max_x, y as f32), dark);
+        draw_line_segment_mut(table, (0.0, (y + 5) as f32), (max_x, (y + 5) as f32), light);
+    }
+    for y in ((bottom + 14).min(image_height)..image_height).step_by(38) {
+        draw_line_segment_mut(table, (0.0, y as f32), (max_x, y as f32), dark);
+        let highlight_y = (y + 5).min(image_height.saturating_sub(1)) as f32;
+        draw_line_segment_mut(table, (0.0, highlight_y), (max_x, highlight_y), light);
+    }
+    for x in (14..left).step_by(38) {
+        draw_line_segment_mut(table, (x as f32, rail_top), (x as f32, rail_bottom), dark);
+        draw_line_segment_mut(
+            table,
+            ((x + 5) as f32, rail_top),
+            ((x + 5) as f32, rail_bottom),
+            light,
+        );
+    }
+    for x in ((right + 14).min(image_width)..image_width).step_by(38) {
+        draw_line_segment_mut(table, (x as f32, rail_top), (x as f32, rail_bottom), dark);
+        let highlight_x = (x + 5).min(image_width.saturating_sub(1)) as f32;
+        draw_line_segment_mut(
+            table,
+            (highlight_x, rail_top),
+            (highlight_x, rail_bottom),
+            light,
+        );
+    }
+}
+
+fn draw_raster_carom_cloth(table: &mut RgbaImage, viewport: DiagramViewport) {
+    let left = viewport
+        .playfield_left_px
+        .round()
+        .clamp(0.0, table.width() as f32) as u32;
+    let right = viewport
+        .playfield_right_px
+        .round()
+        .clamp(0.0, table.width() as f32) as u32;
+    let top = viewport
+        .playfield_top_px
+        .round()
+        .clamp(0.0, table.height() as f32) as u32;
+    let bottom = viewport
+        .playfield_bottom_px
+        .round()
+        .clamp(0.0, table.height() as f32) as u32;
+    if left >= right || top >= bottom {
+        return;
+    }
+
+    let cloth_width = f64::from((right - left).max(1));
+    let cloth_height = f64::from((bottom - top).max(1));
+    for y in top..bottom {
+        let y_fraction = f64::from(y - top) / cloth_height;
+        for x in left..right {
+            let x_fraction = f64::from(x - left) / cloth_width;
+            let gradient_offset = (x_fraction + y_fraction) * 0.5;
+            let rgb = if gradient_offset <= 0.55 {
+                interpolate_rgb(CAROM_CLOTH_TOP, CAROM_CLOTH_MIDDLE, gradient_offset / 0.55)
+            } else {
+                interpolate_rgb(
+                    CAROM_CLOTH_MIDDLE,
+                    CAROM_CLOTH_BOTTOM,
+                    (gradient_offset - 0.55) / 0.45,
+                )
+            };
+            table.put_pixel(x, y, Rgba([rgb[0], rgb[1], rgb[2], 0xff]));
+        }
+    }
+}
+
+fn draw_raster_three_cushion_carom_sights(
+    table: &mut RgbaImage,
+    table_spec: &TableSpec,
+    viewport: DiagramViewport,
+) {
+    let left = viewport.playfield_left_px;
+    let right = viewport.playfield_right_px;
+    let top = viewport.playfield_top_px;
+    let bottom = viewport.playfield_bottom_px;
+    let cloth_width = right - left;
+    let cloth_height = bottom - top;
+    let sight_setback_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_SETBACK_IN);
+    let sight_setback_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_SETBACK_IN);
+    let sight_half_along_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_WIDTH_IN) * 0.5;
+    let sight_half_along_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_WIDTH_IN) * 0.5;
+    let sight_half_cross_x = viewport.x_inches_for_table(table_spec, DIAMOND_SIGHT_HEIGHT_IN) * 0.5;
+    let sight_half_cross_y = viewport.y_inches_for_table(table_spec, DIAMOND_SIGHT_HEIGHT_IN) * 0.5;
+
+    for fraction in [0.25, 0.5, 0.75] {
+        let x = left + fraction * cloth_width;
+        draw_raster_carom_sight(
+            table,
+            x,
+            top - sight_setback_y,
+            sight_half_along_x,
+            sight_half_cross_y,
+        );
+        draw_raster_carom_sight(
+            table,
+            x,
+            bottom + sight_setback_y,
+            sight_half_along_x,
+            sight_half_cross_y,
+        );
+    }
+
+    for fraction in [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875] {
+        let y = bottom - fraction * cloth_height;
+        draw_raster_carom_sight(
+            table,
+            left - sight_setback_x,
+            y,
+            sight_half_cross_x,
+            sight_half_along_y,
+        );
+        draw_raster_carom_sight(
+            table,
+            right + sight_setback_x,
+            y,
+            sight_half_cross_x,
+            sight_half_along_y,
+        );
+    }
+}
+
+fn draw_raster_carom_sight(
+    table: &mut RgbaImage,
+    center_x: f32,
+    center_y: f32,
+    half_width: f32,
+    half_height: f32,
+) {
+    let points = [
+        raster_point(center_x, center_y - half_height),
+        raster_point(center_x + half_width, center_y),
+        raster_point(center_x, center_y + half_height),
+        raster_point(center_x - half_width, center_y),
+    ];
+    draw_polygon_mut(table, &points, Rgba(CAROM_SIGHT_BORDER));
+
+    let inner_scale = 0.78;
+    let inner_points = [
+        raster_point(center_x, center_y - half_height * inner_scale),
+        raster_point(center_x + half_width * inner_scale, center_y),
+        raster_point(center_x, center_y + half_height * inner_scale),
+        raster_point(center_x - half_width * inner_scale, center_y),
+    ];
+    draw_polygon_mut(table, &inner_points, Rgba(CAROM_SIGHT));
+}
+
+fn raster_point(x: f32, y: f32) -> Point<i32> {
+    Point::new(x.round() as i32, y.round() as i32)
 }
 
 pub struct SvgBackend;
@@ -525,21 +952,31 @@ fn draw_raster_elements_for_layer(
     layer: DiagramLayerId,
     table: &mut RgbaImage,
 ) {
+    let to_pixel = |position: &Position| {
+        let point = scene.viewport.position_to_scene_point(position);
+        (point.x.round() as i32, point.y.round() as i32)
+    };
+
     for element in scene.elements_for_layer(layer) {
         match element {
             DiagramElement::DashedLine { start, end, style } => {
                 drawing::draw_dashed_line_thick_mut(
                     table,
-                    start,
-                    end,
-                    style.dash_px,
-                    style.gap_px,
+                    to_pixel(start),
+                    to_pixel(end),
+                    style.dash_px(),
+                    style.gap_px(),
                     style.width_px,
                     style.color,
                 );
             }
             DiagramElement::SmoothPolyline { points, style } => {
-                drawing::draw_smooth_polyline_mut(table, points, style.width_px, style.color);
+                drawing::draw_smooth_polyline_mut(
+                    table,
+                    points.iter().map(to_pixel),
+                    style.width_px,
+                    style.color,
+                );
             }
             DiagramElement::HeadingChevron {
                 tip,
@@ -548,12 +985,17 @@ fn draw_raster_elements_for_layer(
             } => {
                 let points =
                     heading_chevron_points(&scene.table_spec, tip, *heading, &style.length_inches);
-                drawing::draw_smooth_polyline_mut(table, &points, style.width_px, style.color);
+                drawing::draw_smooth_polyline_mut(
+                    table,
+                    points.iter().map(to_pixel),
+                    style.width_px,
+                    style.color,
+                );
             }
             DiagramElement::GhostBall { center, style } => {
                 drawing::draw_ghost_ball_mut(
                     table,
-                    center,
+                    to_pixel(center),
                     scene
                         .viewport
                         .ball_diameter_px(&scene.table_spec, &scene.table_spec.default_ball_spec()),
@@ -565,7 +1007,7 @@ fn draw_raster_elements_for_layer(
                 let scale_px = style.scale_px.max(1);
                 drawing::draw_text_label_mut(
                     table,
-                    center,
+                    to_pixel(center),
                     "O",
                     -((5 * scale_px as i32) / 2),
                     -((7 * scale_px as i32) / 2),
@@ -574,7 +1016,12 @@ fn draw_raster_elements_for_layer(
                 );
             }
             DiagramElement::CircleMarker { center, style, .. } => {
-                drawing::draw_filled_circle_marker_mut(table, center, style.radius_px, style.color);
+                drawing::draw_filled_circle_marker_mut(
+                    table,
+                    to_pixel(center),
+                    style.radius_px,
+                    style.color,
+                );
             }
             DiagramElement::TextLabel {
                 anchor,
@@ -583,7 +1030,7 @@ fn draw_raster_elements_for_layer(
             } => {
                 drawing::draw_text_label_mut(
                     table,
-                    anchor,
+                    to_pixel(anchor),
                     text,
                     style.offset_x_px,
                     style.offset_y_px,
@@ -629,10 +1076,7 @@ fn draw_raster_spin_glyph(
     let glyph_radius = (radius * style.glyph_radius_fraction).clamp(8.5, 13.0);
     let badge_offset = radius * 0.72;
     let glyph_center = (center.x + badge_offset, center.y - badge_offset);
-    let glyph_center_i32 = (
-        glyph_center.0.round() as i32,
-        glyph_center.1.round() as i32,
-    );
+    let glyph_center_i32 = (glyph_center.0.round() as i32, glyph_center.1.round() as i32);
     let stroke_width = (radius * 0.135).clamp(2.4, 4.0);
     let metrics = spin_glyph_metrics(angular_velocity, linear_velocity, ball_radius);
 
@@ -651,10 +1095,7 @@ fn draw_raster_spin_glyph(
 
     if metrics.total_rps <= SPIN_GLYPH_STUN_RPS {
         let arm = glyph_radius * 0.48;
-        for (start, end) in [
-            ((-arm, -arm), (arm, arm)),
-            ((arm, -arm), (-arm, arm)),
-        ] {
+        for (start, end) in [((-arm, -arm), (arm, arm)), ((arm, -arm), (-arm, arm))] {
             let start = (glyph_center.0 + start.0, glyph_center.1 + start.1);
             let end = (glyph_center.0 + end.0, glyph_center.1 + end.1);
             draw_raster_thick_line(
@@ -669,7 +1110,12 @@ fn draw_raster_spin_glyph(
                 start,
                 end,
                 stroke_width * 1.35,
-                Rgba([SPIN_GLYPH_GREY[0], SPIN_GLYPH_GREY[1], SPIN_GLYPH_GREY[2], 255]),
+                Rgba([
+                    SPIN_GLYPH_GREY[0],
+                    SPIN_GLYPH_GREY[1],
+                    SPIN_GLYPH_GREY[2],
+                    255,
+                ]),
             );
         }
         return;
@@ -768,8 +1214,14 @@ fn draw_raster_spin_glyph(
         draw_raster_triangle(
             table,
             arrow_tip,
-            (base.0 + normal.0 * head * 0.55, base.1 + normal.1 * head * 0.55),
-            (base.0 - normal.0 * head * 0.55, base.1 - normal.1 * head * 0.55),
+            (
+                base.0 + normal.0 * head * 0.55,
+                base.1 + normal.1 * head * 0.55,
+            ),
+            (
+                base.0 - normal.0 * head * 0.55,
+                base.1 - normal.1 * head * 0.55,
+            ),
             z_color,
         );
     }
@@ -1699,8 +2151,8 @@ fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramEle
                 stroke,
                 opacity,
                 style.width_px,
-                style.dash_px,
-                style.gap_px
+                style.dash_px(),
+                style.gap_px()
             ));
         }
         DiagramElement::SmoothPolyline { points, style } => {
@@ -1868,14 +2320,14 @@ fn push_svg_spin_glyph(
     let metrics = spin_glyph_metrics(angular_velocity, linear_velocity, ball_radius);
     let planar_color = svg_rgb(metrics.planar_color);
     let z_color = svg_rgb(metrics.z_color);
+    let vx_kmh = metrics.vx * InchesPerSecond::KMH_PER_IPS;
+    let vy_kmh = metrics.vy * InchesPerSecond::KMH_PER_IPS;
+    let roll_slip_kmh = metrics.roll_slip_ips * InchesPerSecond::KMH_PER_IPS;
     let title = escape_xml(&format!(
-        "spin: v=({:.1}, {:.1}) ips; omega=({:.1}, {:.1}, {:.1}) rad/s; roll slip={:.1} ips; roll ratio={:.2}; side={:.1} rad/s",
-        metrics.vx,
-        metrics.vy,
+        "spin: v=({vx_kmh:.1}, {vy_kmh:.1}) km/h; omega=({:.1}, {:.1}, {:.1}) rad/s; roll slip={roll_slip_kmh:.1} km/h; roll ratio={:.2}; side={:.1} rad/s",
         metrics.wx,
         metrics.wy,
         metrics.wz,
-        metrics.roll_slip_ips,
         metrics.roll_ratio,
         metrics.wz
     ));
@@ -2145,18 +2597,19 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
         if scene.table_spec.kind == TableKind::Pool {
             push_svg_pool_ball(svg, &ball.ty, visual, center, radius);
         } else {
-            push_svg_carom_ball(svg, &ball.ty, visual, center, radius);
+            push_svg_carom_ball(svg, visual, center, radius);
         }
     }
     svg.push_str("</g>\n");
 }
 
 #[derive(Clone, Copy)]
-struct BallVisual {
-    fill: &'static str,
+pub(crate) struct BallVisual {
+    pub(crate) id: &'static str,
+    pub(crate) fill: &'static str,
+    pub(crate) label: Option<&'static str>,
     gradient: &'static str,
     paint: &'static str,
-    class_name: &'static str,
 }
 
 fn push_svg_pool_ball(
@@ -2166,7 +2619,6 @@ fn push_svg_pool_ball(
     center: ScenePoint,
     radius: f32,
 ) {
-    let label = ball_label(ball_type);
     let style = match ball_type {
         BallType::Nine => "stripe",
         BallType::One
@@ -2187,7 +2639,7 @@ fn push_svg_pool_ball(
 
     svg.push_str(&format!(
         "<g class=\"ball ball-{}\" data-ball=\"{}\" data-ball-style=\"{}\" transform=\"translate({:.3} {:.3})\">\n",
-        visual.class_name, visual.class_name, style, center.x, center.y
+        visual.id, visual.id, style, center.x, center.y
     ));
     svg.push_str(&format!(
         "<g class=\"pool-ball-artwork\">\n\
@@ -2216,7 +2668,7 @@ fn push_svg_pool_ball(
         radius * 0.23,
     ));
 
-    if let Some(label) = label {
+    if let Some(label) = visual.label {
         let label_radius = radius * 0.47;
         svg.push_str(&format!(
             "<circle class=\"ball-number-medallion\" data-fill=\"ivory\" cx=\"0\" cy=\"0\" r=\"{label_radius:.3}\"/>\n"
@@ -2233,17 +2685,10 @@ fn push_svg_pool_ball(
     svg.push_str("</g>\n</g>\n");
 }
 
-fn push_svg_carom_ball(
-    svg: &mut String,
-    ball_type: &BallType,
-    visual: BallVisual,
-    center: ScenePoint,
-    radius: f32,
-) {
-    let label = ball_label(ball_type);
+fn push_svg_carom_ball(svg: &mut String, visual: BallVisual, center: ScenePoint, radius: f32) {
     svg.push_str(&format!(
         "<g class=\"ball ball-{}\" data-ball=\"{}\" transform=\"translate({:.3} {:.3})\">\n",
-        visual.class_name, visual.class_name, center.x, center.y
+        visual.id, visual.id, center.x, center.y
     ));
     svg.push_str(&format!(
         "<circle r=\"{radius:.3}\" fill=\"{}\" stroke=\"#111\" stroke-width=\"1.5\"/>\n",
@@ -2253,7 +2698,7 @@ fn push_svg_carom_ball(
         "<circle r=\"{:.3}\" fill=\"none\" stroke=\"rgba(255,255,255,.45)\" stroke-width=\"2\"/>\n",
         radius * 0.72
     ));
-    if let Some(label) = label {
+    if let Some(label) = visual.label {
         let label_radius = (radius * 0.42).max(7.0);
         svg.push_str(&format!(
             "<circle r=\"{label_radius:.3}\" fill=\"#f8f4e8\" stroke=\"#111\" stroke-width=\".75\"/>\n"
@@ -2267,93 +2712,92 @@ fn push_svg_carom_ball(
     svg.push_str("</g>\n");
 }
 
-fn ball_visual(ball_type: &BallType) -> BallVisual {
+pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
     match ball_type {
         BallType::Cue => BallVisual {
+            id: "cue",
             fill: "#f8f4e8",
             gradient: "pool-ball-ivory",
             paint: "ivory",
-            class_name: "cue",
+            label: None,
         },
-        BallType::One | BallType::Nine => BallVisual {
+        BallType::One => BallVisual {
+            id: "one",
             fill: "#f1c232",
             gradient: "pool-ball-yellow",
             paint: "yellow",
-            class_name: if matches!(ball_type, BallType::One) {
-                "one"
-            } else {
-                "nine"
-            },
+            label: Some("1"),
         },
         BallType::Two => BallVisual {
+            id: "two",
             fill: "#2458c8",
             gradient: "pool-ball-blue",
             paint: "blue",
-            class_name: "two",
+            label: Some("2"),
         },
         BallType::Three => BallVisual {
+            id: "three",
             fill: "#c82828",
             gradient: "pool-ball-red",
             paint: "red",
-            class_name: "three",
+            label: Some("3"),
         },
         BallType::Four => BallVisual {
+            id: "four",
             fill: "#6f3fa8",
             gradient: "pool-ball-purple",
             paint: "purple",
-            class_name: "four",
+            label: Some("4"),
         },
         BallType::Five => BallVisual {
+            id: "five",
             fill: "#e27a22",
             gradient: "pool-ball-orange",
             paint: "orange",
-            class_name: "five",
+            label: Some("5"),
         },
         BallType::Six => BallVisual {
+            id: "six",
             fill: "#25834b",
             gradient: "pool-ball-green",
             paint: "green",
-            class_name: "six",
+            label: Some("6"),
         },
         BallType::Seven => BallVisual {
+            id: "seven",
             fill: "#8f2d20",
             gradient: "pool-ball-maroon",
             paint: "maroon",
-            class_name: "seven",
+            label: Some("7"),
         },
         BallType::Eight => BallVisual {
+            id: "eight",
             fill: "#111111",
             gradient: "pool-ball-black",
             paint: "black",
-            class_name: "eight",
+            label: Some("8"),
         },
-        BallType::YellowCue => BallVisual {
+        BallType::Nine => BallVisual {
+            id: "nine",
             fill: "#f1c232",
             gradient: "pool-ball-yellow",
             paint: "yellow",
-            class_name: "yellow",
+            label: Some("9"),
+        },
+        BallType::YellowCue => BallVisual {
+            id: "yellow",
+            fill: "#f1c232",
+            gradient: "pool-ball-yellow",
+            paint: "yellow",
+            label: None,
         },
         BallType::Red => BallVisual {
+            id: "red",
             fill: "#c82828",
             gradient: "pool-ball-red",
             paint: "red",
-            class_name: "red",
+            label: None,
         },
-    }
-}
-
-fn ball_label(ball_type: &BallType) -> Option<&'static str> {
-    match ball_type {
-        BallType::Cue | BallType::YellowCue | BallType::Red => None,
-        BallType::One => Some("1"),
-        BallType::Two => Some("2"),
-        BallType::Three => Some("3"),
-        BallType::Four => Some("4"),
-        BallType::Five => Some("5"),
-        BallType::Six => Some("6"),
-        BallType::Seven => Some("7"),
-        BallType::Eight => Some("8"),
-        BallType::Nine => Some("9"),
     }
 }
 

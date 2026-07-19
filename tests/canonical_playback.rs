@@ -1,3 +1,4 @@
+use billiards::diagram::BallStyle;
 use billiards::svg_generator::{
     render_svg_report_from_dsl, serialize_scenario_playback_report, ScenarioPlaybackBallReport,
     ScenarioPlaybackBallVisual, ScenarioPlaybackEventReport, ScenarioPlaybackFrameReport,
@@ -35,12 +36,15 @@ fn assert_playback_tuple_schema(playback: &Value) {
         let ball = ball
             .as_array()
             .expect("playback ball visuals must use positional tuples");
-        assert_eq!(ball.len(), 5, "ball visual tuple field count changed");
+        assert_eq!(ball.len(), 8, "ball visual tuple field count changed");
         assert!(ball[0].is_string());
         assert!(ball[1].is_string());
         assert!(ball[2].is_string() || ball[2].is_null());
         assert!(ball[3].is_number());
         assert!(ball[4].is_number());
+        assert!(ball[5].is_string());
+        assert!(ball[6].is_string() || ball[6].is_null());
+        assert!(ball[7].is_string() || ball[7].is_null());
     }
 
     let frames = playback["frames"]
@@ -79,6 +83,9 @@ fn canonical_playback_serializer_preserves_compact_schema_precision_and_escaping
             label: Some(SCRIPT_HOSTILE),
             radius: 12.25,
             radius_inches: 1.125,
+            style: BallStyle::Stripe,
+            paint: Some(SCRIPT_HOSTILE),
+            gradient: Some(SCRIPT_HOSTILE),
         }],
         frames: vec![ScenarioPlaybackFrameReport {
             time: 0.125,
@@ -100,7 +107,7 @@ fn canonical_playback_serializer_preserves_compact_schema_precision_and_escaping
     let mut json = String::new();
     serialize_scenario_playback_report(&mut json, &report);
     let expected = format!(
-        "{{\"duration\":1.250000,\"events\":[[\"{0}\",2.500000,\"{0}\"]],\"balls\":[[\"{0}\",\"#aabbcc\",\"{0}\",12.250,1.125000]],\"frames\":[[0.125000,[[\"{0}\",12.500,-0.250,0.125000,1.250000,-2.500000,3.750000,-4.125000,5.500000,-6.625000]]]]}}",
+        "{{\"duration\":1.250000,\"events\":[[\"{0}\",2.500000,\"{0}\"]],\"balls\":[[\"{0}\",\"#aabbcc\",\"{0}\",12.250,1.125000,\"stripe\",\"{0}\",\"{0}\"]],\"frames\":[[0.125000,[[\"{0}\",12.500,-0.250,0.125000,1.250000,-2.500000,3.750000,-4.125000,5.500000,-6.625000]]]]}}",
         SCRIPT_SAFE_JSON
     );
     assert_eq!(json, expected);
@@ -123,6 +130,9 @@ fn canonical_playback_serializer_preserves_compact_schema_precision_and_escaping
     assert_eq!(visual[2].as_str(), Some(SCRIPT_HOSTILE));
     assert_eq!(visual[3].as_f64(), Some(12.25));
     assert_eq!(visual[4].as_f64(), Some(1.125));
+    assert_eq!(visual[5].as_str(), Some("stripe"));
+    assert_eq!(visual[6].as_str(), Some(SCRIPT_HOSTILE));
+    assert_eq!(visual[7].as_str(), Some(SCRIPT_HOSTILE));
 
     let ball = parsed["frames"][0][1][0]
         .as_array()
@@ -154,4 +164,80 @@ fn svg_report_embeds_canonical_playback_tuple_schema() {
     assert!(!playback["events"].as_array().unwrap().is_empty());
     assert!(!playback["balls"].as_array().unwrap().is_empty());
     assert!(!playback["frames"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn svg_report_playback_preserves_plain_solid_and_stripe_artwork_metadata() {
+    let report = render_svg_report_from_dsl(
+        "table brunswick_gc4_9ft\n\
+         ball cue at (0.5, 0.5)\n\
+         ball one at (1.2, 0.5)\n\
+         ball nine at (1.9, 0.5)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         trace(max_events: 1)\n\
+         shot(cue).heading(90deg).speed(30ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("SVG playback report should render");
+    let report: Value = serde_json::from_str(&report).expect("SVG report must be valid JSON");
+    assert_playback_tuple_schema(&report["playback"]);
+    let balls = report["playback"]["balls"]
+        .as_array()
+        .expect("playback ball visuals must be an array");
+    let visual = |id: &str| {
+        balls
+            .iter()
+            .find(|ball| ball[0].as_str() == Some(id))
+            .unwrap_or_else(|| panic!("missing playback visual for {id}"))
+    };
+
+    let expected = [
+        ("cue", "#f8f4e8", None, "plain", "ivory", "pool-ball-ivory"),
+        (
+            "one",
+            "#f1c232",
+            Some("1"),
+            "solid",
+            "yellow",
+            "pool-ball-yellow",
+        ),
+        (
+            "nine",
+            "#f1c232",
+            Some("9"),
+            "stripe",
+            "yellow",
+            "pool-ball-yellow",
+        ),
+    ];
+    for (id, fill, label, style, paint, gradient) in expected {
+        let visual = visual(id)
+            .as_array()
+            .unwrap_or_else(|| panic!("playback visual for {id} must remain a tuple"));
+        assert_eq!(visual[0].as_str(), Some(id), "playback {id} id changed");
+        assert_eq!(
+            visual[1].as_str(),
+            Some(fill),
+            "playback {id} fallback fill changed"
+        );
+        assert_eq!(
+            visual[2].as_str(),
+            label,
+            "playback {id} number label changed"
+        );
+        assert_eq!(
+            visual[5].as_str(),
+            Some(style),
+            "playback {id} artwork style changed"
+        );
+        assert_eq!(
+            visual[6].as_str(),
+            Some(paint),
+            "playback {id} paint identity changed"
+        );
+        assert_eq!(
+            visual[7].as_str(),
+            Some(gradient),
+            "playback {id} gradient identity changed"
+        );
+    }
 }

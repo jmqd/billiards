@@ -23,6 +23,12 @@
     <figure data-viewer>
       <div data-viewer-controls data-table-detail-default="full"></div>
       <svg viewBox="0 0 200 100" aria-label="Viewer test diagram">
+        <defs>
+          <linearGradient id="pool-ball-ivory"><stop offset="0" stop-color="#fffdf5"></stop><stop offset="1" stop-color="#ded6c3"></stop></linearGradient>
+          <linearGradient id="pool-ball-yellow"><stop offset="0" stop-color="#ffe687"></stop><stop offset="1" stop-color="#d4a315"></stop></linearGradient>
+          <linearGradient id="pool-ball-black"><stop offset="0" stop-color="#4a4a4a"></stop><stop offset="1" stop-color="#080808"></stop></linearGradient>
+          <radialGradient id="pool-ball-medallion"><stop offset="0" stop-color="#fffdf5"></stop><stop offset="1" stop-color="#e6deca"></stop></radialGradient>
+        </defs>
         <g class="diagram-orientation" transform="translate(200 0) rotate(90)">
           <g data-layer="table"></g>
           <g data-layer="overlays-below-balls">
@@ -35,7 +41,7 @@
         </g>
       </svg>
       <div data-playback>
-        <script type="application/json" data-playback-data>{"duration":1,"events":[],"balls":[["eight","#111111","8",12,1]],"frames":[[0,[["eight",50,50,0,0,352,0,-340,0,0]]],[1,[["eight",50,40,2,0,352,0,-340,0,0]]]]}</script>
+        <script type="application/json" data-playback-data>{"duration":1,"events":[],"balls":[["eight","#111111","8",12,1,"solid","black","pool-ball-black"],["one","#f1c232","1",12,1.125,"solid","yellow","pool-ball-yellow"],["nine","#f1c232","9",12,1.125,"stripe","yellow","pool-ball-yellow"]],"frames":[[0,[["eight",50,50,0,0,352,0,-340,0,0],["one",70,60,0,0,0,0,0,0,0],["nine",90,60,0,0,0,0,0,0,0]]],[1,[["eight",50,40,2,0,352,0,-340,0,0],["one",70,60,0,0,0,0,0,0,0],["nine",90,60,0,0,0,0,0,0,0]]]]}</script>
       </div>
     </figure>
   </div>
@@ -49,7 +55,7 @@
         <g data-layer="overlays-above-balls"></g>
       </svg>
       <div data-playback>
-        <script type="application/json" data-playback-data>{"duration":0,"events":[],"balls":[["zero","#ffffff",null,6,1]],"frames":[[0,[["zero",20,30,0,0,0,0,0,0,0]]],[0,[["zero",80,65,0,0,0,0,0,0,0]]]]}</script>
+        <script type="application/json" data-playback-data>{"duration":0,"events":[],"balls":[["zero","#ffffff",null,6,1,"plain","ivory","pool-ball-ivory"]],"frames":[[0,[["zero",20,30,0,0,0,0,0,0,0]]],[0,[["zero",80,65,0,0,0,0,0,0,0]]]]}</script>
       </div>
     </figure>
   </div>
@@ -70,7 +76,35 @@
         assert(playbackLayer, 'playback must render in the Balls layer');
         assert(staticBallLayer.style.display === 'none', 'static balls must remain hidden during playback');
 
-        const label = playbackLayer.querySelector('.playback-ball-label');
+        const nineArtwork = playbackLayer.querySelector('[data-ball="nine"]');
+        assert(nineArtwork, 'Nine playback must retain an identifiable artwork group');
+        assert(nineArtwork.getAttribute('data-ball-style') === 'stripe', 'Nine playback must retain stripe artwork identity');
+        const nineShell = nineArtwork.querySelector('.ball-shell.playback-ball');
+        assert(nineShell, 'Nine playback must retain its ivory shell');
+        assert(nineShell.getAttribute('data-fill') === 'ivory', 'Nine playback shell must retain ivory paint identity');
+        assert(nineShell.getAttribute('fill') === 'url(#pool-ball-ivory)', 'Nine playback shell must use the ivory gradient');
+        const nineStripe = nineArtwork.querySelector('.ball-stripe-band');
+        assert(nineStripe, 'Nine playback must retain its colored stripe band');
+        assert(nineStripe.getAttribute('data-fill') === 'yellow', 'Nine playback stripe must retain yellow paint identity');
+        assert(nineStripe.getAttribute('fill') === 'url(#pool-ball-yellow)', 'Nine playback stripe must use the yellow gradient');
+        assert(nineArtwork.querySelector('.ball-number-medallion'), 'Nine playback must retain its number medallion');
+        const nineLabel = nineArtwork.querySelector('.playback-ball-label.ball-number-label');
+        assert(nineLabel?.textContent === '9', 'Nine playback must retain its number label');
+
+        const oneArtwork = playbackLayer.querySelector('[data-ball="one"]');
+        assert(oneArtwork, 'One playback must retain an identifiable artwork group');
+        assert(oneArtwork.getAttribute('data-ball-style') === 'solid', 'One playback must retain solid artwork identity');
+        const oneShell = oneArtwork.querySelector('.ball-shell.playback-ball');
+        assert(oneShell?.getAttribute('data-fill') === 'yellow', 'One playback shell must retain yellow paint identity');
+        assert(oneShell?.getAttribute('fill') === 'url(#pool-ball-yellow)', 'One playback shell must use the yellow gradient');
+        assert(!oneArtwork.querySelector('.ball-stripe-band'), 'solid One playback must not acquire a stripe band');
+        assert(oneArtwork.querySelector('.ball-number-medallion'), 'One playback must retain its number medallion');
+        assert(oneArtwork.querySelector('.playback-ball-label.ball-number-label')?.textContent === '1', 'One playback must retain its number label');
+
+        const eightArtwork = playbackLayer.querySelector('[data-ball="eight"]');
+        assert(eightArtwork, 'Eight playback must retain an identifiable artwork group');
+
+        const label = eightArtwork.querySelector('.playback-ball-label');
         assert(label, 'numbered playback ball must render a text label');
         const labelMatrix = label.transform.baseVal.consolidate()?.matrix;
         const labelRotation = Math.atan2(labelMatrix?.b ?? 0, labelMatrix?.a ?? 1) * 180 / Math.PI;
@@ -93,7 +127,7 @@
         assert(spinTitle?.includes('v=(0.0, 32.2) km/h'), `playback spin tooltip must convert 352 ips linear velocity to km/h, got ${spinTitle}`);
         assert(spinTitle?.includes('roll slip=1.1 km/h'), `playback spin tooltip must convert 12 ips roll slip to km/h, got ${spinTitle}`);
 
-        const ball = playbackLayer.querySelector('.playback-ball');
+        const ball = eightArtwork.querySelector('.playback-ball');
         const projectedCenter = new DOMPoint(50, 40).matrixTransform(orientation.getCTM());
         const renderedCenter = new DOMPoint(numberAttribute(ball, 'cx'), numberAttribute(ball, 'cy')).matrixTransform(ball.getCTM());
         assert(Math.abs(renderedCenter.x - projectedCenter.x) < 0.5, 'airborne lift must not move the ball sideways on screen');
@@ -118,8 +152,20 @@
         assert(durationZeroPlayButton.getAttribute('title') === 'Play', 'zero-duration playback must retain its Play title');
         const durationZeroSlider = durationZeroViewer.querySelector('[data-playback-slider]');
         assert(durationZeroSlider.value === '1', 'zero-duration playback must finish on its final tied frame');
+        const durationZeroSvg = durationZeroViewer.querySelector('svg');
         const durationZeroBall = durationZeroViewer.querySelector('[data-layer="balls"] .playback-ball');
-        assert(numberAttribute(durationZeroBall, 'cx') === 80 && numberAttribute(durationZeroBall, 'cy') === 65, 'zero-duration playback must synchronously render its final tied frame');
+        const durationZeroCenter = new DOMPoint(
+          numberAttribute(durationZeroBall, 'cx'),
+          numberAttribute(durationZeroBall, 'cy'),
+        ).matrixTransform(durationZeroBall.getCTM());
+        const expectedDurationZeroCenter = new DOMPoint(80, 65).matrixTransform(durationZeroSvg.getCTM());
+        assert(
+          Math.hypot(
+            durationZeroCenter.x - expectedDurationZeroCenter.x,
+            durationZeroCenter.y - expectedDurationZeroCenter.y,
+          ) < 0.5,
+          'zero-duration playback must synchronously render its final tied frame',
+        );
 
         const playButton = viewer.querySelector('[data-playback-play]');
         playButton.click();

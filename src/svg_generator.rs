@@ -1,11 +1,11 @@
 use std::fmt::Write as _;
 
-use crate::diagram::{ball_visual, DiagramViewport};
+use crate::diagram::{ball_visual, BallStyle, DiagramViewport};
 use crate::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
 use crate::visualization::{PathColorMode, DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS};
 use crate::{
     human_tuned_preview_motion_config, CollisionModel, DiagramBackground, DiagramRenderOptions,
-    RailModel, Seconds, TableSpec,
+    RailModel, Seconds, TableKind, TableSpec,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -48,6 +48,9 @@ pub struct ScenarioPlaybackEventReport {
     pub summary: String,
 }
 
+/// Ball artwork metadata serialized as the canonical compact tuple
+/// `[id, fill, label, radius, radius_inches, style, paint, gradient]`.
+/// Pool balls carry paint and gradient identities; carom balls use `None` for both.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScenarioPlaybackBallVisual {
     pub id: &'static str,
@@ -55,6 +58,9 @@ pub struct ScenarioPlaybackBallVisual {
     pub label: Option<&'static str>,
     pub radius: f32,
     pub radius_inches: f64,
+    pub style: BallStyle,
+    pub paint: Option<&'static str>,
+    pub gradient: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -234,12 +240,20 @@ pub fn build_scenario_playback_report(
             .iter()
             .map(|ball_trace| {
                 let visual = ball_visual(&ball_trace.ball);
+                let pool_artwork = table_spec.kind == TableKind::Pool;
                 ScenarioPlaybackBallVisual {
                     id: visual.id,
                     fill: visual.fill,
                     label: visual.label,
                     radius: ball_radius,
                     radius_inches: ball_spec.radius.as_f64(),
+                    style: if pool_artwork {
+                        visual.style
+                    } else {
+                        BallStyle::Plain
+                    },
+                    paint: pool_artwork.then_some(visual.paint),
+                    gradient: pool_artwork.then_some(visual.gradient),
                 }
             })
             .collect(),
@@ -304,8 +318,22 @@ pub fn serialize_scenario_playback_report(json: &mut String, playback: &Scenario
         } else {
             json.push_str("null");
         }
-        write!(json, ",{:.3},{:.6}]", ball.radius, ball.radius_inches)
+        write!(json, ",{:.3},{:.6},", ball.radius, ball.radius_inches)
             .expect("writing JSON to string should not fail");
+        push_json_string(json, ball.style.as_str());
+        json.push(',');
+        if let Some(paint) = ball.paint {
+            push_json_string(json, paint);
+        } else {
+            json.push_str("null");
+        }
+        json.push(',');
+        if let Some(gradient) = ball.gradient {
+            push_json_string(json, gradient);
+        } else {
+            json.push_str("null");
+        }
+        json.push(']');
     }
 
     json.push_str("],\"frames\":[");

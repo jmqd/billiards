@@ -218,9 +218,21 @@
         const normalizeEvent = (event) => Array.isArray(event)
           ? { label: String(event[0] ?? ''), time: Number(event[1]), summary: String(event[2] ?? '') }
           : { label: String(event?.label ?? ''), time: Number(event?.time), summary: String(event?.summary ?? '') };
-        const normalizeVisual = (ball) => Array.isArray(ball)
-          ? { id: String(ball[0] ?? ''), fill: String(ball[1] ?? ''), label: ball[2] == null ? null : String(ball[2]), radius: Number(ball[3]), radiusInches: Number(ball[4]) }
-          : ball;
+        const normalizeVisual = (ball) => {
+          const source = Array.isArray(ball)
+            ? { id: ball[0], fill: ball[1], label: ball[2], radius: ball[3], radiusInches: ball[4], style: ball[5], paint: ball[6], gradient: ball[7] }
+            : ball ?? {};
+          return {
+            id: String(source.id ?? ''),
+            fill: String(source.fill ?? ''),
+            label: source.label == null ? null : String(source.label),
+            radius: Number(source.radius),
+            radiusInches: Number(source.radiusInches ?? source.radius_inches),
+            style: String(source.style ?? 'plain'),
+            paint: source.paint == null ? null : String(source.paint),
+            gradient: source.gradient == null ? null : String(source.gradient),
+          };
+        };
         const normalizeFrameBall = (ball) => {
           if (!Array.isArray(ball)) return ball;
           if (ball.length >= 10) {
@@ -556,6 +568,75 @@
             });
           }
         };
+        const appendPlaybackBall = (visual, x, y, radius) => {
+          const gradient = /^[A-Za-z_][A-Za-z0-9_.:-]*$/.test(visual.gradient ?? '') ? visual.gradient : null;
+          if (!gradient) {
+            appendCircle('playback-ball', x, y, radius, visual.fill || '#ffffff', 1, '#111', '1.25');
+            return false;
+          }
+
+          const style = visual.style === 'stripe' || visual.style === 'solid' ? visual.style : 'plain';
+          const group = svgNode(playbackLayer, 'g', {
+            class: `ball ball-${visual.id || 'unknown'} playback-ball-artwork`,
+            'data-ball': visual.id || '',
+            'data-ball-style': style,
+            transform: `translate(${x.toFixed(3)} ${y.toFixed(3)})`,
+          });
+          const shellGradient = style === 'stripe' ? 'pool-ball-ivory' : gradient;
+          const shellPaint = style === 'stripe' ? 'ivory' : (visual.paint || 'ivory');
+          svgNode(group, 'circle', {
+            class: 'playback-ball ball-shell',
+            'data-fill': shellPaint,
+            cx: '0',
+            cy: '0',
+            r: radius.toFixed(3),
+            fill: `url(#${shellGradient})`,
+          });
+
+          if (style === 'stripe') {
+            const stripeHalfWidth = radius * 0.43;
+            const stripeHalfLength = Math.sqrt(Math.max(0, radius * radius - stripeHalfWidth * stripeHalfWidth));
+            svgNode(group, 'path', {
+              class: 'ball-stripe-band',
+              'data-fill': visual.paint || '',
+              d: `M ${(-stripeHalfWidth).toFixed(3)} ${(-stripeHalfLength).toFixed(3)} A ${radius.toFixed(3)} ${radius.toFixed(3)} 0 0 1 ${stripeHalfWidth.toFixed(3)} ${(-stripeHalfLength).toFixed(3)} L ${stripeHalfWidth.toFixed(3)} ${stripeHalfLength.toFixed(3)} A ${radius.toFixed(3)} ${radius.toFixed(3)} 0 0 1 ${(-stripeHalfWidth).toFixed(3)} ${stripeHalfLength.toFixed(3)} Z`,
+              fill: `url(#${gradient})`,
+            });
+          }
+
+          svgNode(group, 'ellipse', {
+            class: 'ball-gloss',
+            cx: (-radius * 0.32).toFixed(3),
+            cy: (radius * 0.32).toFixed(3),
+            rx: (radius * 0.11).toFixed(3),
+            ry: (radius * 0.23).toFixed(3),
+          });
+          if (visual.label) {
+            svgNode(group, 'circle', {
+              class: 'ball-number-medallion',
+              'data-fill': 'ivory',
+              cx: '0',
+              cy: '0',
+              r: (radius * 0.47).toFixed(3),
+            });
+            const label = svgNode(group, 'text', {
+              class: 'playback-ball-label ball-label ball-number-label',
+              x: '0',
+              y: '0',
+              'font-size': (radius * 0.76).toFixed(3),
+              transform: 'rotate(-90)',
+            });
+            label.textContent = visual.label;
+          }
+          svgNode(group, 'circle', {
+            class: 'ball-outline',
+            cx: '0',
+            cy: '0',
+            r: radius.toFixed(3),
+          });
+          return true;
+        };
+
         const paintPlayback = (frameIndex) => {
           const index = clampFrame(frameIndex);
           const frame = playback.frames[index];
@@ -570,7 +651,7 @@
             const displayY = finiteNumber(ball.y);
             const liftRatio = Math.max(0, Math.min(1.6, liftPx / Math.max(radius, 1)));
             appendCircle('playback-ball-shadow', finiteNumber(ball.x) + radius * (0.12 + 0.11 * liftRatio), finiteNumber(ball.y) + radius * (0.18 + 0.10 * liftRatio), radius * (1.02 + 0.22 * liftRatio), '#000', Math.max(0.08, 0.25 - 0.08 * liftRatio));
-            appendCircle('playback-ball', displayX, displayY, radius, visual.fill || '#ffffff', 1, '#111', '1.25');
+            const hasPoolArtwork = appendPlaybackBall(visual, displayX, displayY, radius);
             const heading = headingForBall(index, ball);
             const speed = Math.max(0, Number(ball.speed) || 0);
             if (heading && speed > 0.05) {
@@ -592,7 +673,7 @@
               line.setAttribute('stroke-opacity', opacity.toFixed(3));
               playbackLayer.appendChild(line);
             }
-            if (visual.label) {
+            if (visual.label && !hasPoolArtwork) {
               const label = document.createElementNS(ns, 'text');
               label.setAttribute('class', 'playback-ball-label');
               label.setAttribute('x', displayX.toFixed(3));

@@ -2603,13 +2603,31 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
     svg.push_str("</g>\n");
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BallStyle {
+    Plain,
+    Solid,
+    Stripe,
+}
+
+impl BallStyle {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Plain => "plain",
+            Self::Solid => "solid",
+            Self::Stripe => "stripe",
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct BallVisual {
     pub(crate) id: &'static str,
     pub(crate) fill: &'static str,
     pub(crate) label: Option<&'static str>,
-    gradient: &'static str,
-    paint: &'static str,
+    pub(crate) gradient: &'static str,
+    pub(crate) paint: &'static str,
+    pub(crate) style: BallStyle,
 }
 
 fn push_svg_pool_ball(
@@ -2720,6 +2738,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-ivory",
             paint: "ivory",
             label: None,
+            style: BallStyle::Plain,
         },
         BallType::One => BallVisual {
             id: "one",
@@ -2727,6 +2746,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-yellow",
             paint: "yellow",
             label: Some("1"),
+            style: BallStyle::Solid,
         },
         BallType::Two => BallVisual {
             id: "two",
@@ -2734,6 +2754,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-blue",
             paint: "blue",
             label: Some("2"),
+            style: BallStyle::Solid,
         },
         BallType::Three => BallVisual {
             id: "three",
@@ -2741,6 +2762,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-red",
             paint: "red",
             label: Some("3"),
+            style: BallStyle::Solid,
         },
         BallType::Four => BallVisual {
             id: "four",
@@ -2748,6 +2770,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-purple",
             paint: "purple",
             label: Some("4"),
+            style: BallStyle::Solid,
         },
         BallType::Five => BallVisual {
             id: "five",
@@ -2755,6 +2778,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-orange",
             paint: "orange",
             label: Some("5"),
+            style: BallStyle::Solid,
         },
         BallType::Six => BallVisual {
             id: "six",
@@ -2762,6 +2786,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-green",
             paint: "green",
             label: Some("6"),
+            style: BallStyle::Solid,
         },
         BallType::Seven => BallVisual {
             id: "seven",
@@ -2769,6 +2794,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-maroon",
             paint: "maroon",
             label: Some("7"),
+            style: BallStyle::Solid,
         },
         BallType::Eight => BallVisual {
             id: "eight",
@@ -2776,6 +2802,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-black",
             paint: "black",
             label: Some("8"),
+            style: BallStyle::Solid,
         },
         BallType::Nine => BallVisual {
             id: "nine",
@@ -2783,6 +2810,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-yellow",
             paint: "yellow",
             label: Some("9"),
+            style: BallStyle::Stripe,
         },
         BallType::YellowCue => BallVisual {
             id: "yellow",
@@ -2790,6 +2818,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-yellow",
             paint: "yellow",
             label: None,
+            style: BallStyle::Plain,
         },
         BallType::Red => BallVisual {
             id: "red",
@@ -2797,6 +2826,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-red",
             paint: "red",
             label: None,
+            style: BallStyle::Plain,
         },
     }
 }

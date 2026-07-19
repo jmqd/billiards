@@ -156,10 +156,10 @@ impl CandidateAccumulator {
 
     fn record(
         &mut self,
-        result: &Result<EvaluatedTrial, FailedTrial>,
+        result: Result<EvaluatedTrial, FailedTrial>,
     ) -> (Controls, TrialDisposition) {
         match result {
-            Ok(evaluated) => match &evaluated.outcome {
+            Ok(evaluated) => match evaluated.outcome {
                 physics::Outcome::Scored => {
                     self.scored += 1;
                     self.reducer.observe(true);
@@ -168,22 +168,16 @@ impl CandidateAccumulator {
                 physics::Outcome::Miss(detail) => {
                     self.missed += 1;
                     self.reducer.observe(false);
-                    (evaluated.applied, TrialDisposition::Miss(detail.clone()))
+                    (evaluated.applied, TrialDisposition::Miss(detail))
                 }
                 physics::Outcome::Indeterminate(detail) => {
                     self.indeterminate += 1;
-                    (
-                        evaluated.applied,
-                        TrialDisposition::Indeterminate(detail.clone()),
-                    )
+                    (evaluated.applied, TrialDisposition::Indeterminate(detail))
                 }
             },
             Err(error) => {
                 self.failed += 1;
-                (
-                    error.applied,
-                    TrialDisposition::Failed(error.detail.clone()),
-                )
+                (error.applied, TrialDisposition::Failed(error.detail))
             }
         }
     }
@@ -266,12 +260,11 @@ pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
     let records = run_trials(config, specs)?;
     let mut candidate_reports = Vec::with_capacity(candidates.len());
     let mut trial_reports = Vec::with_capacity(records.len());
-    for (candidate_index, candidate) in candidates.iter().enumerate() {
-        let start = candidate_index * records_per_candidate;
-        let candidate_records = &records[start..start + records_per_candidate];
-        let mut accumulator = CandidateAccumulator::new(*candidate, config.replication_budget);
-        for record in candidate_records {
-            let (applied, disposition) = accumulator.record(&record.result);
+    let mut records = records.into_iter();
+    for candidate in candidates {
+        let mut accumulator = CandidateAccumulator::new(candidate, config.replication_budget);
+        for record in records.by_ref().take(records_per_candidate) {
+            let (applied, disposition) = accumulator.record(record.result);
             trial_reports.push(TrialReport {
                 candidate_id: record.key.candidate_id,
                 replication_id: record.key.replication_id,
@@ -764,7 +757,7 @@ mod tests {
         let mut accumulator = CandidateAccumulator::new(candidate, cases.len() as u32);
         for (name, result, expected_applied, expected_disposition) in cases {
             assert_eq!(
-                accumulator.record(&result),
+                accumulator.record(result),
                 (expected_applied, expected_disposition),
                 "{name}"
             );
@@ -843,7 +836,7 @@ mod tests {
         ];
         for (name, results, expected_eligible) in eligibility_cases {
             let mut accumulator = CandidateAccumulator::new(candidate, results.len() as u32);
-            for result in &results {
+            for result in results {
                 accumulator.record(result);
             }
             assert_eq!(accumulator.finish().eligible, expected_eligible, "{name}");

@@ -1,21 +1,5 @@
 use crate::BallType;
 
-const TOPMOST: f32 = 110.;
-const RIGHTMOST: f32 = 968.;
-const BOTTOMMOST: f32 = 1828.;
-const LEFTMOST: f32 = 110.;
-
-#[allow(unused)]
-const BALL_TO_DIAMOND: f32 = 2.25 / 12.5;
-
-#[allow(unused)]
-pub fn ideal_ball_size_px() -> u32 {
-    let px_diam_x = (RIGHTMOST - LEFTMOST) / 4.0;
-    let px_diam_y = (BOTTOMMOST - TOPMOST) / 8.0;
-    let px_ball = px_diam_x.min(px_diam_y) * BALL_TO_DIAMOND;
-    px_ball.round() as u32
-}
-
 /// All of our ball sprites.
 #[allow(unused)]
 pub const BALL_IMGS: [&[u8]; 10] = [
@@ -55,12 +39,6 @@ pub fn ball_img(ball: BallType) -> &'static [u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn given_the_current_table_asset_when_computing_the_ideal_ball_size_then_the_expected_sprite_diameter_is_returned(
-    ) {
-        assert_eq!(ideal_ball_size_px(), 39);
-    }
 
     #[test]
     fn ball_img_returns_the_borrowed_embedded_sprite_for_each_representative_mapping() {

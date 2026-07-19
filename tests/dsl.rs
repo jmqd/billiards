@@ -1295,6 +1295,75 @@ fn preferred_trace_uses_the_lower_of_requested_and_preset_event_limits() {
 }
 
 #[test]
+fn preferred_trace_falls_back_to_requested_physics_for_both_stop_modes() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at (2.0, 3.0)\n\
+         ball one at (2.18, 4.12)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(9deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("expected shot DSL to build");
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let collision_config = billiards::BallBallCollisionConfig::human_tuned();
+    let rail_profile = RailCollisionProfile::default();
+
+    assert_eq!(scenario.preferred_simulation_name(), None);
+
+    let explicit_full = scenario
+        .simulate_shot_trace_with_physics_on_table_until_rest(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            &collision_config,
+            RailModel::SpinAware,
+            &rail_profile,
+        )
+        .expect("explicit fallback trace should succeed");
+    let preferred_full = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("preferred fallback trace should succeed");
+
+    assert_eq!(preferred_full, explicit_full);
+
+    let explicit_limited = scenario
+        .simulate_shot_trace_with_physics_on_table_until_event_limit(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            &collision_config,
+            RailModel::SpinAware,
+            &rail_profile,
+            1,
+        )
+        .expect("explicit limited fallback trace should succeed");
+    let preferred_limited = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+            1,
+        )
+        .expect("preferred limited fallback trace should succeed");
+
+    assert_eq!(preferred_limited, explicit_limited);
+    assert_eq!(
+        preferred_limited
+            .expect("scenario should contain a shot")
+            .simulation
+            .events
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn rejects_unknown_playing_conditions_presets_in_simulations() {
     let err = parse_dsl_to_scenario(
         "ball cue at center\n\

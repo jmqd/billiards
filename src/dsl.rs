@@ -543,29 +543,13 @@ impl DslScenario {
         collision_model: CollisionModel,
         rail_model: RailModel,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        let stop = ScenarioTraceStop::UntilRest;
-        if let Some(simulation_name) = self.preferred_simulation_name() {
-            let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-            self.execute_shot_trace_with_physics_on_table(
-                ball_set,
-                &simulation.motion,
-                simulation.collision_model,
-                &simulation.collision_config,
-                simulation.rail_model,
-                &simulation.rail_profile,
-                stop.constrained_by(simulation.max_events),
-            )
-        } else {
-            self.execute_shot_trace_with_physics_on_table(
-                ball_set,
-                motion,
-                collision_model,
-                &BallBallCollisionConfig::human_tuned(),
-                rail_model,
-                &RailCollisionProfile::default(),
-                stop,
-            )
-        }
+        self.simulate_shot_trace_with_preferred_physics_on_table(
+            ball_set,
+            motion,
+            collision_model,
+            rail_model,
+            ScenarioTraceStop::UntilRest,
+        )
     }
 
     pub fn simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
@@ -576,7 +560,23 @@ impl DslScenario {
         rail_model: RailModel,
         max_events: usize,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        let stop = ScenarioTraceStop::EventLimit(max_events);
+        self.simulate_shot_trace_with_preferred_physics_on_table(
+            ball_set,
+            motion,
+            collision_model,
+            rail_model,
+            ScenarioTraceStop::EventLimit(max_events),
+        )
+    }
+
+    fn simulate_shot_trace_with_preferred_physics_on_table(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        rail_model: RailModel,
+        stop: ScenarioTraceStop,
+    ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
         if let Some(simulation_name) = self.preferred_simulation_name() {
             let simulation = self.effective_simulation_physics(motion, simulation_name)?;
             self.execute_shot_trace_with_physics_on_table(

@@ -11,7 +11,9 @@ use bigdecimal::ToPrimitive;
 use image::codecs::png::PngEncoder;
 use image::imageops::{overlay, resize, FilterType};
 use image::{ImageEncoder, ImageFormat, Rgba, RgbaImage};
-use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut, draw_polygon_mut};
+use imageproc::drawing::{
+    draw_filled_circle_mut, draw_hollow_circle_mut, draw_line_segment_mut, draw_polygon_mut,
+};
 use imageproc::point::Point;
 
 const LEGACY_WIDTH_PX: f32 = 1089.0;
@@ -289,7 +291,7 @@ impl DiagramBackend for PngBackend {
         let (tw, th) = table.dimensions();
 
         draw_raster_elements_for_layer(scene, DiagramLayerId::OverlaysBelowBalls, &mut table);
-        draw_raster_balls(scene, &mut table, tw, th);
+        draw_raster_balls(scene, &mut table);
         draw_raster_elements_for_layer(scene, DiagramLayerId::OverlaysAboveBalls, &mut table);
 
         let scale_factor = options.scale_factor.max(1);
@@ -1300,16 +1302,21 @@ fn draw_raster_spin_arc(
     }
 }
 
-fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage, tw: u32, th: u32) {
+fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage) {
     for ball in &scene.balls {
+        let center = scene.viewport.position_to_scene_point(&ball.position);
+        let ball_diameter_px = scene
+            .viewport
+            .ball_diameter_px(&scene.table_spec, &ball.spec);
+        if scene.table_spec.kind == TableKind::ThreeCushionCarom {
+            draw_raster_carom_ball(table, center, ball_diameter_px, ball_visual(&ball.ty).fill);
+            continue;
+        }
         let ball_png = assets::ball_img(ball.ty.clone());
         let mut ball_img: RgbaImage =
             image::load_from_memory_with_format(&ball_png, ImageFormat::Png)
                 .expect("bad ball image")
                 .into_rgba8();
-        let ball_diameter_px = scene
-            .viewport
-            .ball_diameter_px(&scene.table_spec, &ball.spec);
         ball_img = resize(
             &ball_img,
             ball_diameter_px,
@@ -1317,15 +1324,40 @@ fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage, tw: u32, th: u
             FilterType::CatmullRom,
         );
         let (bw, bh) = ball_img.dimensions();
-        let center = scene.viewport.position_to_scene_point(&ball.position);
-        let px = center.x.round() as i32;
-        let py = center.y.round() as i32;
-        let mut px_shifted = px - (bw as i32 / 2);
-        let mut py_shifted = py - (bh as i32 / 2);
-        px_shifted = px_shifted.clamp(0, (tw - bw) as i32);
-        py_shifted = py_shifted.clamp(0, (th - bh) as i32);
-        overlay(&mut *table, &ball_img, px_shifted.into(), py_shifted.into());
+        let px = center.x.round() as i64 - i64::from(bw) / 2;
+        let py = center.y.round() as i64 - i64::from(bh) / 2;
+        overlay(&mut *table, &ball_img, px, py);
     }
+}
+
+fn draw_raster_carom_ball(table: &mut RgbaImage, center: ScenePoint, diameter_px: u32, fill: &str) {
+    let center = (center.x.round() as i32, center.y.round() as i32);
+    let radius = (diameter_px.saturating_sub(1) / 2).max(1) as i32;
+    let fill = raster_hex_color(fill);
+
+    draw_filled_circle_mut(table, center, radius, Rgba([0x11, 0x11, 0x11, 0xff]));
+    if radius > 1 {
+        draw_filled_circle_mut(table, center, radius - 1, fill);
+    }
+    draw_hollow_circle_mut(
+        table,
+        center,
+        ((radius as f32) * 0.72).round().max(1.0) as i32,
+        Rgba([0xff, 0xff, 0xff, 0x73]),
+    );
+}
+
+fn raster_hex_color(value: &str) -> Rgba<u8> {
+    assert!(
+        value.len() == 7 && value.starts_with('#'),
+        "raster ball fill must be a six-digit hex color"
+    );
+    Rgba([
+        u8::from_str_radix(&value[1..3], 16).expect("raster ball fill red channel"),
+        u8::from_str_radix(&value[3..5], 16).expect("raster ball fill green channel"),
+        u8::from_str_radix(&value[5..7], 16).expect("raster ball fill blue channel"),
+        0xff,
+    ])
 }
 
 fn push_svg_table(svg: &mut String, table_spec: &TableSpec, viewport: DiagramViewport) {
@@ -2603,13 +2635,31 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
     svg.push_str("</g>\n");
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BallStyle {
+    Plain,
+    Solid,
+    Stripe,
+}
+
+impl BallStyle {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Plain => "plain",
+            Self::Solid => "solid",
+            Self::Stripe => "stripe",
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct BallVisual {
     pub(crate) id: &'static str,
     pub(crate) fill: &'static str,
     pub(crate) label: Option<&'static str>,
-    gradient: &'static str,
-    paint: &'static str,
+    pub(crate) gradient: &'static str,
+    pub(crate) paint: &'static str,
+    pub(crate) style: BallStyle,
 }
 
 fn push_svg_pool_ball(
@@ -2720,6 +2770,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-ivory",
             paint: "ivory",
             label: None,
+            style: BallStyle::Plain,
         },
         BallType::One => BallVisual {
             id: "one",
@@ -2727,6 +2778,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-yellow",
             paint: "yellow",
             label: Some("1"),
+            style: BallStyle::Solid,
         },
         BallType::Two => BallVisual {
             id: "two",
@@ -2734,6 +2786,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-blue",
             paint: "blue",
             label: Some("2"),
+            style: BallStyle::Solid,
         },
         BallType::Three => BallVisual {
             id: "three",
@@ -2741,6 +2794,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-red",
             paint: "red",
             label: Some("3"),
+            style: BallStyle::Solid,
         },
         BallType::Four => BallVisual {
             id: "four",
@@ -2748,6 +2802,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-purple",
             paint: "purple",
             label: Some("4"),
+            style: BallStyle::Solid,
         },
         BallType::Five => BallVisual {
             id: "five",
@@ -2755,6 +2810,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-orange",
             paint: "orange",
             label: Some("5"),
+            style: BallStyle::Solid,
         },
         BallType::Six => BallVisual {
             id: "six",
@@ -2762,6 +2818,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-green",
             paint: "green",
             label: Some("6"),
+            style: BallStyle::Solid,
         },
         BallType::Seven => BallVisual {
             id: "seven",
@@ -2769,6 +2826,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-maroon",
             paint: "maroon",
             label: Some("7"),
+            style: BallStyle::Solid,
         },
         BallType::Eight => BallVisual {
             id: "eight",
@@ -2776,6 +2834,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-black",
             paint: "black",
             label: Some("8"),
+            style: BallStyle::Solid,
         },
         BallType::Nine => BallVisual {
             id: "nine",
@@ -2783,6 +2842,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-yellow",
             paint: "yellow",
             label: Some("9"),
+            style: BallStyle::Stripe,
         },
         BallType::YellowCue => BallVisual {
             id: "yellow",
@@ -2790,6 +2850,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-yellow",
             paint: "yellow",
             label: None,
+            style: BallStyle::Plain,
         },
         BallType::Red => BallVisual {
             id: "red",
@@ -2797,6 +2858,7 @@ pub(crate) fn ball_visual(ball_type: &BallType) -> BallVisual {
             gradient: "pool-ball-red",
             paint: "red",
             label: None,
+            style: BallStyle::Plain,
         },
     }
 }

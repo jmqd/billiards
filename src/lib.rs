@@ -5269,16 +5269,33 @@ fn raw_advance_within_phase_on_table(
             let vy_c = state.vy - (2.0 / 7.0) * we_y;
             let vx = state.vx - alpha * (state.vx - vx_c);
             let vy = state.vy - alpha * (state.vy - vy_c);
+            let x = state.x + 0.5 * (state.vx + vx) * advance_time;
+            let y = state.y + 0.5 * (state.vy + vy) * advance_time;
             let delta_vx = vx - state.vx;
             let delta_vy = vy - state.vy;
+            let (vx, vy, wx, wy) = if advance_time == transition_time {
+                // At the analytical sliding boundary, snap the represented state to the exact
+                // no-slip constraint. Position retains the integrated endpoint; velocity moves
+                // by at most roundoff so the configured zero threshold can classify it as rolling.
+                let wx = -vy / radius;
+                let wy = vx / radius;
+                (radius * wy, -radius * wx, wx, wy)
+            } else {
+                (
+                    vx,
+                    vy,
+                    state.wx + (5.0 / (2.0 * radius)) * delta_vy,
+                    state.wy - (5.0 / (2.0 * radius)) * delta_vx,
+                )
+            };
 
             RawOnTableBallState {
-                x: state.x + 0.5 * (state.vx + vx) * advance_time,
-                y: state.y + 0.5 * (state.vy + vy) * advance_time,
+                x,
+                y,
                 vx,
                 vy,
-                wx: state.wx + (5.0 / (2.0 * radius)) * delta_vy,
-                wy: state.wy - (5.0 / (2.0 * radius)) * delta_vx,
+                wx,
+                wy,
                 wz: advance_vertical_axis_spin_f64(state.wz, advance_time, config),
             }
         }
@@ -14048,11 +14065,20 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
                     airborne_ball_lands_simultaneously(&states[*first_ball_index], event_time);
                 let second_lands_simultaneously =
                     airborne_ball_lands_simultaneously(&states[*second_ball_index], event_time);
+                let minimum_closing_speed = if matches!(
+                    (&states[*first_ball_index], &states[*second_ball_index],),
+                    (NBallSystemState::Airborne(_), NBallSystemState::Airborne(_),)
+                ) {
+                    SHARED_BALL_BALL_CONTACT_STATE_EPSILON
+                } else {
+                    0.0
+                };
                 let (first_after, second_after) = collide_airborne_ball_ball_with_radius_and_config(
                     &contact.first_at_contact,
                     &contact.second_at_contact,
                     ball.radius.as_f64(),
                     collision_model,
+                    minimum_closing_speed,
                     collision_config,
                 );
                 let (first_state_after, first_table_contact_applied) = if first_lands_simultaneously
@@ -14595,6 +14621,9 @@ pub fn simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limi
         states = states_after;
         elapsed = Seconds::new(elapsed.as_f64() + step_elapsed);
         events.push(event.clone());
+        if max_events.is_some_and(|max_events| events.len() >= max_events) {
+            break;
+        }
 
         // Rebuild after every resolved event so cached event times and hidden simultaneous-contact
         // side effects stay exactly aligned with manual step-and-recompute simulation.
@@ -15436,6 +15465,7 @@ fn collide_airborne_ball_ball_with_radius_and_config(
     second: &BallState,
     ball_radius: f64,
     collision_model: CollisionModel,
+    minimum_closing_speed: f64,
     collision_config: &BallBallCollisionConfig,
 ) -> (BallState, BallState) {
     let first_position = [
@@ -15478,7 +15508,7 @@ fn collide_airborne_ball_ball_with_radius_and_config(
         first_velocity[2] - second_velocity[2],
     ];
     let closing_speed = dot_product_3d(relative_center_velocity, normal);
-    if closing_speed <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON {
+    if closing_speed <= minimum_closing_speed {
         return (first.clone(), second.clone());
     }
 

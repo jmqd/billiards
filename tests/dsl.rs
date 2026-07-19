@@ -2,8 +2,9 @@ use bigdecimal::ToPrimitive;
 use billiards::dsl::{
     parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, shot_controls_from_dsl,
     update_shot_control_in_dsl, update_shot_tip_in_dsl, BallRef, CoordinateAxis, DslBuildError,
-    DslError, DslParseError, RailSide, ScenarioBallTimelineSegment, ScenarioBallTrace,
-    ScenarioShotTrace, ScenarioTraceRenderOptions, ShotControl, ShotControlError, ShotControls,
+    DslError, DslParseError, PhysicsConfigKind, RailSide, ScenarioBallTimelineSegment,
+    ScenarioBallTrace, ScenarioShotTrace, ScenarioTraceRenderOptions, ShotControl,
+    ShotControlError, ShotControls,
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
@@ -319,6 +320,155 @@ fn direct_non_finite_heading_literals_fail_shot_validation() {
             other => panic!("{name}: expected InvalidShot(HeadingNotFinite), got {other:?}"),
         }
     }
+}
+
+#[test]
+fn non_finite_shot_values_report_the_invalid_control() {
+    const BASE_DSL: &str = "ball cue at center\n\
+        cue_strike(default).mass_ratio(1.0).energy_loss(0.1).endmass_ratio(29.158)\n\
+        shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).using(default)\n";
+
+    for (case, original, replacement, expected_method, expect_nan) in [
+        ("NaN speed", "128ips", "NaNips", "speed", true),
+        ("infinite speed", "128ips", "infips", "speed", false),
+        ("NaN tip side", "side: 0.0R", "side: NaNR", "tip side", true),
+        (
+            "infinite tip side",
+            "side: 0.0R",
+            "side: infR",
+            "tip side",
+            false,
+        ),
+        (
+            "NaN tip height",
+            "height: 0.4R",
+            "height: NaNR",
+            "tip height",
+            true,
+        ),
+        (
+            "infinite tip height",
+            "height: 0.4R",
+            "height: infR",
+            "tip height",
+            false,
+        ),
+    ] {
+        let input = BASE_DSL.replacen(original, replacement, 1);
+        let error = parse_dsl_to_scenario(&input)
+            .expect_err("non-finite shot input should be a recoverable build error");
+        let DslError::Build(DslBuildError::InvalidShotMethodValue {
+            method,
+            value,
+            expected,
+        }) = error
+        else {
+            panic!("{case}: expected InvalidShotMethodValue, got {error:?}");
+        };
+
+        assert_eq!(method, expected_method, "{case}");
+        assert_eq!(value.is_nan(), expect_nan, "{case}");
+        assert_eq!(value.is_infinite(), !expect_nan, "{case}");
+        assert_eq!(expected, "a finite value", "{case}");
+    }
+}
+
+#[test]
+fn non_finite_cue_strike_values_report_the_invalid_method() {
+    const BASE_DSL: &str = "ball cue at center\n\
+        cue_strike(test).mass_ratio(1.0).energy_loss(0.1).endmass_ratio(29.158)\n\
+        shot(cue).heading(30deg).speed(128ips).tip(side: 0.0R, height: 0.4R).using(test)\n";
+
+    for (case, original, replacement, expected_method, expect_nan) in [
+        (
+            "NaN mass ratio",
+            "mass_ratio(1.0)",
+            "mass_ratio(NaN)",
+            "mass_ratio",
+            true,
+        ),
+        (
+            "infinite mass ratio",
+            "mass_ratio(1.0)",
+            "mass_ratio(inf)",
+            "mass_ratio",
+            false,
+        ),
+        (
+            "NaN energy loss",
+            "energy_loss(0.1)",
+            "energy_loss(NaN)",
+            "energy_loss",
+            true,
+        ),
+        (
+            "infinite energy loss",
+            "energy_loss(0.1)",
+            "energy_loss(inf)",
+            "energy_loss",
+            false,
+        ),
+        (
+            "NaN endmass ratio",
+            "endmass_ratio(29.158)",
+            "endmass_ratio(NaN)",
+            "endmass_ratio",
+            true,
+        ),
+        (
+            "infinite endmass ratio",
+            "endmass_ratio(29.158)",
+            "endmass_ratio(inf)",
+            "endmass_ratio",
+            false,
+        ),
+    ] {
+        let input = BASE_DSL.replacen(original, replacement, 1);
+        let error = parse_dsl_to_scenario(&input)
+            .expect_err("non-finite cue-strike input should be a recoverable build error");
+        let DslError::Build(DslBuildError::InvalidPhysicsConfigValue {
+            kind,
+            name,
+            method,
+            value,
+            expected,
+        }) = error
+        else {
+            panic!("{case}: expected InvalidPhysicsConfigValue, got {error:?}");
+        };
+
+        assert_eq!(kind, PhysicsConfigKind::CueStrike, "{case}");
+        assert_eq!(name, "test", "{case}");
+        assert_eq!(method, expected_method, "{case}");
+        assert_eq!(value.is_nan(), expect_nan, "{case}");
+        assert_eq!(value.is_infinite(), !expect_nan, "{case}");
+        assert_eq!(expected, "a finite value", "{case}");
+    }
+}
+
+#[test]
+fn positive_infinite_non_negative_physics_value_reports_the_invalid_method() {
+    const BASE_DSL: &str = "ball_ball(test).normal_restitution(0.9).tangential_friction(0.06)\n";
+    let input = BASE_DSL.replacen("tangential_friction(0.06)", "tangential_friction(inf)", 1);
+
+    let error = parse_dsl_to_scenario(&input)
+        .expect_err("positive infinity should not satisfy non-negative physics validation");
+    let DslError::Build(DslBuildError::InvalidPhysicsConfigValue {
+        kind,
+        name,
+        method,
+        value,
+        expected,
+    }) = error
+    else {
+        panic!("expected InvalidPhysicsConfigValue, got {error:?}");
+    };
+
+    assert_eq!(kind, PhysicsConfigKind::BallBall);
+    assert_eq!(name, "test");
+    assert_eq!(method, "tangential_friction");
+    assert_eq!(value, f64::INFINITY);
+    assert_eq!(expected, "a non-negative value");
 }
 
 #[test]

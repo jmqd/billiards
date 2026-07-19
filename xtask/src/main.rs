@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Mutex,
+    mpsc, Arc, Mutex,
 };
 use std::thread;
 use std::time::Duration;
@@ -486,6 +486,9 @@ struct PreviewHttpRequest {
     target: String,
 }
 
+const PREVIEW_SERVER_WORKER_COUNT: usize = 8;
+const PREVIEW_SERVER_QUEUE_CAPACITY: usize = 32;
+
 fn serve_wasm_preview(output_dir: &Path, host: &str, port: u16) -> Result<(), String> {
     let root = output_dir.canonicalize().map_err(|error| {
         format!(
@@ -507,12 +510,40 @@ fn serve_wasm_preview(output_dir: &Path, host: &str, port: u16) -> Result<(), St
     println!("Serving Wasm preview at {url}");
     println!("Press Ctrl-C to stop the server.");
 
+    let root = Arc::new(root);
+    let (connections, pending_connections) =
+        mpsc::sync_channel::<TcpStream>(PREVIEW_SERVER_QUEUE_CAPACITY);
+    let pending_connections = Arc::new(Mutex::new(pending_connections));
+    let _workers = (0..PREVIEW_SERVER_WORKER_COUNT)
+        .map(|index| {
+            let root = Arc::clone(&root);
+            let pending_connections = Arc::clone(&pending_connections);
+            thread::Builder::new()
+                .name(format!("wasm-preview-{index}"))
+                .spawn(move || loop {
+                    let stream = {
+                        let Ok(pending_connections) = pending_connections.lock() else {
+                            return;
+                        };
+                        let Ok(stream) = pending_connections.recv() else {
+                            return;
+                        };
+                        stream
+                    };
+                    if let Err(error) = handle_preview_connection(stream, root.as_path()) {
+                        eprintln!("Wasm preview request failed: {error}");
+                    }
+                })
+                .map_err(|error| format!("failed to start Wasm preview worker {index}: {error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     for connection in listener.incoming() {
         let stream = connection
             .map_err(|error| format!("failed to accept Wasm preview connection: {error}"))?;
-        if let Err(error) = handle_preview_connection(stream, &root) {
-            eprintln!("Wasm preview request failed: {error}");
-        }
+        connections
+            .send(stream)
+            .map_err(|_| "Wasm preview workers stopped unexpectedly".to_string())?;
     }
 
     Ok(())
@@ -728,6 +759,23 @@ fn copy_preview_asset(source: impl AsRef<Path>, output_dir: &Path) -> Result<(),
             .file_name()
             .ok_or_else(|| format!("asset path {} has no file name", source.display()))?,
     );
+    if target.exists() {
+        let canonical_source = source.canonicalize().map_err(|error| {
+            format!(
+                "failed to resolve preview asset {}: {error}",
+                source.display()
+            )
+        })?;
+        let canonical_target = target.canonicalize().map_err(|error| {
+            format!(
+                "failed to resolve preview asset destination {}: {error}",
+                target.display()
+            )
+        })?;
+        if canonical_source == canonical_target {
+            return Ok(());
+        }
+    }
     fs::copy(source, &target).map_err(|error| {
         format!(
             "failed to copy {} to {}: {error}",
@@ -1808,8 +1856,11 @@ fn usage_text() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use billiards::diagram::BallStyle;
     use std::collections::BTreeMap;
     use std::net::Shutdown;
+    use std::process::{Child, Command as ProcessCommand, Stdio};
+    use std::sync::mpsc;
 
     fn assert_close(actual: f64, expected: f64) {
         let delta = (actual - expected).abs();
@@ -2188,6 +2239,9 @@ mod tests {
                     label: Some("C"),
                     radius: 10.0,
                     radius_inches: 1.0,
+                    style: BallStyle::Plain,
+                    paint: None,
+                    gradient: None,
                 }],
                 frames: vec![
                     ScenarioPlaybackFrameReport {
@@ -2403,6 +2457,39 @@ mod tests {
         }
     }
 
+    #[test]
+    fn copy_preview_asset_preserves_an_asset_already_at_its_destination() {
+        let fixture = PreviewFixture::new();
+        let source = fixture.root.join("app.js");
+
+        copy_preview_asset(&source, &fixture.root)
+            .expect("copying an asset onto itself should succeed as a no-op");
+        assert_eq!(
+            fs::read(&source).expect("read same-file copy result"),
+            PREVIEW_JS_BODY,
+            "a same-file copy must not truncate the preview asset"
+        );
+
+        #[cfg(unix)]
+        {
+            let root_alias = fixture.directory.join("public-alias");
+            std::os::unix::fs::symlink(&fixture.root, &root_alias)
+                .expect("create symlink alias for preview document root");
+
+            copy_preview_asset(&source, &root_alias)
+                .expect("copying through a directory symlink onto the source should be a no-op");
+            assert_eq!(
+                fs::read(&source).expect("read canonical source after aliased copy"),
+                PREVIEW_JS_BODY,
+                "canonical same-file detection must not truncate through a symlinked directory"
+            );
+            assert_eq!(
+                fs::read(root_alias.join("app.js")).expect("read aliased copy destination"),
+                PREVIEW_JS_BODY
+            );
+        }
+    }
+
     struct PreviewResponse {
         status: String,
         headers: BTreeMap<String, String>,
@@ -2477,6 +2564,130 @@ mod tests {
             .expect("preview handler should serve the request");
 
         PreviewResponse::parse(response)
+    }
+
+    const PREVIEW_SERVER_CHILD_PORT_ENV: &str = "BILLIARDS_XTASK_TEST_PREVIEW_SERVER_PORT";
+    const PREVIEW_SERVER_CHILD_ROOT_ENV: &str = "BILLIARDS_XTASK_TEST_PREVIEW_SERVER_ROOT";
+
+    struct PreviewServerProcess {
+        child: Child,
+        output_reader: Option<thread::JoinHandle<()>>,
+    }
+
+    impl Drop for PreviewServerProcess {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            if let Some(output_reader) = self.output_reader.take() {
+                let _ = output_reader.join();
+            }
+        }
+    }
+
+    #[test]
+    fn preview_server_dispatches_a_second_get_while_the_first_client_is_stalled() {
+        if let Some(port) = env::var_os(PREVIEW_SERVER_CHILD_PORT_ENV) {
+            let root = PathBuf::from(
+                env::var_os(PREVIEW_SERVER_CHILD_ROOT_ENV)
+                    .expect("preview server child should receive its document root"),
+            );
+            let port = port
+                .to_string_lossy()
+                .parse()
+                .expect("preview server child port should be an integer");
+            serve_wasm_preview(&root, "127.0.0.1", port)
+                .expect("preview server child should keep serving connections");
+            return;
+        }
+
+        let fixture = PreviewFixture::new();
+
+        let mut child = ProcessCommand::new(env::current_exe().expect("locate xtask test binary"))
+            .args([
+                "--exact",
+                "tests::preview_server_dispatches_a_second_get_while_the_first_client_is_stalled",
+                "--nocapture",
+            ])
+            .env(PREVIEW_SERVER_CHILD_PORT_ENV, "0")
+            .env(PREVIEW_SERVER_CHILD_ROOT_ENV, &fixture.root)
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start isolated preview server process");
+        let stdout = child.stdout.take().expect("capture preview server output");
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let output_reader = thread::spawn(move || {
+            let mut announced = false;
+            let mut output = String::new();
+            for line in BufReader::new(stdout).lines() {
+                match line {
+                    Ok(line) => {
+                        output.push_str(&line);
+                        output.push('\n');
+                        if let Some((_, url)) = line.split_once("Serving Wasm preview at ") {
+                            announced = true;
+                            let port = url
+                                .trim()
+                                .trim_end_matches('/')
+                                .rsplit_once(':')
+                                .and_then(|(_, port)| port.parse::<u16>().ok())
+                                .ok_or_else(|| {
+                                    format!("preview server announced an invalid URL: {url}")
+                                });
+                            let _ = ready_tx.send(port);
+                        }
+                    }
+                    Err(error) => {
+                        if !announced {
+                            let _ = ready_tx.send(Err(format!(
+                                "failed to read preview server readiness output: {error}"
+                            )));
+                        }
+                        return;
+                    }
+                }
+            }
+            if !announced {
+                let _ = ready_tx.send(Err(format!(
+                    "preview server exited before announcing readiness; stdout:\n{output}"
+                )));
+            }
+        });
+        let server = PreviewServerProcess {
+            child,
+            output_reader: Some(output_reader),
+        };
+        let port = ready_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("preview server should announce readiness before the timeout")
+            .expect("preview server should start successfully");
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+
+        let _stalled_client = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+            .expect("connect stalled preview client without sending headers");
+
+        let mut complete_client = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+            .expect("connect complete preview client");
+        complete_client
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .expect("bound complete client writes");
+        complete_client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("bound complete client response wait");
+        complete_client
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .expect("send complete second request");
+        complete_client
+            .shutdown(Shutdown::Write)
+            .expect("finish complete second request");
+        let mut response_bytes = Vec::new();
+        complete_client
+            .read_to_end(&mut response_bytes)
+            .expect("a stalled client must not block a later complete GET");
+
+        drop(server);
+        let response = PreviewResponse::parse(response_bytes);
+        assert_eq!(response.status, "HTTP/1.1 200 OK");
+        assert_eq!(response.body, PREVIEW_INDEX_BODY);
     }
 
     #[test]

@@ -75,6 +75,130 @@ fn explicit_layout_and_additional_good_candidate_are_typed() {
 }
 
 #[test]
+fn tuple_arguments_accept_whitespace_around_finite_fields() {
+    let config = Cli::try_parse_from([
+        "simul-three-cushion",
+        "--mode",
+        "sensitivity",
+        "--seed",
+        "11",
+        "--white",
+        " 0.7 , 1.0 ",
+        "--yellow",
+        "1.2,2.1",
+        "--red",
+        "0.85,6.55",
+        "--good",
+        " 26 , 150 , -0.1 , 0.2 , 0 ",
+        "--heading-bounds",
+        " 10 , 40 ",
+    ])
+    .expect("tuple arguments with whitespace should parse")
+    .into_config()
+    .expect("tuple arguments with whitespace should validate");
+
+    assert_eq!((config.positions[0].x, config.positions[0].y), (0.7, 1.0));
+    let controls = config.sensitivity_centers[1];
+    assert_eq!(
+        (
+            controls.heading,
+            controls.speed,
+            controls.tip_side,
+            controls.tip_height,
+            controls.elevation,
+        ),
+        (26.0, 150.0, -0.1, 0.2, 0.0)
+    );
+    assert_eq!(
+        (
+            config.search_bounds[0].minimum,
+            config.search_bounds[0].maximum,
+        ),
+        (10.0, 40.0)
+    );
+}
+
+#[test]
+fn tuple_arguments_reject_wrong_counts_invalid_numbers_and_nonfinite_values() {
+    fn assert_errors(common: &[&str], flag: &str, cases: &[(&str, &str)]) {
+        for &(value, expected) in cases {
+            let mut arguments: Vec<String> =
+                common.iter().map(|argument| (*argument).into()).collect();
+            arguments.extend([flag.into(), value.into()]);
+            let error = Cli::try_parse_from(arguments)
+                .expect_err("invalid tuple should fail during argument parsing");
+            assert_eq!(
+                error.kind(),
+                clap::error::ErrorKind::ValueValidation,
+                "flag: {flag}, input: {value:?}"
+            );
+            let rendered = error.to_string();
+            assert!(
+                rendered.contains(expected),
+                "flag: {flag}, input: {value:?}, error: {rendered}"
+            );
+        }
+    }
+
+    const POSITION_ARGS: &[&str] = &[
+        "simul-three-cushion",
+        "--mode",
+        "sensitivity",
+        "--seed",
+        "1",
+        "--yellow",
+        "1.2,2.1",
+        "--red",
+        "0.85,6.55",
+    ];
+    const FIXTURE_ARGS: &[&str] = &[
+        "simul-three-cushion",
+        "--fixture",
+        "--mode",
+        "sensitivity",
+        "--seed",
+        "1",
+    ];
+
+    assert_errors(
+        POSITION_ARGS,
+        "--white",
+        &[
+            ("not-a-number", "wrong number of comma-separated values"),
+            ("1,2,not-a-number", "wrong number of comma-separated values"),
+            ("not-a-number,2", "values must be numbers"),
+            ("inf,2", "values must be finite"),
+            ("NaN,2", "values must be finite"),
+        ],
+    );
+    assert_errors(
+        FIXTURE_ARGS,
+        "--good",
+        &[
+            (
+                "not-a-number,2,3,4",
+                "wrong number of comma-separated values",
+            ),
+            ("1,2,3,4,5,NaN", "wrong number of comma-separated values"),
+            ("1,2,not-a-number,4,5", "values must be numbers"),
+            ("1,2,inf,4,5", "values must be finite"),
+            ("1,2,NaN,4,5", "values must be finite"),
+        ],
+    );
+    assert_errors(
+        FIXTURE_ARGS,
+        "--heading-bounds",
+        &[
+            ("not-a-number", "wrong number of comma-separated values"),
+            ("1,2,not-a-number", "wrong number of comma-separated values"),
+            ("not-a-number,2", "values must be numbers"),
+            ("inf,2", "values must be finite"),
+            ("NaN,2", "values must be finite"),
+        ],
+    );
+}
+
+#[test]
 fn rejects_zero_workers_during_argument_parsing() {
     let error = Cli::try_parse_from([
         "simul-three-cushion",

@@ -153,8 +153,8 @@ impl fmt::Display for ParseTupleError {
 impl std::error::Error for ParseTupleError {}
 
 fn parse_finite_fields<const N: usize>(value: &str) -> Result<[f64; N], ParseTupleError> {
-    let fields: Vec<_> = value.split(',').map(str::trim).collect();
-    if fields.len() != N {
+    let fields = value.split(',').map(str::trim);
+    if fields.clone().count() != N {
         return Err(ParseTupleError("wrong number of comma-separated values"));
     }
     let mut parsed = [0.0_f64; N];

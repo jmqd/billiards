@@ -480,12 +480,7 @@ fn first_cue_object_collision(
     scenario: &DslScenario,
     trace: &ScenarioShotTrace,
 ) -> Option<CueObjectCollision> {
-    let ball_types: Vec<BallType> = scenario
-        .game_state
-        .balls()
-        .iter()
-        .map(|ball| ball.ty.clone())
-        .collect();
+    let balls = scenario.game_state.balls();
     let mut elapsed = 0.0;
 
     for event in &trace.simulation.events {
@@ -499,8 +494,8 @@ fn first_cue_object_collision(
             continue;
         };
 
-        let first_type = &ball_types[*first_ball_index];
-        let second_type = &ball_types[*second_ball_index];
+        let first_type = &balls[*first_ball_index].ty;
+        let second_type = &balls[*second_ball_index].ty;
         match (first_type, second_type) {
             (BallType::Cue, BallType::One) => {
                 return Some(CueObjectCollision {
@@ -1051,5 +1046,111 @@ fn format_option(value: Option<f64>, precision: usize) -> String {
             s
         }
         None => "-".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_cue_object_collision_preserves_event_orientation_and_impact_data() {
+        let cases = [
+            (
+                "cue then object",
+                concat!(
+                    "ball cue at (1.0, 4.0)\n",
+                    "ball one at (2.4, 4.0)\n",
+                    "cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n",
+                    "shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+                ),
+                true,
+            ),
+            (
+                "object then cue",
+                concat!(
+                    "ball one at (2.4, 4.0)\n",
+                    "ball cue at (1.0, 4.0)\n",
+                    "cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n",
+                    "shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+                ),
+                false,
+            ),
+        ];
+
+        for (case, dsl, cue_is_first) in cases {
+            let scenario = parse_dsl_to_scenario(dsl).expect("test scenario should parse");
+            let trace = scenario
+                .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(
+                    &BallSetPhysicsSpec::default(),
+                    &motion_config(15.0, 10.9, 5.0),
+                    CollisionModel::ThrowAware,
+                    RailModel::SpinAware,
+                )
+                .expect("test scenario should simulate")
+                .expect("test scenario should contain a shot");
+
+            let mut expected_time_s = 0.0;
+            let (first_ball_index, second_ball_index, impact) = trace
+                .simulation
+                .events
+                .iter()
+                .find_map(|event| {
+                    expected_time_s += event.time().as_f64();
+                    match event {
+                        NBallSystemEvent::BallBallCollision {
+                            first_ball_index,
+                            second_ball_index,
+                            collision,
+                        } => Some((first_ball_index, second_ball_index, collision)),
+                        _ => None,
+                    }
+                })
+                .unwrap_or_else(|| panic!("{case}: expected a ball-ball collision"));
+            let balls = scenario.game_state.balls();
+            let first_type = &balls[*first_ball_index].ty;
+            let second_type = &balls[*second_ball_index].ty;
+
+            if cue_is_first {
+                assert_eq!(
+                    (first_type, second_type),
+                    (&BallType::Cue, &BallType::One),
+                    "{case}: unexpected event orientation",
+                );
+            } else {
+                assert_eq!(
+                    (first_type, second_type),
+                    (&BallType::One, &BallType::Cue),
+                    "{case}: unexpected event orientation",
+                );
+            }
+            assert_ne!(
+                impact.a_at_impact, impact.b_at_impact,
+                "{case}: test setup must distinguish the two impact states",
+            );
+
+            let actual = first_cue_object_collision(&scenario, &trace)
+                .unwrap_or_else(|| panic!("{case}: expected a cue/object collision"));
+            assert_eq!(actual.time_s, expected_time_s, "{case}: collision time");
+            if cue_is_first {
+                assert_eq!(
+                    actual.cue_impact, impact.a_at_impact,
+                    "{case}: cue impact state",
+                );
+                assert_eq!(
+                    actual.object_impact, impact.b_at_impact,
+                    "{case}: object impact state",
+                );
+            } else {
+                assert_eq!(
+                    actual.cue_impact, impact.b_at_impact,
+                    "{case}: cue impact state",
+                );
+                assert_eq!(
+                    actual.object_impact, impact.a_at_impact,
+                    "{case}: object impact state",
+                );
+            }
+        }
     }
 }

@@ -37,18 +37,18 @@ pub const TABLE_DIAGRAM: &[u8] = include_bytes!("assets/table_diagram_head_top.p
 
 /// Retrieve the sprite for a given ball.
 #[allow(unused)]
-pub fn ball_img(ball: BallType) -> Vec<u8> {
+pub fn ball_img(ball: BallType) -> &'static [u8] {
     match ball {
-        BallType::Cue => BALL_IMGS[0].to_vec(),
-        BallType::One | BallType::YellowCue => BALL_IMGS[1].to_vec(),
-        BallType::Two => BALL_IMGS[2].to_vec(),
-        BallType::Three | BallType::Red => BALL_IMGS[3].to_vec(),
-        BallType::Four => BALL_IMGS[4].to_vec(),
-        BallType::Five => BALL_IMGS[5].to_vec(),
-        BallType::Six => BALL_IMGS[6].to_vec(),
-        BallType::Seven => BALL_IMGS[7].to_vec(),
-        BallType::Eight => BALL_IMGS[8].to_vec(),
-        BallType::Nine => BALL_IMGS[9].to_vec(),
+        BallType::Cue => BALL_IMGS[0],
+        BallType::One | BallType::YellowCue => BALL_IMGS[1],
+        BallType::Two => BALL_IMGS[2],
+        BallType::Three | BallType::Red => BALL_IMGS[3],
+        BallType::Four => BALL_IMGS[4],
+        BallType::Five => BALL_IMGS[5],
+        BallType::Six => BALL_IMGS[6],
+        BallType::Seven => BALL_IMGS[7],
+        BallType::Eight => BALL_IMGS[8],
+        BallType::Nine => BALL_IMGS[9],
     }
 }
 
@@ -60,5 +60,22 @@ mod tests {
     fn given_the_current_table_asset_when_computing_the_ideal_ball_size_then_the_expected_sprite_diameter_is_returned(
     ) {
         assert_eq!(ideal_ball_size_px(), 39);
+    }
+
+    #[test]
+    fn ball_img_returns_the_borrowed_embedded_sprite_for_each_representative_mapping() {
+        let cases = [
+            (BallType::Cue, 0),
+            (BallType::One, 1),
+            (BallType::YellowCue, 1),
+            (BallType::Three, 3),
+            (BallType::Red, 3),
+        ];
+
+        for (ball, sprite_index) in cases {
+            let actual: &'static [u8] = ball_img(ball);
+
+            assert_eq!(actual, BALL_IMGS[sprite_index]);
+        }
     }
 }

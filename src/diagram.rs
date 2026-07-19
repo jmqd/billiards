@@ -1314,7 +1314,7 @@ fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage) {
         }
         let ball_png = assets::ball_img(ball.ty.clone());
         let mut ball_img: RgbaImage =
-            image::load_from_memory_with_format(&ball_png, ImageFormat::Png)
+            image::load_from_memory_with_format(ball_png, ImageFormat::Png)
                 .expect("bad ball image")
                 .into_rgba8();
         ball_img = resize(

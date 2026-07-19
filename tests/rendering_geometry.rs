@@ -520,6 +520,26 @@ fn png_scale_factor_multiplies_custom_viewport_dimensions() {
 }
 
 #[test]
+fn png_cue_ball_in_one_pixel_viewport_is_center_clipped_without_panicking() {
+    let viewport = DiagramViewport {
+        width_px: 1.0,
+        height_px: 1.0,
+        playfield_left_px: 100.0,
+        playfield_right_px: 200.0,
+        playfield_top_px: 100.0,
+        playfield_bottom_px: 300.0,
+    };
+    let image = render_with_viewport(&cue_ball_at("2", "4"), viewport);
+
+    assert_eq!(image.dimensions(), (1, 1));
+    assert_eq!(
+        image.get_pixel(0, 0)[3],
+        0,
+        "the off-canvas ball must be clipped at its physical center, not moved into the viewport"
+    );
+}
+
+#[test]
 fn png_marker_uses_custom_viewport_playfield_coordinates() {
     let viewport = viewport_400_by_800();
     let anchor = Position::new(1u8, 6u8);
@@ -713,16 +733,14 @@ fn raster_primitives_share_a_non_default_viewport_anchor() {
 }
 
 #[test]
-fn out_of_range_ball_positions_still_render_a_full_sprite_inside_the_image() {
+fn fully_out_of_view_ball_is_clipped_instead_of_relocated_to_the_image_edge() {
     let empty = render(&GameState::default());
     let with_ball = render(&cue_ball_at("5", "-1"));
 
-    let (min_x, min_y, max_x, max_y) = diff_bbox(&empty, &with_ball).expect("ball diff bbox");
-
-    assert_eq!(max_x - min_x + 1, 39);
-    assert_eq!(max_y - min_y + 1, 39);
-    assert_eq!(max_x, with_ball.width() - 1);
-    assert_eq!(max_y, with_ball.height() - 1);
+    assert!(
+        diff_bbox(&empty, &with_ball).is_none(),
+        "a ball whose physical sprite is outside the viewport must not be clamped into view"
+    );
 }
 
 #[test]

@@ -185,6 +185,8 @@ dependencies = [
  "image",
  "imageproc",
  "lazy_static",
+ "serde",
+ "serde_json",
  "trybuild",
  "wasm-bindgen",
  "winnow 0.7.10",

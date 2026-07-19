@@ -86,6 +86,44 @@
     };
 
 
+    const instrumentShotControlInspections = () => {
+      const nativeInstantiate = WebAssembly.instantiate;
+      const nativeInstantiateStreaming = WebAssembly.instantiateStreaming;
+      let calls = 0;
+
+      const instrumentResult = (result) => {
+        const instance = result?.instance;
+        const inspect = instance?.exports?.shot_controls_from_dsl;
+        if (typeof inspect !== 'function') return result;
+
+        const instrumentedExports = Object.fromEntries(Object.entries(instance.exports));
+        instrumentedExports.shot_controls_from_dsl = (...args) => {
+          calls += 1;
+          return inspect(...args);
+        };
+        return { instance: { exports: instrumentedExports }, module: result.module };
+      };
+
+      WebAssembly.instantiate = async (...args) => instrumentResult(
+        await nativeInstantiate.apply(WebAssembly, args),
+      );
+      if (typeof nativeInstantiateStreaming === 'function') {
+        WebAssembly.instantiateStreaming = async (...args) => instrumentResult(
+          await nativeInstantiateStreaming.apply(WebAssembly, args),
+        );
+      }
+
+      return {
+        get calls() { return calls; },
+        restore() {
+          WebAssembly.instantiate = nativeInstantiate;
+          if (typeof nativeInstantiateStreaming === 'function') {
+            WebAssembly.instantiateStreaming = nativeInstantiateStreaming;
+          }
+        },
+      };
+    };
+
     const loadApplicationMarkup = async () => {
       const response = await fetch('./index.html');
       assert(response.ok, `application markup request failed with ${response.status}`);
@@ -115,6 +153,7 @@
 
       const nativeWorker = window.Worker;
       const controlledTimers = controlShortTimers();
+      const shotControlInspections = instrumentShotControlInspections();
       window.Worker = ControlledRenderWorker;
       try {
         await import('./app.js?render-queue-regression');
@@ -201,8 +240,33 @@
           'precise speed must retain its visible km/h unit',
         );
 
+        const escapedComment = '# Browser JSON round trip preserves "quoted" and a literal \\ backslash';
+        dslInput.value = `${escapedComment}\n${dslInput.value}`;
+        const inspectionsBeforeSourceInput = shotControlInspections.calls;
+        dslInput.dispatchEvent(new Event('input', { bubbles: true }));
+        assert(
+          shotControlInspections.calls === inspectionsBeforeSourceInput + 1,
+          'textarea input must configure the escaped source through one Wasm inspection',
+        );
+
         const startingHeading = headingInput.valueAsNumber;
+        const inspectionsBeforeControlEdit = shotControlInspections.calls;
         increaseHeading.click();
+
+        const firstExpectedHeading = (startingHeading + 1) % 360;
+        assert(
+          Math.abs(headingInput.valueAsNumber - firstExpectedHeading) < 1e-9,
+          `returned controls must synchronously update heading to ${firstExpectedHeading}`,
+        );
+        assert(
+          dslInput.value.split('\n').includes(escapedComment),
+          'Wasm update JSON must preserve the exact quoted and backslashed comment line',
+        );
+        assert(
+          shotControlInspections.calls === inspectionsBeforeControlEdit,
+          'control update must consume returned controls without a second Wasm inspection',
+        );
+
         increaseHeading.click();
         increaseHeading.click();
 
@@ -238,6 +302,10 @@
           newestRequest.source.includes('.speed(352ips)'),
           'the queued Rust-updated render must retain the exact 352 ips DSL speed',
         );
+        assert(
+          newestRequest.source.split('\n').includes(escapedComment),
+          'the queued newest source must preserve the exact quoted and backslashed comment line',
+        );
 
         worker.respond({ id: newestRequest.id, report: report('newest'), elapsedMs: 1 });
         assert(
@@ -245,6 +313,7 @@
           'the newest worker result must become the visible preview',
         );
       } finally {
+        shotControlInspections.restore();
         controlledTimers.restore();
         window.Worker = nativeWorker;
       }

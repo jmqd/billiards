@@ -2282,6 +2282,12 @@ pub struct ShotControls {
     pub cue_elevation_max_degrees: f64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShotControlUpdate {
+    pub source: String,
+    pub controls: ShotControls,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShotControl {
     Heading,
@@ -2371,6 +2377,13 @@ pub fn parse_dsl_to_scenario(input: &str) -> Result<DslScenario, DslError> {
 pub fn shot_controls_from_dsl(source: &str) -> Result<Option<ShotControls>, ShotControlError> {
     let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
     let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
+    shot_controls_from_parsed_dsl(&parsed, &scenario)
+}
+
+fn shot_controls_from_parsed_dsl(
+    parsed: &ParsedDslDoc,
+    scenario: &DslScenario,
+) -> Result<Option<ShotControls>, ShotControlError> {
     let Some(built_shot) = scenario.shot.as_ref() else {
         return Ok(None);
     };
@@ -2409,7 +2422,7 @@ pub fn update_shot_control_in_dsl(
     source: &str,
     control: ShotControl,
     value: f64,
-) -> Result<String, ShotControlError> {
+) -> Result<ShotControlUpdate, ShotControlError> {
     let control_name = match control {
         ShotControl::Heading => "heading",
         ShotControl::Speed => "speed",
@@ -2487,7 +2500,7 @@ pub fn update_shot_tip_in_dsl(
     source: &str,
     side: f64,
     height: f64,
-) -> Result<String, ShotControlError> {
+) -> Result<ShotControlUpdate, ShotControlError> {
     if !side.is_finite() {
         return Err(ShotControlError::NonFiniteValue {
             control: "tip side",
@@ -2536,12 +2549,15 @@ fn editable_shot_source(source: &str) -> Result<ShotSourceMetadata, ShotControlE
         .ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })
 }
 
-fn validate_edited_shot_source(candidate: String) -> Result<String, ShotControlError> {
-    let scenario = parse_dsl_to_scenario(&candidate)?;
-    if scenario.shot.is_none() {
-        return Err(ShotControlError::NoShot);
-    }
-    Ok(candidate)
+fn validate_edited_shot_source(candidate: String) -> Result<ShotControlUpdate, ShotControlError> {
+    let parsed = parse_dsl_with_metadata(&candidate).map_err(DslError::Parse)?;
+    let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
+    let controls =
+        shot_controls_from_parsed_dsl(&parsed, &scenario)?.ok_or(ShotControlError::NoShot)?;
+    Ok(ShotControlUpdate {
+        source: candidate,
+        controls,
+    })
 }
 
 fn replace_source_span(source: &mut String, span: ByteSpan, replacement: &str) {

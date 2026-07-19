@@ -2047,10 +2047,21 @@ fn shot_control_direct_heading_edit_preserves_unicode_crlf_and_multiline_chains(
     let source = "# Café shot 🎱 — preserve these bytes\r\nball cue at center\r\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\r\nshot(cue)\r\n  .heading( 12deg )\r\n  .speed(48ips)\r\n  .tip(side: 0.10R, height: 0.20R)\r\n  .using(default)\r\n";
     let expected = "# Café shot 🎱 — preserve these bytes\r\nball cue at center\r\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\r\nshot(cue)\r\n  .heading( 271.25deg )\r\n  .speed(48ips)\r\n  .tip(side: 0.10R, height: 0.20R)\r\n  .using(default)\r\n";
 
+    let previous_controls = shot_controls_from_dsl(source)
+        .expect("the original direct-heading shot should build")
+        .expect("the fixture should contain a shot");
+
     let edited = update_shot_control_in_dsl(source, ShotControl::Heading, 271.25)
         .expect("a direct heading literal should be editable");
 
-    assert_eq!(edited, expected);
+    assert_eq!(edited.source, expected);
+    assert_eq!(
+        edited.controls,
+        ShotControls {
+            heading_degrees: 271.25,
+            ..previous_controls
+        }
+    );
 }
 
 #[test]
@@ -2070,10 +2081,22 @@ fn shot_control_heading_edit_replaces_each_derived_aim_method_only() {
             "",
         );
 
+        let previous_controls = shot_controls_from_dsl(&source)
+            .unwrap_or_else(|error| panic!("{name} original should build: {error}"))
+            .unwrap_or_else(|| panic!("{name} fixture should contain a shot"));
+
         let edited = update_shot_control_in_dsl(&source, ShotControl::Heading, 123.5)
             .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
 
-        assert_eq!(edited, expected, "{name}");
+        assert_eq!(edited.source, expected, "{name}");
+        assert_eq!(
+            edited.controls,
+            ShotControls {
+                heading_degrees: 123.5,
+                ..previous_controls
+            },
+            "{name}"
+        );
     }
 }
 
@@ -2089,15 +2112,28 @@ fn shot_control_speed_edit_accepts_every_input_form_and_emits_canonical_ips() {
             editable_shot_control_source("heading(12deg)", speed, "side: 0.0R, height: 0.0R", "");
         let expected = editable_shot_control_source(
             "heading(12deg)",
-            "73.25ips",
+            "700ips",
             "side: 0.0R, height: 0.0R",
             "",
         );
 
-        let edited = update_shot_control_in_dsl(&source, ShotControl::Speed, 73.25)
+        let previous_controls = shot_controls_from_dsl(&source)
+            .unwrap_or_else(|error| panic!("{name} original should build: {error}"))
+            .unwrap_or_else(|| panic!("{name} fixture should contain a shot"));
+
+        let edited = update_shot_control_in_dsl(&source, ShotControl::Speed, 700.0)
             .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
 
-        assert_eq!(edited, expected, "{name}");
+        assert_eq!(edited.source, expected, "{name}");
+        assert_eq!(
+            edited.controls,
+            ShotControls {
+                speed_ips: 700.0,
+                speed_max_ips: 700.0,
+                ..previous_controls
+            },
+            "{name}"
+        );
     }
 }
 
@@ -2106,25 +2142,51 @@ fn shot_control_tip_edits_preserve_untouched_literals_and_support_atomic_updates
     let source =
         editable_shot_control_source("heading(12deg)", "52ips", "side: -0.10R, height: 0.20R", "");
 
+    let previous_controls = shot_controls_from_dsl(&source)
+        .expect("the original tip shot should build")
+        .expect("the fixture should contain a shot");
+
     let edited_side = update_shot_control_in_dsl(&source, ShotControl::TipSide, 0.3)
         .expect("tip side should be editable independently");
     assert_eq!(
-        edited_side,
+        edited_side.source,
         editable_shot_control_source("heading(12deg)", "52ips", "side: 0.3R, height: 0.20R", "",)
+    );
+    assert_eq!(
+        edited_side.controls,
+        ShotControls {
+            tip_side: 0.3,
+            ..previous_controls
+        }
     );
 
     let edited_height = update_shot_control_in_dsl(&source, ShotControl::TipHeight, -0.4)
         .expect("tip height should be editable independently");
     assert_eq!(
-        edited_height,
+        edited_height.source,
         editable_shot_control_source("heading(12deg)", "52ips", "side: -0.10R, height: -0.4R", "",)
+    );
+    assert_eq!(
+        edited_height.controls,
+        ShotControls {
+            tip_height: -0.4,
+            ..previous_controls
+        }
     );
 
     let edited_pair =
         update_shot_tip_in_dsl(&source, 0.25, -0.35).expect("tip pair should update atomically");
     assert_eq!(
-        edited_pair,
+        edited_pair.source,
         editable_shot_control_source("heading(12deg)", "52ips", "side: 0.25R, height: -0.35R", "",)
+    );
+    assert_eq!(
+        edited_pair.controls,
+        ShotControls {
+            tip_side: 0.25,
+            tip_height: -0.35,
+            ..previous_controls
+        }
     );
 }
 
@@ -2153,10 +2215,26 @@ fn shot_control_elevation_edit_canonicalizes_jump_aliases_and_handles_omission()
             expected_elevation,
         );
 
+        let previous_controls = shot_controls_from_dsl(&source)
+            .unwrap_or_else(|error| panic!("{name} original should build: {error}"))
+            .unwrap_or_else(|| panic!("{name} fixture should contain a shot"));
+
         let edited = update_shot_control_in_dsl(&source, ShotControl::Elevation, 22.5)
             .unwrap_or_else(|error| panic!("{name} should be editable: {error}"));
 
-        assert_eq!(edited, expected, "{name}");
+        assert_eq!(edited.source, expected, "{name}");
+        assert_close(edited.controls.cue_elevation_degrees, 22.5);
+        let mut controls_with_original_elevation = edited.controls;
+        controls_with_original_elevation.cue_elevation_degrees =
+            previous_controls.cue_elevation_degrees;
+        assert_eq!(
+            controls_with_original_elevation,
+            ShotControls {
+                cue_elevation_explicit: true,
+                ..previous_controls
+            },
+            "{name}"
+        );
     }
 }
 

@@ -405,13 +405,20 @@ function handleRenderWorkerError(event) {
   setStatus(event.message || "The background renderer stopped unexpectedly. Reload to retry.", "error");
 }
 
+function applySuccessfulControlUpdate(update) {
+  input.value = update.source;
+  syncShotControls(update.controls);
+  configureSource(update.source);
+  input.removeAttribute("aria-invalid");
+  input.removeAttribute("aria-errormessage");
+  scheduleConfiguredRender(CONTROL_RENDER_DELAY_MS);
+}
+
 function applyControlUpdate(control, value) {
   if (!wasmReady || syncingControls || !shotState || !Number.isFinite(value)) return;
   try {
-    const updatedSource = update_shot_control_in_dsl(input.value, control, value);
-    input.value = updatedSource;
-    configureSource(updatedSource);
-    if (inspectShotControls(updatedSource)) scheduleConfiguredRender(CONTROL_RENDER_DELAY_MS);
+    const update = parseWasmJson(update_shot_control_in_dsl(input.value, control, value));
+    applySuccessfulControlUpdate(update);
   } catch (error) {
     syncShotControls(shotState);
     setStatus(errorMessage(error), "error");
@@ -430,10 +437,8 @@ function applyTipUpdate(side, height) {
   if (!wasmReady || syncingControls || !shotState || !Number.isFinite(side) || !Number.isFinite(height)) return;
   const [clampedSide, clampedHeight] = clampTip(side, height);
   try {
-    const updatedSource = update_shot_tip_in_dsl(input.value, clampedSide, clampedHeight);
-    input.value = updatedSource;
-    configureSource(updatedSource);
-    if (inspectShotControls(updatedSource)) scheduleConfiguredRender(CONTROL_RENDER_DELAY_MS);
+    const update = parseWasmJson(update_shot_tip_in_dsl(input.value, clampedSide, clampedHeight));
+    applySuccessfulControlUpdate(update);
   } catch (error) {
     syncShotControls(shotState);
     setStatus(errorMessage(error), "error");

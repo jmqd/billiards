@@ -547,6 +547,112 @@ fn airborne_ball_ball_collision_is_resolved_before_later_table_contact() {
     );
 }
 
+#[test]
+fn simultaneous_airborne_pair_collision_applies_configured_table_contact_response() {
+    let contact_time_seconds = 1.0;
+    let approach_speed = 10.0;
+    let gravity = STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED;
+    let initial_vertical_speed = gravity * contact_time_seconds / 2.0;
+    let table_restitution = 0.5;
+    let table_sliding_friction = 0.005;
+    let mut ball = BallSetPhysicsSpec::default();
+    ball.airborne_table_contact.normal_restitution = Scale::from_f64(table_restitution);
+    ball.airborne_table_contact.sliding_friction_coefficient =
+        Scale::from_f64(table_sliding_friction);
+    ball.airborne_table_contact.minimum_rebound_vertical_speed = billiards::InchesPerSecond::zero();
+    let radius = ball.radius.as_f64();
+
+    // At t = 1, h(t) = (g / 2)t - (g / 2)t^2 = 0 and the initial
+    // horizontal separation 2R + 10t closes to exactly 2R.
+    let states = vec![
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(20.0, 20.0),
+            Inches::zero(),
+            Velocity2::new(Inches::from_f64(approach_speed), Inches::zero()),
+            Inches::from_f64(initial_vertical_speed),
+            AngularVelocity3::zero(),
+        )),
+        NBallSystemState::Airborne(BallState::airborne(
+            inches2(
+                20.0 + 2.0 * radius + approach_speed * contact_time_seconds,
+                20.0,
+            ),
+            Inches::zero(),
+            Velocity2::zero(),
+            Inches::from_f64(initial_vertical_speed),
+            AngularVelocity3::zero(),
+        )),
+    ];
+
+    let advanced = advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table(
+        &states,
+        &ball,
+        &TableSpec::default(),
+        &motion_config(),
+        CollisionModel::Ideal,
+        &BallBallCollisionConfig::new(Scale::from_f64(1.0), Scale::zero()),
+        RailModel::Mirror,
+        &billiards::RailCollisionProfile::default(),
+    )
+    .expect("the exact simultaneous airborne contacts should resolve");
+
+    let Some(NBallSystemEvent::AirborneBallBallCollision {
+        first_ball_index,
+        second_ball_index,
+        contact,
+    }) = &advanced.event
+    else {
+        panic!(
+            "expected the scheduler-derived airborne pair event, got {:?}",
+            advanced.event
+        );
+    };
+    assert_eq!((*first_ball_index, *second_ball_index), (0, 1));
+    assert_close(advanced.elapsed.as_f64(), contact_time_seconds);
+    assert_close(contact.time_until_contact.as_f64(), contact_time_seconds);
+    assert_close(contact.first_at_contact.height.as_f64(), 0.0);
+    assert_close(contact.second_at_contact.height.as_f64(), 0.0);
+    assert_close(
+        contact.second_at_contact.position.x().as_f64()
+            - contact.first_at_contact.position.x().as_f64(),
+        2.0 * radius,
+    );
+
+    let first_after = advanced.states[0].as_ball_state();
+    let second_after = advanced.states[1].as_ball_state();
+    assert_close(first_after.velocity.x().as_f64(), 0.0);
+    assert!(
+        second_after.velocity.x().as_f64() > 0.0,
+        "the pair collision must transfer forward momentum to the object ball"
+    );
+
+    let expected_rebound_speed = table_restitution * initial_vertical_speed;
+    assert_close(
+        first_after.vertical_velocity.as_f64(),
+        expected_rebound_speed,
+    );
+    assert_close(
+        second_after.vertical_velocity.as_f64(),
+        expected_rebound_speed,
+    );
+    assert!(matches!(advanced.states[0], NBallSystemState::Airborne(_)));
+    assert!(matches!(advanced.states[1], NBallSystemState::Airborne(_)));
+
+    // The ideal pair impulse gives the object ball 10 ips. This deliberately
+    // small cloth coefficient stays below the sticking cap, so the configured
+    // Coulomb impulse must slow the object and convert that impulse into +y spin.
+    let table_tangential_impulse =
+        table_sliding_friction * (1.0 + table_restitution) * initial_vertical_speed;
+    let expected_object_speed = approach_speed - table_tangential_impulse;
+    let expected_object_angular_speed = 2.5 * table_tangential_impulse / radius;
+    assert_close(second_after.velocity.x().as_f64(), expected_object_speed);
+    assert_close(
+        second_after.angular_velocity.y().as_f64(),
+        expected_object_angular_speed,
+    );
+    assert_close(first_after.angular_velocity.y().as_f64(), 0.0);
+}
+
 fn resolve_table_height_airborne_pair_with_base_vz(
     vertical_velocity: f64,
 ) -> Vec<NBallSystemState> {

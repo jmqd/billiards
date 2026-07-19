@@ -12793,6 +12793,16 @@ fn shared_contacts_after_kinematic_deltas(
         .collect()
 }
 
+fn airborne_ball_lands_simultaneously(state: &NBallSystemState, event_time: Seconds) -> bool {
+    let NBallSystemState::Airborne(state) = state else {
+        return false;
+    };
+    time_until_airborne_ball_reaches_table(state).is_some_and(|time_until_contact| {
+        (time_until_contact.as_f64() - event_time.as_f64()).abs()
+            <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
+    })
+}
+
 fn supported_system_state_after_on_table_ball_ball_collision(
     state: BallState,
     thresholds: &MotionPhaseThresholds,
@@ -12817,28 +12827,47 @@ fn supported_system_state_after_on_table_ball_ball_collision(
     )
 }
 
-fn supported_system_state_after_shared_contact(
+fn system_state_after_shared_ball_ball_collision(
     state: &BallState,
     delta: OnTableKinematicDelta,
+    lands_simultaneously: bool,
+    ball: &BallSetPhysicsSpec,
     thresholds: &MotionPhaseThresholds,
-) -> NBallSystemState {
-    supported_system_state_after_on_table_ball_ball_collision(
-        BallState::new(
-            state.position.clone(),
-            state.height.clone(),
-            Velocity2::new(
-                Inches::from_f64(state.velocity.x().as_f64() + delta.dvx),
-                Inches::from_f64(state.velocity.y().as_f64() + delta.dvy),
-            ),
-            Inches::from_f64(state.vertical_velocity.as_f64() + delta.dvz),
-            AngularVelocity3::new(
-                state.angular_velocity.x().as_f64() + delta.dwx,
-                state.angular_velocity.y().as_f64() + delta.dwy,
-                state.angular_velocity.z().as_f64() + delta.dwz,
-            ),
+) -> (NBallSystemState, bool) {
+    let state_after_collision = BallState::new(
+        state.position.clone(),
+        state.height.clone(),
+        Velocity2::new(
+            Inches::from_f64(state.velocity.x().as_f64() + delta.dvx),
+            Inches::from_f64(state.velocity.y().as_f64() + delta.dvy),
         ),
-        thresholds,
+        Inches::from_f64(state.vertical_velocity.as_f64() + delta.dvz),
+        AngularVelocity3::new(
+            state.angular_velocity.x().as_f64() + delta.dwx,
+            state.angular_velocity.y().as_f64() + delta.dwy,
+            state.angular_velocity.z().as_f64() + delta.dwz,
+        ),
+    );
+    if lands_simultaneously {
+        return system_state_after_airborne_ball_ball_collision(
+            state_after_collision,
+            ball,
+            thresholds,
+        );
+    }
+
+    (
+        supported_system_state_after_on_table_ball_ball_collision(
+            state_after_collision,
+            thresholds,
+        ),
+        false,
     )
+}
+
+struct ResolvedBallBallContactIsland {
+    ball_ball_pairs: Vec<(usize, usize)>,
+    table_contact_ball_indices: Vec<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12849,16 +12878,21 @@ enum SharedContactNormalEpoch {
 
 fn resolve_ball_ball_contact_island_from_snapshot(
     states_after: &mut [NBallSystemState],
+    states_before_event: &[NBallSystemState],
     snapshot: &ResolutionBallStateSnapshot,
     contacts: &[SharedIdealBallBallContact],
+    event_time: Seconds,
     ball: &BallSetPhysicsSpec,
     motion: &OnTableMotionConfig,
     collision_model: CollisionModel,
     collision_config: &BallBallCollisionConfig,
     normal_epoch: SharedContactNormalEpoch,
-) -> Result<Vec<(usize, usize)>, NBallGeometryError> {
+) -> Result<ResolvedBallBallContactIsland, NBallGeometryError> {
     if contacts.is_empty() {
-        return Ok(Vec::new());
+        return Ok(ResolvedBallBallContactIsland {
+            ball_ball_pairs: Vec::new(),
+            table_contact_ball_indices: Vec::new(),
+        });
     }
     if normal_epoch == SharedContactNormalEpoch::CompliantRestitution
         && contacts.len() > 1
@@ -12962,6 +12996,7 @@ fn resolve_ball_ball_contact_island_from_snapshot(
         in_component[contact.second_ball_index] = true;
     }
     let mut committed = states_after.to_vec();
+    let mut table_contact_ball_indices = Vec::new();
     for (index, delta) in solution.deltas.into_iter().enumerate() {
         if !in_component[index] {
             continue;
@@ -12969,14 +13004,29 @@ fn resolve_ball_ball_contact_island_from_snapshot(
         let Some(before) = snapshot[index].as_ref() else {
             continue;
         };
-        committed[index] =
-            supported_system_state_after_shared_contact(before, delta, &motion.phase.thresholds);
+        let lands_simultaneously =
+            airborne_ball_lands_simultaneously(&states_before_event[index], event_time);
+        let (state_after_collision, table_contact_applied) =
+            system_state_after_shared_ball_ball_collision(
+                before,
+                delta,
+                lands_simultaneously,
+                ball,
+                &motion.phase.thresholds,
+            );
+        committed[index] = state_after_collision;
+        if table_contact_applied {
+            table_contact_ball_indices.push(index);
+        }
     }
     states_after.clone_from_slice(&committed);
-    Ok(contacts
-        .iter()
-        .map(|contact| (contact.first_ball_index, contact.second_ball_index))
-        .collect())
+    Ok(ResolvedBallBallContactIsland {
+        ball_ball_pairs: contacts
+            .iter()
+            .map(|contact| (contact.first_ball_index, contact.second_ball_index))
+            .collect(),
+        table_contact_ball_indices,
+    })
 }
 
 fn closing_touching_ball_ball_contacts_from_snapshot(
@@ -13888,6 +13938,23 @@ pub(crate) enum NBallSystemAppliedEffect {
     },
 }
 
+fn append_resolved_shared_ball_ball_contact_effects(
+    effects: &mut Vec<NBallSystemAppliedEffect>,
+    resolved: ResolvedBallBallContactIsland,
+) {
+    if !resolved.ball_ball_pairs.is_empty() {
+        effects.push(NBallSystemAppliedEffect::SharedBallBallContact {
+            ball_ball_pairs: resolved.ball_ball_pairs,
+        });
+    }
+    effects.extend(
+        resolved
+            .table_contact_ball_indices
+            .into_iter()
+            .map(|ball_index| NBallSystemAppliedEffect::BallTableContact { ball_index }),
+    );
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NBallSystemUnsupportedResolution {
     pub error: NBallGeometryError,
@@ -13913,7 +13980,8 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
     rail_profile: &RailCollisionProfile,
 ) -> Result<NBallSystemResolvedStep, NBallGeometryError> {
     let states = validate_and_recover_n_ball_system_states(states, ball)?;
-    let mut states_after = advance_n_ball_system_without_event(&states, event.time(), ball, motion);
+    let event_time = event.time();
+    let mut states_after = advance_n_ball_system_without_event(&states, event_time, ball, motion);
     let mut effects = Vec::new();
     match event {
         NBallSystemEvent::AirborneBallBallCollision {
@@ -13939,16 +14007,19 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
                     .collect::<Vec<_>>();
                 match resolve_ball_ball_contact_island_from_snapshot(
                     &mut states_after,
+                    &states,
                     &snapshot,
                     &component_contacts,
+                    event_time,
                     ball,
                     motion,
                     collision_model,
                     collision_config,
                     SharedContactNormalEpoch::CompliantRestitution,
                 ) {
-                    Ok(ball_ball_pairs) => effects
-                        .push(NBallSystemAppliedEffect::SharedBallBallContact { ball_ball_pairs }),
+                    Ok(resolved) => {
+                        append_resolved_shared_ball_ball_contact_effects(&mut effects, resolved)
+                    }
                     Err(
                         error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact {
                             ..
@@ -13966,6 +14037,10 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
                     Err(error) => return Err(error),
                 }
             } else {
+                let first_lands_simultaneously =
+                    airborne_ball_lands_simultaneously(&states[*first_ball_index], event_time);
+                let second_lands_simultaneously =
+                    airborne_ball_lands_simultaneously(&states[*second_ball_index], event_time);
                 let (first_after, second_after) = collide_airborne_ball_ball_with_radius_and_config(
                     &contact.first_at_contact,
                     &contact.second_at_contact,
@@ -13973,18 +14048,54 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
                     collision_model,
                     collision_config,
                 );
-                states_after[*first_ball_index] = system_state_after_airborne_ball_ball_collision(
-                    first_after,
-                    &motion.phase.thresholds,
-                );
-                states_after[*second_ball_index] = system_state_after_airborne_ball_ball_collision(
-                    second_after,
-                    &motion.phase.thresholds,
-                );
+                let (first_state_after, first_table_contact_applied) = if first_lands_simultaneously
+                {
+                    system_state_after_airborne_ball_ball_collision(
+                        first_after,
+                        ball,
+                        &motion.phase.thresholds,
+                    )
+                } else {
+                    (
+                        supported_system_state_after_on_table_ball_ball_collision(
+                            first_after,
+                            &motion.phase.thresholds,
+                        ),
+                        false,
+                    )
+                };
+                let (second_state_after, second_table_contact_applied) =
+                    if second_lands_simultaneously {
+                        system_state_after_airborne_ball_ball_collision(
+                            second_after,
+                            ball,
+                            &motion.phase.thresholds,
+                        )
+                    } else {
+                        (
+                            supported_system_state_after_on_table_ball_ball_collision(
+                                second_after,
+                                &motion.phase.thresholds,
+                            ),
+                            false,
+                        )
+                    };
+                states_after[*first_ball_index] = first_state_after;
+                states_after[*second_ball_index] = second_state_after;
                 effects.push(NBallSystemAppliedEffect::AirborneBallBallPair {
                     first_ball_index: *first_ball_index,
                     second_ball_index: *second_ball_index,
                 });
+                if first_table_contact_applied {
+                    effects.push(NBallSystemAppliedEffect::BallTableContact {
+                        ball_index: *first_ball_index,
+                    });
+                }
+                if second_table_contact_applied {
+                    effects.push(NBallSystemAppliedEffect::BallTableContact {
+                        ball_index: *second_ball_index,
+                    });
+                }
             }
         }
         NBallSystemEvent::MotionTransition {
@@ -14014,16 +14125,19 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
                 .collect::<Vec<_>>();
             match resolve_ball_ball_contact_island_from_snapshot(
                 &mut states_after,
+                &states,
                 &snapshot,
                 &component_contacts,
+                event_time,
                 ball,
                 motion,
                 collision_model,
                 collision_config,
                 SharedContactNormalEpoch::CompliantRestitution,
             ) {
-                Ok(ball_ball_pairs) => effects
-                    .push(NBallSystemAppliedEffect::SharedBallBallContact { ball_ball_pairs }),
+                Ok(resolved) => {
+                    append_resolved_shared_ball_ball_contact_effects(&mut effects, resolved)
+                }
                 Err(
                     error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact { .. },
                 ) => {
@@ -14062,16 +14176,19 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
                     .collect::<Vec<_>>();
                 match resolve_ball_ball_contact_island_from_snapshot(
                     &mut states_after,
+                    &states,
                     &snapshot,
                     &component_contacts,
+                    event_time,
                     ball,
                     motion,
                     collision_model,
                     collision_config,
                     SharedContactNormalEpoch::CompliantRestitution,
                 ) {
-                    Ok(ball_ball_pairs) => effects
-                        .push(NBallSystemAppliedEffect::SharedBallBallContact { ball_ball_pairs }),
+                    Ok(resolved) => {
+                        append_resolved_shared_ball_ball_contact_effects(&mut effects, resolved)
+                    }
                     Err(
                         error @ NBallGeometryError::UnsupportedNonIdealSharedBallBallContact {
                             ..
@@ -14230,21 +14347,19 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
         let closure_contacts =
             closing_touching_ball_ball_contacts_from_snapshot(&closure_snapshot, ball);
         if !closure_contacts.is_empty() {
-            let closure_pairs = resolve_ball_ball_contact_island_from_snapshot(
+            let closure = resolve_ball_ball_contact_island_from_snapshot(
                 &mut states_after,
+                &states,
                 &closure_snapshot,
                 &closure_contacts,
+                event_time,
                 ball,
                 motion,
                 collision_model,
                 collision_config,
                 SharedContactNormalEpoch::RigidZeroRestitution,
             )?;
-            if !closure_pairs.is_empty() {
-                effects.push(NBallSystemAppliedEffect::SharedBallBallContact {
-                    ball_ball_pairs: closure_pairs,
-                });
-            }
+            append_resolved_shared_ball_ball_contact_effects(&mut effects, closure);
         }
     }
     Ok(NBallSystemResolvedStep {
@@ -15436,9 +15551,28 @@ fn collide_airborne_ball_ball_with_radius_and_config(
 
 fn system_state_after_airborne_ball_ball_collision(
     state: BallState,
+    ball: &BallSetPhysicsSpec,
     thresholds: &MotionPhaseThresholds,
-) -> NBallSystemState {
-    supported_system_state_after_on_table_ball_ball_collision(state, thresholds)
+) -> (NBallSystemState, bool) {
+    if state.height.as_f64().abs() <= SHARED_BALL_BALL_CONTACT_STATE_EPSILON
+        && state.vertical_velocity.as_f64() < 0.0
+    {
+        let state_on_table_at_contact = OnTableBallState::try_new(BallState::on_table(
+            state.position.clone(),
+            state.velocity.clone(),
+            state.angular_velocity.clone(),
+        ))
+        .expect("airborne collision landing state should normalize onto the table plane");
+        return (
+            resolve_airborne_table_contact(&state, state_on_table_at_contact, ball),
+            true,
+        );
+    }
+
+    (
+        supported_system_state_after_on_table_ball_ball_collision(state, thresholds),
+        false,
+    )
 }
 
 /// Resolve an instantaneous ball-ball collision for two validated on-table states and return the

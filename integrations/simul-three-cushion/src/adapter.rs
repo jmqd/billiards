@@ -381,7 +381,7 @@ fn make_candidates(config: &ExperimentConfig) -> Result<Vec<Candidate>, String> 
     let budget = usize::try_from(config.candidate_budget)
         .map_err(|_| "candidate budget does not fit this platform")?;
     match config.mode {
-        Mode::Sensitivity => make_sensitivity_candidates(config, budget),
+        Mode::Sensitivity => Ok(make_sensitivity_candidates(config, budget)),
         Mode::Search => {
             let sampled = sample_bounded(config.master_seed, budget, &config.search_bounds);
             Ok(sampled
@@ -404,15 +404,9 @@ fn make_candidates(config: &ExperimentConfig) -> Result<Vec<Candidate>, String> 
     }
 }
 
-fn make_sensitivity_candidates(
-    config: &ExperimentConfig,
-    budget: usize,
-) -> Result<Vec<Candidate>, String> {
+fn make_sensitivity_candidates(config: &ExperimentConfig, budget: usize) -> Vec<Candidate> {
     let center_count = config.sensitivity_centers.len();
-    if center_count == 0 {
-        return Err("sensitivity mode requires at least one center".into());
-    }
-    Ok((0..budget)
+    (0..budget)
         .map(|index| {
             let center = config.sensitivity_centers[index % center_count];
             let controls = if index < center_count {
@@ -425,7 +419,7 @@ fn make_sensitivity_candidates(
                 controls,
             }
         })
-        .collect())
+        .collect()
 }
 
 fn sample_bounded(master_seed: u64, budget: usize, bounds: &[crate::Bounds; 5]) -> Vec<[f64; 5]> {

@@ -9,27 +9,44 @@ fn config(arguments: &[&str]) -> simul_three_cushion::ExperimentConfig {
 }
 
 #[test]
-fn sensitivity_requires_a_center_before_trial_execution() {
-    let mut sensitivity = config(&[
+fn sensitivity_validation_precedes_candidate_construction() {
+    let mut baseline = config(&[
         "--fixture",
         "--mode",
         "sensitivity",
         "--seed",
         "1",
         "--candidates",
-        "1",
+        "2",
         "--replications",
         "1",
     ]);
-    sensitivity.sensitivity_centers.clear();
+    let cases = [
+        (
+            "empty centers",
+            0,
+            1,
+            "sensitivity mode requires at least one center",
+        ),
+        (
+            "budget smaller than center count",
+            2,
+            1,
+            "candidate budget must cover every supplied sensitivity center",
+        ),
+    ];
 
-    assert_eq!(
-        run(&sensitivity).unwrap_err(),
-        "sensitivity mode requires at least one center"
-    );
+    for (case, center_count, candidate_budget, expected) in cases {
+        let mut sensitivity = baseline.clone();
+        sensitivity.sensitivity_centers = vec![baseline.nominal; center_count];
+        sensitivity.candidate_budget = candidate_budget;
 
-    sensitivity.mode = simul_three_cushion::Mode::Search;
-    sensitivity
+        assert_eq!(run(&sensitivity).unwrap_err(), expected, "{case}");
+    }
+
+    baseline.mode = simul_three_cushion::Mode::Search;
+    baseline.sensitivity_centers.clear();
+    baseline
         .validate()
         .expect("search mode does not require sensitivity centers");
 }

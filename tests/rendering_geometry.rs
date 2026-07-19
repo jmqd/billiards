@@ -848,6 +848,99 @@ fn drawing_with_a_transparent_background_still_renders_visible_balls() {
 }
 
 #[test]
+fn png_three_cushion_balls_have_plain_colored_centers_on_transparent_background() {
+    fn assert_plain_center(image: &RgbaImage, name: &str, center: (i32, i32), radius: i32) {
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx * dx + dy * dy > radius * radius {
+                    continue;
+                }
+                let pixel = image.get_pixel((center.0 + dx) as u32, (center.1 + dy) as u32);
+                let [red, green, blue, alpha] = pixel.0;
+                let darkest = red.min(green).min(blue);
+                let brightest = red.max(green).max(blue);
+
+                assert!(
+                    alpha >= 240,
+                    "{name} center pixel at offset ({dx}, {dy}) should be opaque"
+                );
+                assert!(
+                    brightest > 64,
+                    "{name} center pixel at offset ({dx}, {dy}) is a dark pool-ball numeral: {pixel:?}"
+                );
+                assert!(
+                    !(darkest >= 190 && brightest - darkest <= 35),
+                    "{name} center pixel at offset ({dx}, {dy}) is an ivory pool-ball medallion: {pixel:?}"
+                );
+
+                match name {
+                    "yellow cue" => assert!(
+                        red >= 160 && green >= 120 && blue.saturating_add(50) <= red.min(green),
+                        "yellow cue center pixel at offset ({dx}, {dy}) should remain yellow: {pixel:?}"
+                    ),
+                    "red" => assert!(
+                        red >= 140
+                            && red >= green.saturating_add(60)
+                            && red >= blue.saturating_add(60),
+                        "red center pixel at offset ({dx}, {dy}) should remain red: {pixel:?}"
+                    ),
+                    _ => unreachable!("unknown carom ball"),
+                }
+            }
+        }
+    }
+
+    let table = TableSpec::three_cushion_carom_10ft();
+    let ball_spec = table.default_ball_spec();
+    let viewport = DiagramViewport::default();
+    let center_radius = (viewport.ball_radius_px(&table, &ball_spec) * 0.2)
+        .floor()
+        .max(1.0) as i32;
+    let yellow_position = Position::new(1u8, 2u8);
+    let red_position = Position::new(3u8, 6u8);
+    let yellow_center = viewport.position_to_scene_point(&yellow_position);
+    let red_center = viewport.position_to_scene_point(&red_position);
+    let state = GameState::with_balls(
+        table,
+        [
+            Ball {
+                ty: BallType::YellowCue,
+                position: yellow_position,
+                spec: ball_spec.clone(),
+            },
+            Ball {
+                ty: BallType::Red,
+                position: red_position,
+                spec: ball_spec,
+            },
+        ],
+    );
+    let image = render_with_options(
+        &state,
+        &DiagramRenderOptions {
+            background: DiagramBackground::Transparent,
+            ..DiagramRenderOptions::default()
+        },
+    );
+
+    assert_plain_center(
+        &image,
+        "yellow cue",
+        (
+            yellow_center.x.round() as i32,
+            yellow_center.y.round() as i32,
+        ),
+        center_radius,
+    );
+    assert_plain_center(
+        &image,
+        "red",
+        (red_center.x.round() as i32, red_center.y.round() as i32),
+        center_radius,
+    );
+}
+
+#[test]
 fn png_backend_renders_spin_glyphs_without_requiring_a_ball_sprite() {
     let table_spec = TableSpec::default();
     let ball_spec = BallSpec::default();

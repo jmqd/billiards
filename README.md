@@ -91,6 +91,23 @@ units. Edits in either representation re-render through the Wasm
 controls used by the validation gallery. Generated preview output lives in
 `target/wasm-preview/`.
 
+The editor includes a **Robust three-cushion search** card below the DSL. Choose a physics-evaluation
+budget and player level, select **Find robust shot**, and inspect the score probability and ranked
+finalists. A configured shot supplies the search seed and cue. A shotless three-ball setup uses a
+deterministic neutral seed plus the cue named `default` (or the sole declared cue), falling back to
+the canonical cue when no unambiguous declaration exists. **Apply best shot** writes all five winning
+controls back when the searched DSL already has a shot. Editing or resetting the DSL invalidates
+an older result.
+
+For bounded three-cushion optimization, the Wasm package also exports
+`robust_three_cushion_shot_from_dsl(source, iterations, playerLevel)`. `iterations` must be
+between 16 and 10,000; `playerLevel` is `b`, `a`, or `pro`. The deterministic JSON report contains
+`sourceHasShot`, the mapped shot-inaccuracy sigmas, exact evaluation accounting, Wilson-ranked
+finalists, and the winning controls. `web/render-worker.js` exposes the same operation with
+`{ id, action: "robust-shot-search", source, iterations, playerLevel }`; `id` must be a safe integer.
+The page module exports `requestRobustThreeCushionSearch({ iterations, playerLevel, source? })`,
+which routes that request through the shared worker and resolves to `{ search, elapsedMs }`.
+
 ## Thanks
 
 Thanks to Dr. Dave Alciatore of Colorado State University for providing the

@@ -77,13 +77,14 @@ pub struct DslScenario {
     pub simulations: HashMap<String, SimulationPreset>,
 }
 
-struct EffectiveSimulationPhysics {
-    motion: OnTableMotionConfig,
-    collision_model: CollisionModel,
-    collision_config: BallBallCollisionConfig,
-    rail_model: RailModel,
-    rail_profile: RailCollisionProfile,
-    max_events: Option<usize>,
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectiveSimulationPhysics {
+    pub motion: OnTableMotionConfig,
+    pub collision_model: CollisionModel,
+    pub collision_config: BallBallCollisionConfig,
+    pub rail_model: RailModel,
+    pub rail_profile: RailCollisionProfile,
+    pub max_events: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -146,6 +147,25 @@ impl DslScenario {
             self.simulations.keys().next().map(String::as_str)
         } else {
             None
+        }
+    }
+
+    pub fn preferred_simulation_physics(
+        &self,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        rail_model: RailModel,
+    ) -> Result<EffectiveSimulationPhysics, DslBuildError> {
+        match self.preferred_simulation_name() {
+            Some(simulation_name) => self.effective_simulation_physics(motion, simulation_name),
+            None => Ok(EffectiveSimulationPhysics {
+                motion: motion.clone(),
+                collision_model,
+                collision_config: BallBallCollisionConfig::human_tuned(),
+                rail_model,
+                rail_profile: RailCollisionProfile::default(),
+                max_events: None,
+            }),
         }
     }
 
@@ -577,28 +597,16 @@ impl DslScenario {
         rail_model: RailModel,
         stop: ScenarioTraceStop,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        if let Some(simulation_name) = self.preferred_simulation_name() {
-            let simulation = self.effective_simulation_physics(motion, simulation_name)?;
-            self.execute_shot_trace_with_physics_on_table(
-                ball_set,
-                &simulation.motion,
-                simulation.collision_model,
-                &simulation.collision_config,
-                simulation.rail_model,
-                &simulation.rail_profile,
-                stop.constrained_by(simulation.max_events),
-            )
-        } else {
-            self.execute_shot_trace_with_physics_on_table(
-                ball_set,
-                motion,
-                collision_model,
-                &BallBallCollisionConfig::human_tuned(),
-                rail_model,
-                &RailCollisionProfile::default(),
-                stop,
-            )
-        }
+        let simulation = self.preferred_simulation_physics(motion, collision_model, rail_model)?;
+        self.execute_shot_trace_with_physics_on_table(
+            ball_set,
+            &simulation.motion,
+            simulation.collision_model,
+            &simulation.collision_config,
+            simulation.rail_model,
+            &simulation.rail_profile,
+            stop.constrained_by(simulation.max_events),
+        )
     }
 
     pub fn game_state_for_system_states(&self, states: &[NBallSystemState]) -> GameState {
@@ -2386,9 +2394,47 @@ pub fn parse_dsl_to_scenario(input: &str) -> Result<DslScenario, DslError> {
 }
 
 pub fn shot_controls_from_dsl(source: &str) -> Result<Option<ShotControls>, ShotControlError> {
+    let (_, controls, _) = scenario_controls_and_preferred_cue_from_dsl(source)?;
+    Ok(controls)
+}
+
+/// Parses one scenario and returns its editable shot controls plus the preferred
+/// cue declaration for a shotless caller.
+pub(crate) fn scenario_controls_and_preferred_cue_from_dsl(
+    source: &str,
+) -> Result<(DslScenario, Option<ShotControls>, Option<CueStrikeConfig>), ShotControlError> {
     let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
     let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
-    shot_controls_from_parsed_dsl(&parsed, &scenario)
+    let controls = shot_controls_from_parsed_dsl(&parsed, &scenario)?;
+    let preferred_cue = preferred_cue_strike(&parsed.doc).map_err(DslError::Build)?;
+    Ok((scenario, controls, preferred_cue))
+}
+
+/// Selects the cue named `default`, or the sole cue when only one is declared.
+fn preferred_cue_strike(doc: &DslDoc) -> Result<Option<CueStrikeConfig>, DslBuildError> {
+    let mut first = None;
+    let mut count = 0;
+    let mut named_default = None;
+    for entry in &doc.entries {
+        if let DslEntry::CueStrike(definition) = entry {
+            count += 1;
+            if first.is_none() {
+                first = Some(definition);
+            }
+            if definition.name == "default" {
+                named_default = Some(definition);
+            }
+        }
+    }
+
+    let preferred = if named_default.is_some() {
+        named_default
+    } else if count == 1 {
+        first
+    } else {
+        None
+    };
+    preferred.map(build_cue_strike).transpose()
 }
 
 fn shot_controls_from_parsed_dsl(
@@ -4695,6 +4741,31 @@ mod tests {
         assert_eq!(preset.rails_name, "table");
         assert_eq!(preset.rail_model, RailModel::SpinAware);
         assert_eq!(preset.conditions, PlayingConditions::neutral());
+    }
+
+    #[test]
+    fn shotless_scenario_prefers_the_named_default_cue() {
+        let source = "cue_strike(practice).mass_ratio(0.9).energy_loss(0.2)\n\
+                      cue_strike(default).mass_ratio(1.0).energy_loss(0.08)";
+        let (_, controls, cue) = scenario_controls_and_preferred_cue_from_dsl(source)
+            .expect("shotless cue declarations should build");
+
+        assert_eq!(controls, None);
+        assert_eq!(
+            cue,
+            Some(
+                CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.08))
+                    .expect("expected cue coefficients are valid")
+            )
+        );
+        let (_, _, absent_cue) = scenario_controls_and_preferred_cue_from_dsl("")
+            .expect("an empty scenario should use the caller's fallback");
+        assert_eq!(absent_cue, None);
+        let ambiguous_source = "cue_strike(one).mass_ratio(1.0).energy_loss(0.1)\n\
+             cue_strike(two).mass_ratio(1.0).energy_loss(0.2)";
+        let (_, _, ambiguous_cue) = scenario_controls_and_preferred_cue_from_dsl(ambiguous_source)
+            .expect("ambiguous cue declarations should still build");
+        assert_eq!(ambiguous_cue, None);
     }
 
     #[test]

@@ -144,6 +144,58 @@
         <label class="visually-hidden" for="dsl-input">Billiards DSL input</label>
         <textarea id="dsl-input" spellcheck="false" aria-label="Billiards DSL input"></textarea>
         <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">Loading Wasm renderer…</div>
+
+        <section id="robust-search" class="robust-search" aria-labelledby="robust-search-title">
+          <div class="robust-search-heading">
+            <div>
+              <h3 id="robust-search-title">Robust three-cushion search</h3>
+              <p>Find the shot most likely to score after realistic execution error.</p>
+            </div>
+            <span>Deterministic · bounded</span>
+          </div>
+
+          <form id="robust-search-form" class="robust-search-form">
+            <label for="robust-iterations">
+              <span>Physics evaluations</span>
+              <input id="robust-iterations" type="number" min="16" max="10000" step="1" value="256" required disabled>
+            </label>
+            <label for="robust-player-level">
+              <span>Player level</span>
+              <select id="robust-player-level" disabled>
+                <option value="b">B player</option>
+                <option value="a" selected>A player</option>
+                <option value="pro">Pro player</option>
+              </select>
+            </label>
+            <button id="robust-search-button" type="submit" disabled>Find robust shot</button>
+          </form>
+          <p class="robust-search-help">
+            Evaluations are split between broad screening and held-out validation. The search varies
+            heading, speed, side, draw/follow, and cue elevation.
+          </p>
+          <div id="robust-search-status" class="robust-search-status" role="status" aria-live="polite">
+            Load the Wasm renderer to start an experiment.
+          </div>
+
+          <section id="robust-search-results" class="robust-search-results" aria-labelledby="robust-search-result-title" hidden>
+            <div class="robust-search-result-heading">
+              <h4 id="robust-search-result-title">Best validated shot</h4>
+              <button id="robust-apply-button" type="button" disabled>Apply best shot</button>
+            </div>
+            <dl class="robust-search-metrics">
+              <div><dt>Score probability</dt><dd id="robust-winner-probability">—</dd></div>
+              <div><dt>95% Wilson interval</dt><dd id="robust-winner-interval">—</dd></div>
+              <div><dt>Evaluations</dt><dd id="robust-evaluation-count">—</dd></div>
+              <div><dt>Elapsed</dt><dd id="robust-elapsed-time">—</dd></div>
+              <div><dt>Noise model</dt><dd id="robust-noise-summary">—</dd></div>
+            </dl>
+            <dl id="robust-winner-controls" class="robust-winner-controls"></dl>
+            <details class="robust-ranked-details">
+              <summary>Ranked finalists</summary>
+              <ol id="robust-ranked-list"></ol>
+            </details>
+          </section>
+        </section>
       </div>
     </section>
 

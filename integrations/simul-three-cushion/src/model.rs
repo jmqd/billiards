@@ -1,8 +1,16 @@
 use std::num::NonZeroUsize;
-
 use std::{borrow::Cow, fmt, io};
 
+use billiards::shot_simulation::{
+    robust_controls_within_bounds, validate_robust_controls, validate_robust_noise_envelope,
+    validate_robust_noise_sigmas, validate_robust_perturbations, validate_robust_search_bounds,
+    ReplayKey, RobustControlBounds, RobustNoiseSigmas, RobustPerturbationWidths,
+    RobustShotControls,
+};
 use clap::ValueEnum;
+
+pub(crate) const MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE: u64 =
+    billiards::shot_simulation::ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum Shooter {
@@ -51,12 +59,45 @@ pub struct Controls {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NoiseWidths {
+pub struct PerturbationWidths {
     pub heading: f64,
     pub speed: f64,
     pub tip_side: f64,
     pub tip_height: f64,
     pub elevation: f64,
+}
+
+impl PerturbationWidths {
+    pub const fn as_array(self) -> [f64; 5] {
+        [
+            self.heading,
+            self.speed,
+            self.tip_side,
+            self.tip_height,
+            self.elevation,
+        ]
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NoiseSigmas {
+    pub heading: f64,
+    pub speed: f64,
+    pub tip_side: f64,
+    pub tip_height: f64,
+    pub elevation: f64,
+}
+
+impl NoiseSigmas {
+    pub const fn as_array(self) -> [f64; 5] {
+        [
+            self.heading,
+            self.speed,
+            self.tip_side,
+            self.tip_height,
+            self.elevation,
+        ]
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -86,14 +127,16 @@ pub struct ExperimentConfig {
     /// White, yellow, and red diamond-coordinate positions, in that order.
     pub positions: [Position; 3],
     pub nominal: Controls,
-    pub sensitivity_centers: Vec<Controls>,
-    pub perturbations: NoiseWidths,
-    pub execution_noise: NoiseWidths,
+    pub additional_candidates: Vec<Controls>,
+    pub perturbations: PerturbationWidths,
+    pub shot_inaccuracy: NoiseSigmas,
     /// Heading, speed, side, height, and elevation bounds, in that order.
     pub search_bounds: [Bounds; 5],
     pub master_seed: u64,
-    pub candidate_budget: u64,
-    pub replication_budget: u32,
+    pub candidate_budget: usize,
+    pub screening_replication_budget: u32,
+    pub finalist_budget: usize,
+    pub validation_replication_budget: u32,
     pub workers: NonZeroUsize,
     pub max_events: usize,
 }
@@ -103,95 +146,119 @@ impl ExperimentConfig {
         if self.candidate_budget == 0 {
             return Err("candidate budget must be greater than zero".into());
         }
-        if self.mode == Mode::Sensitivity && self.sensitivity_centers.is_empty() {
-            return Err("sensitivity mode requires at least one center".into());
+        if self.screening_replication_budget == 0 {
+            return Err("screening replication budget must be greater than zero".into());
         }
-        if self.mode == Mode::Sensitivity
-            && self.candidate_budget < self.sensitivity_centers.len() as u64
-        {
-            return Err("candidate budget must cover every supplied sensitivity center".into());
+        if self.finalist_budget == 0 {
+            return Err("finalist budget must be greater than zero".into());
         }
-        if self.replication_budget == 0 {
-            return Err("replication budget must be greater than zero".into());
+        if self.validation_replication_budget == 0 {
+            return Err("validation replication budget must be greater than zero".into());
         }
         if self.max_events == 0 {
             return Err("max events must be greater than zero".into());
         }
-        validate_controls(self.nominal)?;
+
+        let required_candidates = self
+            .additional_candidates
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| "additional candidate count overflowed platform size".to_owned())?;
+        if self.candidate_budget < required_candidates {
+            return Err(
+                "candidate budget must cover the nominal shot and every supplied candidate".into(),
+            );
+        }
+        let greatest_candidate_index = self.candidate_budget - 1;
+        let greatest_candidate_id = u64::try_from(greatest_candidate_index)
+            .map_err(|_| "candidate budget exceeds the u64 candidate-ID space".to_owned())?;
+        greatest_candidate_id
+            .checked_mul(MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE)
+            .ok_or_else(|| "candidate proposal sample ID would overflow u64".to_owned())?;
+
         for position in self.positions {
             if !position.x.is_finite() || !position.y.is_finite() {
                 return Err("ball positions must be finite".into());
             }
         }
-        for (label, widths) in [
-            ("perturbation", self.perturbations),
-            ("noise", self.execution_noise),
-        ] {
-            for width in widths.as_array() {
-                if !width.is_finite() || width < 0.0 {
-                    return Err(format!("{label} widths must be finite and non-negative"));
-                }
-            }
+        validate_robust_perturbations(robust_perturbations(self.perturbations))
+            .map_err(|error| error.to_string())?;
+        validate_robust_noise_sigmas(robust_sigmas(self.shot_inaccuracy))
+            .map_err(|error| error.to_string())?;
+        validate_robust_search_bounds(self.search_bounds.map(robust_bounds))
+            .map_err(|error| error.to_string())?;
+
+        validate_configured_candidate(
+            "nominal controls",
+            self.nominal,
+            self.mode,
+            self.search_bounds,
+            self.shot_inaccuracy,
+        )?;
+        for (index, controls) in self.additional_candidates.iter().copied().enumerate() {
+            validate_configured_candidate(
+                &format!("additional candidate {index}"),
+                controls,
+                self.mode,
+                self.search_bounds,
+                self.shot_inaccuracy,
+            )?;
         }
-        for bounds in self.search_bounds {
-            if !bounds.minimum.is_finite()
-                || !bounds.maximum.is_finite()
-                || bounds.minimum > bounds.maximum
-            {
-                return Err("search bounds must be finite and ordered".into());
-            }
-        }
-        for center in &self.sensitivity_centers {
-            validate_controls(*center)?;
-        }
+
         Ok(())
     }
 }
 
-impl NoiseWidths {
-    pub const fn as_array(self) -> [f64; 5] {
-        [
-            self.heading,
-            self.speed,
-            self.tip_side,
-            self.tip_height,
-            self.elevation,
-        ]
+fn validate_configured_candidate(
+    label: &str,
+    controls: Controls,
+    mode: Mode,
+    search_bounds: [Bounds; 5],
+    sigmas: NoiseSigmas,
+) -> Result<(), String> {
+    let controls = robust_controls(controls);
+    validate_robust_controls(controls).map_err(|error| format!("{label}: {error}"))?;
+    if mode == Mode::Search
+        && !robust_controls_within_bounds(controls, search_bounds.map(robust_bounds))
+    {
+        return Err(format!("{label} must lie within every search bound"));
+    }
+    validate_robust_noise_envelope(controls, robust_sigmas(sigmas))
+        .map_err(|error| format!("{label} has a non-executable ±3σ envelope: {error}"))
+}
+
+pub(crate) const fn robust_controls(controls: Controls) -> RobustShotControls {
+    RobustShotControls {
+        heading: controls.heading,
+        speed: controls.speed,
+        tip_side: controls.tip_side,
+        tip_height: controls.tip_height,
+        elevation: controls.elevation,
     }
 }
 
-fn validate_controls(controls: Controls) -> Result<(), String> {
-    for (name, value) in [
-        ("heading", controls.heading),
-        ("speed", controls.speed),
-        ("tip side", controls.tip_side),
-        ("tip height", controls.tip_height),
-        ("elevation", controls.elevation),
-    ] {
-        if !value.is_finite() {
-            return Err(format!("{name} must be finite"));
-        }
+pub(crate) const fn robust_perturbations(widths: PerturbationWidths) -> RobustPerturbationWidths {
+    RobustPerturbationWidths {
+        heading: widths.heading,
+        speed: widths.speed,
+        tip_side: widths.tip_side,
+        tip_height: widths.tip_height,
+        elevation: widths.elevation,
     }
-    if controls.speed <= 0.0 {
-        return Err("launch speed must be greater than zero".into());
-    }
-    if controls.elevation < 0.0 || controls.elevation >= 90.0 {
-        return Err("elevation must be in [0, 90) degrees".into());
-    }
-    validate_tip(controls)
 }
 
-pub fn validate_tip(controls: Controls) -> Result<(), String> {
-    if !controls.tip_side.is_finite() {
-        return Err("tip side must be finite".into());
+pub(crate) const fn robust_sigmas(sigmas: NoiseSigmas) -> RobustNoiseSigmas {
+    RobustNoiseSigmas {
+        heading: sigmas.heading,
+        speed: sigmas.speed,
+        tip_side: sigmas.tip_side,
+        tip_height: sigmas.tip_height,
+        elevation: sigmas.elevation,
     }
-    if !controls.tip_height.is_finite() {
-        return Err("tip height must be finite".into());
-    }
-    if controls.tip_side.hypot(controls.tip_height) > 1.0 + 1e-12 {
-        return Err("tip side/height must lie within one ball radius".into());
-    }
-    Ok(())
+}
+
+pub(crate) const fn robust_bounds(bounds: Bounds) -> RobustControlBounds {
+    RobustControlBounds::new(bounds.minimum, bounds.maximum)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -217,6 +284,21 @@ pub const fn known_carom_fixture() -> KnownFixture {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrialStage {
+    Screening,
+    Validation,
+}
+
+impl fmt::Display for TrialStage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Screening => "screening",
+            Self::Validation => "validation",
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TrialDisposition {
     Scored,
@@ -226,19 +308,7 @@ pub enum TrialDisposition {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TrialReport {
-    pub candidate_id: u64,
-    pub replication_id: u32,
-    pub replay_key: String,
-    pub applied: Controls,
-    pub disposition: TrialDisposition,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct CandidateReport {
-    pub rank: Option<usize>,
-    pub candidate_id: u64,
-    pub controls: Controls,
+pub struct OutcomeSummary {
     pub requested: u32,
     pub scored: u32,
     pub missed: u32,
@@ -251,32 +321,117 @@ pub struct CandidateReport {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct TrialReport {
+    pub stage: TrialStage,
+    pub candidate_id: u64,
+    pub replication_id: u32,
+    pub replay_key: ReplayKey,
+    pub applied: Option<Controls>,
+    pub disposition: TrialDisposition,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CandidateReport {
+    pub rank: Option<usize>,
+    pub candidate_id: u64,
+    pub controls: Controls,
+    pub screening: OutcomeSummary,
+    pub validation: Option<OutcomeSummary>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct ExperimentReport {
     pub mode: Mode,
     pub shooter: Shooter,
+    /// White, yellow, and red diamond-coordinate positions, in that order.
+    pub positions: [Position; 3],
+    pub perturbations: PerturbationWidths,
+    pub shot_inaccuracy: NoiseSigmas,
+    /// Heading, speed, side, height, and elevation bounds, in that order.
+    pub search_bounds: [Bounds; 5],
+    pub candidate_budget: usize,
+    pub screening_replication_budget: u32,
+    pub finalist_budget: usize,
+    pub validation_replication_budget: u32,
+    pub requested_workers: NonZeroUsize,
+    pub max_events: usize,
     pub master_seed: u64,
     pub seed_protocol: &'static str,
+    pub physics_profile: &'static str,
+    pub noise_model: &'static str,
+    pub noise_parent_sigma_limit: f64,
+    pub selection_policy: &'static str,
+    pub winner_id: Option<u64>,
     pub candidates: Vec<CandidateReport>,
     pub trials: Vec<TrialReport>,
 }
 
 impl ExperimentReport {
+    pub fn winner(&self) -> Option<&CandidateReport> {
+        self.candidates
+            .iter()
+            .find(|candidate| candidate.rank == Some(1))
+    }
+
     pub fn write_to(&self, mut output: impl io::Write) -> io::Result<()> {
         writeln!(
             output,
-            "META,mode={},shooter={},master_seed={},seed_protocol={},candidate_count={},trial_count={}",
+            "META,mode={},shooter={},physics_profile={},master_seed={},seed_protocol={},search_proposal_domain=5345415243480001,search_screening_domain=5345415243480002,search_validation_domain=5345415243480003,sensitivity_proposal_domain=53454e5349540001,sensitivity_trial_domain=53454e5349540002,noise_model={},noise_parent_sigma_limit={:.9},selection_policy={},winner_id={},candidate_count={},trial_count={}",
             self.mode,
             self.shooter,
+            self.physics_profile,
             self.master_seed,
             self.seed_protocol,
+            self.noise_model,
+            self.noise_parent_sigma_limit,
+            self.selection_policy,
+            display_option_u64(self.winner_id),
             self.candidates.len(),
             self.trials.len()
         )?;
-        writeln!(output, "CANDIDATE,rank,id,heading_deg,speed_ips,tip_side_r,tip_height_r,elevation_deg,requested,scored,missed,indeterminate,failed,success_rate,confidence_low,confidence_high,eligible")?;
+        writeln!(
+            output,
+            "CONFIG,white_diamonds={:.9}:{:.9},yellow_diamonds={:.9}:{:.9},red_diamonds={:.9}:{:.9},proposal_widths={:.9}:{:.9}:{:.9}:{:.9}:{:.9},noise_sigmas={:.9}:{:.9}:{:.9}:{:.9}:{:.9},search_bounds={:.9}:{:.9};{:.9}:{:.9};{:.9}:{:.9};{:.9}:{:.9};{:.9}:{:.9},candidate_budget={},screening_replications={},finalist_budget={},validation_replications={},workers={},max_events={},proposal_attempt_limit={}",
+            self.positions[0].x,
+            self.positions[0].y,
+            self.positions[1].x,
+            self.positions[1].y,
+            self.positions[2].x,
+            self.positions[2].y,
+            self.perturbations.heading,
+            self.perturbations.speed,
+            self.perturbations.tip_side,
+            self.perturbations.tip_height,
+            self.perturbations.elevation,
+            self.shot_inaccuracy.heading,
+            self.shot_inaccuracy.speed,
+            self.shot_inaccuracy.tip_side,
+            self.shot_inaccuracy.tip_height,
+            self.shot_inaccuracy.elevation,
+            self.search_bounds[0].minimum,
+            self.search_bounds[0].maximum,
+            self.search_bounds[1].minimum,
+            self.search_bounds[1].maximum,
+            self.search_bounds[2].minimum,
+            self.search_bounds[2].maximum,
+            self.search_bounds[3].minimum,
+            self.search_bounds[3].maximum,
+            self.search_bounds[4].minimum,
+            self.search_bounds[4].maximum,
+            self.candidate_budget,
+            self.screening_replication_budget,
+            self.finalist_budget,
+            self.validation_replication_budget,
+            self.requested_workers,
+            self.max_events,
+            MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE
+        )?;
+        writeln!(output, "CANDIDATE,rank,id,heading_deg,speed_ips,tip_side_r,tip_height_r,elevation_deg,screening_requested,screening_scored,screening_missed,screening_indeterminate,screening_failed,screening_success_rate,screening_confidence_low,screening_confidence_high,screening_eligible,validation_requested,validation_scored,validation_missed,validation_indeterminate,validation_failed,validation_success_rate,validation_confidence_low,validation_confidence_high,validation_eligible")?;
         for candidate in &self.candidates {
+            let validation = candidate.validation.as_ref();
             writeln!(
                 output,
-                "CANDIDATE,{},{},{:.9},{:.9},{:.9},{:.9},{:.9},{},{},{},{},{},{},{},{},{}",
+                "CANDIDATE,{},{},{:.9},{:.9},{:.9},{:.9},{:.9},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 display_option_usize(candidate.rank),
                 candidate.candidate_id,
                 candidate.controls.heading,
@@ -284,18 +439,27 @@ impl ExperimentReport {
                 candidate.controls.tip_side,
                 candidate.controls.tip_height,
                 candidate.controls.elevation,
-                candidate.requested,
-                candidate.scored,
-                candidate.missed,
-                candidate.indeterminate,
-                candidate.failed,
-                display_option_f64(candidate.success_rate),
-                display_option_f64(candidate.confidence_low),
-                display_option_f64(candidate.confidence_high),
-                candidate.eligible
+                candidate.screening.requested,
+                candidate.screening.scored,
+                candidate.screening.missed,
+                candidate.screening.indeterminate,
+                candidate.screening.failed,
+                display_option_f64(candidate.screening.success_rate),
+                display_option_f64(candidate.screening.confidence_low),
+                display_option_f64(candidate.screening.confidence_high),
+                candidate.screening.eligible,
+                display_option_u32(validation.map(|summary| summary.requested)),
+                display_option_u32(validation.map(|summary| summary.scored)),
+                display_option_u32(validation.map(|summary| summary.missed)),
+                display_option_u32(validation.map(|summary| summary.indeterminate)),
+                display_option_u32(validation.map(|summary| summary.failed)),
+                display_option_f64(validation.and_then(|summary| summary.success_rate)),
+                display_option_f64(validation.and_then(|summary| summary.confidence_low)),
+                display_option_f64(validation.and_then(|summary| summary.confidence_high)),
+                display_option_bool(validation.map(|summary| summary.eligible))
             )?;
         }
-        writeln!(output, "TRIAL,candidate_id,replication_id,replay_key,heading_deg,speed_ips,tip_side_r,tip_height_r,elevation_deg,outcome,detail")?;
+        writeln!(output, "TRIAL,stage,candidate_id,replication_id,replay_key,heading_deg,speed_ips,tip_side_r,tip_height_r,elevation_deg,outcome,detail")?;
         for trial in &self.trials {
             let (outcome, detail) = match &trial.disposition {
                 TrialDisposition::Scored => ("scored", ""),
@@ -303,17 +467,19 @@ impl ExperimentReport {
                 TrialDisposition::Indeterminate(detail) => ("indeterminate", detail.as_str()),
                 TrialDisposition::Failed(detail) => ("failed", detail.as_str()),
             };
+            let applied = trial.applied;
             writeln!(
                 output,
-                "TRIAL,{},{},{},{:.9},{:.9},{:.9},{:.9},{:.9},{},{}",
+                "TRIAL,{},{},{},{},{},{},{},{},{},{},{}",
+                trial.stage,
                 trial.candidate_id,
                 trial.replication_id,
-                csv_field(&trial.replay_key),
-                trial.applied.heading,
-                trial.applied.speed,
-                trial.applied.tip_side,
-                trial.applied.tip_height,
-                trial.applied.elevation,
+                trial.replay_key,
+                display_option_f64(applied.map(|controls| controls.heading)),
+                display_option_f64(applied.map(|controls| controls.speed)),
+                display_option_f64(applied.map(|controls| controls.tip_side)),
+                display_option_f64(applied.map(|controls| controls.tip_height)),
+                display_option_f64(applied.map(|controls| controls.elevation)),
                 outcome,
                 csv_field(detail)
             )?;
@@ -328,6 +494,18 @@ fn display_option_f64(value: Option<f64>) -> String {
 
 fn display_option_usize(value: Option<usize>) -> String {
     value.map_or_else(String::new, |number| number.to_string())
+}
+
+fn display_option_u64(value: Option<u64>) -> String {
+    value.map_or_else(String::new, |number| number.to_string())
+}
+
+fn display_option_u32(value: Option<u32>) -> String {
+    value.map_or_else(String::new, |number| number.to_string())
+}
+
+fn display_option_bool(value: Option<bool>) -> String {
+    value.map_or_else(String::new, |boolean| boolean.to_string())
 }
 
 fn csv_field(value: &str) -> Cow<'_, str> {

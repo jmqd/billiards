@@ -6,8 +6,8 @@ use billiards::shot_simulation::{
 };
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use simul_three_cushion::{
-    known_carom_fixture, run, Bounds, Controls, ExperimentConfig, KnownFixture, Mode, NoiseWidths,
-    Shooter, TrialDisposition,
+    known_carom_fixture, run, Bounds, Controls, ExperimentConfig, KnownFixture, Mode, NoiseSigmas,
+    PerturbationWidths, Shooter, TrialDisposition,
 };
 
 const MAX_EVENTS: usize = 64;
@@ -45,7 +45,14 @@ fn prepare_fixture(fixture: &KnownFixture) -> Result<PreparedFixture, ShotSimula
 }
 
 fn serial_batch_config(fixture: KnownFixture) -> ExperimentConfig {
-    let zero_noise = NoiseWidths {
+    let zero_perturbation = PerturbationWidths {
+        heading: 0.0,
+        speed: 0.0,
+        tip_side: 0.0,
+        tip_height: 0.0,
+        elevation: 0.0,
+    };
+    let zero_inaccuracy = NoiseSigmas {
         heading: 0.0,
         speed: 0.0,
         tip_side: 0.0,
@@ -65,9 +72,9 @@ fn serial_batch_config(fixture: KnownFixture) -> ExperimentConfig {
         shooter: Shooter::White,
         positions: fixture.positions,
         nominal: fixture.controls,
-        sensitivity_centers: vec![fixture.controls],
-        perturbations: zero_noise,
-        execution_noise: zero_noise,
+        additional_candidates: Vec::new(),
+        perturbations: zero_perturbation,
+        shot_inaccuracy: zero_inaccuracy,
         search_bounds: [
             Bounds::new(heading, heading),
             Bounds::new(speed, speed),
@@ -77,7 +84,9 @@ fn serial_batch_config(fixture: KnownFixture) -> ExperimentConfig {
         ],
         master_seed: 7,
         candidate_budget: 1,
-        replication_budget: SERIAL_BATCH_SIZE,
+        screening_replication_budget: SERIAL_BATCH_SIZE,
+        finalist_budget: 1,
+        validation_replication_budget: 1,
         workers: NonZeroUsize::MIN,
         max_events: MAX_EVENTS,
     }
@@ -113,12 +122,13 @@ fn validate_serial_batch(config: &ExperimentConfig) {
     assert_eq!(report.candidates.len(), 1);
     assert_eq!(report.trials.len(), SERIAL_BATCH_SIZE as usize);
     let candidate = &report.candidates[0];
-    assert_eq!(candidate.requested, SERIAL_BATCH_SIZE);
-    assert_eq!(candidate.scored, SERIAL_BATCH_SIZE);
-    assert_eq!(candidate.missed, 0);
-    assert_eq!(candidate.indeterminate, 0);
-    assert_eq!(candidate.failed, 0);
-    assert_eq!(candidate.success_rate, Some(1.0));
+    assert_eq!(candidate.screening.requested, SERIAL_BATCH_SIZE);
+    assert_eq!(candidate.screening.scored, SERIAL_BATCH_SIZE);
+    assert_eq!(candidate.screening.missed, 0);
+    assert_eq!(candidate.screening.indeterminate, 0);
+    assert_eq!(candidate.screening.failed, 0);
+    assert_eq!(candidate.screening.success_rate, Some(1.0));
+    assert!(candidate.validation.is_none());
     assert!(report
         .trials
         .iter()

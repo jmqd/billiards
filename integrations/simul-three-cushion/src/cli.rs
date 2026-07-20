@@ -1,10 +1,11 @@
 use std::num::NonZeroUsize;
-
 use std::{fmt, str::FromStr};
 
 use clap::{Args, Parser};
 
-use crate::{Bounds, Controls, ExperimentConfig, Mode, NoiseWidths, Position, Shooter};
+use crate::{
+    Bounds, Controls, ExperimentConfig, Mode, NoiseSigmas, PerturbationWidths, Position, Shooter,
+};
 
 #[derive(Clone, Debug, Parser)]
 #[command(
@@ -51,20 +52,33 @@ pub struct Cli {
     #[arg(long)]
     pub seed: u64,
 
-    /// Number of nominal/perturbed candidates or search proposals.
+    /// Number of nominal, explicit, and generated candidates.
     #[arg(long, default_value_t = 16)]
-    pub candidates: u64,
+    pub candidates: usize,
 
-    /// Number of independent executions per candidate.
+    /// Number of screening executions per candidate.
     #[arg(long, default_value_t = 32)]
-    pub replications: u32,
+    pub screening_replications: u32,
+
+    /// Maximum screening-eligible candidates evaluated on held-out trials.
+    #[arg(long, default_value_t = 4)]
+    pub finalists: usize,
+
+    /// Number of held-out validation executions per finalist.
+    #[arg(long, default_value_t = 256)]
+    pub validation_replications: u32,
+
     /// Number of threads in the bounded outer trial pool.
     #[arg(long, default_value_t = NonZeroUsize::MIN)]
     pub workers: NonZeroUsize,
 
-    /// Additional sensitivity centers as heading,speed,side,height,elevation.
-    #[arg(long = "good", value_name = "H,S,X,Y,E")]
-    pub good: Vec<ControlsArg>,
+    /// Additional explicit candidates as heading,speed,side,height,elevation.
+    #[arg(
+        long = "good",
+        value_name = "H,S,X,Y,E",
+        value_parser = parse_controls
+    )]
+    pub good: Vec<Controls>,
 
     /// Maximum physics events before a trial becomes indeterminate.
     #[arg(long, default_value_t = 64)]
@@ -106,16 +120,26 @@ pub struct PerturbationArgs {
 
 #[derive(Clone, Copy, Debug, Args)]
 pub struct NoiseArgs {
+    /// Parent Gaussian sigma; draws are conditioned to [-3σ,+3σ].
+    /// The realized standard deviation is about 0.9866σ.
     #[arg(long, default_value_t = 0.0)]
-    pub heading_noise: f64,
+    pub heading_sigma: f64,
+    /// Parent Gaussian sigma; draws are conditioned to [-3σ,+3σ].
+    /// The realized standard deviation is about 0.9866σ.
     #[arg(long, default_value_t = 0.0)]
-    pub speed_noise: f64,
+    pub speed_sigma: f64,
+    /// Parent Gaussian sigma; draws are conditioned to [-3σ,+3σ].
+    /// The realized standard deviation is about 0.9866σ.
     #[arg(long, default_value_t = 0.0)]
-    pub tip_side_noise: f64,
+    pub tip_side_sigma: f64,
+    /// Parent Gaussian sigma; draws are conditioned to [-3σ,+3σ].
+    /// The realized standard deviation is about 0.9866σ.
     #[arg(long, default_value_t = 0.0)]
-    pub tip_height_noise: f64,
+    pub tip_height_sigma: f64,
+    /// Parent Gaussian sigma; draws are conditioned to [-3σ,+3σ].
+    /// The realized standard deviation is about 0.9866σ.
     #[arg(long, default_value_t = 0.0)]
-    pub elevation_noise: f64,
+    pub elevation_sigma: f64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Args)]
@@ -134,9 +158,6 @@ pub struct SearchBoundArgs {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PositionArg(pub Position);
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ControlsArg(pub Controls);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoundsArg(pub Bounds);
@@ -178,19 +199,15 @@ impl FromStr for PositionArg {
     }
 }
 
-impl FromStr for ControlsArg {
-    type Err = ParseTupleError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let [heading, speed, tip_side, tip_height, elevation] = parse_finite_fields(value)?;
-        Ok(Self(Controls {
-            heading,
-            speed,
-            tip_side,
-            tip_height,
-            elevation,
-        }))
-    }
+fn parse_controls(value: &str) -> Result<Controls, ParseTupleError> {
+    let [heading, speed, tip_side, tip_height, elevation] = parse_finite_fields(value)?;
+    Ok(Controls {
+        heading,
+        speed,
+        tip_side,
+        tip_height,
+        elevation,
+    })
 }
 
 impl FromStr for BoundsArg {
@@ -224,36 +241,35 @@ impl Cli {
             tip_height: self.controls.tip_height,
             elevation: self.controls.elevation,
         };
-        let perturbations = NoiseWidths {
+        let perturbations = PerturbationWidths {
             heading: self.perturb.heading_perturb,
             speed: self.perturb.speed_perturb,
             tip_side: self.perturb.tip_side_perturb,
             tip_height: self.perturb.tip_height_perturb,
             elevation: self.perturb.elevation_perturb,
         };
-        let execution_noise = NoiseWidths {
-            heading: self.noise.heading_noise,
-            speed: self.noise.speed_noise,
-            tip_side: self.noise.tip_side_noise,
-            tip_height: self.noise.tip_height_noise,
-            elevation: self.noise.elevation_noise,
+        let shot_inaccuracy = NoiseSigmas {
+            heading: self.noise.heading_sigma,
+            speed: self.noise.speed_sigma,
+            tip_side: self.noise.tip_side_sigma,
+            tip_height: self.noise.tip_height_sigma,
+            elevation: self.noise.elevation_sigma,
         };
-        let search_bounds = self.search_bounds.resolve(nominal, perturbations);
-        let mut sensitivity_centers = Vec::with_capacity(1 + self.good.len());
-        sensitivity_centers.push(nominal);
-        sensitivity_centers.extend(self.good.into_iter().map(|value| value.0));
+        let search_bounds = self.search_bounds.resolve(nominal, perturbations)?;
         let config = ExperimentConfig {
             mode: self.mode,
             shooter: self.shooter,
             positions,
             nominal,
-            sensitivity_centers,
+            additional_candidates: self.good,
             perturbations,
-            execution_noise,
+            shot_inaccuracy,
             search_bounds,
             master_seed: self.seed,
             candidate_budget: self.candidates,
-            replication_budget: self.replications,
+            screening_replication_budget: self.screening_replications,
+            finalist_budget: self.finalists,
+            validation_replication_budget: self.validation_replications,
             workers: self.workers,
             max_events: self.max_events,
         };
@@ -263,8 +279,20 @@ impl Cli {
 }
 
 impl SearchBoundArgs {
-    fn resolve(self, nominal: Controls, perturb: NoiseWidths) -> [Bounds; 5] {
-        [
+    fn resolve(
+        self,
+        nominal: Controls,
+        perturb: PerturbationWidths,
+    ) -> Result<[Bounds; 5], String> {
+        if perturb
+            .as_array()
+            .into_iter()
+            .any(|width| !width.is_finite() || width < 0.0)
+        {
+            return Err("perturbation widths must be finite and non-negative".into());
+        }
+
+        let bounds = [
             self.heading_bounds.map_or_else(
                 || Bounds::around_or(nominal.heading, perturb.heading, 0.0, 360.0),
                 |value| value.0,
@@ -281,6 +309,15 @@ impl SearchBoundArgs {
                 || Bounds::around_or(nominal.elevation, perturb.elevation, 0.0, 45.0),
                 |value| value.0,
             ),
-        ]
+        ];
+        if bounds.iter().any(|bound| {
+            !bound.minimum.is_finite()
+                || !bound.maximum.is_finite()
+                || bound.minimum > bound.maximum
+                || !(bound.maximum - bound.minimum).is_finite()
+        }) {
+            return Err("search bounds and spans must be finite and ordered".into());
+        }
+        Ok(bounds)
     }
 }

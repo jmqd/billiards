@@ -16288,6 +16288,10 @@ fn restitution_aware_ball_cushion_collision_velocity_from_basis(
     let normal_component = project_velocity_on_basis(velocity, normal_x, normal_y);
     let tangent_component = project_velocity_on_basis(velocity, tangent_x, tangent_y);
 
+    if normal_component >= 0.0 {
+        return velocity.clone();
+    }
+
     rebuild_velocity_from_basis(
         -normal_restitution * normal_component,
         tangent_component,

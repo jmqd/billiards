@@ -1,33 +1,43 @@
+use std::num::NonZeroUsize;
+use std::process::Command;
+
 use clap::Parser;
+use simul::experiment::{RandomDomain, TrialKey, SEED_PROTOCOL};
 use simul_three_cushion::{
-    CandidateReport, Cli, Controls, ExperimentReport, Mode, Shooter, TrialDisposition, TrialReport,
+    Bounds, CandidateReport, Cli, Controls, ExperimentReport, Mode, NoiseSigmas, OutcomeSummary,
+    PerturbationWidths, Position, ReplayKey, Shooter, TrialDisposition, TrialReport, TrialStage,
 };
 
+fn parse(arguments: &[&str]) -> Result<simul_three_cushion::ExperimentConfig, String> {
+    Cli::try_parse_from(std::iter::once("simul-three-cushion").chain(arguments.iter().copied()))
+        .map_err(|error| error.to_string())?
+        .into_config()
+}
+
 #[test]
-fn fixture_config_supports_both_modes_and_shooters() {
-    let sensitivity = Cli::try_parse_from([
-        "simul-three-cushion",
+fn new_defaults_and_typed_good_candidates_parse() {
+    let config = parse(&[
         "--fixture",
         "--mode",
         "sensitivity",
         "--seed",
         "7",
-        "--candidates",
-        "3",
-        "--replications",
-        "2",
+        "--good",
+        "26,150,-0.1,0.2,0",
     ])
-    .expect("fixture sensitivity arguments should parse")
-    .into_config()
-    .expect("fixture sensitivity config should validate");
-    assert_eq!(sensitivity.mode, Mode::Sensitivity);
-    assert_eq!(sensitivity.shooter, Shooter::White);
-    assert_eq!(sensitivity.candidate_budget, 3);
-    assert_eq!(sensitivity.replication_budget, 2);
-    assert_eq!(sensitivity.workers.get(), 1);
+    .expect("new defaults should validate");
+    assert_eq!(config.mode, Mode::Sensitivity);
+    assert_eq!(config.shooter, Shooter::White);
+    assert_eq!(config.candidate_budget, 16);
+    assert_eq!(config.screening_replication_budget, 32);
+    assert_eq!(config.finalist_budget, 4);
+    assert_eq!(config.validation_replication_budget, 256);
+    assert_eq!(config.workers, NonZeroUsize::MIN);
+    assert_eq!(config.additional_candidates.len(), 1);
+    assert_eq!(config.additional_candidates[0].speed, 150.0);
+    assert_eq!(config.shot_inaccuracy.as_array(), [0.0; 5]);
 
-    let search = Cli::try_parse_from([
-        "simul-three-cushion",
+    let search = parse(&[
         "--fixture",
         "--shooter",
         "yellow",
@@ -35,49 +45,74 @@ fn fixture_config_supports_both_modes_and_shooters() {
         "search",
         "--seed",
         "9",
-        "--heading-bounds",
-        "10,40",
-        "--speed-bounds",
-        "100,180",
+        "--candidates",
+        "1",
+        "--finalists",
+        "4",
     ])
-    .expect("fixture search arguments should parse")
-    .into_config()
-    .expect("fixture search config should validate");
-    assert_eq!(search.mode, Mode::Search);
+    .expect("finalist budget may exceed candidate budget");
     assert_eq!(search.shooter, Shooter::Yellow);
-    assert_eq!(search.search_bounds[0].minimum, 10.0);
-    assert_eq!(search.search_bounds[1].maximum, 180.0);
+    assert_eq!(search.candidate_budget, 1);
+    assert_eq!(search.finalist_budget, 4);
 }
 
 #[test]
-fn explicit_layout_and_additional_good_candidate_are_typed() {
-    let config = Cli::try_parse_from([
-        "simul-three-cushion",
+fn gaussian_sigma_flags_map_without_aliases() {
+    let config = parse(&[
+        "--fixture",
         "--mode",
         "sensitivity",
         "--seed",
         "11",
-        "--white",
-        "0.7,1.0",
-        "--yellow",
-        "1.2,2.1",
-        "--red",
-        "0.85,6.55",
-        "--good",
-        "26,150,-0.1,0.2,0",
+        "--elevation",
+        "3",
+        "--heading-sigma",
+        "0.1",
+        "--speed-sigma",
+        "0.2",
+        "--tip-side-sigma",
+        "0.003",
+        "--tip-height-sigma",
+        "0.004",
+        "--elevation-sigma",
+        "0.5",
     ])
-    .expect("explicit layout should parse")
-    .into_config()
-    .expect("explicit layout should validate");
-    assert_eq!(config.positions[2].y, 6.55);
-    assert_eq!(config.sensitivity_centers.len(), 2);
-    assert_eq!(config.sensitivity_centers[1].speed, 150.0);
+    .expect("sigma flags should validate");
+    assert_eq!(
+        config.shot_inaccuracy.as_array(),
+        [0.1, 0.2, 0.003, 0.004, 0.5]
+    );
+
+    for removed in [
+        "--replications",
+        "--heading-noise",
+        "--speed-noise",
+        "--tip-side-noise",
+        "--tip-height-noise",
+        "--elevation-noise",
+    ] {
+        let error = Cli::try_parse_from([
+            "simul-three-cushion",
+            "--fixture",
+            "--mode",
+            "sensitivity",
+            "--seed",
+            "1",
+            removed,
+            "1",
+        ])
+        .expect_err("removed flag must be rejected");
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::UnknownArgument,
+            "{removed}"
+        );
+    }
 }
 
 #[test]
-fn tuple_arguments_accept_whitespace_around_finite_fields() {
-    let config = Cli::try_parse_from([
-        "simul-three-cushion",
+fn tuple_arguments_are_finite_typed_and_whitespace_tolerant() {
+    let config = parse(&[
         "--mode",
         "sensitivity",
         "--seed",
@@ -93,114 +128,75 @@ fn tuple_arguments_accept_whitespace_around_finite_fields() {
         "--heading-bounds",
         " 10 , 40 ",
     ])
-    .expect("tuple arguments with whitespace should parse")
-    .into_config()
-    .expect("tuple arguments with whitespace should validate");
-
+    .expect("finite tuple arguments should parse");
     assert_eq!((config.positions[0].x, config.positions[0].y), (0.7, 1.0));
-    let controls = config.sensitivity_centers[1];
     assert_eq!(
-        (
-            controls.heading,
-            controls.speed,
-            controls.tip_side,
-            controls.tip_height,
-            controls.elevation,
-        ),
-        (26.0, 150.0, -0.1, 0.2, 0.0)
+        config.additional_candidates[0],
+        Controls {
+            heading: 26.0,
+            speed: 150.0,
+            tip_side: -0.1,
+            tip_height: 0.2,
+            elevation: 0.0,
+        }
     );
-    assert_eq!(
+    assert_eq!(config.search_bounds[0], Bounds::new(10.0, 40.0));
+
+    for (flag, value, expected) in [
         (
-            config.search_bounds[0].minimum,
-            config.search_bounds[0].maximum,
+            "--white",
+            "not-a-number",
+            "wrong number of comma-separated values",
         ),
-        (10.0, 40.0)
-    );
+        ("--white", "NaN,2", "values must be finite"),
+        (
+            "--good",
+            "1,2,3,4",
+            "wrong number of comma-separated values",
+        ),
+        ("--good", "1,2,inf,4,5", "values must be finite"),
+        (
+            "--heading-bounds",
+            "2,1",
+            "bound minimum must not exceed maximum",
+        ),
+    ] {
+        let mut arguments = vec![
+            "simul-three-cushion",
+            "--fixture",
+            "--mode",
+            "sensitivity",
+            "--seed",
+            "1",
+        ];
+        arguments.extend([flag, value]);
+        let error = Cli::try_parse_from(arguments).expect_err("invalid tuple must fail parsing");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
+        assert!(error.to_string().contains(expected), "{flag}={value}");
+    }
 }
 
 #[test]
-fn tuple_arguments_reject_wrong_counts_invalid_numbers_and_nonfinite_values() {
-    fn assert_errors(common: &[&str], flag: &str, cases: &[(&str, &str)]) {
-        for &(value, expected) in cases {
-            let mut arguments: Vec<String> =
-                common.iter().map(|argument| (*argument).into()).collect();
-            arguments.extend([flag.into(), value.into()]);
-            let error = Cli::try_parse_from(arguments)
-                .expect_err("invalid tuple should fail during argument parsing");
-            assert_eq!(
-                error.kind(),
-                clap::error::ErrorKind::ValueValidation,
-                "flag: {flag}, input: {value:?}"
-            );
-            let rendered = error.to_string();
-            assert!(
-                rendered.contains(expected),
-                "flag: {flag}, input: {value:?}, error: {rendered}"
-            );
-        }
+fn budgets_widths_and_worker_limits_fail_before_running() {
+    for (flag, expected) in [
+        ("--candidates", "candidate budget must be greater than zero"),
+        (
+            "--screening-replications",
+            "screening replication budget must be greater than zero",
+        ),
+        ("--finalists", "finalist budget must be greater than zero"),
+        (
+            "--validation-replications",
+            "validation replication budget must be greater than zero",
+        ),
+        ("--max-events", "max events must be greater than zero"),
+    ] {
+        let error = parse(&["--fixture", "--mode", "search", "--seed", "1", flag, "0"])
+            .expect_err("zero budget must fail config validation");
+        assert_eq!(error, expected, "{flag}");
     }
 
-    const POSITION_ARGS: &[&str] = &[
-        "simul-three-cushion",
-        "--mode",
-        "sensitivity",
-        "--seed",
-        "1",
-        "--yellow",
-        "1.2,2.1",
-        "--red",
-        "0.85,6.55",
-    ];
-    const FIXTURE_ARGS: &[&str] = &[
-        "simul-three-cushion",
-        "--fixture",
-        "--mode",
-        "sensitivity",
-        "--seed",
-        "1",
-    ];
-
-    assert_errors(
-        POSITION_ARGS,
-        "--white",
-        &[
-            ("not-a-number", "wrong number of comma-separated values"),
-            ("1,2,not-a-number", "wrong number of comma-separated values"),
-            ("not-a-number,2", "values must be numbers"),
-            ("inf,2", "values must be finite"),
-            ("NaN,2", "values must be finite"),
-        ],
-    );
-    assert_errors(
-        FIXTURE_ARGS,
-        "--good",
-        &[
-            (
-                "not-a-number,2,3,4",
-                "wrong number of comma-separated values",
-            ),
-            ("1,2,3,4,5,NaN", "wrong number of comma-separated values"),
-            ("1,2,not-a-number,4,5", "values must be numbers"),
-            ("1,2,inf,4,5", "values must be finite"),
-            ("1,2,NaN,4,5", "values must be finite"),
-        ],
-    );
-    assert_errors(
-        FIXTURE_ARGS,
-        "--heading-bounds",
-        &[
-            ("not-a-number", "wrong number of comma-separated values"),
-            ("1,2,not-a-number", "wrong number of comma-separated values"),
-            ("not-a-number,2", "values must be numbers"),
-            ("inf,2", "values must be finite"),
-            ("NaN,2", "values must be finite"),
-        ],
-    );
-}
-
-#[test]
-fn rejects_zero_workers_during_argument_parsing() {
-    let error = Cli::try_parse_from([
+    let worker_error = Cli::try_parse_from([
         "simul-three-cushion",
         "--fixture",
         "--mode",
@@ -211,74 +207,37 @@ fn rejects_zero_workers_during_argument_parsing() {
         "0",
     ])
     .expect_err("zero workers must not parse");
-    assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
-    assert!(error.to_string().contains("--workers"));
-}
+    assert_eq!(worker_error.kind(), clap::error::ErrorKind::ValueValidation);
 
-#[test]
-fn rejects_zero_budgets_and_invalid_tip_offsets() {
-    let zero_budget = Cli::try_parse_from([
-        "simul-three-cushion",
+    let overflow = parse(&[
         "--fixture",
         "--mode",
         "search",
         "--seed",
         "1",
         "--candidates",
-        "0",
+        "18446744073709551615",
     ])
-    .expect("syntax should parse")
-    .into_config();
-    assert_eq!(
-        zero_budget.unwrap_err(),
-        "candidate budget must be greater than zero"
-    );
+    .expect_err("proposal sample IDs must be checked before allocation");
+    assert_eq!(overflow, "candidate proposal sample ID would overflow u64");
 
-    let invalid_tip = Cli::try_parse_from([
-        "simul-three-cushion",
-        "--fixture",
-        "--mode",
-        "sensitivity",
-        "--seed",
-        "1",
-        "--tip-side",
-        "0.9",
-        "--tip-height",
-        "0.9",
-    ])
-    .expect("syntax should parse")
-    .into_config();
-    assert_eq!(
-        invalid_tip.unwrap_err(),
-        "tip side/height must lie within one ball radius"
-    );
+    for width in ["-1", "NaN", "inf"] {
+        let width_argument = format!("--heading-perturb={width}");
+        let error = parse(&[
+            "--fixture",
+            "--mode",
+            "search",
+            "--seed",
+            "1",
+            width_argument.as_str(),
+        ])
+        .expect_err("invalid perturbation width must fail before bound derivation");
+        assert_eq!(error, "perturbation widths must be finite and non-negative");
+    }
 }
 
 #[test]
-fn rejects_negative_speed_in_additional_good_center() {
-    let config = Cli::try_parse_from([
-        "simul-three-cushion",
-        "--fixture",
-        "--mode",
-        "sensitivity",
-        "--seed",
-        "1",
-        "--candidates",
-        "2",
-        "--good",
-        "0,-1,0,0,0",
-    ])
-    .expect("finite additional center syntax should parse")
-    .into_config();
-
-    assert_eq!(
-        config.unwrap_err(),
-        "launch speed must be greater than zero"
-    );
-}
-
-#[test]
-fn report_is_stable_and_distinguishes_non_misses() {
+fn tagged_report_is_stage_aware_self_describing_and_csv_safe() {
     let controls = Controls {
         heading: 25.0,
         speed: 150.0,
@@ -286,44 +245,95 @@ fn report_is_stable_and_distinguishes_non_misses() {
         tip_height: 0.0,
         elevation: 0.0,
     };
+    let screening = OutcomeSummary {
+        requested: 2,
+        scored: 0,
+        missed: 0,
+        indeterminate: 1,
+        failed: 1,
+        success_rate: None,
+        confidence_low: None,
+        confidence_high: None,
+        eligible: false,
+    };
+    let domain = RandomDomain::new(0x5345_4e53_4954_0002);
+    let trial_key = |replication_id| TrialKey {
+        random_domain: domain,
+        candidate_id: 3,
+        replication_id,
+        common_random_group: u64::from(replication_id),
+    };
     let report = ExperimentReport {
         mode: Mode::Sensitivity,
         shooter: Shooter::Yellow,
+        positions: [
+            Position { x: 0.7, y: 1.0 },
+            Position { x: 1.2, y: 2.1 },
+            Position { x: 0.85, y: 6.55 },
+        ],
+        perturbations: PerturbationWidths {
+            heading: 1.0,
+            speed: 2.0,
+            tip_side: 0.01,
+            tip_height: 0.02,
+            elevation: 3.0,
+        },
+        shot_inaccuracy: NoiseSigmas {
+            heading: 0.1,
+            speed: 0.2,
+            tip_side: 0.003,
+            tip_height: 0.004,
+            elevation: 0.5,
+        },
+        search_bounds: [
+            Bounds::new(0.0, 360.0),
+            Bounds::new(1.0, 300.0),
+            Bounds::new(-0.3, 0.3),
+            Bounds::new(-0.05, 0.4),
+            Bounds::new(0.0, 45.0),
+        ],
+        candidate_budget: 1,
+        screening_replication_budget: 2,
+        finalist_budget: 4,
+        validation_replication_budget: 256,
+        requested_workers: NonZeroUsize::MIN,
+        max_events: 64,
         master_seed: 42,
-        seed_protocol: "v1",
+        seed_protocol: SEED_PROTOCOL,
+        physics_profile: "three-cushion-default",
+        noise_model: "independent-truncated-normal",
+        noise_parent_sigma_limit: 3.0,
+        selection_policy: "none",
+        winner_id: None,
         candidates: vec![CandidateReport {
             rank: None,
             candidate_id: 3,
             controls,
-            requested: 2,
-            scored: 0,
-            missed: 0,
-            indeterminate: 1,
-            failed: 1,
-            success_rate: None,
-            confidence_low: None,
-            confidence_high: None,
-            eligible: false,
+            screening,
+            validation: None,
         }],
         trials: vec![
             TrialReport {
+                stage: TrialStage::Screening,
                 candidate_id: 3,
                 replication_id: 0,
-                replay_key: "v1:3:0".into(),
-                applied: controls,
+                replay_key: ReplayKey::new(42, trial_key(0)),
+                applied: None,
+                disposition: TrialDisposition::Failed("sampling, \"exhausted\"".into()),
+            },
+            TrialReport {
+                stage: TrialStage::Screening,
+                candidate_id: 3,
+                replication_id: 1,
+                replay_key: ReplayKey::new(42, trial_key(1)),
+                applied: Some(controls),
                 disposition: TrialDisposition::Indeterminate(
                     "event, \"limit\"\r\ncontinued".into(),
                 ),
             },
-            TrialReport {
-                candidate_id: 3,
-                replication_id: 1,
-                replay_key: "v1:3:1".into(),
-                applied: controls,
-                disposition: TrialDisposition::Failed("invalid shot".into()),
-            },
         ],
     };
+
     let mut first = Vec::new();
     let mut second = Vec::new();
     report.write_to(&mut first).expect("report should write");
@@ -332,14 +342,177 @@ fn report_is_stable_and_distinguishes_non_misses() {
         .expect("report should write twice");
     assert_eq!(first, second);
     let text = String::from_utf8(first).expect("report is UTF-8");
-    assert!(text.contains("META,mode=sensitivity,shooter=yellow,"));
-    assert!(text.contains("outcome,detail"));
     assert!(text.contains(concat!(
-        "TRIAL,3,0,v1:3:0,25.000000000,150.000000000,0.000000000,",
-        "0.000000000,0.000000000,indeterminate,\"event, \"\"limit\"\"\r\ncontinued\"\n",
+        "META,mode=sensitivity,shooter=yellow,physics_profile=three-cushion-default,",
+        "master_seed=42,seed_protocol=simul-v1-splitmix64-box-muller,"
+    )));
+    assert!(text.contains("selection_policy=none,winner_id=,candidate_count=1,trial_count=2\n"));
+    assert!(text.contains("CONFIG,white_diamonds=0.700000000:1.000000000"));
+    assert!(text.contains("CANDIDATE,,3,25.000000000,150.000000000"));
+    assert!(text.contains("false,,,,,,,,,\n"));
+    assert!(text.contains(concat!(
+        "TRIAL,screening,3,0,simul-v1:42:53454e5349540002:3:0:0,",
+        ",,,,,failed,\"sampling, \"\"exhausted\"\"\"\n"
     )));
     assert!(text.contains(concat!(
-        "TRIAL,3,1,v1:3:1,25.000000000,150.000000000,0.000000000,",
-        "0.000000000,0.000000000,failed,invalid shot\n",
+        "TRIAL,screening,3,1,simul-v1:42:53454e5349540002:3:1:1,",
+        "25.000000000,150.000000000,0.000000000,0.000000000,0.000000000,",
+        "indeterminate,\"event, \"\"limit\"\"\r\ncontinued\"\n"
     )));
+    assert!(report.winner().is_none());
+}
+
+#[test]
+fn fixed_search_cli_is_stage_aware_and_reproducible() {
+    let arguments = [
+        "--fixture",
+        "--mode",
+        "search",
+        "--seed",
+        "1979",
+        "--candidates",
+        "2",
+        "--screening-replications",
+        "2",
+        "--finalists",
+        "4",
+        "--validation-replications",
+        "2",
+        "--workers",
+        "2",
+        "--heading-bounds",
+        "196.391792039,196.391792039",
+        "--speed-bounds",
+        "237.947968822,237.947968822",
+        "--tip-side-bounds=-0.230661681,-0.230661681",
+        "--tip-height-bounds",
+        "0.365060077,0.365060077",
+        "--elevation-bounds",
+        "0,0",
+        "--heading-sigma",
+        "0",
+        "--speed-sigma",
+        "0",
+        "--tip-side-sigma",
+        "0",
+        "--tip-height-sigma",
+        "0",
+        "--elevation-sigma",
+        "0",
+    ];
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_simul-three-cushion"))
+            .args(arguments)
+            .output()
+            .expect("binary should spawn")
+    };
+    let first = run();
+    let second = run();
+    assert!(
+        first.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(second.status.success());
+    assert_eq!(first.stdout, second.stdout);
+
+    let text = String::from_utf8(first.stdout).expect("stdout should be UTF-8");
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("META,"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("CONFIG,"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("CANDIDATE,rank,"))
+            .count(),
+        1
+    );
+    let candidates: Vec<_> = lines
+        .iter()
+        .filter(|line| line.starts_with("CANDIDATE,") && !line.starts_with("CANDIDATE,rank,"))
+        .collect();
+    assert_eq!(candidates.len(), 2);
+    for (rank, id, row) in [("1", "0", candidates[0]), ("2", "1", candidates[1])] {
+        let fields: Vec<_> = row.split(',').collect();
+        assert_eq!((fields[1], fields[2]), (rank, id));
+        assert_eq!(
+            &fields[3..8],
+            [
+                "196.391792039",
+                "237.947968822",
+                "-0.230661681",
+                "0.365060077",
+                "0.000000000",
+            ]
+        );
+        assert_eq!(&fields[8..13], ["2", "2", "0", "0", "0"]);
+        assert_eq!(fields[16], "true");
+        assert_eq!(&fields[17..22], ["2", "2", "0", "0", "0"]);
+        assert_eq!(fields[25], "true");
+    }
+
+    let meta = lines
+        .iter()
+        .find(|line| line.starts_with("META,"))
+        .expect("META row");
+    assert!(meta.contains("selection_policy=wilson95-lower-then-rate-then-id"));
+    assert!(meta.contains("winner_id=0"));
+
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("TRIAL,stage,"))
+            .count(),
+        1
+    );
+    let trials: Vec<_> = lines
+        .iter()
+        .filter(|line| line.starts_with("TRIAL,") && !line.starts_with("TRIAL,stage,"))
+        .collect();
+    assert_eq!(trials.len(), 8);
+    assert_eq!(
+        trials
+            .iter()
+            .filter(|row| row.starts_with("TRIAL,screening,"))
+            .count(),
+        4
+    );
+    assert_eq!(
+        trials
+            .iter()
+            .filter(|row| row.starts_with("TRIAL,validation,"))
+            .count(),
+        4
+    );
+    for row in trials {
+        let fields: Vec<_> = row.split(',').collect();
+        assert_eq!(
+            &fields[5..10],
+            [
+                "196.391792039",
+                "237.947968822",
+                "-0.230661681",
+                "0.365060077",
+                "0.000000000",
+            ]
+        );
+        assert_eq!(fields[10], "scored");
+        match fields[1] {
+            "screening" => assert!(fields[4].contains(":5345415243480002:")),
+            "validation" => assert!(fields[4].contains(":5345415243480003:")),
+            stage => panic!("unexpected stage {stage}"),
+        }
+    }
 }

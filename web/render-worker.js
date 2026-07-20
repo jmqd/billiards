@@ -1,4 +1,4 @@
-import init, { render_svg_report_from_dsl } from "./pkg/billiards.js";
+import init, { render_svg_report_from_dsl, robust_three_cushion_shot_from_dsl } from "./pkg/billiards.js";
 
 const wasmInitialization = Promise.resolve()
   .then(() => init())
@@ -17,7 +17,7 @@ function parseWasmJson(value) {
 }
 
 self.addEventListener("message", async (event) => {
-  const { id, source } = event.data ?? {};
+  const { id, source, action = "render", iterations, playerLevel } = event.data ?? {};
   if (!Number.isSafeInteger(id) || typeof source !== "string") return;
 
   const initialization = await wasmInitialization;
@@ -31,10 +31,21 @@ self.addEventListener("message", async (event) => {
 
   try {
     const startedAt = performance.now();
+    if (action === "robust-shot-search") {
+      const search = parseWasmJson(
+        robust_three_cushion_shot_from_dsl(source, iterations, playerLevel),
+      );
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      self.postMessage({ id, action, search, elapsedMs });
+      return;
+    }
+    if (action !== "render") {
+      throw new Error(`unknown worker action: ${action}`);
+    }
     const report = parseWasmJson(render_svg_report_from_dsl(source));
     const elapsedMs = Math.round(performance.now() - startedAt);
-    self.postMessage({ id, report, elapsedMs });
+    self.postMessage({ id, action, report, elapsedMs });
   } catch (error) {
-    self.postMessage({ id, error: errorMessage(error) });
+    self.postMessage({ id, action, error: errorMessage(error) });
   }
 });

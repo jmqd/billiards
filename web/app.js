@@ -62,11 +62,29 @@ const elevationRange = document.querySelector("#elevation-range");
 const elevationInput = document.querySelector("#elevation-input");
 const elevationMode = document.querySelector("#elevation-mode");
 
+const robustSearchPanel = document.querySelector("#robust-search");
+const robustSearchForm = document.querySelector("#robust-search-form");
+const robustIterationsInput = document.querySelector("#robust-iterations");
+const robustPlayerLevelSelect = document.querySelector("#robust-player-level");
+const robustSearchButton = document.querySelector("#robust-search-button");
+const robustSearchStatus = document.querySelector("#robust-search-status");
+const robustSearchResults = document.querySelector("#robust-search-results");
+const robustSearchResultTitle = document.querySelector("#robust-search-result-title");
+const robustApplyButton = document.querySelector("#robust-apply-button");
+const robustWinnerProbability = document.querySelector("#robust-winner-probability");
+const robustWinnerInterval = document.querySelector("#robust-winner-interval");
+const robustEvaluationCount = document.querySelector("#robust-evaluation-count");
+const robustElapsedTime = document.querySelector("#robust-elapsed-time");
+const robustNoiseSummary = document.querySelector("#robust-noise-summary");
+const robustWinnerControls = document.querySelector("#robust-winner-controls");
+const robustRankedList = document.querySelector("#robust-ranked-list");
+
 let lastSvg = "";
 let renderWorker = null;
 let renderTimer = null;
 let renderSequence = 0;
 let inFlightRender = null;
+const robustSearchRequests = new Map();
 let configuredSource = null;
 let configuredSourceValid = false;
 let renderedSource = null;
@@ -76,6 +94,9 @@ let syncingControls = false;
 let wasmReady = false;
 let headingPointerId = null;
 let tipPointerId = null;
+let robustSearchUiSequence = 0;
+let robustSearchRunning = false;
+let robustSearchResult = null;
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -315,6 +336,228 @@ function configureSource(source) {
   configuredSourceValid = false;
   markPreviewStale(source !== renderedSource);
   if (source === renderedSource && renderedStatus) setStatus(renderedStatus, "ok");
+  updateRobustSearchFreshness(true);
+}
+
+export async function requestRobustThreeCushionSearch({
+  source = input.value,
+  iterations,
+  playerLevel,
+} = {}) {
+  await billiardsUiReady;
+  if (!wasmReady || !renderWorker) {
+    return Promise.reject(new Error("The background Wasm worker is not ready."));
+  }
+  const id = ++renderSequence;
+  return new Promise((resolve, reject) => {
+    robustSearchRequests.set(id, { resolve, reject });
+    try {
+      renderWorker.postMessage({
+        id,
+        action: "robust-shot-search",
+        source,
+        iterations,
+        playerLevel,
+      });
+    } catch (error) {
+      robustSearchRequests.delete(id);
+      reject(error);
+    }
+  });
+}
+
+function setRobustSearchStatus(message, kind = "") {
+  robustSearchStatus.textContent = message;
+  robustSearchStatus.dataset.kind = kind;
+}
+
+function updateRobustSearchFreshness(announce = false) {
+  const staleState = !robustSearchResult
+    ? "false"
+    : robustSearchResult.applied
+      ? "applied"
+      : robustSearchResult.source !== input.value
+        ? "changed"
+        : "false";
+  const stale = staleState !== "false";
+  const sourceHasShot = robustSearchResult?.search?.sourceHasShot !== false;
+  robustSearchPanel.dataset.resultStale = staleState;
+  robustApplyButton.disabled = (
+    !wasmReady
+    || robustSearchRunning
+    || stale
+    || !sourceHasShot
+    || !robustSearchResult?.search?.winner
+  );
+  robustApplyButton.title = robustSearchResult && !sourceHasShot
+    ? "This result used a shotless setup. Configure a shot and rerun before applying controls."
+    : "";
+  if (announce && stale) {
+    setRobustSearchStatus(
+      robustSearchResult.applied
+        ? "Best shot applied. Run the search again to validate the updated DSL."
+        : "The DSL changed after this search. Run it again before applying the winner.",
+      robustSearchResult.applied ? "ok" : "error",
+    );
+  }
+}
+
+function setRobustSearchRunning(running) {
+  robustSearchRunning = running;
+  robustSearchForm.setAttribute("aria-busy", running ? "true" : "false");
+  robustIterationsInput.disabled = running || !wasmReady;
+  robustPlayerLevelSelect.disabled = running || !wasmReady;
+  robustSearchButton.disabled = running || !wasmReady;
+  robustSearchButton.textContent = running ? "Searching…" : "Find robust shot";
+  updateRobustSearchFreshness();
+}
+
+function formatProbability(value) {
+  return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "—";
+}
+
+function replaceWinnerControls(controls) {
+  robustWinnerControls.replaceChildren();
+  if (!controls) return;
+  const entries = [
+    ["Heading", `${formatControlNumber(controls.headingDegrees)}°`],
+    [
+      "Speed",
+      `${formatControlNumber(ipsToKmh(controls.speedIps))} km/h (${formatControlNumber(controls.speedIps)} ips)`,
+    ],
+    [
+      "Cue tip",
+      `${formatControlNumber(controls.tipSide)} R side · ${formatControlNumber(controls.tipHeight)} R height`,
+    ],
+    ["Cue elevation", `${formatControlNumber(controls.cueElevationDegrees)}°`],
+  ];
+  for (const [label, value] of entries) {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = value;
+    row.append(term, description);
+    robustWinnerControls.appendChild(row);
+  }
+}
+
+function replaceRankedFinalists(finalists) {
+  robustRankedList.replaceChildren();
+  for (const candidate of finalists ?? []) {
+    const summary = candidate.validation ?? candidate.screening;
+    const controls = candidate.controls;
+    const item = document.createElement("li");
+    item.textContent = `#${candidate.rank}: ${formatProbability(summary?.successRate)} score probability, ${formatProbability(summary?.confidenceLow)} lower bound — ${formatControlNumber(controls.headingDegrees)}°, ${formatControlNumber(ipsToKmh(controls.speedIps))} km/h, tip (${formatControlNumber(controls.tipSide)}, ${formatControlNumber(controls.tipHeight)}) R, ${formatControlNumber(controls.cueElevationDegrees)}° elevation`;
+    robustRankedList.appendChild(item);
+  }
+}
+
+function renderRobustSearchResult(result) {
+  const { search, elapsedMs } = result;
+  const winner = search.winner;
+  const summary = winner?.validation ?? winner?.screening;
+  const sigmas = search.shotInaccuracySigmas;
+  const sourceHasShot = search.sourceHasShot !== false;
+  const applyGuidance = sourceHasShot
+    ? ""
+    : " The shotless setup was searched successfully; configure a shot and rerun to enable Apply best shot.";
+
+  robustSearchResults.hidden = false;
+  robustSearchResultTitle.textContent = winner
+    ? `Best validated shot · candidate ${winner.candidateId}`
+    : "No eligible validation winner";
+  robustWinnerProbability.textContent = formatProbability(summary?.successRate);
+  robustWinnerInterval.textContent = summary
+    ? `${formatProbability(summary.confidenceLow)}–${formatProbability(summary.confidenceHigh)}`
+    : "—";
+  robustEvaluationCount.textContent = `${search.actualIterations} actual · ${search.plannedIterations} planned · ${search.requestedIterations} maximum`;
+  robustElapsedTime.textContent = `${elapsedMs} ms`;
+  robustNoiseSummary.textContent = `${search.playerLevelLabel}: σ ${formatControlNumber(sigmas.headingDegrees)}° heading · ${formatControlNumber(sigmas.speedIps)} ips speed · ${formatControlNumber(sigmas.tipSideRadii)} R side · ${formatControlNumber(sigmas.tipHeightRadii)} R height · ${formatControlNumber(sigmas.cueElevationDegrees)}° elevation`;
+  replaceWinnerControls(winner?.controls);
+  replaceRankedFinalists(search.rankedFinalists);
+
+  if (winner) {
+    setRobustSearchStatus(
+      `Validated ${search.validatedFinalistCount} finalists in ${elapsedMs} ms. Candidate ${winner.candidateId} ranked first.${applyGuidance}`,
+      "ok",
+    );
+  } else {
+    setRobustSearchStatus(
+      `Completed ${search.actualIterations} evaluations, but no finalist produced an eligible validation result.`,
+      "error",
+    );
+  }
+  updateRobustSearchFreshness(true);
+}
+
+async function runVisibleRobustSearch(event) {
+  event.preventDefault();
+  if (!robustSearchForm.reportValidity() || robustSearchRunning) return;
+
+  const source = input.value;
+  const iterations = robustIterationsInput.valueAsNumber;
+  const playerLevel = robustPlayerLevelSelect.value;
+  const requestSequence = ++robustSearchUiSequence;
+  setRobustSearchRunning(true);
+  setRobustSearchStatus(
+    `Running up to ${iterations} physics evaluations for the selected player profile…`,
+    "running",
+  );
+
+  try {
+    const result = await requestRobustThreeCushionSearch({
+      source,
+      iterations,
+      playerLevel,
+    });
+    if (requestSequence !== robustSearchUiSequence) return;
+    robustSearchResult = { ...result, source, applied: false };
+    renderRobustSearchResult(robustSearchResult);
+  } catch (error) {
+    if (requestSequence !== robustSearchUiSequence) return;
+    setRobustSearchStatus(errorMessage(error), "error");
+  } finally {
+    if (requestSequence === robustSearchUiSequence) setRobustSearchRunning(false);
+  }
+}
+
+function applyRobustSearchWinner() {
+  const winner = robustSearchResult?.search?.winner;
+  if (
+    !winner
+    || robustSearchRunning
+    || robustSearchResult.applied
+    || robustSearchResult.source !== input.value
+    || robustSearchResult.search.sourceHasShot === false
+  ) {
+    return;
+  }
+
+  try {
+    let source = robustSearchResult.source;
+    let update = null;
+    for (const [control, value] of [
+      ["heading", winner.controls.headingDegrees],
+      ["speed", winner.controls.speedIps],
+      ["elevation", winner.controls.cueElevationDegrees],
+    ]) {
+      update = parseWasmJson(update_shot_control_in_dsl(source, control, value));
+      source = update.source;
+    }
+    update = parseWasmJson(
+      update_shot_tip_in_dsl(
+        source,
+        winner.controls.tipSide,
+        winner.controls.tipHeight,
+      ),
+    );
+    applySuccessfulControlUpdate(update);
+    robustSearchResult.applied = true;
+    updateRobustSearchFreshness(true);
+  } catch (error) {
+    setRobustSearchStatus(errorMessage(error), "error");
+  }
 }
 
 function requestConfiguredRender() {
@@ -362,6 +605,9 @@ function commitRenderedReport(report, elapsedMs, source) {
 }
 
 function failRenderWorker(message) {
+  const error = new Error(message);
+  for (const request of robustSearchRequests.values()) request.reject(error);
+  robustSearchRequests.clear();
   cancelScheduledRender();
   renderWorker?.terminate();
   renderWorker = null;
@@ -372,6 +618,8 @@ function failRenderWorker(message) {
   resetButton.disabled = true;
   setShotControlsAvailable(false);
   markPreviewStale(true);
+  setRobustSearchRunning(false);
+  setRobustSearchStatus(message, "error");
   setStatus(message, "error");
 }
 
@@ -382,6 +630,18 @@ function handleRenderWorkerMessage(event) {
       ? `The background renderer failed to initialize: ${response.error}`
       : "The background renderer failed to initialize. Reload to retry.";
     failRenderWorker(detail);
+    return;
+  }
+
+  if (response.action === "robust-shot-search") {
+    const request = robustSearchRequests.get(response.id);
+    if (!request) return;
+    robustSearchRequests.delete(response.id);
+    if (typeof response.error === "string") {
+      request.reject(new Error(response.error));
+    } else {
+      request.resolve({ search: response.search, elapsedMs: response.elapsedMs });
+    }
     return;
   }
 
@@ -640,6 +900,7 @@ async function boot() {
   renderButton.disabled = true;
   resetButton.disabled = true;
   downloadButton.disabled = true;
+  setRobustSearchRunning(false);
 
   try {
     renderWorker = new Worker(new URL("./render-worker.js", import.meta.url), { type: "module" });
@@ -651,6 +912,10 @@ async function boot() {
     wasmReady = true;
     renderButton.disabled = false;
     resetButton.disabled = false;
+    setRobustSearchRunning(false);
+    setRobustSearchStatus(
+      "Choose an evaluation budget and player level, then run the deterministic search.",
+    );
 
     bindShotControls();
     input.addEventListener("input", () => renderCurrentSource({ delay: TEXTAREA_RENDER_DELAY_MS }));
@@ -660,6 +925,8 @@ async function boot() {
       renderCurrentSource();
     });
     downloadButton.addEventListener("click", downloadSvg);
+    robustSearchForm.addEventListener("submit", runVisibleRobustSearch);
+    robustApplyButton.addEventListener("click", applyRobustSearchWinner);
     renderCurrentSource();
   } catch (error) {
     renderWorker?.terminate();
@@ -667,7 +934,9 @@ async function boot() {
     setShotControlsAvailable(false);
     setPreviewMessage("Wasm package not loaded. Run `just wasm-web`, then serve the `web/` directory over HTTP.");
     setStatus(errorMessage(error), "error");
+    setRobustSearchRunning(false);
+    setRobustSearchStatus(errorMessage(error), "error");
   }
 }
 
-boot();
+export const billiardsUiReady = boot();

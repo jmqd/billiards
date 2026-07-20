@@ -1,3 +1,7 @@
+mod robust;
+
+pub use robust::*;
+
 use crate::{
     classify_motion_phase, human_tuned_preview_motion_config, n_ball_system_collision_delta,
     resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table, strike_resting_ball,
@@ -533,13 +537,17 @@ pub struct ThreeCushionShot {
     cue: CueStrikeConfig,
 }
 
+pub fn canonical_three_cushion_cue_config() -> CueStrikeConfig {
+    CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.1))
+        .expect("canonical cue coefficients are valid")
+}
+
 impl ThreeCushionShot {
     pub fn new(shooter: ThreeCushionShooter, controls: ShotControls) -> Self {
         Self {
             shooter,
             controls,
-            cue: CueStrikeConfig::new(Scale::from_f64(1.0), Scale::from_f64(0.1))
-                .expect("canonical cue coefficients are valid"),
+            cue: canonical_three_cushion_cue_config(),
         }
     }
 

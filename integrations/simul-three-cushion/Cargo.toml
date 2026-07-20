@@ -2,6 +2,7 @@
 name = "simul-three-cushion"
 version = "0.0.0"
 edition = "2021"
+rust-version = "1.91"
 publish = false
 
 [lints]
@@ -13,6 +14,7 @@ clap = { version = "4.5", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.5"
+simul = { path = "../../../simul" }
 
 [[bench]]
 name = "direct_trials"

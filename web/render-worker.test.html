@@ -36,6 +36,11 @@
           globalThis.postMessage({ testOnly: ${JSON.stringify(renderCalledMessage)} });
           throw new Error('render export invoked after failed Wasm initialization');
         }
+
+        export function robust_three_cushion_shot_from_dsl() {
+          globalThis.postMessage({ testOnly: ${JSON.stringify(renderCalledMessage)} });
+          throw new Error('robust-search export invoked after failed Wasm initialization');
+        }
       `;
       const wasmModuleUrl = URL.createObjectURL(new Blob(
         [wasmModuleSource],

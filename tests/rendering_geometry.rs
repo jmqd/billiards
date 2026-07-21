@@ -1014,6 +1014,58 @@ fn svg_backend_emits_layered_scalable_markup_for_a_ball_layout() {
 }
 
 #[test]
+fn svg_airborne_paths_are_dashed_clipped_and_canvas_bounded() {
+    let mut state = cue_ball_at("2", "4");
+    let airborne_style =
+        DashedLineStyle::new(image::Rgba([255, 255, 255, 255])).clipped_to_table_bounds();
+    state.add_dotted_line_styled(
+        &Position::new("-1", "4"),
+        &Position::new("5", "4"),
+        airborne_style.clone(),
+    );
+    state.add_dotted_line_styled(
+        &Position::new("-3", "4"),
+        &Position::new("-2", "4"),
+        airborne_style,
+    );
+    state.add_dotted_line_styled(
+        &Position::new("1", "3"),
+        &Position::new("2", "3"),
+        DashedLineStyle::new(image::Rgba([255, 0, 0, 255])),
+    );
+
+    let svg = render_svg_with_options(&state, &DiagramRenderOptions::default());
+    assert_eq!(
+        svg.matches("class=\"overlay dashed-line airborne-path\"")
+            .count(),
+        1,
+        "the crossing airborne segment should render and the fully outside segment should not"
+    );
+    let airborne = svg_element_with_class(&svg, "airborne-path", 0);
+    assert!(airborne.contains("stroke-dasharray="));
+    assert!(airborne.contains("clip-path=\"url(#diagram-outer-table-clip)\""));
+    let viewport = DiagramViewport::default();
+    for (attribute, maximum) in [
+        ("x1", viewport.width_px),
+        ("x2", viewport.width_px),
+        ("y1", viewport.height_px),
+        ("y2", viewport.height_px),
+    ] {
+        let coordinate = svg_attr_f32(airborne, attribute);
+        assert!(
+            coordinate.is_finite() && (0.0..=maximum).contains(&coordinate),
+            "{attribute}={coordinate} must remain inside 0..={maximum}"
+        );
+    }
+    assert!(svg_attr_f32(airborne, "x1").abs() <= 1e-3);
+    assert!((svg_attr_f32(airborne, "x2") - viewport.width_px).abs() <= 1e-3);
+
+    let ordinary = svg_element(&svg, "class=\"overlay dashed-line\"", 0);
+    assert!(!ordinary.contains("airborne-path"));
+    assert!(!ordinary.contains("clip-path="));
+}
+
+#[test]
 fn svg_ball_number_is_counter_rotated_to_remain_upright_on_screen() {
     let state = GameState::with_balls(
         TableSpec::default(),

@@ -1,10 +1,10 @@
 use bigdecimal::ToPrimitive;
 use billiards::dsl::{
-    parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario, shot_controls_from_dsl,
-    update_shot_control_in_dsl, update_shot_tip_in_dsl, BallRef, CoordinateAxis, DslBuildError,
-    DslError, DslParseError, PhysicsConfigKind, RailSide, ScenarioBallTimelineSegment,
-    ScenarioBallTrace, ScenarioShotTrace, ScenarioTraceRenderOptions, ShotControl,
-    ShotControlError, ShotControls,
+    apply_shot_candidate_to_dsl, parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario,
+    shot_controls_from_dsl, update_shot_control_in_dsl, update_shot_tip_in_dsl, BallRef,
+    CoordinateAxis, DslBuildError, DslError, DslParseError, PhysicsConfigKind, RailSide,
+    ScenarioBallTimelineSegment, ScenarioBallTrace, ScenarioShotTrace, ScenarioTraceRenderOptions,
+    ShotControl, ShotControlError, ShotControls,
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
@@ -2346,6 +2346,74 @@ fn shot_control_valid_no_shot_inspects_as_none_but_rejects_updates() {
         update_shot_tip_in_dsl(source, 0.1, 0.2),
         Err(ShotControlError::NoShot)
     ));
+}
+
+#[test]
+fn shot_candidate_apply_updates_every_existing_shot_control_atomically() {
+    let source =
+        editable_shot_control_source("heading(12deg)", "64ips", "side: 0.0R, height: 0.0R", "");
+    let updated = apply_shot_candidate_to_dsl(&source, 271.25, 108.0, 0.39, 0.11, 1.384)
+        .expect("an existing shot should accept a complete candidate");
+
+    assert!(updated.source.contains("heading(271.25deg)"));
+    assert!(updated.source.contains("speed(108ips)"));
+    assert!(updated
+        .source
+        .contains("tip(side: 0.39R, height: 0.11R).elevation(1.384deg)"));
+    assert_eq!(updated.controls.heading_degrees, 271.25);
+    assert_eq!(updated.controls.speed_ips, 108.0);
+    assert_eq!(updated.controls.tip_side, 0.39);
+    assert_eq!(updated.controls.tip_height, 0.11);
+    assert_eq!(updated.controls.cue_elevation_degrees, 1.384);
+}
+
+#[test]
+fn shot_candidate_apply_inserts_a_shot_using_the_preferred_cue() {
+    let source = "table three_cushion_carom_10ft\r\n\
+                  game three_cushion\r\n\
+                  ball cue at (3.354, 3.309)\r\n\
+                  ball yellow at (2.491, 5.838)\r\n\
+                  ball red at (2.762, 3.888)\r\n\
+                  cue_strike(player).mass_ratio(0.9).energy_loss(0.08)";
+    let updated = apply_shot_candidate_to_dsl(source, 341.15, 109.9, 0.3915, 0.1125, 1.291)
+        .expect("a shotless source with one cue should accept a candidate");
+
+    assert!(updated.source.starts_with(source));
+    assert!(updated.source.contains(
+        "shot(cue).heading(341.15deg).speed(109.9ips).tip(side: 0.3915R, height: 0.1125R).elevation(1.291deg).using(player)"
+    ));
+    assert!(!updated.source.contains("robust_search_default"));
+    assert!(!updated.source.replace("\r\n", "").contains('\n'));
+    assert_eq!(updated.controls.heading_degrees, 341.15);
+    assert!(updated.controls.cue_elevation_explicit);
+}
+
+#[test]
+fn shot_candidate_apply_adds_a_unique_canonical_cue_when_selection_is_ambiguous() {
+    let source = "table three_cushion_carom_10ft\n\
+                  game three_cushion\n\
+                  ball cue at (3.354, 3.309)\n\
+                  ball yellow at (2.491, 5.838)\n\
+                  ball red at (2.762, 3.888)\n\
+                  cue_strike(robust_search_default).mass_ratio(0.8).energy_loss(0.2)\n\
+                  cue_strike(other).mass_ratio(0.9).energy_loss(0.15)";
+    let updated = apply_shot_candidate_to_dsl(source, 341.15, 109.9, 0.3915, 0.1125, 1.291)
+        .expect("an ambiguous shotless source should receive a canonical cue");
+
+    assert!(updated.source.starts_with(source));
+    assert!(updated
+        .source
+        .contains("cue_strike(robust_search_default_1).mass_ratio(1).energy_loss(0.1)"));
+    assert!(updated.source.contains(".using(robust_search_default_1)"));
+    let scenario =
+        parse_dsl_to_scenario(&updated.source).expect("the inserted canonical shot should build");
+    let shot = scenario
+        .shot
+        .expect("the inserted source should contain one shot");
+    assert_eq!(
+        shot.cue_strike,
+        billiards::canonical_three_cushion_cue_config()
+    );
 }
 
 #[test]

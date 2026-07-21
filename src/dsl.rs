@@ -13,8 +13,8 @@ use crate::{
     simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest,
     trace_ball_path_with_rail_profile_on_table,
     visualization::{
-        BallPathRenderOptions, BallPathWidthMode, EventMarkerStyle, GhostBallStyle,
-        LabelOverlayStyle, PathColorMode, SmoothPolylineStyle,
+        BallPathRenderOptions, BallPathWidthMode, DashedLineStyle, EventMarkerStyle,
+        GhostBallStyle, LabelOverlayStyle, PathColorMode, SmoothPolylineStyle,
     },
     Angle, Ball, BallBallCollisionConfig, BallPath, BallPathError, BallPathSegment, BallPathStop,
     BallSetPhysicsSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact,
@@ -1000,24 +1000,35 @@ impl ScenarioShotTrace {
                     &path_style,
                 );
             } else {
-                let sampled_points = ball_trace.sampled_points(
+                let width_px = path_render.width_px_for_speed(
+                    ball_trace.reference_speed_ips(),
+                    ball_trace.reference_speed_ips(),
+                );
+                for polyline in ball_trace.sampled_render_polylines(
                     path_render.max_time_step,
                     &self.ball_set,
                     &self.motion,
                     &scenario.game_state.table_spec,
-                );
-                if sampled_points.len() >= 2 {
-                    game_state.add_smooth_polyline_styled(
-                        &sampled_points,
-                        SmoothPolylineStyle {
-                            color: trace_color,
-                            width_px: path_render.width_px_for_speed(
-                                ball_trace.reference_speed_ips(),
-                                ball_trace.reference_speed_ips(),
-                            ),
-                            layer: path_style.line.layer,
-                        },
-                    );
+                ) {
+                    if polyline.points.len() < 2 {
+                        continue;
+                    }
+                    if polyline.airborne {
+                        let mut style = DashedLineStyle::new(trace_color)
+                            .on_layer(path_style.line.layer)
+                            .clipped_to_table_bounds();
+                        style.width_px = width_px;
+                        game_state.add_dotted_polyline_styled(&polyline.points, style);
+                    } else {
+                        game_state.add_smooth_polyline_styled(
+                            &polyline.points,
+                            SmoothPolylineStyle {
+                                color: trace_color,
+                                width_px,
+                                layer: path_style.line.layer,
+                            },
+                        );
+                    }
                 }
             }
 
@@ -1198,6 +1209,11 @@ pub struct ScenarioBallTimelineSegment {
     pub start: BallState,
     pub end: BallState,
     pub duration: Seconds,
+}
+
+struct ScenarioTracePolyline {
+    points: Vec<Position>,
+    airborne: bool,
 }
 
 struct TimelineSubdivisionSample {
@@ -1393,6 +1409,52 @@ impl ScenarioBallTrace {
             }
         }
         points
+    }
+
+    fn sampled_render_polylines(
+        &self,
+        max_time_step: Seconds,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        table_spec: &TableSpec,
+    ) -> Vec<ScenarioTracePolyline> {
+        let max_time_step = max_time_step.as_f64();
+        let subdivision_step =
+            (max_time_step.is_finite() && max_time_step > 0.0).then_some(max_time_step);
+        let mut polylines = Vec::new();
+        for segment in &self.timeline_segments {
+            let airborne = OnTableBallState::try_from(segment.start.clone()).is_err();
+            if polylines
+                .last()
+                .is_none_or(|polyline: &ScenarioTracePolyline| polyline.airborne != airborne)
+            {
+                polylines.push(ScenarioTracePolyline {
+                    points: vec![segment.start.projected_position(table_spec)],
+                    airborne,
+                });
+            }
+            let Some(polyline) = polylines.last_mut() else {
+                continue;
+            };
+            let projected_start = segment.start.projected_position(table_spec);
+            if polyline.points.last() != Some(&projected_start) {
+                polyline.points.push(projected_start);
+            }
+            for sample in
+                TimelineSubdivision::new(segment.duration.as_f64().max(0.0), subdivision_step)
+            {
+                let state = if sample.is_endpoint {
+                    segment.end.clone()
+                } else {
+                    advance_timeline_ball_state(&segment.start, sample.elapsed, ball, motion)
+                };
+                let projected = state.projected_position(table_spec);
+                if polyline.points.last() != Some(&projected) {
+                    polyline.points.push(projected);
+                }
+            }
+        }
+        polylines
     }
 
     fn sampled_timeline_points(
@@ -2411,7 +2473,7 @@ pub(crate) fn scenario_controls_and_preferred_cue_from_dsl(
 }
 
 /// Selects the cue named `default`, or the sole cue when only one is declared.
-fn preferred_cue_strike(doc: &DslDoc) -> Result<Option<CueStrikeConfig>, DslBuildError> {
+fn preferred_cue_strike_definition(doc: &DslDoc) -> Option<&CueStrikeDef> {
     let mut first = None;
     let mut count = 0;
     let mut named_default = None;
@@ -2427,14 +2489,19 @@ fn preferred_cue_strike(doc: &DslDoc) -> Result<Option<CueStrikeConfig>, DslBuil
         }
     }
 
-    let preferred = if named_default.is_some() {
+    if named_default.is_some() {
         named_default
     } else if count == 1 {
         first
     } else {
         None
-    };
-    preferred.map(build_cue_strike).transpose()
+    }
+}
+
+fn preferred_cue_strike(doc: &DslDoc) -> Result<Option<CueStrikeConfig>, DslBuildError> {
+    preferred_cue_strike_definition(doc)
+        .map(build_cue_strike)
+        .transpose()
 }
 
 fn shot_controls_from_parsed_dsl(
@@ -2586,6 +2653,103 @@ pub fn update_shot_tip_in_dsl(
         replace_source_span(&mut candidate, span, &replacement);
     }
     validate_edited_shot_source(candidate)
+}
+
+/// Applies all controls from one robust-search candidate in one validated source update.
+///
+/// Existing shots retain their shooter and cue declaration. A shotless source uses
+/// its preferred cue declaration, or receives a uniquely named canonical cue.
+pub fn apply_shot_candidate_to_dsl(
+    source: &str,
+    heading: f64,
+    speed: f64,
+    tip_side: f64,
+    tip_height: f64,
+    elevation: f64,
+) -> Result<ShotControlUpdate, ShotControlError> {
+    for (control, value) in [
+        ("heading", heading),
+        ("speed", speed),
+        ("tip side", tip_side),
+        ("tip height", tip_height),
+        ("elevation", elevation),
+    ] {
+        if !value.is_finite() {
+            return Err(ShotControlError::NonFiniteValue { control });
+        }
+    }
+
+    let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
+    let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
+    if scenario.shot.is_some() {
+        let candidate = update_shot_control_in_dsl(source, ShotControl::Heading, heading)?.source;
+        let candidate = update_shot_control_in_dsl(&candidate, ShotControl::Speed, speed)?.source;
+        let candidate =
+            update_shot_control_in_dsl(&candidate, ShotControl::Elevation, elevation)?.source;
+        return update_shot_tip_in_dsl(&candidate, tip_side, tip_height);
+    }
+
+    let preferred_cue = preferred_cue_strike_definition(&parsed.doc);
+    let (cue_name, cue_declaration) = if let Some(definition) = preferred_cue {
+        (definition.name.clone(), None)
+    } else {
+        let cue_name = unique_robust_search_cue_name(&parsed.doc)?;
+        let cue = crate::canonical_three_cushion_cue_config();
+        let declaration = format!(
+            "cue_strike({cue_name}).mass_ratio({}).energy_loss({})",
+            format_shot_control_number(cue.cue_mass_ratio().as_f64()),
+            format_shot_control_number(cue.collision_energy_loss().as_f64()),
+        );
+        (cue_name, Some(declaration))
+    };
+
+    let newline = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut candidate = source.to_string();
+    if !candidate.is_empty() && !candidate.ends_with('\n') {
+        candidate.push_str(newline);
+    }
+    if let Some(declaration) = cue_declaration {
+        candidate.push_str(&declaration);
+        candidate.push_str(newline);
+    }
+    candidate.push_str(&format!(
+        "shot(cue).heading({}deg).speed({}ips).tip(side: {}R, height: {}R).elevation({}deg).using({cue_name})",
+        format_shot_control_number(heading),
+        format_shot_control_number(speed),
+        format_shot_control_number(tip_side),
+        format_shot_control_number(tip_height),
+        format_shot_control_number(elevation),
+    ));
+    validate_edited_shot_source(candidate)
+}
+
+fn unique_robust_search_cue_name(doc: &DslDoc) -> Result<String, ShotControlError> {
+    const BASE_NAME: &str = "robust_search_default";
+    let name_is_available = |name: &str| {
+        !doc.entries.iter().any(
+            |entry| matches!(entry, DslEntry::CueStrike(definition) if definition.name == name),
+        )
+    };
+    if name_is_available(BASE_NAME) {
+        return Ok(BASE_NAME.to_string());
+    }
+
+    let mut suffix = 1_u64;
+    loop {
+        let candidate = format!("{BASE_NAME}_{suffix}");
+        if name_is_available(&candidate) {
+            return Ok(candidate);
+        }
+        suffix = suffix
+            .checked_add(1)
+            .ok_or(ShotControlError::MissingSourceMetadata {
+                control: "available cue name",
+            })?;
+    }
 }
 
 fn shot_def(doc: &DslDoc) -> Option<&ShotDef> {

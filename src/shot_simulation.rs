@@ -3,7 +3,8 @@ mod robust;
 pub use robust::*;
 
 use crate::{
-    classify_motion_phase, human_tuned_preview_motion_config, n_ball_system_collision_delta,
+    advance_airborne_ball, advance_motion_on_table, classify_motion_phase,
+    human_tuned_preview_motion_config, n_ball_system_collision_delta,
     resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table, strike_resting_ball,
     validate_and_recover_n_ball_system_states, Angle, BallBallCollisionConfig, BallSetPhysicsSpec,
     BallState, CollisionModel, CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond,
@@ -11,7 +12,7 @@ use crate::{
     OnTableMotionConfig, PlayingConditions, Pocket, PocketAwareEventCache, PocketJaw, Rail,
     RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError,
     TableSpec, MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS, SHARED_BALL_BALL_CONTACT_STATE_EPSILON,
-    SIMULTANEOUS_EVENT_TOLERANCE_SECONDS,
+    SIMULTANEOUS_EVENT_TOLERANCE_SECONDS, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
 };
 use bigdecimal::ToPrimitive;
 use std::error::Error;
@@ -710,6 +711,12 @@ pub struct OwnedShotResult {
     pub roles: ThreeCushionRoles,
     pub events: Box<[ResolvedEvent]>,
     pub final_states: Box<[FinalBallState]>,
+    pub maximum_cue_ball_height: Inches,
+    /// Estimated minimum 3D surface clearance to the untouched object ball after three cushions.
+    ///
+    /// `None` means the shot never entered that progress state. This is search guidance, not
+    /// collision evidence; rule adjudication continues to use resolved contacts.
+    pub estimated_closest_second_object_clearance: Option<Inches>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -725,6 +732,9 @@ pub struct ContactInstant {
     pub at: Seconds,
 }
 
+/// Maximum legal cue-ball height above its resting center plane during a three-cushion point.
+pub const THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES: f64 = 1.0;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ThreeCushionFacts {
     pub object_a_first_contact: Option<ContactInstant>,
@@ -732,12 +742,34 @@ pub struct ThreeCushionFacts {
     pub completion: Option<ContactInstant>,
     pub cushion_contacts_before_completion: u16,
     pub first_three_qualifying_cushions: [Option<Rail>; 3],
+    pub maximum_cue_ball_height: Inches,
+    /// Estimated minimum 3D surface clearance to the remaining object after three cushions and
+    /// exactly one object-ball contact.
+    pub estimated_closest_second_object_clearance: Option<Inches>,
+}
+
+impl ThreeCushionFacts {
+    /// Whether object A was contacted by the cue ball.
+    pub const fn object_a_touched(&self) -> bool {
+        self.object_a_first_contact.is_some()
+    }
+
+    /// Whether object B was contacted by the cue ball.
+    pub const fn object_b_touched(&self) -> bool {
+        self.object_b_first_contact.is_some()
+    }
+
+    /// Whether at least three qualifying cue-ball cushion contacts occurred before completion.
+    pub const fn three_cushions_touched(&self) -> bool {
+        self.cushion_contacts_before_completion >= 3
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ThreeCushionMiss {
     MissingObjectContact,
     InsufficientCushions { required: u16, observed: u16 },
+    CueBallHeightExceeded { limit: Inches, observed: Inches },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -900,6 +932,8 @@ struct ThreeCushionAccumulator {
     first_unsupported_contact: Option<ContactInstant>,
     cushion_contacts_before_completion: u16,
     first_three_qualifying_cushions: [Option<Rail>; 3],
+    maximum_cue_ball_height: f64,
+    estimated_closest_second_object_clearance: Option<f64>,
 }
 
 impl ThreeCushionAccumulator {
@@ -961,6 +995,31 @@ impl ThreeCushionAccumulator {
         }
     }
 
+    fn observe_cue_ball_height_evidence(&mut self, maximum_height: f64) {
+        self.maximum_cue_ball_height = self.maximum_cue_ball_height.max(maximum_height);
+    }
+
+    fn observe_second_object_clearance(&mut self, clearance: f64) {
+        self.estimated_closest_second_object_clearance = Some(
+            self.estimated_closest_second_object_clearance
+                .map_or(clearance, |minimum| minimum.min(clearance)),
+        );
+    }
+
+    fn remaining_object_after_three_cushions(&self, roles: ThreeCushionRoles) -> Option<BallId> {
+        if self.cushion_contacts_before_completion < 3 || self.completion.is_some() {
+            return None;
+        }
+        match (
+            self.object_a_first_contact.is_some(),
+            self.object_b_first_contact.is_some(),
+        ) {
+            (true, false) => Some(roles.object_b),
+            (false, true) => Some(roles.object_a),
+            (false, false) | (true, true) => None,
+        }
+    }
+
     fn facts(&self) -> ThreeCushionFacts {
         ThreeCushionFacts {
             object_a_first_contact: self.object_a_first_contact,
@@ -968,6 +1027,10 @@ impl ThreeCushionAccumulator {
             completion: self.completion,
             cushion_contacts_before_completion: self.cushion_contacts_before_completion,
             first_three_qualifying_cushions: self.first_three_qualifying_cushions,
+            maximum_cue_ball_height: Inches::from_f64(self.maximum_cue_ball_height),
+            estimated_closest_second_object_clearance: self
+                .estimated_closest_second_object_clearance
+                .map(Inches::from_f64),
         }
     }
 
@@ -978,6 +1041,15 @@ impl ThreeCushionAccumulator {
                 .is_none_or(|unsupported| completion.event_index < unsupported.event_index)
         });
         if completion_is_final {
+            if facts.maximum_cue_ball_height.as_f64() > THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES {
+                return ThreeCushionAdjudication::Miss {
+                    reason: ThreeCushionMiss::CueBallHeightExceeded {
+                        limit: Inches::from_f64(THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES),
+                        observed: facts.maximum_cue_ball_height.clone(),
+                    },
+                    facts,
+                };
+            }
             if facts.cushion_contacts_before_completion >= 3 {
                 return ThreeCushionAdjudication::Scored(facts);
             }
@@ -1157,13 +1229,131 @@ fn unsupported_shared_reason(
     }
 }
 
+#[derive(Clone, Debug, Default)]
+struct CueBallHeightEvidence {
+    maximum_height: f64,
+}
+
+impl CueBallHeightEvidence {
+    fn observe_segment(&mut self, state: &NBallSystemState, duration_seconds: f64) {
+        let NBallSystemState::Airborne(state) = state else {
+            return;
+        };
+        let maximum_height = airborne_segment_maximum_height(state, duration_seconds);
+        self.maximum_height = self.maximum_height.max(maximum_height);
+    }
+}
+
+fn airborne_segment_maximum_height(state: &BallState, duration_seconds: f64) -> f64 {
+    let vertical_velocity = state.vertical_velocity.as_f64();
+    let apex_time = (vertical_velocity / STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED)
+        .clamp(0.0, duration_seconds);
+    state.height.as_f64() + vertical_velocity * apex_time
+        - 0.5 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * apex_time * apex_time
+}
+
+const SECOND_OBJECT_CLEARANCE_SUBDIVISIONS: u8 = 8;
+
+fn advance_state_for_clearance(
+    state: &NBallSystemState,
+    elapsed: Seconds,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> Option<BallState> {
+    match state {
+        NBallSystemState::OnTable(state) => {
+            Some(advance_motion_on_table(state, elapsed, ball, motion).state)
+        }
+        NBallSystemState::Airborne(state) => Some(advance_airborne_ball(state, elapsed)),
+        NBallSystemState::Pocketed { .. } => None,
+    }
+}
+
+fn estimated_closest_surface_clearance(
+    first: &NBallSystemState,
+    second: &NBallSystemState,
+    duration_seconds: f64,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> Option<f64> {
+    let mut minimum = f64::INFINITY;
+    for subdivision in 0..=SECOND_OBJECT_CLEARANCE_SUBDIVISIONS {
+        let elapsed = Seconds::new(
+            duration_seconds * f64::from(subdivision)
+                / f64::from(SECOND_OBJECT_CLEARANCE_SUBDIVISIONS),
+        );
+        let first = advance_state_for_clearance(first, elapsed, ball, motion)?;
+        let second = advance_state_for_clearance(second, elapsed, ball, motion)?;
+        let delta_x = first.position.x().as_f64() - second.position.x().as_f64();
+        let delta_y = first.position.y().as_f64() - second.position.y().as_f64();
+        let delta_z = first.height.as_f64() - second.height.as_f64();
+        let center_distance = delta_x
+            .mul_add(delta_x, delta_y.mul_add(delta_y, delta_z * delta_z))
+            .sqrt();
+        let contact_distance = 2.0 * ball.radius.as_f64();
+        minimum = minimum.min((center_distance - contact_distance).max(0.0));
+    }
+    minimum.is_finite().then_some(minimum)
+}
+
+fn observe_second_object_clearance_segment(
+    accumulator: &mut ThreeCushionAccumulator,
+    states: &[NBallSystemState],
+    layout: &ShotLayout,
+    roles: ThreeCushionRoles,
+    cue_index: usize,
+    duration_seconds: f64,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) {
+    let Some(target_id) = accumulator.remaining_object_after_three_cushions(roles) else {
+        return;
+    };
+    let Some(target_index) = layout.index_for_id(target_id) else {
+        return;
+    };
+    let Some(clearance) = estimated_closest_surface_clearance(
+        &states[cue_index],
+        &states[target_index],
+        duration_seconds,
+        ball,
+        motion,
+    ) else {
+        return;
+    };
+    accumulator.observe_second_object_clearance(clearance);
+}
+
 struct CoreShotResult {
     elapsed: Seconds,
     termination: ShotTermination,
     roles: ThreeCushionRoles,
     events: Vec<ResolvedEvent>,
     final_states: Box<[FinalBallState]>,
+    maximum_cue_ball_height: Inches,
+    estimated_closest_second_object_clearance: Option<Inches>,
     adjudication: ThreeCushionAdjudication,
+}
+
+fn flush_pending_event(
+    pending: &mut Option<(Seconds, Vec<ResolvedEffect>)>,
+    accumulator: &mut ThreeCushionAccumulator,
+    observed_event_count: &mut usize,
+    roles: ThreeCushionRoles,
+    retain_event: bool,
+    retained: &mut Vec<ResolvedEvent>,
+) {
+    if let Some((at, effects)) = pending.take() {
+        let event = ResolvedEvent {
+            at,
+            effects: effects.into_boxed_slice(),
+        };
+        accumulator.observe(*observed_event_count, &event, roles);
+        *observed_event_count += 1;
+        if retain_event {
+            retained.push(event);
+        }
+    }
 }
 
 fn execute_core(
@@ -1201,20 +1391,7 @@ fn execute_core(
     let mut retained = Vec::new();
     let mut accumulator = ThreeCushionAccumulator::default();
     let mut observed_event_count = 0usize;
-
-    let mut flush = |pending: &mut Option<(Seconds, Vec<ResolvedEffect>)>| {
-        if let Some((at, effects)) = pending.take() {
-            let event = ResolvedEvent {
-                at,
-                effects: effects.into_boxed_slice(),
-            };
-            accumulator.observe(observed_event_count, &event, roles);
-            observed_event_count += 1;
-            if retain_events {
-                retained.push(event);
-            }
-        }
-    };
+    let mut cue_ball_height_evidence = CueBallHeightEvidence::default();
 
     let termination = loop {
         if let ShotLimit::EventCount(limit) = limit {
@@ -1245,7 +1422,30 @@ fn execute_core(
             step_elapsed >= 0.0,
             "next shot event must not go backwards in time"
         );
+        cue_ball_height_evidence.observe_segment(&states[cue_index], step_elapsed);
         let absolute = Seconds::new(elapsed.as_f64() + step_elapsed);
+        if pending.as_ref().is_some_and(|(at, _)| {
+            (at.as_f64() - absolute.as_f64()).abs() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
+        }) {
+            flush_pending_event(
+                &mut pending,
+                &mut accumulator,
+                &mut observed_event_count,
+                roles,
+                retain_events,
+                &mut retained,
+            );
+        }
+        observe_second_object_clearance_segment(
+            &mut accumulator,
+            &states,
+            layout,
+            roles,
+            cue_index,
+            step_elapsed,
+            &physics.ball,
+            &physics.motion,
+        );
         let states_before = states.clone();
         let detailed = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
             &states,
@@ -1270,11 +1470,6 @@ fn execute_core(
             });
         }
 
-        if pending.as_ref().is_some_and(|(at, _)| {
-            (at.as_f64() - absolute.as_f64()).abs() > SIMULTANEOUS_EVENT_TOLERANCE_SECONDS
-        }) {
-            flush(&mut pending);
-        }
         if let Some((_, combined)) = pending.as_mut() {
             combined.extend(effects);
         } else {
@@ -1305,7 +1500,25 @@ fn execute_core(
             consecutive_zero_time_events = 0;
         }
     };
-    flush(&mut pending);
+    flush_pending_event(
+        &mut pending,
+        &mut accumulator,
+        &mut observed_event_count,
+        roles,
+        retain_events,
+        &mut retained,
+    );
+    observe_second_object_clearance_segment(
+        &mut accumulator,
+        &states,
+        layout,
+        roles,
+        cue_index,
+        0.0,
+        &physics.ball,
+        &physics.motion,
+    );
+    accumulator.observe_cue_ball_height_evidence(cue_ball_height_evidence.maximum_height);
     let adjudication = accumulator.adjudicate(&termination);
     let final_states = layout
         .balls
@@ -1324,6 +1537,10 @@ fn execute_core(
         roles,
         events: retained,
         final_states,
+        maximum_cue_ball_height: Inches::from_f64(cue_ball_height_evidence.maximum_height),
+        estimated_closest_second_object_clearance: accumulator
+            .estimated_closest_second_object_clearance
+            .map(Inches::from_f64),
         adjudication,
     })
 }
@@ -1342,12 +1559,18 @@ pub fn execute_shot(
         roles: result.roles,
         events: result.events.into_boxed_slice(),
         final_states: result.final_states,
+        maximum_cue_ball_height: result.maximum_cue_ball_height,
+        estimated_closest_second_object_clearance: result.estimated_closest_second_object_clearance,
     })
 }
 
 /// Project complete owned shot facts onto the UMB Article 83 three-cushion contact condition.
 pub fn project_three_cushion(result: &OwnedShotResult) -> ThreeCushionAdjudication {
     let mut accumulator = ThreeCushionAccumulator::default();
+    accumulator.observe_cue_ball_height_evidence(result.maximum_cue_ball_height.as_f64());
+    if let Some(clearance) = &result.estimated_closest_second_object_clearance {
+        accumulator.observe_second_object_clearance(clearance.as_f64());
+    }
     for (event_index, event) in result.events.iter().enumerate() {
         accumulator.observe(event_index, event, result.roles);
     }
@@ -1420,6 +1643,70 @@ mod applied_effect_tests {
 
     fn position(x: f64, y: f64) -> Inches2 {
         Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
+    }
+
+    #[test]
+    fn airborne_height_evidence_captures_apexes_and_uses_a_strict_boundary() {
+        let vertical_velocity = 40.0;
+        let state = BallState::airborne(
+            position(10.0, 20.0),
+            Inches::zero(),
+            Velocity2::zero(),
+            Inches::from_f64(vertical_velocity),
+            AngularVelocity3::zero(),
+        );
+        let maximum = airborne_segment_maximum_height(&state, 0.2);
+        let expected = vertical_velocity * vertical_velocity
+            / (2.0 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED);
+        assert!((maximum - expected).abs() <= 1e-12);
+
+        let boundary = BallState::airborne(
+            position(10.0, 20.0),
+            Inches::from_f64(THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES),
+            Velocity2::zero(),
+            Inches::zero(),
+            AngularVelocity3::zero(),
+        );
+        assert_eq!(
+            airborne_segment_maximum_height(&boundary, 0.1),
+            THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES
+        );
+    }
+
+    #[test]
+    fn estimated_clearance_uses_physical_interior_states_and_three_dimensions() {
+        let ball = BallSetPhysicsSpec::default();
+        let motion = motion();
+        let cue = NBallSystemState::from(on_table(BallState::on_table(
+            position(-5.0, 0.0),
+            Velocity2::new("20", "0"),
+            AngularVelocity3::zero(),
+        )));
+        let target = NBallSystemState::from(on_table(BallState::resting_at(position(0.0, 0.0))));
+        let start =
+            estimated_closest_surface_clearance(&cue, &target, 0.0, &ball, &motion).unwrap();
+        let interior =
+            estimated_closest_surface_clearance(&cue, &target, 0.5, &ball, &motion).unwrap();
+        let final_cue =
+            advance_state_for_clearance(&cue, Seconds::new(0.5), &ball, &motion).unwrap();
+        let final_cue = NBallSystemState::from(on_table(final_cue));
+        let end =
+            estimated_closest_surface_clearance(&final_cue, &target, 0.0, &ball, &motion).unwrap();
+        assert_eq!(interior, 0.0);
+        assert!(interior < start);
+        assert!(interior < end);
+
+        let airborne = NBallSystemState::Airborne(BallState::airborne(
+            position(0.0, 0.0),
+            Inches::from_f64(3.0),
+            Velocity2::zero(),
+            Inches::zero(),
+            AngularVelocity3::zero(),
+        ));
+        let vertical_clearance =
+            estimated_closest_surface_clearance(&airborne, &target, 0.0, &ball, &motion).unwrap();
+        let expected = 3.0 - 2.0 * ball.radius.as_f64();
+        assert!((vertical_clearance - expected).abs() <= 1e-12);
     }
 
     fn on_table(state: BallState) -> OnTableBallState {

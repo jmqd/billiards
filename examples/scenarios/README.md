@@ -79,16 +79,16 @@ Expected flavor:
 - longer natural-angle rail-first path on the carom table
 - carom ball and table scale rather than pool-ball physics
 
-### Planned three-cushion route examples
+### Three-cushion scoring route examples
 
-These layouts encode cue-ball routes through `yellow` and the named cushions on a pocketless
-carom table. The full vertical collision solver can change the later object contact; the
-regressions therefore validate each route's leading cushion sequence rather than claiming a score.
+These layouts encode legal cue-ball routes through both object balls and the named cushions on a
+pocketless carom table. Every `_score.billiards` fixture is engine-adjudicated under the UMB Article
+83 contact order: at least three cue-ball cushion contacts must precede the second object contact.
 
 ### `three_cushion_right_top_left_score.billiards`
 Expected flavor:
 - cue -> yellow first
-- cue rail sequence starts right, top, left
+- cue rail sequence starts right, top, left before scoring on red
 
 ### `three_cushion_left_top_right_score.billiards`
 Expected flavor:
@@ -141,7 +141,7 @@ Expected flavor:
 ### `three_cushion_double_rail_return_score.billiards`
 Expected flavor:
 - cue -> yellow first
-- very strong opposite side checks the cue ball back to its first cushion
+- controlled opposite side checks the cue ball back to its first cushion
 - rail sequence starts bottom, top, bottom before scoring on red
 - the third counted rail is a repeat of the first physical cushion, not a third distinct cushion
 
@@ -160,16 +160,14 @@ Expected flavor:
 ### `three_cushion_stun_check_long_rail_fast_score.billiards`
 Expected flavor:
 - cue -> yellow first with a stun-thick hit near the long rail
-- strong opposite/check side sends the cue bottom, top, bottom before scoring on red
+- tuned opposite/check side sends the cue bottom, top, bottom before scoring on red
 - fastest of the three stun-check variants
 
 ### `three_cushion_stun_check_long_rail_hold_score.billiards`
-Source fixture for the weaker-check member of the long-rail stun family.
-
-Current modeled flavor:
+Expected flavor:
 - cue -> yellow first with the same near-rail full-hit family
-- cue reaches bottom then top under the energetic rail solve
-- the intended third-bottom scoring return remains a calibration target, not a claimed outcome
+- cue reaches bottom, top, then returns to bottom before scoring on red
+- middle-speed member of the three stun-check variants
 
 ### `three_cushion_stun_check_long_rail_nip_score.billiards`
 Expected flavor:
@@ -179,8 +177,8 @@ Expected flavor:
 
 ### `three_cushion_three_rails_first_score.billiards`
 Expected flavor:
-- cue rail sequence starts left, right
-- full vertical collision response reaches an object before the planned third cushion
+- cue runs left, right, left, right before reaching either object ball
+- cue then contacts red and yellow to complete the legal rails-first score
 
 ### `three_cushion_hako_dama_long_box_behind_score.billiards`
 Expected flavor:
@@ -194,8 +192,8 @@ Expected flavor:
 
 ### Source-backed advanced scoring repertoire
 
-The following six fixtures are asserted as legal UMB scores: the cue ball contacts both object
-balls and records at least three cushion contacts before the second object ball. Their source URLs
+The following nine fixtures are asserted as legal UMB scores: the cue ball contacts both object
+balls and records at least three cushion contacts before the second object ball. Their source references
 and exact expected event orders are embedded in each scenario.
 
 ### `three_cushion_natural_angle_standard_score.billiards`
@@ -235,6 +233,25 @@ Expected scoring order:
 - bottom cushion
 - cue -> red
 - the two left-cushion impacts remain separate events and both count under UMB Article 83
+
+### `three_cushion_reverse_the_corner_score.billiards`
+Expected scoring order:
+- cue -> yellow on a very thin hit
+- right, top, then the right cushion again
+- cue -> red
+
+### `three_cushion_kiss_back_score.billiards`
+Expected scoring order:
+- cue -> yellow, yellow rebounds from the left cushion, then cue -> yellow again
+- cue takes the right, top, and left cushions
+- cue -> red
+
+### `three_cushion_gather_control_score.billiards`
+Expected scoring order and leave:
+- cue -> yellow
+- top, right, and left cushions
+- cue -> red
+- all three final ball centers remain within 16.3 inches pairwise
 
 ### Source-backed advanced nine-ball repertoire
 

@@ -149,6 +149,23 @@ fn a_square_hit_on_a_horizontal_rail_reflects_straight_back() {
 }
 
 #[test]
+fn rail_collisions_do_not_attract_a_departing_ball() {
+    let state = on_table(BallState::on_table(
+        inches2(10.0, 20.0),
+        Velocity2::new("3", "-7"),
+        AngularVelocity3::new(1.0, 2.0, 3.0),
+    ));
+
+    for model in [RailModel::Mirror, RailModel::RestitutionOnly] {
+        assert_eq!(
+            collide_ball_rail_on_table(&state, Rail::Top, model),
+            state,
+            "{model:?} must not apply an attractive rail impulse"
+        );
+    }
+}
+
+#[test]
 fn a_forty_five_degree_bank_reflects_symmetrically_in_the_ideal_model() {
     let state = on_table(BallState::on_table(
         inches2(10.0, 20.0),
@@ -166,13 +183,13 @@ fn a_forty_five_degree_bank_reflects_symmetrically_in_the_ideal_model() {
 fn an_ideal_rail_collision_leaves_spin_unchanged() {
     let state = on_table(BallState::on_table(
         inches2(10.0, 20.0),
-        Velocity2::new("-3", "7"),
+        Velocity2::new("3", "7"),
         AngularVelocity3::new(1.0, 2.0, 3.0),
     ));
 
     let reflected = collide_ball_rail_on_table(&state, Rail::Right, RailModel::Mirror);
 
-    assert_close(reflected.as_ball_state().velocity.x().as_f64(), 3.0);
+    assert_close(reflected.as_ball_state().velocity.x().as_f64(), -3.0);
     assert_close(reflected.as_ball_state().velocity.y().as_f64(), 7.0);
     assert_eq!(
         reflected.as_ball_state().angular_velocity,

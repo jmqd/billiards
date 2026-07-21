@@ -30,6 +30,7 @@ pub struct DashedLineStyle {
     gap_px: f32,
     pub width_px: f32,
     pub layer: OverlayLayer,
+    clip_to_table_bounds: bool,
 }
 
 impl DashedLineStyle {
@@ -40,6 +41,7 @@ impl DashedLineStyle {
             gap_px: 12.0,
             width_px: 2.0,
             layer: OverlayLayer::BelowBalls,
+            clip_to_table_bounds: false,
         }
     }
 
@@ -70,6 +72,16 @@ impl DashedLineStyle {
     pub fn on_layer(mut self, layer: OverlayLayer) -> Self {
         self.layer = layer;
         self
+    }
+
+    /// Clip this dashed overlay to the rounded outer table boundary during rendering.
+    pub fn clipped_to_table_bounds(mut self) -> Self {
+        self.clip_to_table_bounds = true;
+        self
+    }
+
+    pub(crate) const fn clips_to_table_bounds(&self) -> bool {
+        self.clip_to_table_bounds
     }
 }
 

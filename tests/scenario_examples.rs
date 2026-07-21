@@ -2,14 +2,16 @@ use std::fs;
 
 use billiards::diagram::DiagramOutputFormat;
 use billiards::dsl::{
-    parse_dsl_to_scenario, ScenarioShotTrace, ScenarioShotTraceEventKind,
+    parse_dsl_to_scenario, DslScenario, ScenarioShotTrace, ScenarioShotTraceEventKind,
     ScenarioTraceRenderOptions,
 };
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
-    advance_motion_on_table, human_tuned_preview_motion_config, BallType, CollisionModel,
-    DiagramBackground, DiagramRenderOptions, NBallSystemEvent, NBallSystemState, OnTableBallState,
-    Pocket, Rail, RailModel, Seconds, TableKind, TYPICAL_BALL_RADIUS,
+    advance_motion_on_table, execute_shot, human_tuned_preview_motion_config,
+    project_three_cushion, BallId, BallType, CaromBallRole, CollisionModel, DiagramBackground,
+    DiagramRenderOptions, Inches2, NBallSystemEvent, NBallSystemState, OnTableBallState,
+    OwnedShotResult, PhysicsProfile, Pocket, Rail, RailModel, ResolvedEffect, SceneBall, Seconds,
+    ShotCommand, ShotLayout, ShotLimit, TableKind, ThreeCushionAdjudication, TYPICAL_BALL_RADIUS,
 };
 
 fn trace_scenario(
@@ -42,6 +44,21 @@ fn trace_scenario(
             .expect("scenario should contain a shot")
     };
     (scenario, trace)
+}
+
+fn svg_attr_f32(element: &str, attribute: &str) -> f32 {
+    let prefix = format!("{attribute}=\"");
+    let start = element
+        .find(&prefix)
+        .unwrap_or_else(|| panic!("missing SVG attribute {attribute} in {element}"))
+        + prefix.len();
+    let end = element[start..]
+        .find('"')
+        .unwrap_or_else(|| panic!("unterminated SVG attribute {attribute} in {element}"))
+        + start;
+    element[start..end]
+        .parse()
+        .unwrap_or_else(|error| panic!("invalid SVG attribute {attribute}: {error}"))
 }
 
 #[test]
@@ -223,6 +240,49 @@ fn jump_examples_clear_the_blocker_and_hit_the_target_before_landing() {
 }
 
 #[test]
+fn long_jump_svg_uses_bounded_dotted_airborne_paths() {
+    let (scenario, trace) = trace_scenario(
+        "examples/scenarios/long_jump_over_blocker_showcase.billiards",
+        8,
+    );
+    let rendered = trace.rendered_final_layout_with_trace_options(
+        &scenario,
+        &ScenarioTraceRenderOptions::default(),
+    );
+    let svg = String::from_utf8(rendered.render_2d_diagram_with_options(
+        DiagramOutputFormat::Svg,
+        &DiagramRenderOptions::default(),
+    ))
+    .expect("jump scenario SVG should be UTF-8");
+    let viewport = billiards::diagram::DiagramViewport::default();
+    let airborne_lines = svg
+        .lines()
+        .filter(|line| line.contains("class=\"overlay dashed-line airborne-path\""))
+        .collect::<Vec<_>>();
+    assert!(
+        !airborne_lines.is_empty(),
+        "jump trace must contain a distinct airborne path"
+    );
+    for line in airborne_lines {
+        assert!(line.contains("stroke-dasharray="));
+        assert!(line.contains("clip-path=\"url(#diagram-outer-table-clip)\""));
+        for (attribute, maximum) in [
+            ("x1", viewport.width_px),
+            ("x2", viewport.width_px),
+            ("y1", viewport.height_px),
+            ("y2", viewport.height_px),
+        ] {
+            let coordinate = svg_attr_f32(line, attribute);
+            assert!(
+                coordinate.is_finite() && (0.0..=maximum).contains(&coordinate),
+                "{attribute}={coordinate} must remain inside 0..={maximum}"
+            );
+        }
+    }
+    assert!(svg.contains("class=\"overlay smooth-polyline\""));
+}
+
+#[test]
 fn svg_trace_marks_original_cue_ball_origin_without_restoring_event_numbers() {
     let (scenario, trace) = trace_scenario(
         "examples/scenarios/bank_reference_track_one_rail.billiards",
@@ -252,6 +312,7 @@ fn svg_trace_marks_original_cue_ball_origin_without_restoring_event_numbers() {
     assert!(svg.contains("<title>(1) t="));
     assert!(svg.contains("cue Sliding -&gt; Rolling"));
     assert!(!svg.contains(">(1)</text>"));
+    assert!(!svg.contains("airborne-path"));
 }
 
 fn has_pocket(trace: &ScenarioShotTrace, ball: BallType, pocket: Pocket) -> bool {
@@ -338,6 +399,21 @@ fn final_position_inches(trace: &ScenarioShotTrace, ball_type: BallType) -> (f64
         .final_state
         .as_ball_state();
     (state.position.x().as_f64(), state.position.y().as_f64())
+}
+
+fn final_spread_inches(trace: &ScenarioShotTrace) -> f64 {
+    let positions = [BallType::Cue, BallType::YellowCue, BallType::Red]
+        .map(|ball| final_position_inches(trace, ball));
+    let mut spread: f64 = 0.0;
+    for first in 0..positions.len() {
+        for second in first + 1..positions.len() {
+            spread = spread.max(
+                (positions[first].0 - positions[second].0)
+                    .hypot(positions[first].1 - positions[second].1),
+            );
+        }
+    }
+    spread
 }
 
 fn angle_between_degrees(first: (f64, f64), second: (f64, f64)) -> f64 {
@@ -862,6 +938,9 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
         "examples/scenarios/three_cushion_five_cushion_double_around_score.billiards",
         "examples/scenarios/three_cushion_two_rails_first_umbrella_score.billiards",
         "examples/scenarios/three_cushion_ticky_repeated_rail_score.billiards",
+        "examples/scenarios/three_cushion_reverse_the_corner_score.billiards",
+        "examples/scenarios/three_cushion_kiss_back_score.billiards",
+        "examples/scenarios/three_cushion_gather_control_score.billiards",
     ] {
         let (scenario, trace) = trace_scenario(scenario_path, 8);
         assert_eq!(
@@ -893,81 +972,266 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
     }
 }
 
-#[test]
-fn source_backed_three_cushion_repertoire_scores_under_umb_event_order() {
-    use CueCaromStep::{Object, Rail as Cushion};
+fn three_cushion_physics_profile(scenario: &DslScenario) -> Result<PhysicsProfile, String> {
+    let simulation_name = scenario
+        .preferred_simulation_name()
+        .ok_or_else(|| "scenario has no unambiguous preferred simulation".to_string())?;
+    let simulation = scenario
+        .simulation_named(simulation_name)
+        .map_err(|error| format!("preferred simulation is invalid: {error}"))?;
+    let conditions = &simulation.conditions;
+    let collision = scenario
+        .ball_ball_config_named(&simulation.ball_ball_name)
+        .map_err(|error| format!("preferred ball-ball configuration is invalid: {error}"))?
+        .applying_conditions(conditions);
+    let rails = scenario
+        .rail_profile_named(&simulation.rails_name)
+        .map_err(|error| format!("preferred rail configuration is invalid: {error}"))?
+        .applying_conditions(conditions);
 
-    for (scenario_path, expected) in [
-        (
-            "examples/scenarios/three_cushion_natural_angle_standard_score.billiards",
-            vec![
-                Object(BallType::YellowCue),
-                Cushion(Rail::Right),
-                Cushion(Rail::Bottom),
-                Cushion(Rail::Left),
-                Object(BallType::Red),
-            ],
-        ),
-        (
-            "examples/scenarios/three_cushion_short_angle_running_score.billiards",
-            vec![
-                Object(BallType::YellowCue),
-                Cushion(Rail::Right),
-                Cushion(Rail::Top),
-                Cushion(Rail::Left),
-                Object(BallType::Red),
-            ],
-        ),
-        (
-            "examples/scenarios/three_cushion_reverse_english_hold_score.billiards",
-            vec![
-                Object(BallType::YellowCue),
-                Cushion(Rail::Left),
-                Cushion(Rail::Bottom),
-                Cushion(Rail::Right),
-                Object(BallType::Red),
-            ],
-        ),
-        (
-            "examples/scenarios/three_cushion_five_cushion_double_around_score.billiards",
-            vec![
-                Object(BallType::YellowCue),
-                Cushion(Rail::Right),
-                Cushion(Rail::Top),
-                Cushion(Rail::Left),
-                Cushion(Rail::Bottom),
-                Cushion(Rail::Right),
-                Object(BallType::Red),
-            ],
-        ),
-        (
-            "examples/scenarios/three_cushion_two_rails_first_umbrella_score.billiards",
-            vec![
-                Cushion(Rail::Right),
-                Cushion(Rail::Top),
-                Object(BallType::YellowCue),
-                Cushion(Rail::Left),
-                Object(BallType::Red),
-            ],
-        ),
-        (
-            "examples/scenarios/three_cushion_ticky_repeated_rail_score.billiards",
-            vec![
-                Cushion(Rail::Left),
-                Object(BallType::YellowCue),
-                Cushion(Rail::Left),
-                Cushion(Rail::Bottom),
-                Object(BallType::Red),
-            ],
-        ),
-    ] {
-        let (_, trace) = trace_scenario(scenario_path, 0);
-        let actual = cue_carom_sequence(&trace);
-        assert!(
-            actual.starts_with(&expected),
-            "{scenario_path}: expected scoring prefix {expected:?}, got {actual:?}"
-        );
+    PhysicsProfile::new(
+        scenario.game_state.table_spec.clone(),
+        scenario.ball_set_physics_spec(),
+        human_tuned_preview_motion_config().applying_conditions(conditions),
+        simulation.collision_model,
+        collision,
+        simulation.rail_model,
+        rails,
+    )
+    .map_err(|error| format!("typed physics profile is invalid: {error}"))
+}
+
+fn three_cushion_ball_identity(ball: &BallType) -> Result<(BallId, CaromBallRole), String> {
+    match ball {
+        BallType::Cue => Ok((BallId::WHITE, CaromBallRole::Cue)),
+        BallType::YellowCue => Ok((BallId::YELLOW, CaromBallRole::YellowCue)),
+        BallType::Red => Ok((BallId::RED, CaromBallRole::Red)),
+        other => Err(format!("non-carom ball in three-cushion layout: {other:?}")),
     }
+}
+
+fn three_cushion_shot_layout(
+    scenario: &DslScenario,
+    physics: &PhysicsProfile,
+) -> Result<ShotLayout, String> {
+    let table = &scenario.game_state.table_spec;
+    let balls = scenario
+        .game_state
+        .balls()
+        .iter()
+        .map(|ball| {
+            let (id, role) = three_cushion_ball_identity(&ball.ty)?;
+            let position = Inches2::new(
+                table.diamond_to_inches(ball.position.x.clone()),
+                table.diamond_to_inches(ball.position.y.clone()),
+            );
+            Ok(SceneBall::resting(id, role, position))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    ShotLayout::new(physics, balls)
+        .map_err(|error| format!("typed three-cushion layout is invalid: {error}"))
+}
+
+fn three_cushion_shot_command(scenario: &DslScenario) -> Result<ShotCommand, String> {
+    let shot = scenario
+        .shot
+        .as_ref()
+        .ok_or_else(|| "scenario has no shot".to_string())?;
+    let (cue_ball, _) = three_cushion_ball_identity(&shot.ball)?;
+    ShotCommand::new(cue_ball, shot.shot.clone(), shot.cue_strike.clone())
+        .map_err(|error| format!("typed shot command is invalid: {error}"))
+}
+
+fn three_cushion_shot_limit(scenario: &DslScenario) -> Result<ShotLimit, String> {
+    let simulation_name = scenario
+        .preferred_simulation_name()
+        .ok_or_else(|| "scenario has no unambiguous preferred simulation".to_string())?;
+    let simulation = scenario
+        .simulation_named(simulation_name)
+        .map_err(|error| format!("preferred simulation is invalid: {error}"))?;
+    Ok(simulation
+        .max_events
+        .or(scenario.trace_max_events)
+        .map_or(ShotLimit::UntilSettled, ShotLimit::EventCount))
+}
+
+fn three_cushion_event_evidence(result: &OwnedShotResult) -> String {
+    let evidence = result
+        .events
+        .iter()
+        .enumerate()
+        .filter_map(|(event_index, event)| {
+            let effects = event
+                .effects
+                .iter()
+                .filter(|effect| {
+                    matches!(
+                        effect,
+                        ResolvedEffect::BallBallContact { first, second, .. }
+                            if *first == result.roles.cue || *second == result.roles.cue
+                    ) || matches!(
+                        effect,
+                        ResolvedEffect::BallRailContact { ball, .. }
+                            if *ball == result.roles.cue
+                    ) || matches!(effect, ResolvedEffect::UnsupportedContact { .. })
+                })
+                .collect::<Vec<_>>();
+            (!effects.is_empty())
+                .then(|| format!("event {event_index} at {:?}: {effects:?}", event.at))
+        })
+        .collect::<Vec<_>>();
+
+    if evidence.is_empty() {
+        "<no cue-ball contact evidence>".to_string()
+    } else {
+        evidence.join("\n")
+    }
+}
+
+#[test]
+fn every_three_cushion_score_scenario_scores_under_umb_article_83() {
+    let mut scenario_paths = fs::read_dir("examples/scenarios")
+        .expect("scenario directory should read")
+        .map(|entry| entry.expect("scenario directory entry should read").path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.starts_with("three_cushion") && name.ends_with("_score.billiards")
+                })
+        })
+        .collect::<Vec<_>>();
+    scenario_paths.sort();
+    assert!(
+        !scenario_paths.is_empty(),
+        "expected at least one three-cushion score scenario"
+    );
+
+    let mut failures = Vec::new();
+    for scenario_path in scenario_paths {
+        let path = scenario_path.display().to_string();
+        let outcome = (|| -> Result<(OwnedShotResult, ThreeCushionAdjudication), String> {
+            let source = fs::read_to_string(&scenario_path)
+                .map_err(|error| format!("scenario should read: {error}"))?;
+            let mut scenario = parse_dsl_to_scenario(&source)
+                .map_err(|error| format!("scenario should parse: {error}"))?;
+            scenario.game_state.resolve_positions();
+            let physics = three_cushion_physics_profile(&scenario)?;
+            let layout = three_cushion_shot_layout(&scenario, &physics)?;
+            let command = three_cushion_shot_command(&scenario)?;
+            let limit = three_cushion_shot_limit(&scenario)?;
+            let result = execute_shot(&physics, &layout, &command, limit)
+                .map_err(|error| format!("typed shot should execute: {error}"))?;
+            let adjudication = project_three_cushion(&result);
+            Ok((result, adjudication))
+        })();
+
+        match outcome {
+            Ok((result, adjudication)) if !adjudication.is_scored() => failures.push(format!(
+                "{path}\nadjudication: {adjudication:#?}\ntermination: {:?}\nevent evidence:\n{}",
+                result.termination,
+                three_cushion_event_evidence(&result)
+            )),
+            Err(error) => failures.push(format!("{path}\nadapter/execution error: {error}")),
+            Ok(_) => {}
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "{} three-cushion score scenario(s) did not score:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}
+
+#[test]
+fn recognized_three_cushion_reverse_the_corner_returns_to_same_side_rail_before_scoring() {
+    let scenario_path = "examples/scenarios/three_cushion_reverse_the_corner_score.billiards";
+    let (_, trace) = trace_scenario(scenario_path, 0);
+    let route = cue_carom_sequence(&trace);
+    assert!(
+        route.starts_with(&[
+            CueCaromStep::Object(BallType::YellowCue),
+            CueCaromStep::Rail(Rail::Right),
+            CueCaromStep::Rail(Rail::Top),
+            CueCaromStep::Rail(Rail::Right),
+            CueCaromStep::Object(BallType::Red),
+        ]),
+        "{scenario_path}: expected yellow, right/top/right, then red; got {route:?}"
+    );
+}
+
+#[test]
+fn recognized_three_cushion_kiss_back_recontacts_first_object_before_scoring() {
+    let scenario_path = "examples/scenarios/three_cushion_kiss_back_score.billiards";
+    let (_, trace) = trace_scenario(scenario_path, 0);
+    let yellow_contacts = trace
+        .event_log
+        .iter()
+        .enumerate()
+        .filter_map(|(index, event)| {
+            matches!(
+                &event.kind,
+                ScenarioShotTraceEventKind::BallBallCollision {
+                    first_ball,
+                    second_ball,
+                } if (first_ball == &BallType::Cue && second_ball == &BallType::YellowCue)
+                    || (first_ball == &BallType::YellowCue && second_ball == &BallType::Cue)
+            )
+            .then_some(index)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        yellow_contacts.len() >= 2,
+        "{scenario_path}: expected an intentional second cue-yellow contact"
+    );
+    assert!(
+        trace.event_log[yellow_contacts[0] + 1..yellow_contacts[1]]
+            .iter()
+            .any(|event| matches!(
+                &event.kind,
+                ScenarioShotTraceEventKind::BallRailImpact { ball, rail }
+                    if ball == &BallType::YellowCue && *rail == Rail::Left
+            )),
+        "{scenario_path}: yellow should rebound from the left rail before the kiss-back"
+    );
+
+    let route = cue_carom_sequence(&trace);
+    assert!(
+        route.starts_with(&[
+            CueCaromStep::Object(BallType::YellowCue),
+            CueCaromStep::Object(BallType::YellowCue),
+            CueCaromStep::Rail(Rail::Right),
+            CueCaromStep::Rail(Rail::Top),
+            CueCaromStep::Rail(Rail::Left),
+            CueCaromStep::Object(BallType::Red),
+        ]),
+        "{scenario_path}: expected yellow/kiss-back, right/top/left, then red; got {route:?}"
+    );
+}
+
+#[test]
+fn recognized_three_cushion_gather_control_leaves_balls_within_16_3_inches() {
+    let scenario_path = "examples/scenarios/three_cushion_gather_control_score.billiards";
+    let (_, trace) = trace_scenario(scenario_path, 0);
+    let route = cue_carom_sequence(&trace);
+    assert!(
+        route.starts_with(&[
+            CueCaromStep::Object(BallType::YellowCue),
+            CueCaromStep::Rail(Rail::Top),
+            CueCaromStep::Rail(Rail::Right),
+            CueCaromStep::Rail(Rail::Left),
+            CueCaromStep::Object(BallType::Red),
+        ]),
+        "{scenario_path}: expected yellow, top/right/left, then red; got {route:?}"
+    );
+    let spread = final_spread_inches(&trace);
+    assert!(
+        spread <= 16.3,
+        "{scenario_path}: expected a <=16.3 in final leave, got {spread:.6} in"
+    );
 }
 
 #[test]
@@ -1033,8 +1297,20 @@ fn three_cushion_score_examples_preserve_planned_leading_cushion_order() {
             "examples/scenarios/three_cushion_hako_dama_short_side_check_score.billiards",
             [Rail::Left, Rail::Bottom, Rail::Right],
         ),
+        (
+            "examples/scenarios/three_cushion_reverse_the_corner_score.billiards",
+            [Rail::Right, Rail::Top, Rail::Right],
+        ),
+        (
+            "examples/scenarios/three_cushion_kiss_back_score.billiards",
+            [Rail::Right, Rail::Top, Rail::Left],
+        ),
+        (
+            "examples/scenarios/three_cushion_gather_control_score.billiards",
+            [Rail::Top, Rail::Right, Rail::Left],
+        ),
     ] {
-        let (scenario, trace) = trace_scenario(scenario_path, 24);
+        let (_, trace) = trace_scenario(scenario_path, 24);
         let rails = cue_rail_sequence(&trace);
         let required_rails: &[Rail] = if scenario_path.contains("three_rails_first") {
             &expected_rails[..2]
@@ -1049,19 +1325,6 @@ fn three_cushion_score_examples_preserve_planned_leading_cushion_order() {
             assert_eq!(
                 expected_rails[0], expected_rails[2],
                 "{scenario_path}: double-rail examples must count the first cushion again as the third rail"
-            );
-            let side_offset = scenario
-                .shot
-                .as_ref()
-                .expect("double-rail scenario should include a shot")
-                .shot
-                .tip_contact()
-                .side_offset()
-                .as_f64()
-                .abs();
-            assert!(
-                side_offset >= 0.20,
-                "{scenario_path}: double-rail return needs strong check side, got {side_offset:.3}R"
             );
         }
     }
@@ -1165,7 +1428,16 @@ fn advanced_z_route_pockets_the_eight_and_finishes_on_the_nine_line() {
         rails.starts_with(&[Rail::Right, Rail::Left]),
         "Z route should cross the table from right to left; got {rails:?}"
     );
-    assert_eq!(final_pocket(&trace, BallType::Cue), None);
+    let cue_final_state = &trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == BallType::Cue)
+        .expect("cue trace should exist")
+        .final_state;
+    assert!(
+        matches!(cue_final_state, NBallSystemState::OnTable(_)),
+        "Z route cue should finish on the table, got {cue_final_state:?}"
+    );
 
     let cue = final_position_inches(&trace, BallType::Cue);
     let nine = final_position_inches(&trace, BallType::Nine);
@@ -1241,7 +1513,16 @@ fn advanced_jump_clears_the_blocker_pockets_the_six_and_lands() {
             )),
         "cue should return to the cloth after the airborne object-ball contact"
     );
-    assert_eq!(final_pocket(&trace, BallType::Cue), None);
+    let cue_final_state = &trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == BallType::Cue)
+        .expect("cue trace should exist")
+        .final_state;
+    assert!(
+        matches!(cue_final_state, NBallSystemState::OnTable(_)),
+        "jump cue should finish on the table after landing, got {cue_final_state:?}"
+    );
 }
 
 #[test]

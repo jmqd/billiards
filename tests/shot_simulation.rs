@@ -5,6 +5,7 @@ use billiards::shot_simulation::{
     ShotLayout, ShotLimit, ShotSimulationError, ShotTermination, ThreeCushionAdjudication,
     ThreeCushionIndeterminate, ThreeCushionMiss, ThreeCushionResult, ThreeCushionRoles,
     ThreeCushionShooter, ThreeCushionShot, UnsupportedPhysicsReason,
+    THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES,
 };
 use billiards::{
     BallBallCollisionConfig, BallSetPhysicsSpec, Inches, Inches2, InchesPerSecond,
@@ -37,6 +38,35 @@ fn instant(at: f64, effects: Vec<ResolvedEffect>) -> ResolvedEvent {
     }
 }
 
+fn completed_point_events() -> Vec<ResolvedEvent> {
+    vec![
+        instant(
+            1.0,
+            vec![
+                ResolvedEffect::BallRailContact {
+                    ball: BallId::WHITE,
+                    rail: Rail::Top,
+                },
+                ResolvedEffect::BallRailContact {
+                    ball: BallId::WHITE,
+                    rail: Rail::Right,
+                },
+                ResolvedEffect::BallRailContact {
+                    ball: BallId::WHITE,
+                    rail: Rail::Bottom,
+                },
+            ],
+        ),
+        instant(
+            2.0,
+            vec![
+                ball_contact(BallId::WHITE, BallId::YELLOW),
+                ball_contact(BallId::WHITE, BallId::RED),
+            ],
+        ),
+    ]
+}
+
 fn owned(events: Vec<ResolvedEvent>, termination: ShotTermination) -> OwnedShotResult {
     OwnedShotResult {
         elapsed: events.last().map_or(Seconds::zero(), |event| event.at),
@@ -48,6 +78,8 @@ fn owned(events: Vec<ResolvedEvent>, termination: ShotTermination) -> OwnedShotR
         },
         events: events.into_boxed_slice(),
         final_states: Box::new([]),
+        maximum_cue_ball_height: Inches::zero(),
+        estimated_closest_second_object_clearance: None,
     }
 }
 
@@ -63,6 +95,7 @@ fn execute_with_adjudication_parity(
     assert_eq!(compact.completion, full.completion);
     assert_eq!(compact.final_states, full.final_states);
 
+    let facts = full.completion.summary.facts();
     let retained = OwnedShotResult {
         elapsed: full.completion.elapsed,
         termination: full.completion.termination.clone(),
@@ -73,6 +106,10 @@ fn execute_with_adjudication_parity(
         },
         events: full.events.clone(),
         final_states: full.final_states.clone(),
+        maximum_cue_ball_height: facts.maximum_cue_ball_height.clone(),
+        estimated_closest_second_object_clearance: facts
+            .estimated_closest_second_object_clearance
+            .clone(),
     };
     assert_eq!(project_three_cushion(&retained), full.completion.summary);
 
@@ -525,9 +562,34 @@ fn no_dsl_direct_execution_produces_a_verified_three_cushion_point() {
     let ThreeCushionAdjudication::Scored(facts) = &full.completion.summary else {
         panic!("verified direct fixture must score")
     };
-    assert!(facts.object_a_first_contact.is_some());
-    assert!(facts.object_b_first_contact.is_some());
-    assert!(facts.cushion_contacts_before_completion >= 3);
+    assert!(facts.object_a_touched());
+    assert!(facts.object_b_touched());
+    assert!(facts.three_cushions_touched());
+    assert!(facts
+        .estimated_closest_second_object_clearance
+        .as_ref()
+        .is_some_and(|clearance| clearance.as_f64() <= 1e-9));
+}
+
+#[test]
+fn elevated_execution_tracks_jump_height_in_full_compact_and_projected_results() {
+    let physics = PhysicsProfile::three_cushion_default();
+    let layout = fixture_layout();
+    let controls = ShotControls::new(
+        196.391_792_039,
+        237.947_968_822,
+        -0.230_661_681,
+        0.365_060_077,
+        30.0,
+    )
+    .expect("elevated fixture controls are valid");
+    let shot = ThreeCushionShot::new(ThreeCushionShooter::Cue, controls);
+    let full =
+        execute_with_adjudication_parity(&physics, &layout, &shot, ShotLimit::EventCount(64));
+    let facts = full.completion.summary.facts();
+
+    assert!(facts.maximum_cue_ball_height.as_f64() > THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES);
+    assert!(!full.completion.summary.is_scored());
 }
 
 #[test]
@@ -586,6 +648,68 @@ fn repeated_cushions_count_and_completion_instant_cushion_does_not() {
             at: Seconds::new(4.0),
         })
     );
+}
+
+#[test]
+fn cue_ball_height_limit_is_strict_for_the_entire_shot() {
+    let mut boundary = owned(completed_point_events(), ShotTermination::Settled);
+    boundary.maximum_cue_ball_height = Inches::from_f64(THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES);
+    assert!(matches!(
+        project_three_cushion(&boundary),
+        ThreeCushionAdjudication::Scored(_)
+    ));
+
+    let mut jump = owned(completed_point_events(), ShotTermination::Settled);
+    jump.maximum_cue_ball_height = Inches::from_f64(1.25);
+    let ThreeCushionAdjudication::Miss { facts, reason } = project_three_cushion(&jump) else {
+        panic!("any cue-ball height over the limit must invalidate the point")
+    };
+    assert_eq!(facts.maximum_cue_ball_height, Inches::from_f64(1.25));
+    assert_eq!(
+        reason,
+        ThreeCushionMiss::CueBallHeightExceeded {
+            limit: Inches::from_f64(THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES),
+            observed: Inches::from_f64(1.25),
+        }
+    );
+}
+
+#[test]
+fn cue_ball_height_violation_precedes_insufficient_cushions() {
+    let mut jump = owned(
+        vec![
+            instant(
+                1.0,
+                vec![
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Top,
+                    },
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Right,
+                    },
+                ],
+            ),
+            instant(
+                2.0,
+                vec![
+                    ball_contact(BallId::WHITE, BallId::YELLOW),
+                    ball_contact(BallId::WHITE, BallId::RED),
+                ],
+            ),
+        ],
+        ShotTermination::Settled,
+    );
+    jump.maximum_cue_ball_height = Inches::from_f64(1.25);
+
+    assert!(matches!(
+        project_three_cushion(&jump),
+        ThreeCushionAdjudication::Miss {
+            reason: ThreeCushionMiss::CueBallHeightExceeded { .. },
+            ..
+        }
+    ));
 }
 
 #[test]

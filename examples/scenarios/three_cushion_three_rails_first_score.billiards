@@ -1,5 +1,5 @@
 # Three-rails-first bank/bricole diagnostic.
-# Full vertical collision response yields the leading left/right cushion sequence before object contact.
+# The cue ball banks Left -> Right -> Left -> Right before contacting red, then yellow.
 table three_cushion_carom_10ft
 game three_cushion
 ball cue at (3.014, 6.964)
@@ -17,4 +17,4 @@ simulation(default)
   .conditions(heated_carom)
   .max_events(40)
 trace(max_events: 40)
-shot(cue).heading(262.827deg).speed(232ips).tip(side: -0.24R, height: 0.17R).using(default)
+shot(cue).heading(264.580618956deg).speed(220.685276865ips).tip(side: -0.122396789R, height: 0.159503603R).using(default)

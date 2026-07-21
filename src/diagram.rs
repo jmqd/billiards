@@ -189,6 +189,67 @@ impl DiagramViewport {
     }
 }
 
+fn liang_barsky_edge(p: f32, q: f32, entering: &mut f32, leaving: &mut f32) -> bool {
+    if p.abs() <= f32::EPSILON {
+        return q >= 0.0;
+    }
+    let ratio = q / p;
+    if p < 0.0 {
+        if ratio > *leaving {
+            return false;
+        }
+        *entering = entering.max(ratio);
+    } else {
+        if ratio < *entering {
+            return false;
+        }
+        *leaving = leaving.min(ratio);
+    }
+    true
+}
+
+fn clip_scene_line_to_viewport(
+    start: ScenePoint,
+    end: ScenePoint,
+    viewport: DiagramViewport,
+) -> Option<(ScenePoint, ScenePoint)> {
+    if !start.x.is_finite()
+        || !start.y.is_finite()
+        || !end.x.is_finite()
+        || !end.y.is_finite()
+        || !viewport.width_px.is_finite()
+        || !viewport.height_px.is_finite()
+        || viewport.width_px <= 0.0
+        || viewport.height_px <= 0.0
+    {
+        return None;
+    }
+    let delta_x = end.x - start.x;
+    let delta_y = end.y - start.y;
+    let mut entering = 0.0;
+    let mut leaving = 1.0;
+    for (p, q) in [
+        (-delta_x, start.x),
+        (delta_x, viewport.width_px - start.x),
+        (-delta_y, start.y),
+        (delta_y, viewport.height_px - start.y),
+    ] {
+        if !liang_barsky_edge(p, q, &mut entering, &mut leaving) {
+            return None;
+        }
+    }
+    Some((
+        ScenePoint {
+            x: (start.x + entering * delta_x).clamp(0.0, viewport.width_px),
+            y: (start.y + entering * delta_y).clamp(0.0, viewport.height_px),
+        },
+        ScenePoint {
+            x: (start.x + leaving * delta_x).clamp(0.0, viewport.width_px),
+            y: (start.y + leaving * delta_y).clamp(0.0, viewport.height_px),
+        },
+    ))
+}
+
 #[derive(Clone, Debug)]
 pub struct DiagramBall {
     pub ty: BallType,
@@ -807,6 +868,8 @@ impl DiagramBackend for SvgBackend {
 }
 
 fn push_svg_table_defs(svg: &mut String, viewport: DiagramViewport) {
+    let width = viewport.width_px;
+    let height = viewport.height_px;
     let left = viewport.playfield_left_px;
     let right = viewport.playfield_right_px;
     let top = viewport.playfield_top_px;
@@ -814,6 +877,7 @@ fn push_svg_table_defs(svg: &mut String, viewport: DiagramViewport) {
 
     svg.push_str(&format!(
         r##"<defs>
+<clipPath id="diagram-outer-table-clip" clipPathUnits="userSpaceOnUse"><rect x="0" y="0" width="{width:.3}" height="{height:.3}" rx="58"/></clipPath>
 <linearGradient id="tournament-blue-cloth" gradientUnits="userSpaceOnUse" x1="{left:.3}" y1="{top:.3}" x2="{right:.3}" y2="{bottom:.3}">
 <stop offset="0%" stop-color="#02a7d8"/>
 <stop offset="48%" stop-color="#058dbc"/>
@@ -962,10 +1026,21 @@ fn draw_raster_elements_for_layer(
     for element in scene.elements_for_layer(layer) {
         match element {
             DiagramElement::DashedLine { start, end, style } => {
+                let start = scene.viewport.position_to_scene_point(start);
+                let end = scene.viewport.position_to_scene_point(end);
+                let (start, end) = if style.clips_to_table_bounds() {
+                    let Some(clipped) = clip_scene_line_to_viewport(start, end, scene.viewport)
+                    else {
+                        continue;
+                    };
+                    clipped
+                } else {
+                    (start, end)
+                };
                 drawing::draw_dashed_line_thick_mut(
                     table,
-                    to_pixel(start),
-                    to_pixel(end),
+                    (start.x.round() as i32, start.y.round() as i32),
+                    (end.x.round() as i32, end.y.round() as i32),
                     style.dash_px(),
                     style.gap_px(),
                     style.width_px,
@@ -2173,9 +2248,23 @@ fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramEle
         DiagramElement::DashedLine { start, end, style } => {
             let start = scene.viewport.position_to_scene_point(start);
             let end = scene.viewport.position_to_scene_point(end);
+            let (start, end, class, clip_path) = if style.clips_to_table_bounds() {
+                let Some((start, end)) = clip_scene_line_to_viewport(start, end, scene.viewport)
+                else {
+                    return;
+                };
+                (
+                    start,
+                    end,
+                    "overlay dashed-line airborne-path",
+                    " clip-path=\"url(#diagram-outer-table-clip)\"",
+                )
+            } else {
+                (start, end, "overlay dashed-line", "")
+            };
             let (stroke, opacity) = svg_color(style.color);
             svg.push_str(&format!(
-                "<line class=\"overlay dashed-line\" x1=\"{:.3}\" y1=\"{:.3}\" x2=\"{:.3}\" y2=\"{:.3}\" stroke=\"{}\" stroke-opacity=\"{:.3}\" stroke-width=\"{:.3}\" stroke-linecap=\"round\" stroke-dasharray=\"{:.3} {:.3}\" fill=\"none\"/>\n",
+                "<line class=\"{class}\"{clip_path} x1=\"{:.3}\" y1=\"{:.3}\" x2=\"{:.3}\" y2=\"{:.3}\" stroke=\"{}\" stroke-opacity=\"{:.3}\" stroke-width=\"{:.3}\" stroke-linecap=\"round\" stroke-dasharray=\"{:.3} {:.3}\" fill=\"none\"/>\n",
                 start.x,
                 start.y,
                 end.x,

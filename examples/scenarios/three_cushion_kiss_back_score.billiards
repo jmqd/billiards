@@ -1,0 +1,23 @@
+# Intentional kiss-back (coup-dur): yellow rebounds from the left rail and recontacts the cue before the score.
+# Source: whitepapers/the_art_of_billiards_play.html ("Coup-dur": kiss-back when the first object ball is near/frozen to a cushion).
+# Pattern reference: Robert Byrne, "Shots From A Master Play," USBA/PQB April-May 2013 newsletter.
+# Goal: this variation keeps the cue off the cushion while the yellow starts near it,
+# preserves the deliberate second yellow contact, then sends the cue around right/top/left to red.
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (2.000000000, 0.200000000)
+ball yellow at (1.000000000, 0.086700000)
+ball red at (2.122000000, 2.862000000)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(60)
+trace(max_events: 60)
+shot(cue).heading(264.033409843deg).speed(214.960234487ips).tip(side: -0.465049673R, height: 0.087347392R).using(default)

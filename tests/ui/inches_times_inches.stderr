@@ -5,6 +5,11 @@ error[E0277]: cannot multiply `Inches` by `Inches`
   |                            ^ no implementation for `Inches * Inches`
   |
   = help: the trait `Mul` is not implemented for `Inches`
-  = help: the following other types implement trait `Mul<Rhs>`:
-            `Inches` implements `Mul<RadiansPerSecond>`
-            `Inches` implements `Mul<Scale>`
+help: the following other types implement trait `Mul<Rhs>`
+ --> src/lib.rs
+  |
+  | impl Mul<Scale> for Inches {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^ `Inches` implements `Mul<Scale>`
+...
+      | impl Mul<RadiansPerSecond> for Inches {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Inches` implements `Mul<RadiansPerSecond>`

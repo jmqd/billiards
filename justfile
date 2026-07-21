@@ -1,5 +1,5 @@
-dylint_repo := "target/dylint/dylint-v4.1.0"
-dylint_tag := "v4.1.0"
+dylint_repo := "target/dylint/dylint-v6.0.1"
+dylint_tag := "v6.0.1"
 
 check: clippy dylint
 
@@ -18,8 +18,8 @@ dylint-fetch:
     @test -d {{dylint_repo}} || git clone --depth 1 --branch {{dylint_tag}} https://github.com/trailofbits/dylint.git {{dylint_repo}}
 
 dylint-install:
-    cargo install cargo-dylint --version 4.1.0 --locked
-    cargo install dylint-link --version 4.1.0 --locked
+    cargo install cargo-dylint --version 6.0.1 --locked
+    cargo install dylint-link --version 6.0.1 --locked
 
 wasm-web:
     cargo build --lib --release --target wasm32-unknown-unknown

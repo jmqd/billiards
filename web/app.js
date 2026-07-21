@@ -1,4 +1,5 @@
 import init, {
+  apply_robust_shot_candidate_to_dsl,
   shot_controls_from_dsl,
   update_shot_control_in_dsl,
   update_shot_tip_in_dsl,
@@ -372,32 +373,57 @@ function setRobustSearchStatus(message, kind = "") {
 }
 
 function updateRobustSearchFreshness(announce = false) {
-  const staleState = !robustSearchResult
-    ? "false"
-    : robustSearchResult.applied
-      ? "applied"
-      : robustSearchResult.source !== input.value
-        ? "changed"
-        : "false";
-  const stale = staleState !== "false";
-  const sourceHasShot = robustSearchResult?.search?.sourceHasShot !== false;
-  robustSearchPanel.dataset.resultStale = staleState;
-  robustApplyButton.disabled = (
+  let sourceState = "false";
+  if (robustSearchResult) {
+    if (
+      typeof robustSearchResult.appliedSource === "string"
+      && robustSearchResult.appliedSource === input.value
+    ) {
+      sourceState = "applied";
+    } else if (robustSearchResult.source !== input.value) {
+      sourceState = "changed";
+    }
+  }
+
+  const actionsDisabled = (
     !wasmReady
     || robustSearchRunning
-    || stale
-    || !sourceHasShot
-    || !robustSearchResult?.search?.winner
+    || sourceState === "changed"
   );
-  robustApplyButton.title = robustSearchResult && !sourceHasShot
-    ? "This result used a shotless setup. Configure a shot and rerun before applying controls."
-    : "";
-  if (announce && stale) {
+  const activeCandidateId = sourceState === "applied"
+    ? robustSearchResult.appliedCandidateId
+    : null;
+  const winner = robustSearchResult?.search?.winner;
+  const winnerApplied = winner?.candidateId === activeCandidateId;
+  robustSearchPanel.dataset.resultStale = sourceState;
+  robustApplyButton.disabled = actionsDisabled || !winner || winnerApplied;
+  robustApplyButton.dataset.applied = winnerApplied ? "true" : "false";
+  robustApplyButton.setAttribute("aria-pressed", winnerApplied ? "true" : "false");
+  robustApplyButton.textContent = winnerApplied ? "Best shot applied" : "Apply best shot";
+
+  for (const button of robustRankedList.querySelectorAll(".robust-candidate-apply")) {
+    const applied = Number(button.dataset.candidateId) === activeCandidateId;
+    button.disabled = actionsDisabled || applied;
+    button.dataset.applied = applied ? "true" : "false";
+    button.setAttribute("aria-pressed", applied ? "true" : "false");
+    button.setAttribute(
+      "aria-label",
+      applied
+        ? `Ranked candidate ${button.dataset.candidateRank} applied`
+        : `Apply ranked candidate ${button.dataset.candidateRank}`,
+    );
+    button.textContent = `${applied ? "Applied" : "Apply"} #${button.dataset.candidateRank}`;
+  }
+
+  if (announce && sourceState === "applied") {
     setRobustSearchStatus(
-      robustSearchResult.applied
-        ? "Best shot applied. Run the search again to validate the updated DSL."
-        : "The DSL changed after this search. Run it again before applying the winner.",
-      robustSearchResult.applied ? "ok" : "error",
+      `Candidate ${robustSearchResult.appliedCandidateId} applied. Choose another validated candidate, or run the search again to evaluate the updated shot.`,
+      "ok",
+    );
+  } else if (announce && sourceState === "changed") {
+    setRobustSearchStatus(
+      "The DSL changed after this search. Run it again before applying another candidate.",
+      "error",
     );
   }
 }
@@ -448,7 +474,22 @@ function replaceRankedFinalists(finalists) {
     const summary = candidate.validation ?? candidate.screening;
     const controls = candidate.controls;
     const item = document.createElement("li");
-    item.textContent = `#${candidate.rank}: ${formatProbability(summary?.successRate)} score probability, ${formatProbability(summary?.confidenceLow)} lower bound — ${formatControlNumber(controls.headingDegrees)}°, ${formatControlNumber(ipsToKmh(controls.speedIps))} km/h, tip (${formatControlNumber(controls.tipSide)}, ${formatControlNumber(controls.tipHeight)}) R, ${formatControlNumber(controls.cueElevationDegrees)}° elevation`;
+    const description = document.createElement("span");
+    const applyButton = document.createElement("button");
+    description.className = "robust-ranked-candidate-summary";
+    description.textContent = `#${candidate.rank}: ${formatProbability(summary?.successRate)} score probability, ${formatProbability(summary?.confidenceLow)} lower bound — ${formatControlNumber(controls.headingDegrees)}°, ${formatControlNumber(ipsToKmh(controls.speedIps))} km/h, tip (${formatControlNumber(controls.tipSide)}, ${formatControlNumber(controls.tipHeight)}) R, ${formatControlNumber(controls.cueElevationDegrees)}° elevation`;
+    applyButton.type = "button";
+    applyButton.className = "robust-candidate-apply";
+    applyButton.dataset.candidateId = String(candidate.candidateId);
+    applyButton.dataset.candidateRank = String(candidate.rank);
+    applyButton.dataset.applied = "false";
+    applyButton.textContent = `Apply #${candidate.rank}`;
+    applyButton.setAttribute("aria-label", `Apply ranked candidate ${candidate.rank}`);
+    applyButton.setAttribute("aria-pressed", "false");
+    applyButton.addEventListener("click", () => {
+      applyRobustSearchCandidate(candidate.candidateId);
+    });
+    item.append(description, applyButton);
     robustRankedList.appendChild(item);
   }
 }
@@ -458,10 +499,9 @@ function renderRobustSearchResult(result) {
   const winner = search.winner;
   const summary = winner?.validation ?? winner?.screening;
   const sigmas = search.shotInaccuracySigmas;
-  const sourceHasShot = search.sourceHasShot !== false;
-  const applyGuidance = sourceHasShot
-    ? ""
-    : " The shotless setup was searched successfully; configure a shot and rerun to enable Apply best shot.";
+  const applyGuidance = search.sourceHasShot === false
+    ? " Applying a candidate will insert a new shot into the DSL."
+    : "";
 
   robustSearchResults.hidden = false;
   robustSearchResultTitle.textContent = winner
@@ -512,7 +552,13 @@ async function runVisibleRobustSearch(event) {
       playerLevel,
     });
     if (requestSequence !== robustSearchUiSequence) return;
-    robustSearchResult = { ...result, source, applied: false };
+    robustSearchResult = {
+      ...result,
+      source,
+      applied: false,
+      appliedCandidateId: null,
+      appliedSource: null,
+    };
     renderRobustSearchResult(robustSearchResult);
   } catch (error) {
     if (requestSequence !== robustSearchUiSequence) return;
@@ -522,42 +568,46 @@ async function runVisibleRobustSearch(event) {
   }
 }
 
-function applyRobustSearchWinner() {
-  const winner = robustSearchResult?.search?.winner;
+function applyRobustSearchCandidate(candidateId) {
+  const result = robustSearchResult;
+  const candidate = result?.search?.rankedFinalists?.find(
+    (finalist) => finalist.candidateId === candidateId,
+  );
+  const sourceMatchesSearch = result?.source === input.value;
+  const sourceMatchesApplied = result?.appliedSource === input.value;
   if (
-    !winner
+    !candidate
     || robustSearchRunning
-    || robustSearchResult.applied
-    || robustSearchResult.source !== input.value
-    || robustSearchResult.search.sourceHasShot === false
+    || (!sourceMatchesSearch && !sourceMatchesApplied)
   ) {
     return;
   }
 
   try {
-    let source = robustSearchResult.source;
-    let update = null;
-    for (const [control, value] of [
-      ["heading", winner.controls.headingDegrees],
-      ["speed", winner.controls.speedIps],
-      ["elevation", winner.controls.cueElevationDegrees],
-    ]) {
-      update = parseWasmJson(update_shot_control_in_dsl(source, control, value));
-      source = update.source;
-    }
-    update = parseWasmJson(
-      update_shot_tip_in_dsl(
-        source,
-        winner.controls.tipSide,
-        winner.controls.tipHeight,
+    const controls = candidate.controls;
+    const update = parseWasmJson(
+      apply_robust_shot_candidate_to_dsl(
+        result.source,
+        controls.headingDegrees,
+        controls.speedIps,
+        controls.tipSide,
+        controls.tipHeight,
+        controls.cueElevationDegrees,
       ),
     );
     applySuccessfulControlUpdate(update);
-    robustSearchResult.applied = true;
+    result.applied = true;
+    result.appliedCandidateId = candidate.candidateId;
+    result.appliedSource = update.source;
     updateRobustSearchFreshness(true);
   } catch (error) {
     setRobustSearchStatus(errorMessage(error), "error");
   }
+}
+
+function applyRobustSearchWinner() {
+  const winner = robustSearchResult?.search?.winner;
+  if (winner) applyRobustSearchCandidate(winner.candidateId);
 }
 
 function requestConfiguredRender() {

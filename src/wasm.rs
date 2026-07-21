@@ -94,6 +94,22 @@ pub fn update_shot_tip_in_dsl(source: &str, side: f64, height: f64) -> Result<St
     serialize_json(&ShotControlUpdateDto::from(update))
 }
 
+#[wasm_bindgen]
+pub fn apply_robust_shot_candidate_to_dsl(
+    source: &str,
+    heading: f64,
+    speed: f64,
+    tip_side: f64,
+    tip_height: f64,
+    elevation: f64,
+) -> Result<String, JsValue> {
+    let update = crate::dsl::apply_shot_candidate_to_dsl(
+        source, heading, speed, tip_side, tip_height, elevation,
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    serialize_json(&ShotControlUpdateDto::from(update))
+}
+
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RobustControlsDto {
@@ -326,13 +342,14 @@ pub fn robust_three_cushion_shot_from_dsl(
         max_events,
     })
     .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let ranked_finalists = search
+    let mut ranked_finalists = search
         .experiment
         .candidates
         .iter()
         .filter(|candidate| candidate.rank.is_some())
         .map(Into::into)
-        .collect::<Vec<_>>();
+        .collect::<Vec<RobustCandidateDto>>();
+    ranked_finalists.sort_by_key(|candidate| candidate.rank);
     let response = RobustSearchResponseDto {
         player_level: search.player_level.key(),
         player_level_label: search.player_level.label(),

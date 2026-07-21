@@ -10,17 +10,16 @@
   <header>
     <h1>Billiards Wasm Preview</h1>
     <p class="subtitle">
-      Edit the authoritative <code>.billiards</code> DSL, tune its shot with the live instruments, and inspect the same report and slow-motion playback used by the validation suite.
+      Tune the shot with live controls, compare robust candidates, and inspect the report and slow-motion playback. Advanced DSL editing remains available below.
     </p>
   </header>
 
   <main class="app-shell">
-    <section class="card editor-panel" aria-labelledby="editor-title">
+    <section class="card workspace-panel" aria-labelledby="workspace-title">
       <div class="panel-header">
-        <h2 id="editor-title">Scenario DSL</h2>
-        <div class="controls">
-          <button id="render-button" type="button" disabled>Render</button>
-          <button id="reset-button" type="button" disabled>Reset sample</button>
+        <div class="panel-heading-copy">
+          <h2 id="workspace-title">Shot workspace</h2>
+          <p>Tune controls and compare simulated candidates.</p>
         </div>
       </div>
       <div class="panel-body">
@@ -141,9 +140,6 @@
           </div>
         </section>
 
-        <label class="visually-hidden" for="dsl-input">Billiards DSL input</label>
-        <textarea id="dsl-input" spellcheck="false" aria-label="Billiards DSL input"></textarea>
-        <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">Loading Wasm renderer…</div>
 
         <section id="robust-search" class="robust-search" aria-labelledby="robust-search-title">
           <div class="robust-search-heading">
@@ -170,8 +166,9 @@
             <button id="robust-search-button" type="submit" disabled>Find robust shot</button>
           </form>
           <p class="robust-search-help">
-            Evaluations are split between broad screening and held-out validation. The search varies
-            heading, speed, side, draw/follow, and cue elevation.
+            Adaptive screening follows cushion, object-contact, and closest-approach progress; held-out
+            score probability decides the final rank. The search varies heading, speed, side, draw/follow,
+            and cue elevation. Cue-ball height above 1 inch over the resting plane at any time is a miss.
           </p>
           <div id="robust-search-status" class="robust-search-status" role="status" aria-live="polite">
             Load the Wasm renderer to start an experiment.
@@ -190,8 +187,8 @@
               <div><dt>Noise model</dt><dd id="robust-noise-summary">—</dd></div>
             </dl>
             <dl id="robust-winner-controls" class="robust-winner-controls"></dl>
-            <details class="robust-ranked-details">
-              <summary>Ranked finalists</summary>
+            <details class="robust-ranked-details" open>
+              <summary>Validated candidates — apply any shot</summary>
               <ol id="robust-ranked-list"></ol>
             </details>
           </section>
@@ -211,6 +208,25 @@
       </div>
       <div id="preview">
         <p class="empty-preview">Build the Wasm package with <code>just wasm-web</code>, serve <code>web/</code>, then render a scenario.</p>
+      </div>
+    </section>
+
+    <section class="card editor-panel dsl-panel" aria-labelledby="editor-title">
+      <div class="panel-header">
+        <div class="panel-heading-copy">
+          <span class="panel-eyebrow">Advanced</span>
+          <h2 id="editor-title">Scenario DSL</h2>
+        </div>
+        <div class="controls">
+          <button id="render-button" type="button" disabled>Render</button>
+          <button id="reset-button" type="button" disabled>Reset sample</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <p id="dsl-help" class="dsl-help">Edit source directly for scenario and physics settings that do not yet have dedicated controls.</p>
+        <label class="visually-hidden" for="dsl-input">Billiards DSL input</label>
+        <textarea id="dsl-input" spellcheck="false" aria-label="Billiards DSL input" aria-describedby="dsl-help"></textarea>
+        <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">Loading Wasm renderer…</div>
       </div>
     </section>
   </main>

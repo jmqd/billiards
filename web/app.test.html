@@ -190,6 +190,12 @@
         const shotControls = document.querySelector('#shot-controls');
         const shotFieldsets = [...shotControls.querySelectorAll('fieldset')];
         const status = document.querySelector('#status');
+        const appShell = document.querySelector('.app-shell');
+        const dslPanel = document.querySelector('.dsl-panel');
+        assert(
+          dslPanel && [...appShell.children].at(-1) === dslPanel,
+          'advanced DSL editor must follow the shot workspace and scenario report',
+        );
         assert(Number.isFinite(headingInput.valueAsNumber), 'Wasm must expose the configured heading');
         assert(increaseHeading && !increaseHeading.disabled, 'heading control must be interactive');
         assert(speedInput && !speedInput.matches(':disabled'), 'metric speed control must be interactive');
@@ -328,6 +334,169 @@
           'the newest worker result must become the visible preview',
         );
 
+        const outcomeSummary = (scored) => ({
+          requested: 8,
+          scored,
+          missed: 8 - scored,
+          indeterminate: 0,
+          failed: 0,
+          successRate: scored / 8,
+          confidenceLow: scored / 16,
+          confidenceHigh: Math.min(1, scored / 8 + 0.25),
+          eligible: true,
+        });
+        const candidate = (rank, candidateId, controls, scored) => ({
+          rank,
+          candidateId,
+          controls,
+          screening: outcomeSummary(scored),
+          validation: outcomeSummary(scored),
+        });
+        const winner = candidate(
+          1,
+          101,
+          {
+            headingDegrees: 111.25,
+            speedIps: 140,
+            tipSide: 0.1,
+            tipHeight: 0.2,
+            cueElevationDegrees: 2,
+          },
+          7,
+        );
+        const second = candidate(
+          2,
+          202,
+          {
+            headingDegrees: 222.5,
+            speedIps: 175,
+            tipSide: -0.2,
+            tipHeight: 0.25,
+            cueElevationDegrees: 3.5,
+          },
+          6,
+        );
+        const robustSearchForm = document.querySelector('#robust-search-form');
+        robustSearchForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        await withTimeout(
+          worker.whenMessageCount(3),
+          'submitting robust search must delegate the experiment to the worker',
+        );
+        const robustRequest = worker.messages[2];
+        assert(
+          robustRequest.action === 'robust-shot-search',
+          'robust search must use the dedicated worker action',
+        );
+        worker.respond({
+          id: robustRequest.id,
+          action: robustRequest.action,
+          search: {
+            winner,
+            rankedFinalists: [winner, second],
+            sourceHasShot: true,
+            playerLevelLabel: 'A player',
+            shotInaccuracySigmas: {
+              headingDegrees: 0.6,
+              speedIps: 3.5,
+              tipSideRadii: 0.018,
+              tipHeightRadii: 0.018,
+              cueElevationDegrees: 0.35,
+            },
+            actualIterations: 16,
+            plannedIterations: 16,
+            requestedIterations: 16,
+            validatedFinalistCount: 2,
+          },
+          elapsedMs: 4,
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const candidateButtons = [...document.querySelectorAll('.robust-candidate-apply')];
+        assert(
+          candidateButtons.length === 2
+            && candidateButtons[0].textContent.trim() === 'Apply #1'
+            && candidateButtons[1].textContent.trim() === 'Apply #2'
+            && candidateButtons.every((button) => !button.disabled),
+          'every ranked finalist must expose an enabled apply action',
+        );
+        const sourceBeforeSecondCandidate = dslInput.value;
+        candidateButtons[1].click();
+        assert(
+          dslInput.value !== sourceBeforeSecondCandidate
+            && dslInput.value.includes('.heading(222.5deg)')
+            && dslInput.value.includes('.speed(175ips)'),
+          'applying candidate #2 must write that candidate controls into the DSL',
+        );
+        assert(
+          Math.abs(headingInput.valueAsNumber - second.controls.headingDegrees) < 1e-9,
+          'applying candidate #2 must synchronize the live heading control',
+        );
+        assert(
+          document.querySelector('#robust-search-status').textContent.includes('Candidate 202 applied')
+            && !candidateButtons[0].disabled
+            && candidateButtons[0].textContent.trim() === 'Apply #1'
+            && candidateButtons[1].disabled
+            && candidateButtons[1].textContent.trim() === 'Applied #2'
+            && candidateButtons[1].getAttribute('aria-label') === 'Ranked candidate 2 applied',
+          'applying candidate #2 must keep other finalists available and mark #2 active',
+        );
+        controlledTimers.flush();
+        await withTimeout(
+          worker.whenMessageCount(4),
+          'applying candidate #2 must queue its updated DSL for rendering',
+        );
+        const secondCandidateRender = worker.messages[3];
+        assert(
+          secondCandidateRender.source === dslInput.value,
+          'candidate #2 render must use the exact DSL produced by the Wasm update',
+        );
+        worker.respond({
+          id: secondCandidateRender.id,
+          report: report('second-candidate'),
+          elapsedMs: 1,
+        });
+
+        candidateButtons[0].click();
+        assert(
+          dslInput.value.includes('.heading(111.25deg)')
+            && dslInput.value.includes('.speed(140ips)')
+            && Math.abs(headingInput.valueAsNumber - winner.controls.headingDegrees) < 1e-9,
+          'applying candidate #1 after #2 must replace the DSL and live controls with #1',
+        );
+        assert(
+          candidateButtons[0].disabled
+            && candidateButtons[0].textContent.trim() === 'Applied #1'
+            && !candidateButtons[1].disabled
+            && candidateButtons[1].textContent.trim() === 'Apply #2'
+            && candidateButtons[0].getAttribute('aria-label') === 'Ranked candidate 1 applied'
+            && candidateButtons[1].getAttribute('aria-label') === 'Apply ranked candidate 2',
+          'switching to #1 must keep #2 available and mark only #1 active',
+        );
+        controlledTimers.flush();
+        await withTimeout(
+          worker.whenMessageCount(5),
+          'switching candidates must queue the newly selected DSL for rendering',
+        );
+        const appliedCandidateRender = worker.messages[4];
+        assert(
+          appliedCandidateRender.source === dslInput.value,
+          'switched candidate render must use the exact selected DSL',
+        );
+        worker.respond({
+          id: appliedCandidateRender.id,
+          report: report('applied-candidate'),
+          elapsedMs: 1,
+        });
+
+        dslInput.value = `# Manual edit invalidates candidate actions\n${dslInput.value}`;
+        dslInput.dispatchEvent(new Event('input', { bubbles: true }));
+        assert(
+          candidateButtons.every((button) => button.disabled)
+            && document.querySelector('#robust-search-status').textContent.includes('DSL changed'),
+          'a manual DSL edit must disable every candidate from the stale search',
+        );
+
         const messagesBeforeFatal = worker.messages.length;
         const fatalError = 'synthetic Wasm initialization failure';
         worker.respond({ fatal: true, error: fatalError });
@@ -349,7 +518,7 @@
           'fatal initialization must hide and disable every interactive shot control',
         );
         assert(
-          preview.querySelector('[data-render-version="newest"]'),
+          preview.querySelector('[data-render-version="applied-candidate"]'),
           'fatal initialization must retain the last successful preview',
         );
         assert(

@@ -95,9 +95,17 @@ The editor includes a **Robust three-cushion search** card below the DSL. Choose
 budget and player level, select **Find robust shot**, and inspect the score probability and ranked
 finalists. A configured shot supplies the search seed and cue. A shotless three-ball setup uses a
 deterministic neutral seed plus the cue named `default` (or the sole declared cue), falling back to
-the canonical cue when no unambiguous declaration exists. **Apply best shot** writes all five winning
-controls back when the searched DSL already has a shot. Editing or resetting the DSL invalidates
-an older result.
+the canonical cue when no unambiguous declaration exists. **Apply best shot** or any ranked
+candidate writes all five controls atomically and renders the result. Existing shots are updated;
+shotless sources receive a new shot plus the selected or canonical cue declaration. Applying,
+editing, or resetting the DSL invalidates the older search result.
+Search mode is deterministic simulated annealing: it starts with geometry-guided and global proposals,
+keeps periodic global proposals, and uses geometrically cooled, one-control-at-a-time local proposals
+around an accepted state. Screening is steered by bounded progress tiers—cushions, first object contact,
+then estimated 3D surface clearance to the remaining object—while held-out legal-score probability and
+Wilson bounds alone determine final ranks. A run that validates no legal score reports no winner.
+Three-cushion adjudication treats cue-ball height strictly above 1 inch over the resting center plane
+at any time during the shot as a miss, so jump-assisted candidates cannot win.
 
 For bounded three-cushion optimization, the Wasm package also exports
 `robust_three_cushion_shot_from_dsl(source, iterations, playerLevel)`. `iterations` must be
@@ -107,6 +115,10 @@ finalists, and the winning controls. `web/render-worker.js` exposes the same ope
 `{ id, action: "robust-shot-search", source, iterations, playerLevel }`; `id` must be a safe integer.
 The page module exports `requestRobustThreeCushionSearch({ iterations, playerLevel, source? })`,
 which routes that request through the shared worker and resolves to `{ search, elapsedMs }`.
+
+The Wasm package also exports
+`apply_robust_shot_candidate_to_dsl(source, heading, speed, tipSide, tipHeight, elevation)` for the
+same atomic update-or-insert operation used by every candidate action.
 
 ## Thanks
 

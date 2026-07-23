@@ -5,7 +5,7 @@ use crate::visualization::{
 use crate::{assets, drawing};
 use crate::{
     Angle, AngularVelocity3, BallSpec, BallType, DiagramBackground, DiagramRenderOptions, Inches,
-    InchesPerSecond, OverlayLayer, Position, TableKind, TableSpec, Velocity2,
+    InchesPerSecond, OverlayLayer, Pocket, PocketJaw, Position, TableKind, TableSpec, Velocity2,
 };
 use bigdecimal::ToPrimitive;
 use image::codecs::png::PngEncoder;
@@ -54,6 +54,7 @@ const SIDE_POCKET_DRAWING_SHELF_SAGITTA_SCALE: f32 = 0.40;
 const SIDE_POCKET_DRAWING_LINER_SCALE: f32 = 1.37;
 // Side-pocket mouth cut angle in the rendered top-view bed-edge frame.
 const SIDE_POCKET_CUT_ANGLE_DEG: f32 = 8.0;
+const POCKETED_BALL_SCALE: f32 = 0.5;
 const CUSHION_BEVEL_IN: f32 = 1.0;
 const CAROM_RAIL: [u8; 4] = [0x65, 0x31, 0x1f, 0xff];
 const CAROM_RAIL_GRAIN_DARK: [u8; 4] = [0x4a, 0x20, 0x16, 0xff];
@@ -266,6 +267,14 @@ pub struct DiagramBall {
 }
 
 #[derive(Clone, Debug)]
+pub struct DiagramPocketedBall {
+    pub ty: BallType,
+    pub spec: BallSpec,
+    pub pocket: Pocket,
+    pub captured_at_seconds: f64,
+}
+
+#[derive(Clone, Debug)]
 pub enum DiagramElement {
     DashedLine {
         start: Position,
@@ -279,6 +288,14 @@ pub enum DiagramElement {
     HeadingChevron {
         tip: Position,
         heading: Angle,
+        style: HeadingChevronStyle,
+    },
+    JawReboundDirection {
+        origin: Position,
+        heading: Angle,
+        ball: BallType,
+        pocket: Pocket,
+        jaw: PocketJaw,
         style: HeadingChevronStyle,
     },
     GhostBall {
@@ -314,7 +331,9 @@ impl DiagramElement {
         match self {
             Self::DashedLine { style, .. } => style.layer.into(),
             Self::SmoothPolyline { style, .. } => style.layer.into(),
-            Self::HeadingChevron { style, .. } => style.layer.into(),
+            Self::HeadingChevron { style, .. } | Self::JawReboundDirection { style, .. } => {
+                style.layer.into()
+            }
             Self::GhostBall { style, .. } => style.layer.into(),
             Self::OriginMarker { style, .. } | Self::TextLabel { style, .. } => style.layer.into(),
             Self::CircleMarker { style, .. } => style.layer.into(),
@@ -329,6 +348,7 @@ pub struct DiagramScene {
     pub viewport: DiagramViewport,
     pub background: DiagramBackground,
     pub balls: Vec<DiagramBall>,
+    pub pocketed_balls: Vec<DiagramPocketedBall>,
     pub elements: Vec<DiagramElement>,
 }
 
@@ -1078,6 +1098,34 @@ fn draw_raster_elements_for_layer(
                     style.color,
                 );
             }
+            DiagramElement::JawReboundDirection {
+                origin,
+                heading,
+                style,
+                ..
+            } => {
+                let (shaft, chevron) = jaw_rebound_arrow_points(
+                    &scene.table_spec,
+                    origin,
+                    *heading,
+                    &style.length_inches,
+                );
+                let halo_width = style.width_px + 3.0;
+                for points in [&shaft[..], &chevron[..]] {
+                    drawing::draw_smooth_polyline_mut(
+                        table,
+                        points.iter().map(to_pixel),
+                        halo_width,
+                        Rgba([8, 12, 14, 220]),
+                    );
+                    drawing::draw_smooth_polyline_mut(
+                        table,
+                        points.iter().map(to_pixel),
+                        style.width_px,
+                        style.color,
+                    );
+                }
+            }
             DiagramElement::GhostBall { center, style } => {
                 drawing::draw_ghost_ball_mut(
                     table,
@@ -1387,31 +1435,57 @@ fn draw_raster_spin_arc(
 }
 
 fn draw_raster_balls(scene: &DiagramScene, table: &mut RgbaImage) {
-    for ball in &scene.balls {
-        let center = scene.viewport.position_to_scene_point(&ball.position);
-        let ball_diameter_px = scene
+    let mut pocket_slots = [0_usize; 6];
+    for ball in &scene.pocketed_balls {
+        let pocket_index = pocket_index(ball.pocket);
+        let slot = pocket_slots[pocket_index];
+        pocket_slots[pocket_index] += 1;
+        let diameter_px = scene
             .viewport
             .ball_diameter_px(&scene.table_spec, &ball.spec);
-        if scene.table_spec.kind == TableKind::ThreeCushionCarom {
-            draw_raster_carom_ball(table, center, ball_diameter_px, ball_visual(&ball.ty).fill);
-            continue;
-        }
-        let ball_png = assets::ball_img(ball.ty.clone());
-        let mut ball_img: RgbaImage =
-            image::load_from_memory_with_format(ball_png, ImageFormat::Png)
-                .expect("bad ball image")
-                .into_rgba8();
-        ball_img = resize(
-            &ball_img,
-            ball_diameter_px,
-            ball_diameter_px,
-            FilterType::CatmullRom,
+        let radius = diameter_px as f32 * POCKETED_BALL_SCALE * 0.5;
+        let center = pocketed_ball_center(scene.viewport, ball.pocket, slot, radius);
+        draw_raster_ball(
+            scene.table_spec.kind,
+            table,
+            &ball.ty,
+            center,
+            ((diameter_px as f32) * POCKETED_BALL_SCALE)
+                .round()
+                .max(1.0) as u32,
         );
-        let (bw, bh) = ball_img.dimensions();
-        let px = center.x.round() as i64 - i64::from(bw) / 2;
-        let py = center.y.round() as i64 - i64::from(bh) / 2;
-        overlay(&mut *table, &ball_img, px, py);
     }
+
+    for ball in &scene.balls {
+        let center = scene.viewport.position_to_scene_point(&ball.position);
+        let diameter_px = scene
+            .viewport
+            .ball_diameter_px(&scene.table_spec, &ball.spec);
+        draw_raster_ball(scene.table_spec.kind, table, &ball.ty, center, diameter_px);
+    }
+}
+
+fn draw_raster_ball(
+    table_kind: TableKind,
+    table: &mut RgbaImage,
+    ball_type: &BallType,
+    center: ScenePoint,
+    diameter_px: u32,
+) {
+    if table_kind == TableKind::ThreeCushionCarom {
+        draw_raster_carom_ball(table, center, diameter_px, ball_visual(ball_type).fill);
+        return;
+    }
+
+    let ball_png = assets::ball_img(ball_type.clone());
+    let mut ball_img: RgbaImage = image::load_from_memory_with_format(ball_png, ImageFormat::Png)
+        .expect("bad ball image")
+        .into_rgba8();
+    ball_img = resize(&ball_img, diameter_px, diameter_px, FilterType::CatmullRom);
+    let (width, height) = ball_img.dimensions();
+    let x = center.x.round() as i64 - i64::from(width) / 2;
+    let y = center.y.round() as i64 - i64::from(height) / 2;
+    overlay(&mut *table, &ball_img, x, y);
 }
 
 fn draw_raster_carom_ball(table: &mut RgbaImage, center: ScenePoint, diameter_px: u32, fill: &str) {
@@ -2208,6 +2282,30 @@ fn heading_chevron_points(
     [left, tip, right]
 }
 
+fn jaw_rebound_arrow_points(
+    table_spec: &TableSpec,
+    origin: &Position,
+    heading: Angle,
+    length_inches: &Inches,
+) -> ([Position; 2], [Position; 3]) {
+    let mut origin = origin.clone();
+    let mut tip = origin.translate_inches(length_inches.clone(), heading);
+    let arm_length = Inches::from_f64(length_inches.as_f64() * 0.38);
+    let mut left = tip.translate_inches(
+        arm_length.clone(),
+        angle_from_degrees(heading.as_degrees() + 150.0),
+    );
+    let mut right =
+        tip.translate_inches(arm_length, angle_from_degrees(heading.as_degrees() - 150.0));
+
+    origin.resolve_shifts(table_spec);
+    tip.resolve_shifts(table_spec);
+    left.resolve_shifts(table_spec);
+    right.resolve_shifts(table_spec);
+
+    ([origin, tip.clone()], [left, tip, right])
+}
+
 fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramElement) {
     match element {
         DiagramElement::DashedLine { start, end, style } => {
@@ -2282,6 +2380,64 @@ fn push_svg_element(svg: &mut String, scene: &DiagramScene, element: &DiagramEle
                 opacity,
                 style.width_px,
                 heading.as_degrees()
+            ));
+        }
+        DiagramElement::JawReboundDirection {
+            origin,
+            heading,
+            ball,
+            pocket,
+            jaw,
+            style,
+        } => {
+            let (shaft, chevron) =
+                jaw_rebound_arrow_points(&scene.table_spec, origin, *heading, &style.length_inches);
+            let shaft = shaft.map(|point| scene.viewport.position_to_scene_point(&point));
+            let chevron = chevron.map(|point| scene.viewport.position_to_scene_point(&point));
+            let (stroke, opacity) = svg_color(style.color);
+            let visual = ball_visual(ball);
+            let pocket = pocket_name(*pocket);
+            let jaw = pocket_jaw_name(*jaw);
+            svg.push_str(&format!(
+                "<g class=\"overlay jaw-rebound-direction\" data-ball=\"{}\" data-pocket=\"{}\" data-jaw=\"{}\" data-heading-deg=\"{:.3}\" role=\"img\" aria-label=\"{} ball modeled rebound direction from {} {}\">\n\
+                 <title>{} ball modeled rebound direction from {} {}</title>\n\
+                 <path class=\"jaw-rebound-direction-halo\" d=\"M {:.3} {:.3} L {:.3} {:.3} M {:.3} {:.3} L {:.3} {:.3} L {:.3} {:.3}\" stroke=\"#080c0e\" stroke-opacity=\".862\" stroke-width=\"{:.3}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/>\n\
+                 <path class=\"jaw-rebound-direction-line\" d=\"M {:.3} {:.3} L {:.3} {:.3} M {:.3} {:.3} L {:.3} {:.3} L {:.3} {:.3}\" stroke=\"{}\" stroke-opacity=\"{:.3}\" stroke-width=\"{:.3}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/>\n\
+                 </g>\n",
+                visual.id,
+                pocket,
+                jaw,
+                heading.as_degrees(),
+                visual.id,
+                pocket,
+                jaw,
+                visual.id,
+                pocket,
+                jaw,
+                shaft[0].x,
+                shaft[0].y,
+                shaft[1].x,
+                shaft[1].y,
+                chevron[0].x,
+                chevron[0].y,
+                chevron[1].x,
+                chevron[1].y,
+                chevron[2].x,
+                chevron[2].y,
+                style.width_px + 3.0,
+                shaft[0].x,
+                shaft[0].y,
+                shaft[1].x,
+                shaft[1].y,
+                chevron[0].x,
+                chevron[0].y,
+                chevron[1].x,
+                chevron[1].y,
+                chevron[2].x,
+                chevron[2].y,
+                stroke,
+                opacity,
+                style.width_px,
             ));
         }
         DiagramElement::GhostBall { center, style } => {
@@ -2670,7 +2826,117 @@ fn svg_rgb(color: [u8; 3]) -> String {
     format!("#{:02x}{:02x}{:02x}", color[0], color[1], color[2])
 }
 
+fn pocket_index(pocket: Pocket) -> usize {
+    match pocket {
+        Pocket::TopRight => 0,
+        Pocket::CenterRight => 1,
+        Pocket::BottomRight => 2,
+        Pocket::BottomLeft => 3,
+        Pocket::CenterLeft => 4,
+        Pocket::TopLeft => 5,
+    }
+}
+
+fn pocket_name(pocket: Pocket) -> &'static str {
+    match pocket {
+        Pocket::TopRight => "top-right",
+        Pocket::CenterRight => "center-right",
+        Pocket::BottomRight => "bottom-right",
+        Pocket::BottomLeft => "bottom-left",
+        Pocket::CenterLeft => "center-left",
+        Pocket::TopLeft => "top-left",
+    }
+}
+
+fn pocket_jaw_name(jaw: PocketJaw) -> &'static str {
+    match jaw {
+        PocketJaw::First => "jaw-1",
+        PocketJaw::Second => "jaw-2",
+    }
+}
+
+fn pocketed_ball_anchor(viewport: DiagramViewport, pocket: Pocket) -> ScenePoint {
+    let corner_outset_x = viewport.x_inches(CORNER_POCKET_WELL_DIAMETER_IN / 3.0);
+    let corner_outset_y = viewport.y_inches(CORNER_POCKET_WELL_DIAMETER_IN / 3.0);
+    let side_outset_x = viewport.x_inches(
+        (SIDE_POCKET_DRAWING_LIP_DEPTH_IN + SIDE_POCKET_DRAWING_OUTER_ENDPOINT_DEPTH_IN) * 0.5,
+    );
+    let center_y = (viewport.playfield_top_px + viewport.playfield_bottom_px) * 0.5;
+
+    match pocket {
+        Pocket::TopRight => ScenePoint {
+            x: viewport.playfield_right_px + corner_outset_x,
+            y: viewport.playfield_top_px - corner_outset_y,
+        },
+        Pocket::CenterRight => ScenePoint {
+            x: viewport.playfield_right_px + side_outset_x,
+            y: center_y,
+        },
+        Pocket::BottomRight => ScenePoint {
+            x: viewport.playfield_right_px + corner_outset_x,
+            y: viewport.playfield_bottom_px + corner_outset_y,
+        },
+        Pocket::BottomLeft => ScenePoint {
+            x: viewport.playfield_left_px - corner_outset_x,
+            y: viewport.playfield_bottom_px + corner_outset_y,
+        },
+        Pocket::CenterLeft => ScenePoint {
+            x: viewport.playfield_left_px - side_outset_x,
+            y: center_y,
+        },
+        Pocket::TopLeft => ScenePoint {
+            x: viewport.playfield_left_px - corner_outset_x,
+            y: viewport.playfield_top_px - corner_outset_y,
+        },
+    }
+}
+
+fn pocketed_ball_center(
+    viewport: DiagramViewport,
+    pocket: Pocket,
+    slot: usize,
+    ball_radius: f32,
+) -> ScenePoint {
+    let mut center = pocketed_ball_anchor(viewport, pocket);
+    if slot == 0 {
+        return center;
+    }
+
+    // A compact golden-angle stack keeps every pocketed ball at least partly visible while
+    // remaining inside the rendered well for a standard 16-ball pool set.
+    let slot = slot as f32;
+    let angle = slot * 2.399_963_1;
+    let distance = ball_radius * 0.4 * slot.sqrt();
+    center.x += distance * angle.cos();
+    center.y += distance * angle.sin();
+    center
+}
+
 fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
+    if !scene.pocketed_balls.is_empty() {
+        svg.push_str(
+            "<g class=\"diagram-layer pocketed-balls-layer\" id=\"layer-pocketed-balls\" data-layer=\"pocketed-balls\">\n",
+        );
+        let mut pocket_slots = [0_usize; 6];
+        for ball in &scene.pocketed_balls {
+            let pocket_index = pocket_index(ball.pocket);
+            let slot = pocket_slots[pocket_index];
+            pocket_slots[pocket_index] += 1;
+            let full_radius = scene.viewport.ball_radius_px(&scene.table_spec, &ball.spec);
+            let radius = full_radius * POCKETED_BALL_SCALE;
+            let center = pocketed_ball_center(scene.viewport, ball.pocket, slot, radius);
+            push_svg_pool_ball(
+                svg,
+                &ball.ty,
+                ball_visual(&ball.ty),
+                center,
+                radius,
+                Some(ball),
+            );
+        }
+        svg.push_str("</g>\n");
+    }
+
     svg.push_str(&format!(
         "<g class=\"diagram-layer\" id=\"layer-{}\" data-layer=\"{}\">\n",
         DiagramLayerId::Balls.as_str(),
@@ -2681,7 +2947,7 @@ fn push_svg_balls(svg: &mut String, scene: &DiagramScene) {
         let radius = scene.viewport.ball_radius_px(&scene.table_spec, &ball.spec);
         let visual = ball_visual(&ball.ty);
         if scene.table_spec.kind == TableKind::Pool {
-            push_svg_pool_ball(svg, &ball.ty, visual, center, radius);
+            push_svg_pool_ball(svg, &ball.ty, visual, center, radius, None);
         } else {
             push_svg_carom_ball(svg, visual, center, radius);
         }
@@ -2722,6 +2988,7 @@ fn push_svg_pool_ball(
     visual: BallVisual,
     center: ScenePoint,
     radius: f32,
+    pocketed: Option<&DiagramPocketedBall>,
 ) {
     let style = match ball_type {
         BallType::Nine => "stripe",
@@ -2741,10 +3008,30 @@ fn push_svg_pool_ball(
         (visual.gradient, visual.paint)
     };
 
-    svg.push_str(&format!(
-        "<g class=\"ball ball-{}\" data-ball=\"{}\" data-ball-style=\"{}\" transform=\"translate({:.3} {:.3})\">\n",
-        visual.id, visual.id, style, center.x, center.y
-    ));
+    if let Some(pocketed) = pocketed {
+        let pocket = pocket_name(pocketed.pocket);
+        svg.push_str(&format!(
+            "<g class=\"ball ball-{} pocketed-ball\" data-ball=\"{}\" data-ball-style=\"{}\" data-pocket=\"{}\" data-depth-scale=\"{:.3}\" data-pocketed-at-seconds=\"{:.6}\" role=\"img\" aria-label=\"{} ball pocketed in {}\" opacity=\".840\" transform=\"translate({:.3} {:.3})\">\n\
+             <title>{} ball pocketed in {}</title>\n",
+            visual.id,
+            visual.id,
+            style,
+            pocket,
+            POCKETED_BALL_SCALE,
+            pocketed.captured_at_seconds,
+            visual.id,
+            pocket,
+            center.x,
+            center.y,
+            visual.id,
+            pocket,
+        ));
+    } else {
+        svg.push_str(&format!(
+            "<g class=\"ball ball-{}\" data-ball=\"{}\" data-ball-style=\"{}\" transform=\"translate({:.3} {:.3})\">\n",
+            visual.id, visual.id, style, center.x, center.y
+        ));
+    }
     svg.push_str(&format!(
         "<g class=\"pool-ball-artwork\">\n\
          <circle class=\"ball-shell\" data-fill=\"{body_paint}\" cx=\"0\" cy=\"0\" r=\"{radius:.3}\" fill=\"url(#{body_gradient})\"/>\n"

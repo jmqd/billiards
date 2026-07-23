@@ -34,6 +34,11 @@
           <g data-layer="overlays-below-balls">
             <polyline class="smooth-polyline" points="50,50 50,40"></polyline>
           </g>
+          <g data-layer="pocketed-balls">
+            <g class="ball ball-nine pocketed-ball" data-ball="nine" data-pocket="top-right" data-pocketed-at-seconds="0.5">
+              <circle r="6"></circle>
+            </g>
+          </g>
           <g data-layer="balls">
             <g class="ball ball-eight"><text class="ball-label">8</text></g>
           </g>
@@ -73,8 +78,11 @@
         const orientation = svg.querySelector('.diagram-orientation');
         const playbackLayer = svg.querySelector('[data-layer="balls"]');
         const staticBallLayer = svg.querySelector('[data-layer="static-balls"]');
+        const pocketedBallLayer = svg.querySelector('[data-layer="pocketed-balls"]');
+        const pocketedBallMarker = pocketedBallLayer.querySelector('.pocketed-ball');
         assert(playbackLayer, 'playback must render in the Balls layer');
         assert(staticBallLayer.style.display === 'none', 'static balls must remain hidden during playback');
+        assert(pocketedBallMarker.style.display !== 'none', 'captured ball marker must be visible on the final playback frame');
 
         const nineArtwork = playbackLayer.querySelector('[data-ball="nine"]');
         assert(nineArtwork, 'Nine playback must retain an identifiable artwork group');
@@ -139,10 +147,21 @@
         ballsToggle.dispatchEvent(new Event('change', { bubbles: true }));
         assert(playbackLayer.style.display === 'none', 'Balls toggle must hide playback balls');
         assert(staticBallLayer.style.display === 'none', 'Balls toggle must not reveal stale static balls');
+        assert(pocketedBallLayer.style.display === 'none', 'Balls toggle must hide pocketed ball markers');
         ballsToggle.checked = true;
         ballsToggle.dispatchEvent(new Event('change', { bubbles: true }));
         assert(playbackLayer.style.display !== 'none', 'Balls toggle must restore playback balls');
         assert(staticBallLayer.style.display === 'none', 'restoring playback balls must keep static balls hidden');
+        assert(pocketedBallLayer.style.display !== 'none', 'restoring Balls must restore the pocketed-ball layer');
+        assert(pocketedBallMarker.style.display !== 'none', 'restoring Balls must preserve the final captured marker');
+
+        const resetPlaybackButton = viewer.querySelector('[data-playback-reset]');
+        const playbackSlider = viewer.querySelector('[data-playback-slider]');
+        resetPlaybackButton.click();
+        assert(pocketedBallMarker.style.display === 'none', 'captured marker must stay hidden before its capture time');
+        playbackSlider.value = '1';
+        playbackSlider.dispatchEvent(new Event('input', { bubbles: true }));
+        assert(pocketedBallMarker.style.display !== 'none', 'captured marker must appear at and after its capture time');
 
         const durationZeroViewer = document.querySelector('#duration-zero-viewer');
         const durationZeroPlayButton = durationZeroViewer.querySelector('[data-playback-play]');

@@ -14,15 +14,15 @@ use crate::{
     trace_ball_path_with_rail_profile_on_table,
     visualization::{
         BallPathRenderOptions, BallPathWidthMode, DashedLineStyle, EventMarkerStyle,
-        GhostBallStyle, LabelOverlayStyle, PathColorMode, SmoothPolylineStyle,
+        GhostBallStyle, HeadingChevronStyle, LabelOverlayStyle, PathColorMode, SmoothPolylineStyle,
     },
     Angle, Ball, BallBallCollisionConfig, BallPath, BallPathError, BallPathSegment, BallPathStop,
     BallSetPhysicsSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact,
     Diamond, GameState, GameType, HumanShotSpeedValidation, Inches, InchesPerSecond, MotionPhase,
     MotionPhaseThresholds, NBallGeometryError, NBallSystemEvent, NBallSystemSimulation,
-    NBallSystemState, OnTableBallState, OnTableMotionConfig, OnTableStateError, PlayingConditions,
-    PlayingConditionsPreset, Pocket, PocketJaw, Position, Rail, RailCollisionConfig,
-    RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, OnTableStateError, OverlayLayer,
+    PlayingConditions, PlayingConditionsPreset, Pocket, PocketJaw, Position, Rail,
+    RailCollisionConfig, RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds,
     SharedBallBallContactResolution, Shot, ShotError, ShotSpeedPreset, TableSpec,
     BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
     CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
@@ -961,6 +961,11 @@ impl ScenarioShotTrace {
         options: &ScenarioTraceRenderOptions,
     ) -> GameState {
         let mut game_state = scenario.game_state_for_system_states(&self.simulation.states);
+        for (ball, ball_trace) in scenario.game_state.balls().iter().zip(&self.ball_traces) {
+            if let Some((pocket, captured_at)) = ball_trace.pocketed_at() {
+                game_state.add_pocketed_ball_marker(ball, pocket, captured_at);
+            }
+        }
         if options.spin_glyphs {
             for (ball, state) in scenario
                 .game_state
@@ -1062,6 +1067,52 @@ impl ScenarioShotTrace {
                         trace_color,
                     );
                 }
+            }
+        }
+
+        if options.event_markers {
+            for event in &self.event_log {
+                let ScenarioShotTraceEventKind::BallJawImpact { ball, pocket, jaw } = &event.kind
+                else {
+                    continue;
+                };
+                let Some(ball_trace) = self
+                    .ball_traces
+                    .iter()
+                    .find(|ball_trace| &ball_trace.ball == ball)
+                else {
+                    continue;
+                };
+                let Some((final_pocket, captured_at)) = ball_trace.pocketed_at() else {
+                    continue;
+                };
+                if final_pocket != *pocket
+                    || !scenario_trace_times_are_effectively_simultaneous(captured_at, event.time)
+                {
+                    continue;
+                }
+                let NBallSystemState::Pocketed {
+                    state_at_capture, ..
+                } = &ball_trace.final_state
+                else {
+                    continue;
+                };
+                let state_at_capture = state_at_capture.as_ball_state();
+                if state_at_capture.speed().as_f64() <= 0.05 {
+                    continue;
+                }
+                let Some(heading) = state_at_capture.velocity.angle_from_north() else {
+                    continue;
+                };
+                let origin = state_at_capture.projected_position(&scenario.game_state.table_spec);
+                game_state.add_jaw_rebound_direction_styled(
+                    &origin,
+                    heading,
+                    ball.clone(),
+                    *pocket,
+                    *jaw,
+                    jaw_rebound_direction_style(),
+                );
             }
         }
         game_state
@@ -1264,6 +1315,19 @@ impl ScenarioBallTrace {
             NBallSystemState::Pocketed { pocket, .. } => Some(pocket.aiming_center()),
             NBallSystemState::OnTable(_) | NBallSystemState::Airborne(_) => None,
         }
+    }
+
+    fn pocketed_at(&self) -> Option<(Pocket, Seconds)> {
+        let NBallSystemState::Pocketed { pocket, .. } = &self.final_state else {
+            return None;
+        };
+        let captured_at = self
+            .timeline_segments
+            .last()
+            .map_or_else(Seconds::zero, |segment| {
+                Seconds::new(segment.start_time.as_f64() + segment.duration.as_f64())
+            });
+        Some((*pocket, captured_at))
     }
 
     pub fn state_at_elapsed(
@@ -1752,6 +1816,15 @@ fn cue_origin_marker_style() -> LabelOverlayStyle {
         offset_y_px: 0,
         scale_px: 2,
         ..LabelOverlayStyle::default()
+    }
+}
+
+fn jaw_rebound_direction_style() -> HeadingChevronStyle {
+    HeadingChevronStyle {
+        color: Rgba([246, 249, 250, 255]),
+        width_px: 2.4,
+        length_inches: Inches::from_f64(1.25),
+        layer: OverlayLayer::AboveBalls,
     }
 }
 

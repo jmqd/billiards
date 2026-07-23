@@ -15,8 +15,8 @@ pub use crate::svg_generator::{
 };
 
 use crate::diagram::{
-    render_scene_to_bytes, DiagramBall, DiagramElement, DiagramOutputFormat, DiagramScene,
-    DiagramViewport,
+    render_scene_to_bytes, DiagramBall, DiagramElement, DiagramOutputFormat, DiagramPocketedBall,
+    DiagramScene, DiagramViewport,
 };
 use crate::visualization::{
     AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
@@ -18406,6 +18406,14 @@ enum Overlay {
         heading: Angle,
         style: HeadingChevronStyle,
     },
+    JawReboundDirection {
+        origin: Position,
+        heading: Angle,
+        ball: BallType,
+        pocket: Pocket,
+        jaw: PocketJaw,
+        style: HeadingChevronStyle,
+    },
     GhostBall {
         center: Position,
         style: GhostBallStyle,
@@ -18435,6 +18443,14 @@ enum Overlay {
 }
 
 #[derive(Clone, Debug)]
+struct PocketedBallMarker {
+    ty: BallType,
+    spec: BallSpec,
+    pocket: Pocket,
+    captured_at_seconds: f64,
+}
+
+#[derive(Clone, Debug)]
 /// The full and complete data structure describing the state of a game.
 #[derive(Default)]
 pub struct GameState {
@@ -18444,6 +18460,7 @@ pub struct GameState {
     pub cueball_modifier: CueballModifier,
 
     lines_to_draw: Vec<Overlay>,
+    pocketed_balls_to_draw: Vec<PocketedBallMarker>,
 }
 
 impl GameState {
@@ -18480,6 +18497,20 @@ impl GameState {
         for ball in balls {
             self.add_ball(ball);
         }
+    }
+
+    pub(crate) fn add_pocketed_ball_marker(
+        &mut self,
+        ball: &Ball,
+        pocket: Pocket,
+        captured_at: Seconds,
+    ) {
+        self.pocketed_balls_to_draw.push(PocketedBallMarker {
+            ty: ball.ty.clone(),
+            spec: ball.spec.clone(),
+            pocket,
+            captured_at_seconds: captured_at.as_f64().max(0.0),
+        });
     }
 
     pub fn select_ball(&self, ball_type: BallType) -> Option<&Ball> {
@@ -18723,6 +18754,27 @@ impl GameState {
         self.lines_to_draw.push(Overlay::HeadingChevron {
             tip,
             heading,
+            style,
+        });
+    }
+
+    pub(crate) fn add_jaw_rebound_direction_styled(
+        &mut self,
+        origin: &Position,
+        heading: Angle,
+        ball: BallType,
+        pocket: Pocket,
+        jaw: PocketJaw,
+        style: HeadingChevronStyle,
+    ) {
+        let mut origin = origin.clone();
+        origin.resolve_shifts(&self.table_spec);
+        self.lines_to_draw.push(Overlay::JawReboundDirection {
+            origin,
+            heading,
+            ball,
+            pocket,
+            jaw,
             style,
         });
     }
@@ -19323,6 +19375,17 @@ impl GameState {
             })
             .collect();
 
+        let pocketed_balls = resolved
+            .pocketed_balls_to_draw
+            .iter()
+            .map(|ball| DiagramPocketedBall {
+                ty: ball.ty.clone(),
+                spec: ball.spec.clone(),
+                pocket: ball.pocket,
+                captured_at_seconds: ball.captured_at_seconds,
+            })
+            .collect();
+
         let elements = resolved
             .lines_to_draw
             .iter()
@@ -19343,6 +19406,21 @@ impl GameState {
                 } => DiagramElement::HeadingChevron {
                     tip: tip.clone(),
                     heading: *heading,
+                    style: style.clone(),
+                },
+                Overlay::JawReboundDirection {
+                    origin,
+                    heading,
+                    ball,
+                    pocket,
+                    jaw,
+                    style,
+                } => DiagramElement::JawReboundDirection {
+                    origin: origin.clone(),
+                    heading: *heading,
+                    ball: ball.clone(),
+                    pocket: *pocket,
+                    jaw: *jaw,
                     style: style.clone(),
                 },
                 Overlay::GhostBall { center, style } => DiagramElement::GhostBall {
@@ -19394,6 +19472,7 @@ impl GameState {
             viewport: DiagramViewport::default(),
             background: options.background,
             balls,
+            pocketed_balls,
             elements,
         }
     }

@@ -190,8 +190,11 @@
     applyTableDetailToViewer(viewer);
     viewer.querySelectorAll('[data-layer-toggle]').forEach((input) => {
       input.addEventListener('change', () => {
-        svg.querySelectorAll(`[data-layer="${input.dataset.layerToggle}"]`).forEach((layer) => {
-          layer.style.display = input.checked ? '' : 'none';
+        const layers = input.dataset.layerToggle === 'balls'
+          ? svg.querySelectorAll('[data-layer="balls"], [data-layer="static-balls"], [data-layer="pocketed-balls"]')
+          : svg.querySelectorAll(`[data-layer="${input.dataset.layerToggle}"]`);
+        layers.forEach((layer) => {
+          layer.style.display = layer.dataset.layer === 'static-balls' || !input.checked ? 'none' : '';
         });
       });
     });
@@ -291,10 +294,21 @@
           ballLayer.style.display = 'none';
           ballLayer.setAttribute('data-layer', 'static-balls');
         }
+        const pocketedBallMarkers = Array.from(
+          svg.querySelectorAll('[data-layer="pocketed-balls"] .pocketed-ball[data-pocketed-at-seconds]'),
+        );
+        const setPocketedBallsAtTime = (time) => {
+          pocketedBallMarkers.forEach((marker) => {
+            const capturedAt = Number(marker.dataset.pocketedAtSeconds);
+            marker.style.display = !Number.isFinite(capturedAt) || time + 1e-9 >= capturedAt ? '' : 'none';
+          });
+        };
         svg.querySelectorAll('.diagram-layer .ball-spin-glyph').forEach((glyph) => {
           glyph.style.display = 'none';
         });
-        const traceElements = Array.from(svg.querySelectorAll('.smooth-polyline, .heading-chevron'));
+        const traceElements = Array.from(
+          svg.querySelectorAll('.smooth-polyline, .heading-chevron, .jaw-rebound-direction'),
+        );
         const setTracePathsVisible = (visible) => {
           traceElements.forEach((element) => {
             element.style.display = visible ? '' : 'none';
@@ -686,6 +700,7 @@
             }
             appendSpinGlyph({ ...ball, x: displayX, y: displayY }, radius);
           }
+          setPocketedBallsAtTime(time);
           slider.value = String(index);
           if (timeLabel) timeLabel.textContent = `t=${formatPlaybackTime(time)}s`;
           updateEventTicker(time);

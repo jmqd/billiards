@@ -315,6 +315,122 @@ fn svg_trace_marks_original_cue_ball_origin_without_restoring_event_numbers() {
     assert!(!svg.contains("airborne-path"));
 }
 
+#[test]
+fn svg_pocketed_ball_marker_preserves_identity_scale_and_capture_time() {
+    let (scenario, trace) = trace_scenario(
+        "examples/scenarios/routine_nine_ball_corner_cut.billiards",
+        0,
+    );
+    let nine_trace = trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == BallType::Nine)
+        .expect("nine-ball trace should exist");
+    let expected_capture_time = nine_trace
+        .timeline_segments
+        .last()
+        .map(|segment| segment.start_time.as_f64() + segment.duration.as_f64())
+        .expect("pocketed ball should have a terminal timeline segment");
+
+    let rendered = trace.rendered_final_layout_with_trace_options(
+        &scenario,
+        &ScenarioTraceRenderOptions::rich_defaults(),
+    );
+    let scene = rendered.to_diagram_scene(&DiagramRenderOptions::default());
+    let marker = scene
+        .pocketed_balls
+        .iter()
+        .find(|ball| ball.ty == BallType::Nine)
+        .expect("pocketed nine should remain in the diagram scene");
+    assert_eq!(marker.pocket, Pocket::TopRight);
+    assert!((marker.captured_at_seconds - expected_capture_time).abs() < 1e-9);
+
+    let full_radius = scene
+        .viewport
+        .ball_radius_px(&scene.table_spec, &marker.spec);
+    let svg = String::from_utf8(rendered.render_2d_diagram_with_options(
+        DiagramOutputFormat::Svg,
+        &DiagramRenderOptions::default(),
+    ))
+    .expect("scenario trace SVG should be UTF-8");
+    let marker_start = svg
+        .find("class=\"ball ball-nine pocketed-ball\"")
+        .expect("pocketed nine artwork should be present");
+    let marker_svg = &svg[marker_start..];
+    assert!(marker_svg.starts_with(
+        "class=\"ball ball-nine pocketed-ball\" data-ball=\"nine\" data-ball-style=\"stripe\" data-pocket=\"top-right\""
+    ));
+    assert!((svg_attr_f32(marker_svg, "data-depth-scale") - 0.5).abs() < 1e-6);
+    assert!(
+        (svg_attr_f32(marker_svg, "data-pocketed-at-seconds") - expected_capture_time as f32).abs()
+            < 1e-5
+    );
+    let shell_start = marker_svg
+        .find("class=\"ball-shell\"")
+        .expect("pocketed nine should retain pool-ball artwork");
+    let marker_radius = svg_attr_f32(&marker_svg[shell_start..], "r");
+    assert!(
+        (marker_radius - full_radius * 0.5).abs() < 0.001,
+        "pocketed ball radius should be exactly half scale"
+    );
+}
+
+#[test]
+fn svg_direct_jaw_capture_shows_modeled_outgoing_direction() {
+    let (scenario, trace) = trace_scenario(
+        "examples/scenarios/nine_ball_three_rail_bank_side_pocket.billiards",
+        0,
+    );
+    assert_eq!(
+        final_pocket(&trace, BallType::Eight),
+        Some(Pocket::CenterLeft)
+    );
+    assert!(
+        !has_pocket(&trace, BallType::Eight, Pocket::CenterLeft),
+        "the fixture must capture directly from a jaw event, not a later pocket-capture event"
+    );
+    let eight_trace = trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == BallType::Eight)
+        .expect("eight-ball trace should exist");
+    let NBallSystemState::Pocketed {
+        state_at_capture, ..
+    } = &eight_trace.final_state
+    else {
+        panic!("eight should finish pocketed");
+    };
+    let expected_heading = state_at_capture
+        .as_ball_state()
+        .velocity
+        .angle_from_north()
+        .expect("jaw response should retain an outgoing direction")
+        .as_degrees();
+
+    let rendered = trace.rendered_final_layout_with_trace_options(
+        &scenario,
+        &ScenarioTraceRenderOptions::rich_defaults(),
+    );
+    let svg = String::from_utf8(rendered.render_2d_diagram_with_options(
+        DiagramOutputFormat::Svg,
+        &DiagramRenderOptions::default(),
+    ))
+    .expect("scenario trace SVG should be UTF-8");
+    let direction_start = svg
+        .find("class=\"overlay jaw-rebound-direction\"")
+        .expect("direct jaw capture should expose its modeled outgoing direction");
+    let direction_svg = &svg[direction_start..];
+    assert!(direction_svg.starts_with(
+        "class=\"overlay jaw-rebound-direction\" data-ball=\"eight\" data-pocket=\"center-left\" data-jaw=\"jaw-1\""
+    ));
+    assert!(
+        (f64::from(svg_attr_f32(direction_svg, "data-heading-deg")) - expected_heading).abs()
+            < 0.001
+    );
+    assert!(direction_svg.contains("class=\"jaw-rebound-direction-halo\""));
+    assert!(direction_svg.contains("class=\"jaw-rebound-direction-line\""));
+}
+
 fn has_pocket(trace: &ScenarioShotTrace, ball: BallType, pocket: Pocket) -> bool {
     trace.event_log.iter().any(|event| {
         matches!(

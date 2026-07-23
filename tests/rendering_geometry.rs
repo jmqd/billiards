@@ -57,6 +57,21 @@ fn render_with_viewport_and_options(
     .into_rgba8()
 }
 
+fn render_svg_with_viewport_and_options(
+    state: &GameState,
+    viewport: DiagramViewport,
+    options: &DiagramRenderOptions,
+) -> String {
+    let mut scene = state.to_diagram_scene(options);
+    scene.viewport = viewport;
+    String::from_utf8(render_scene_to_bytes(
+        &scene,
+        DiagramOutputFormat::Svg,
+        options,
+    ))
+    .expect("svg should be utf-8")
+}
+
 fn viewport_400_by_800() -> DiagramViewport {
     let legacy = DiagramViewport::default();
     let x_scale = 400.0 / legacy.width_px;
@@ -1516,6 +1531,132 @@ fn svg_pool_pocket_shelves_are_depth_calibrated_and_share_drop_edges() {
         side_shelf_radius_in > 20.0,
         "side shelf radius was {side_shelf_radius_in} in"
     );
+}
+
+#[test]
+fn svg_side_pocket_dimensions_follow_their_viewport_axes() {
+    let base_viewport = DiagramViewport::default();
+    let x_scale = 2.0;
+    let y_scale = 0.5;
+    let scaled_viewport = DiagramViewport {
+        width_px: base_viewport.width_px * x_scale,
+        height_px: base_viewport.height_px * y_scale,
+        playfield_left_px: base_viewport.playfield_left_px * x_scale,
+        playfield_right_px: base_viewport.playfield_right_px * x_scale,
+        playfield_top_px: base_viewport.playfield_top_px * y_scale,
+        playfield_bottom_px: base_viewport.playfield_bottom_px * y_scale,
+    };
+    let state = GameState::new(TableSpec::brunswick_gc4_9ft());
+    let options = DiagramRenderOptions::default();
+    let base_svg = render_svg_with_viewport_and_options(&state, base_viewport, &options);
+    let scaled_svg = render_svg_with_viewport_and_options(&state, scaled_viewport, &options);
+    let side_liner = |svg| {
+        svg_path_numbers(svg_element(
+            svg,
+            "class=\"table-pocket-leather\" data-pocket=\"side-liner\"",
+            0,
+        ))
+    };
+    let side_shelf = |svg| {
+        svg_path_numbers(svg_element(
+            svg,
+            "class=\"table-pocket-shelf\" data-pocket=\"side-shelf\"",
+            0,
+        ))
+    };
+    let base_liner = side_liner(&base_svg);
+    let scaled_liner = side_liner(&scaled_svg);
+    let base_shelf = side_shelf(&base_svg);
+    let scaled_shelf = side_shelf(&scaled_svg);
+
+    let measurements = [
+        (
+            "lip depth",
+            (base_viewport.playfield_left_px - base_liner[0]).abs(),
+            (scaled_viewport.playfield_left_px - scaled_liner[0]).abs(),
+            x_scale,
+        ),
+        (
+            "mouth-cut control depth",
+            (base_liner[2] - base_liner[0]).abs(),
+            (scaled_liner[2] - scaled_liner[0]).abs(),
+            x_scale,
+        ),
+        (
+            "shelf sagitta",
+            (base_shelf[2] - base_shelf[0]).abs(),
+            (scaled_shelf[2] - scaled_shelf[0]).abs(),
+            x_scale,
+        ),
+        (
+            "mouth-cut control run",
+            (base_liner[3] - base_liner[1]).abs(),
+            (scaled_liner[3] - scaled_liner[1]).abs(),
+            y_scale,
+        ),
+        (
+            "mouth opening",
+            (base_liner[19] - base_liner[1]).abs(),
+            (scaled_liner[19] - scaled_liner[1]).abs(),
+            y_scale,
+        ),
+    ];
+
+    for (name, base, scaled, expected_scale) in measurements {
+        let actual_scale = scaled / base;
+        assert!(
+            (actual_scale - expected_scale).abs() < 0.005,
+            "{name} scaled by {actual_scale}, expected {expected_scale}"
+        );
+    }
+}
+
+#[test]
+fn svg_table_corner_radii_follow_their_viewport_axes() {
+    let base_viewport = DiagramViewport::default();
+    let x_scale = 2.0;
+    let y_scale = 0.5;
+    let viewport = DiagramViewport {
+        width_px: base_viewport.width_px * x_scale,
+        height_px: base_viewport.height_px * y_scale,
+        playfield_left_px: base_viewport.playfield_left_px * x_scale,
+        playfield_right_px: base_viewport.playfield_right_px * x_scale,
+        playfield_top_px: base_viewport.playfield_top_px * y_scale,
+        playfield_bottom_px: base_viewport.playfield_bottom_px * y_scale,
+    };
+    let options = DiagramRenderOptions::default();
+    let expected_rx = 58.0 * x_scale;
+    let expected_ry = 58.0 * y_scale;
+    let cases = [
+        (
+            "pool",
+            GameState::new(TableSpec::brunswick_gc4_9ft()),
+            "id=\"table-rail-clip\"",
+        ),
+        (
+            "three-cushion",
+            GameState::new(TableSpec::three_cushion_carom_10ft()),
+            "id=\"carom-table-rail-clip\"",
+        ),
+    ];
+
+    for (name, state, rail_clip_marker) in cases {
+        let svg = render_svg_with_viewport_and_options(&state, viewport, &options);
+        for element in [
+            svg_element(&svg, "id=\"diagram-outer-table-clip\"", 0),
+            svg_element(&svg, "<rect class=\"table-rail\"", 0),
+            svg_element(&svg, rail_clip_marker, 0),
+        ] {
+            assert!(
+                (svg_attr_f32(element, "rx") - expected_rx).abs() < 0.001,
+                "{name} table corner x radius did not follow the viewport"
+            );
+            assert!(
+                (svg_attr_f32(element, "ry") - expected_ry).abs() < 0.001,
+                "{name} table corner y radius did not follow the viewport"
+            );
+        }
+    }
 }
 
 #[test]

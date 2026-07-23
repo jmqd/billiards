@@ -18,6 +18,7 @@ use imageproc::point::Point;
 
 const LEGACY_WIDTH_PX: f32 = 1089.0;
 const LEGACY_HEIGHT_PX: f32 = 1938.0;
+const TABLE_OUTER_CORNER_RADIUS_PX: f32 = 58.0;
 const PLAYFIELD_LEFT_PX: f32 = 110.0;
 const PLAYFIELD_RIGHT_PX: f32 = 968.0;
 const PLAYFIELD_TOP_PX: f32 = 110.0;
@@ -180,6 +181,13 @@ impl DiagramViewport {
         let px_per_diamond_y =
             (self.playfield_bottom_px - self.playfield_top_px) / TABLE_DIAMONDS_Y;
         radius_diamonds * px_per_diamond_x.min(px_per_diamond_y)
+    }
+
+    fn outer_corner_radii_px(&self) -> (f32, f32) {
+        (
+            TABLE_OUTER_CORNER_RADIUS_PX * self.width_px / LEGACY_WIDTH_PX,
+            TABLE_OUTER_CORNER_RADIUS_PX * self.height_px / LEGACY_HEIGHT_PX,
+        )
     }
 
     fn ball_diameter_px(&self, table_spec: &TableSpec, ball_spec: &BallSpec) -> u32 {
@@ -874,10 +882,11 @@ fn push_svg_table_defs(svg: &mut String, viewport: DiagramViewport) {
     let right = viewport.playfield_right_px;
     let top = viewport.playfield_top_px;
     let bottom = viewport.playfield_bottom_px;
+    let (corner_radius_x, corner_radius_y) = viewport.outer_corner_radii_px();
 
     svg.push_str(&format!(
         r##"<defs>
-<clipPath id="diagram-outer-table-clip" clipPathUnits="userSpaceOnUse"><rect x="0" y="0" width="{width:.3}" height="{height:.3}" rx="58"/></clipPath>
+<clipPath id="diagram-outer-table-clip" clipPathUnits="userSpaceOnUse"><rect x="0" y="0" width="{width:.3}" height="{height:.3}" rx="{corner_radius_x:.3}" ry="{corner_radius_y:.3}"/></clipPath>
 <linearGradient id="tournament-blue-cloth" gradientUnits="userSpaceOnUse" x1="{left:.3}" y1="{top:.3}" x2="{right:.3}" y2="{bottom:.3}">
 <stop offset="0%" stop-color="#02a7d8"/>
 <stop offset="48%" stop-color="#058dbc"/>
@@ -1461,6 +1470,7 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
     let bottom_rail_h = h - bottom;
     let right_rail_w = w - right;
     let center_y = (top + bottom) * 0.5;
+    let (corner_radius_x, corner_radius_y) = viewport.outer_corner_radii_px();
 
     let cushion_x = viewport.x_inches(CUSHION_WIDTH_IN);
     let cushion_y = viewport.y_inches(CUSHION_WIDTH_IN);
@@ -1472,10 +1482,10 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
     let cushion_bevel_x = viewport.x_inches(CUSHION_BEVEL_IN);
     let cushion_bevel_y = viewport.y_inches(CUSHION_BEVEL_IN);
     svg.push_str(&format!(
-        "<rect class=\"table-rail\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/>\n"
+        "<rect class=\"table-rail\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"{corner_radius_x:.3}\" ry=\"{corner_radius_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<clipPath id=\"table-rail-clip\"><rect x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/></clipPath>\n"
+        "<clipPath id=\"table-rail-clip\"><rect x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"{corner_radius_x:.3}\" ry=\"{corner_radius_y:.3}\"/></clipPath>\n"
     ));
     svg.push_str(&format!(
         "<g clip-path=\"url(#table-rail-clip)\"><rect class=\"table-rail-grain table-rail-grain-horizontal\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{top:.3}\"/><rect class=\"table-rail-grain table-rail-grain-horizontal\" x=\"0\" y=\"{bottom:.3}\" width=\"{w:.3}\" height=\"{bottom_rail_h:.3}\"/><rect class=\"table-rail-grain table-rail-grain-vertical\" x=\"0\" y=\"{top:.3}\" width=\"{left:.3}\" height=\"{cloth_h:.3}\"/><rect class=\"table-rail-grain table-rail-grain-vertical\" x=\"{right:.3}\" y=\"{top:.3}\" width=\"{right_rail_w:.3}\" height=\"{cloth_h:.3}\"/></g>\n"
@@ -1494,8 +1504,8 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
         (right, bottom, 1.0, 1.0),
     ];
 
-    for layer in [PocketLayer::Well, PocketLayer::Liner] {
-        for (corner_x, corner_y, x_sign, y_sign) in corner_pockets {
+    let push_pockets = |svg: &mut String, layer: PocketLayer| {
+        for &(corner_x, corner_y, x_sign, y_sign) in &corner_pockets {
             push_svg_corner_pocket(
                 svg,
                 corner_x,
@@ -1513,26 +1523,22 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
                 layer,
             );
         }
-        push_svg_side_pocket(
-            svg,
-            left,
-            center_y,
-            -1.0,
-            side_mouth_y,
-            cushion_x,
-            cushion_bevel_y,
-            layer,
-        );
-        push_svg_side_pocket(
-            svg,
-            right,
-            center_y,
-            1.0,
-            side_mouth_y,
-            cushion_x,
-            cushion_bevel_y,
-            layer,
-        );
+        for (rail_x, x_sign) in [(left, -1.0), (right, 1.0)] {
+            push_svg_side_pocket(
+                svg,
+                rail_x,
+                center_y,
+                x_sign,
+                side_mouth_y,
+                cushion_x,
+                cushion_bevel_y,
+                layer,
+            );
+        }
+    };
+
+    for layer in [PocketLayer::Well, PocketLayer::Liner] {
+        push_pockets(svg, layer);
     }
 
     push_svg_horizontal_cushion(
@@ -1590,46 +1596,7 @@ fn push_svg_pool_table(svg: &mut String, viewport: DiagramViewport) {
         cushion_bevel_y,
     );
 
-    for layer in [PocketLayer::Shelf] {
-        for (corner_x, corner_y, x_sign, y_sign) in corner_pockets {
-            push_svg_corner_pocket(
-                svg,
-                corner_x,
-                corner_y,
-                x_sign,
-                y_sign,
-                corner_run_x,
-                corner_run_y,
-                corner_shelf_x,
-                corner_shelf_y,
-                cushion_x,
-                cushion_y,
-                cushion_bevel_x,
-                cushion_bevel_y,
-                layer,
-            );
-        }
-        push_svg_side_pocket(
-            svg,
-            left,
-            center_y,
-            -1.0,
-            side_mouth_y,
-            cushion_x,
-            cushion_bevel_y,
-            layer,
-        );
-        push_svg_side_pocket(
-            svg,
-            right,
-            center_y,
-            1.0,
-            side_mouth_y,
-            cushion_x,
-            cushion_bevel_y,
-            layer,
-        );
-    }
+    push_pockets(svg, PocketLayer::Shelf);
 
     push_svg_table_sights(svg, viewport);
 }
@@ -1651,13 +1618,14 @@ fn push_svg_three_cushion_carom_table(
     let right_rail_w = w - right;
     let cushion_x = viewport.x_inches_for_table(table_spec, 2.25);
     let cushion_y = viewport.y_inches_for_table(table_spec, 2.25);
+    let (corner_radius_x, corner_radius_y) = viewport.outer_corner_radii_px();
 
     svg.push_str("<g class=\"carom-table\">\n");
     svg.push_str(&format!(
-        "<rect class=\"table-rail\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/>\n"
+        "<rect class=\"table-rail\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"{corner_radius_x:.3}\" ry=\"{corner_radius_y:.3}\"/>\n"
     ));
     svg.push_str(&format!(
-        "<clipPath id=\"carom-table-rail-clip\"><rect x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"58\"/></clipPath>\n"
+        "<clipPath id=\"carom-table-rail-clip\"><rect x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{h:.3}\" rx=\"{corner_radius_x:.3}\" ry=\"{corner_radius_y:.3}\"/></clipPath>\n"
     ));
     svg.push_str(&format!(
         "<g clip-path=\"url(#carom-table-rail-clip)\"><rect class=\"table-rail-grain table-rail-grain-horizontal\" x=\"0\" y=\"0\" width=\"{w:.3}\" height=\"{top:.3}\"/><rect class=\"table-rail-grain table-rail-grain-horizontal\" x=\"0\" y=\"{bottom:.3}\" width=\"{w:.3}\" height=\"{bottom_rail_h:.3}\"/><rect class=\"table-rail-grain table-rail-grain-vertical\" x=\"0\" y=\"{top:.3}\" width=\"{left:.3}\" height=\"{cloth_h:.3}\"/><rect class=\"table-rail-grain table-rail-grain-vertical\" x=\"{right:.3}\" y=\"{top:.3}\" width=\"{right_rail_w:.3}\" height=\"{cloth_h:.3}\"/></g>\n"
@@ -1933,8 +1901,8 @@ fn push_svg_side_pocket(
     cushion_bevel_y: f32,
     layer: PocketLayer,
 ) {
-    let px_per_inch = cushion_x / CUSHION_WIDTH_IN;
-    let drawing_scale = mouth_y / (px_per_inch * SIDE_POCKET_MOUTH_IN);
+    let x_px_per_inch = cushion_x / CUSHION_WIDTH_IN;
+    let y_px_per_inch = cushion_bevel_y / CUSHION_BEVEL_IN;
     let liner_stroke = (cushion_x * 0.57 * SIDE_POCKET_DRAWING_LINER_SCALE).clamp(24.0, 26.0);
     let mouth_half_y = mouth_y * 0.5;
     let point = |depth_x: f32, offset_y: f32| (rail_x + x_sign * depth_x, center_y + offset_y);
@@ -1942,11 +1910,11 @@ fn push_svg_side_pocket(
     let rail_top = point(0.0, -mouth_half_y);
     let rail_bottom = point(0.0, mouth_half_y);
     let lip_top = point(
-        px_per_inch * SIDE_POCKET_DRAWING_LIP_DEPTH_IN * drawing_scale,
+        x_px_per_inch * SIDE_POCKET_DRAWING_LIP_DEPTH_IN,
         -mouth_half_y,
     );
     let lip_bottom = point(
-        px_per_inch * SIDE_POCKET_DRAWING_LIP_DEPTH_IN * drawing_scale,
+        x_px_per_inch * SIDE_POCKET_DRAWING_LIP_DEPTH_IN,
         mouth_half_y,
     );
     // Keep the installed leather profile rounded like the reference/before
@@ -1954,38 +1922,37 @@ fn push_svg_side_pocket(
     // mouth lip; the remaining controls form the broad, symmetric rear bowl.
     let first_control_depth_in = SIDE_POCKET_DRAWING_LIP_DEPTH_IN
         + SIDE_POCKET_DRAWING_FIRST_CONTROL_RUN_IN * SIDE_POCKET_CUT_ANGLE_DEG.to_radians().tan();
-    let first_control_run_y =
-        cushion_bevel_y * SIDE_POCKET_DRAWING_FIRST_CONTROL_RUN_IN * drawing_scale;
+    let first_control_run_y = y_px_per_inch * SIDE_POCKET_DRAWING_FIRST_CONTROL_RUN_IN;
     let first_control = point(
-        px_per_inch * first_control_depth_in * drawing_scale,
+        x_px_per_inch * first_control_depth_in,
         -mouth_half_y + first_control_run_y,
     );
     let second_control = point(
-        px_per_inch * SIDE_POCKET_DRAWING_SECOND_CONTROL_DEPTH_IN * drawing_scale,
-        -mouth_half_y - px_per_inch * SIDE_POCKET_DRAWING_TUCK_OFFSET_IN * drawing_scale,
+        x_px_per_inch * SIDE_POCKET_DRAWING_SECOND_CONTROL_DEPTH_IN,
+        -mouth_half_y - y_px_per_inch * SIDE_POCKET_DRAWING_TUCK_OFFSET_IN,
     );
     let outer_top = point(
-        px_per_inch * SIDE_POCKET_DRAWING_OUTER_ENDPOINT_DEPTH_IN * drawing_scale,
-        -mouth_half_y + cushion_bevel_y * drawing_scale,
+        x_px_per_inch * SIDE_POCKET_DRAWING_OUTER_ENDPOINT_DEPTH_IN,
+        -mouth_half_y + cushion_bevel_y,
     );
     let outer_first_control = point(
-        px_per_inch * SIDE_POCKET_DRAWING_OUTER_MID_DEPTH_IN * drawing_scale,
-        -mouth_half_y + px_per_inch * SIDE_POCKET_DRAWING_SHOULDER_OFFSET_IN * drawing_scale,
+        x_px_per_inch * SIDE_POCKET_DRAWING_OUTER_MID_DEPTH_IN,
+        -mouth_half_y + y_px_per_inch * SIDE_POCKET_DRAWING_SHOULDER_OFFSET_IN,
     );
     let outer_second_control = point(
-        px_per_inch * SIDE_POCKET_DRAWING_OUTER_MID_DEPTH_IN * drawing_scale,
-        mouth_half_y - px_per_inch * SIDE_POCKET_DRAWING_SHOULDER_OFFSET_IN * drawing_scale,
+        x_px_per_inch * SIDE_POCKET_DRAWING_OUTER_MID_DEPTH_IN,
+        mouth_half_y - y_px_per_inch * SIDE_POCKET_DRAWING_SHOULDER_OFFSET_IN,
     );
     let outer_bottom = point(
-        px_per_inch * SIDE_POCKET_DRAWING_OUTER_ENDPOINT_DEPTH_IN * drawing_scale,
-        mouth_half_y - cushion_bevel_y * drawing_scale,
+        x_px_per_inch * SIDE_POCKET_DRAWING_OUTER_ENDPOINT_DEPTH_IN,
+        mouth_half_y - cushion_bevel_y,
     );
     let third_control = point(
-        px_per_inch * SIDE_POCKET_DRAWING_SECOND_CONTROL_DEPTH_IN * drawing_scale,
-        mouth_half_y + px_per_inch * SIDE_POCKET_DRAWING_TUCK_OFFSET_IN * drawing_scale,
+        x_px_per_inch * SIDE_POCKET_DRAWING_SECOND_CONTROL_DEPTH_IN,
+        mouth_half_y + y_px_per_inch * SIDE_POCKET_DRAWING_TUCK_OFFSET_IN,
     );
     let fourth_control = point(
-        px_per_inch * first_control_depth_in * drawing_scale,
+        x_px_per_inch * first_control_depth_in,
         mouth_half_y - first_control_run_y,
     );
     let liner_curve = format!(
@@ -2010,16 +1977,14 @@ fn push_svg_side_pocket(
         lip_bottom.1,
     );
     let shelf_control = point(
-        px_per_inch
+        x_px_per_inch
             * SIDE_POCKET_DRAWING_SHELF_SAGITTA_IN
-            * drawing_scale
             * SIDE_POCKET_DRAWING_SHELF_SAGITTA_SCALE,
         0.0,
     );
     let shelf_inner_control = point(
-        -px_per_inch
+        -x_px_per_inch
             * SIDE_POCKET_DRAWING_SHELF_INNER_SAGITTA_IN
-            * drawing_scale
             * SIDE_POCKET_DRAWING_SHELF_SAGITTA_SCALE,
         0.0,
     );

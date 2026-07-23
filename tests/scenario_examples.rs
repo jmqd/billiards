@@ -61,6 +61,51 @@ fn svg_attr_f32(element: &str, attribute: &str) -> f32 {
         .unwrap_or_else(|error| panic!("invalid SVG attribute {attribute}: {error}"))
 }
 
+fn svg_translate(element: &str) -> (f32, f32) {
+    let prefix = "transform=\"translate(";
+    let start = element
+        .find(prefix)
+        .unwrap_or_else(|| panic!("missing SVG translate transform in {element}"))
+        + prefix.len();
+    let end = element[start..]
+        .find(")\"")
+        .unwrap_or_else(|| panic!("unterminated SVG translate transform in {element}"))
+        + start;
+    let mut values = element[start..end].split_ascii_whitespace().map(|value| {
+        value
+            .parse()
+            .unwrap_or_else(|error| panic!("invalid SVG translate value {value}: {error}"))
+    });
+    let x = values.next().expect("SVG translate should contain x");
+    let y = values.next().expect("SVG translate should contain y");
+    assert!(
+        values.next().is_none(),
+        "SVG translate should contain x and y"
+    );
+    (x, y)
+}
+
+fn svg_path_numbers(element: &str) -> Vec<f32> {
+    let prefix = "d=\"";
+    let start = element
+        .find(prefix)
+        .unwrap_or_else(|| panic!("missing SVG path data in {element}"))
+        + prefix.len();
+    let end = element[start..]
+        .find('"')
+        .unwrap_or_else(|| panic!("unterminated SVG path data in {element}"))
+        + start;
+
+    element[start..end]
+        .split(|ch: char| ch.is_ascii_alphabetic() || ch == ',' || ch.is_whitespace())
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            part.parse()
+                .unwrap_or_else(|error| panic!("invalid SVG path number {part}: {error}"))
+        })
+        .collect()
+}
+
 #[test]
 fn elevated_side_spin_examples_expose_height_and_z_spin_for_gallery_playback() {
     for (scenario_path, expected_z_sign) in [
@@ -416,6 +461,55 @@ fn svg_direct_jaw_capture_shows_modeled_outgoing_direction() {
         &DiagramRenderOptions::default(),
     ))
     .expect("scenario trace SVG should be UTF-8");
+    let marker_start = svg
+        .find("class=\"ball ball-eight pocketed-ball\"")
+        .expect("side-pocketed eight artwork should be present");
+    let marker_svg = &svg[marker_start..];
+    assert!(marker_svg.starts_with(
+        "class=\"ball ball-eight pocketed-ball\" data-ball=\"eight\" data-ball-style=\"solid\" data-pocket=\"center-left\""
+    ));
+    let (marker_x, marker_y) = svg_translate(marker_svg);
+    let shell_start = marker_svg
+        .find("class=\"ball-shell\"")
+        .expect("side-pocketed eight should retain ball artwork");
+    let marker_radius = svg_attr_f32(&marker_svg[shell_start..], "r");
+    let viewport = rendered
+        .to_diagram_scene(&DiagramRenderOptions::default())
+        .viewport;
+    let side_well = svg
+        .lines()
+        .filter(|line| line.contains("class=\"table-pocket-well\" data-pocket=\"side\""))
+        .map(svg_path_numbers)
+        .find(|points| (points[0] - viewport.playfield_left_px).abs() < 0.001)
+        .expect("center-left black side-pocket well should be present");
+    let (well_min_x, well_max_x, well_min_y, well_max_y) = side_well.chunks_exact(2).fold(
+        (
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ),
+        |(min_x, max_x, min_y, max_y), point| {
+            (
+                min_x.min(point[0]),
+                max_x.max(point[0]),
+                min_y.min(point[1]),
+                max_y.max(point[1]),
+            )
+        },
+    );
+    assert!(
+        marker_x - marker_radius > well_min_x
+            && marker_x + marker_radius < viewport.playfield_left_px.min(well_max_x)
+            && marker_y - marker_radius > well_min_y
+            && marker_y + marker_radius < well_max_y,
+        "center-left marker ({marker_x}, {marker_y}) r={marker_radius} should remain inside the black well bounds x={well_min_x}..{well_max_x}, y={well_min_y}..{well_max_y}"
+    );
+    let expected_center_y = (viewport.playfield_top_px + viewport.playfield_bottom_px) * 0.5;
+    assert!(
+        (marker_y - expected_center_y).abs() < 0.001,
+        "center-left marker y={marker_y} should be centered in the side-pocket well"
+    );
     let direction_start = svg
         .find("class=\"overlay jaw-rebound-direction\"")
         .expect("direct jaw capture should expose its modeled outgoing direction");

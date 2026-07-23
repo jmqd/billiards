@@ -22,12 +22,12 @@
   <div class="card">
     <figure data-viewer>
       <div data-viewer-controls data-table-detail-default="full"></div>
-      <svg viewBox="0 0 200 100" aria-label="Viewer test diagram">
+      <svg data-svg-id-prefix="viewer-a-" viewBox="0 0 200 100" aria-label="Viewer test diagram">
         <defs>
-          <linearGradient id="pool-ball-ivory"><stop offset="0" stop-color="#fffdf5"></stop><stop offset="1" stop-color="#ded6c3"></stop></linearGradient>
-          <linearGradient id="pool-ball-yellow"><stop offset="0" stop-color="#ffe687"></stop><stop offset="1" stop-color="#d4a315"></stop></linearGradient>
-          <linearGradient id="pool-ball-black"><stop offset="0" stop-color="#4a4a4a"></stop><stop offset="1" stop-color="#080808"></stop></linearGradient>
-          <radialGradient id="pool-ball-medallion"><stop offset="0" stop-color="#fffdf5"></stop><stop offset="1" stop-color="#e6deca"></stop></radialGradient>
+          <linearGradient id="viewer-a-pool-ball-ivory"><stop offset="0" stop-color="#fffdf5"></stop><stop offset="1" stop-color="#ded6c3"></stop></linearGradient>
+          <linearGradient id="viewer-a-pool-ball-yellow"><stop offset="0" stop-color="#ffe687"></stop><stop offset="1" stop-color="#d4a315"></stop></linearGradient>
+          <linearGradient id="viewer-a-pool-ball-black"><stop offset="0" stop-color="#4a4a4a"></stop><stop offset="1" stop-color="#080808"></stop></linearGradient>
+          <radialGradient id="viewer-a-pool-ball-medallion"><stop offset="0" stop-color="#fffdf5"></stop><stop offset="1" stop-color="#e6deca"></stop></radialGradient>
         </defs>
         <g class="diagram-orientation" transform="translate(200 0) rotate(90)">
           <g data-layer="table"></g>
@@ -82,11 +82,11 @@
         const nineShell = nineArtwork.querySelector('.ball-shell.playback-ball');
         assert(nineShell, 'Nine playback must retain its ivory shell');
         assert(nineShell.getAttribute('data-fill') === 'ivory', 'Nine playback shell must retain ivory paint identity');
-        assert(nineShell.getAttribute('fill') === 'url(#pool-ball-ivory)', 'Nine playback shell must use the ivory gradient');
+        assert(nineShell.getAttribute('fill') === 'url(#viewer-a-pool-ball-ivory)', 'Nine playback shell must use the namespaced ivory gradient');
         const nineStripe = nineArtwork.querySelector('.ball-stripe-band');
         assert(nineStripe, 'Nine playback must retain its colored stripe band');
         assert(nineStripe.getAttribute('data-fill') === 'yellow', 'Nine playback stripe must retain yellow paint identity');
-        assert(nineStripe.getAttribute('fill') === 'url(#pool-ball-yellow)', 'Nine playback stripe must use the yellow gradient');
+        assert(nineStripe.getAttribute('fill') === 'url(#viewer-a-pool-ball-yellow)', 'Nine playback stripe must use the namespaced yellow gradient');
         assert(nineArtwork.querySelector('.ball-number-medallion'), 'Nine playback must retain its number medallion');
         const nineLabel = nineArtwork.querySelector('.playback-ball-label.ball-number-label');
         assert(nineLabel?.textContent === '9', 'Nine playback must retain its number label');
@@ -96,7 +96,7 @@
         assert(oneArtwork.getAttribute('data-ball-style') === 'solid', 'One playback must retain solid artwork identity');
         const oneShell = oneArtwork.querySelector('.ball-shell.playback-ball');
         assert(oneShell?.getAttribute('data-fill') === 'yellow', 'One playback shell must retain yellow paint identity');
-        assert(oneShell?.getAttribute('fill') === 'url(#pool-ball-yellow)', 'One playback shell must use the yellow gradient');
+        assert(oneShell?.getAttribute('fill') === 'url(#viewer-a-pool-ball-yellow)', 'One playback shell must use the namespaced yellow gradient');
         assert(!oneArtwork.querySelector('.ball-stripe-band'), 'solid One playback must not acquire a stripe band');
         assert(oneArtwork.querySelector('.ball-number-medallion'), 'One playback must retain its number medallion');
         assert(oneArtwork.querySelector('.playback-ball-label.ball-number-label')?.textContent === '1', 'One playback must retain its number label');
@@ -154,6 +154,7 @@
         assert(durationZeroSlider.value === '1', 'zero-duration playback must finish on its final tied frame');
         const durationZeroSvg = durationZeroViewer.querySelector('svg');
         const durationZeroBall = durationZeroViewer.querySelector('[data-layer="balls"] .playback-ball');
+        assert(durationZeroBall.getAttribute('fill') === 'url(#pool-ball-ivory)', 'playback without an SVG namespace must preserve standalone gradient references');
         const durationZeroCenter = new DOMPoint(
           numberAttribute(durationZeroBall, 'cx'),
           numberAttribute(durationZeroBall, 'cy'),

@@ -1595,6 +1595,39 @@ fn escaped_embedded_script(source: &str) -> String {
     source.replace("</script", "<\\/script")
 }
 
+fn push_namespaced_inline_svg(output: &mut String, svg: &str, id_prefix: &str) {
+    assert!(
+        id_prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')),
+        "inline SVG ID prefix must be an ASCII identifier fragment"
+    );
+    let Some(root_start) = svg.find("<svg") else {
+        output.push_str(svg);
+        return;
+    };
+
+    let root_end = root_start + "<svg".len();
+    output.push_str(&svg[..root_end]);
+    output.push_str(" data-svg-id-prefix=\"");
+    output.push_str(id_prefix);
+    output.push('"');
+
+    const REFERENCE_MARKERS: [&str; 5] = [" id=\"", "url(#", "url(\"#", "url('#", "href=\"#"];
+    let mut cursor = root_end;
+    while let Some((offset, marker)) = REFERENCE_MARKERS
+        .iter()
+        .filter_map(|marker| svg[cursor..].find(marker).map(|offset| (offset, *marker)))
+        .min_by_key(|(offset, _)| *offset)
+    {
+        let marker_end = cursor + offset + marker.len();
+        output.push_str(&svg[cursor..marker_end]);
+        output.push_str(id_prefix);
+        cursor = marker_end;
+    }
+    output.push_str(&svg[cursor..]);
+}
+
 fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> String {
     let mut html = String::new();
     html.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
@@ -1629,7 +1662,7 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
     }
     html.push_str("</nav>\n");
 
-    for report in reports {
+    for (report_index, report) in reports.iter().enumerate() {
         let anchor = anchor_id(&report.name);
         let search_text = scenario_filter_text(report);
         let speed_band = scenario_speed_band_token(report);
@@ -1708,7 +1741,8 @@ fn render_html(reports: &[ScenarioReport], options: &ValidationSuiteOptions) -> 
             "<div class=\"viewer-controls\" data-viewer-controls data-table-detail-default=\"global\" aria-label=\"Diagram controls\"></div>\n\
              <div class=\"svg-frame\">\n",
         );
-        html.push_str(&report.inline_svg);
+        let svg_id_prefix = format!("billiards-report-{report_index}-");
+        push_namespaced_inline_svg(&mut html, &report.inline_svg, &svg_id_prefix);
         html.push_str("</div>\n");
         if let Some(playback) = &report.playback {
             html.push_str(
@@ -2213,6 +2247,45 @@ mod tests {
         assert!(html.contains("applyScenarioFilters"));
         assert!(html.contains("tableDetailGroups"));
         assert!(html.contains("applyTableDetailMode"));
+    }
+
+    #[test]
+    fn validation_report_namespaces_each_inline_svg_fragment() {
+        let inline_svg = r##"<svg viewBox="0 0 100 100">
+<defs><linearGradient id="pool-ball-ivory"></linearGradient></defs>
+<style>.ball-shell{fill:url(#pool-ball-ivory)}</style>
+<g id="layer-balls" data-layer="balls"></g>
+</svg>"##
+            .to_string();
+        let report = |name: &str| ScenarioReport {
+            name: name.to_string(),
+            image_file_name: format!("{name}.svg"),
+            inline_svg: inline_svg.clone(),
+            notes: Vec::new(),
+            info_rows: Vec::new(),
+            cue_tip_diagram_svg: None,
+            power_meter_svg: None,
+            playback: None,
+            events: Vec::new(),
+        };
+
+        let html = render_html(
+            &[report("first"), report("second")],
+            &ValidationSuiteOptions::default(),
+        );
+
+        for index in 0..2 {
+            let prefix = format!("billiards-report-{index}-");
+            assert!(html.contains(&format!(
+                "<svg data-svg-id-prefix=\"{prefix}\" viewBox=\"0 0 100 100\">"
+            )));
+            assert!(html.contains(&format!("id=\"{prefix}pool-ball-ivory\"")));
+            assert!(html.contains(&format!("url(#{prefix}pool-ball-ivory)")));
+            assert!(html.contains(&format!("id=\"{prefix}layer-balls\"")));
+        }
+        assert!(!html.contains(" id=\"pool-ball-ivory\""));
+        assert!(!html.contains("url(#pool-ball-ivory)"));
+        assert!(!html.contains(" id=\"layer-balls\""));
     }
 
     #[test]

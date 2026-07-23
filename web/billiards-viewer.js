@@ -162,6 +162,8 @@
     hydrateViewerControls(viewer);
     const svg = viewer.querySelector('svg');
     if (!svg || !svg.viewBox || !svg.viewBox.baseVal) return;
+    const svgIdPrefix = svg.dataset.svgIdPrefix ?? '';
+    const svgFragmentUrl = (id) => `url(#${svgIdPrefix}${id})`;
     const base = svg.viewBox.baseVal;
     let box = { x: base.x, y: base.y, width: base.width, height: base.height };
     const apply = () => svg.setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);
@@ -590,7 +592,7 @@
             cx: '0',
             cy: '0',
             r: radius.toFixed(3),
-            fill: `url(#${shellGradient})`,
+            fill: svgFragmentUrl(shellGradient),
           });
 
           if (style === 'stripe') {
@@ -600,7 +602,7 @@
               class: 'ball-stripe-band',
               'data-fill': visual.paint || '',
               d: `M ${(-stripeHalfWidth).toFixed(3)} ${(-stripeHalfLength).toFixed(3)} A ${radius.toFixed(3)} ${radius.toFixed(3)} 0 0 1 ${stripeHalfWidth.toFixed(3)} ${(-stripeHalfLength).toFixed(3)} L ${stripeHalfWidth.toFixed(3)} ${stripeHalfLength.toFixed(3)} A ${radius.toFixed(3)} ${radius.toFixed(3)} 0 0 1 ${(-stripeHalfWidth).toFixed(3)} ${stripeHalfLength.toFixed(3)} Z`,
-              fill: `url(#${gradient})`,
+              fill: svgFragmentUrl(gradient),
             });
           }
 

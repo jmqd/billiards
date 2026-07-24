@@ -5,8 +5,8 @@ use billiards::{
     simulate_n_balls_with_physics_and_pockets_on_table_until_rest, strike_resting_ball_on_table,
     Angle, Ball, BallBallCollisionConfig, BallSetPhysicsSpec, BallSpec, BallState, BallType,
     CollisionModel, CueStrikeConfig, CueTipContact, DiagramBackground, DiagramRenderOptions,
-    GameState, Inches, InchesPerSecond, NBallSystemEvent, NBallSystemSimulation,
-    NBallSystemState, OnTableBallState, Pocket, Position, Rail, RailCollisionProfile, RailModel,
+    GameState, Inches, InchesPerSecond, NBallSystemEvent, NBallSystemSimulation, NBallSystemState,
+    OnTableBallState, Pocket, Position, Rail, RailCollisionProfile, RailModel,
     RestingOnTableBallState, Scale, Seconds, Shot, TableSpec,
 };
 use pyo3::exceptions::PyValueError;
@@ -564,7 +564,8 @@ fn simulate_request(request: SimRequest) -> Result<SimOutcome, String> {
     let cue_strike = cue_strike_from_config(&request.config)?;
     let shot = shot_from_input(&request.shot, &cue_strike)?;
     let (balls, ball_types, cue_index) = parse_initial_balls(&request.balls, &table)?;
-    let states = initial_states_from_balls(&balls, cue_index, &shot, &cue_strike, &ball_set, &table)?;
+    let states =
+        initial_states_from_balls(&balls, cue_index, &shot, &cue_strike, &ball_set, &table)?;
 
     let motion = human_tuned_preview_motion_config();
     let collision_config = BallBallCollisionConfig::human_tuned();
@@ -578,7 +579,8 @@ fn simulate_request(request: SimRequest) -> Result<SimOutcome, String> {
         &collision_config,
         RailModel::SpinAware,
         &rail_profile,
-    );
+    )
+    .map_err(|err| format!("failed to simulate shot: {err:?}"))?;
 
     Ok(outcome_from_simulation(
         &simulation,
@@ -759,9 +761,9 @@ fn parse_render_balls(inputs: &[RenderBallInput], table: &TableSpec) -> Result<V
         if matches!(state.as_str(), "pocketed" | "off-table") {
             continue;
         }
-        if !matches!(state.as_str(), "on-table" | "resting") {
+        if !matches!(state.as_str(), "on-table" | "resting" | "airborne") {
             return Err(format!(
-                "unsupported render state '{}' for ball '{}'; expected on_table or pocketed",
+                "unsupported render state '{}' for ball '{}'; expected on_table, airborne, or pocketed",
                 state, input.ball
             ));
         }
@@ -799,6 +801,7 @@ fn scenario_trace_render_options(
         start_ghost_balls: input.start_ghosts,
         event_markers: input.event_markers,
         labels: input.labels,
+        spin_glyphs: true,
         path_color_mode: parse_path_color_mode(&input.trace_color_mode)?,
     })
 }
@@ -811,6 +814,46 @@ fn parse_path_color_mode(input: &str) -> Result<PathColorMode, String> {
         other => Err(format!(
             "unknown trace_color_mode '{other}'; expected solid, fade_by_time, or motion_phase"
         )),
+    }
+}
+
+fn cue_contact_counterpart(
+    first_ball_index: usize,
+    second_ball_index: usize,
+    cue_index: usize,
+) -> Option<usize> {
+    if first_ball_index == cue_index && second_ball_index != cue_index {
+        Some(second_ball_index)
+    } else if second_ball_index == cue_index && first_ball_index != cue_index {
+        Some(first_ball_index)
+    } else {
+        None
+    }
+}
+
+fn first_cue_contact_index(
+    event: &NBallSystemEvent,
+    ball_types: &[BallType],
+    cue_index: usize,
+) -> Option<usize> {
+    match event {
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            ..
+        }
+        | NBallSystemEvent::AirborneBallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            ..
+        } => cue_contact_counterpart(*first_ball_index, *second_ball_index, cue_index),
+        NBallSystemEvent::SharedBallBallContact {
+            ball_ball_pairs, ..
+        } => ball_ball_pairs
+            .iter()
+            .filter_map(|&(first, second)| cue_contact_counterpart(first, second, cue_index))
+            .min_by_key(|&index| (ball_number(&ball_types[index]).unwrap_or(u8::MAX), index)),
+        _ => None,
     }
 }
 
@@ -827,17 +870,8 @@ fn outcome_from_simulation(
     for event in &simulation.events {
         elapsed += event.time().as_f64();
         if first_cue_contact.is_none() {
-            if let NBallSystemEvent::BallBallCollision {
-                first_ball_index,
-                second_ball_index,
-                ..
-            } = event
-            {
-                if *first_ball_index == cue_index && *second_ball_index != cue_index {
-                    first_cue_contact = Some(ball_types[*second_ball_index].clone());
-                } else if *second_ball_index == cue_index && *first_ball_index != cue_index {
-                    first_cue_contact = Some(ball_types[*first_ball_index].clone());
-                }
+            if let Some(contact_index) = first_cue_contact_index(event, ball_types, cue_index) {
+                first_cue_contact = Some(ball_types[contact_index].clone());
             }
         }
         events.push(event_output(event, ball_types, elapsed));
@@ -857,6 +891,16 @@ fn outcome_from_simulation(
                 final_balls.push(BallStateOutput {
                     ball: ball_type_name(ball_type).to_string(),
                     state: "on_table".to_string(),
+                    x: pos.x().as_f64(),
+                    y: pos.y().as_f64(),
+                    pocket: None,
+                });
+            }
+            NBallSystemState::Airborne(airborne) => {
+                let pos = &airborne.position;
+                final_balls.push(BallStateOutput {
+                    ball: ball_type_name(ball_type).to_string(),
+                    state: "airborne".to_string(),
                     x: pos.x().as_f64(),
                     y: pos.y().as_f64(),
                     pocket: None,
@@ -920,6 +964,24 @@ fn event_output(
         } => EventOutput {
             time_seconds,
             kind: "ball_ball_collision".to_string(),
+            ball: None,
+            first_ball: Some(ball_type_name(&ball_types[*first_ball_index]).to_string()),
+            second_ball: Some(ball_type_name(&ball_types[*second_ball_index]).to_string()),
+            pocket: None,
+            rail: None,
+            jaw: None,
+            contact_pairs: None,
+            phase_before: None,
+            phase_after: None,
+            resolution: None,
+        },
+        NBallSystemEvent::AirborneBallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            ..
+        } => EventOutput {
+            time_seconds,
+            kind: "airborne_ball_ball_collision".to_string(),
             ball: None,
             first_ball: Some(ball_type_name(&ball_types[*first_ball_index]).to_string()),
             second_ball: Some(ball_type_name(&ball_types[*second_ball_index]).to_string()),
@@ -1012,6 +1074,20 @@ fn event_output(
             phase_after: None,
             resolution: None,
         },
+        NBallSystemEvent::BallTableBounce { ball_index, .. } => EventOutput {
+            time_seconds,
+            kind: "ball_table_bounce".to_string(),
+            ball: Some(ball_type_name(&ball_types[*ball_index]).to_string()),
+            first_ball: None,
+            second_ball: None,
+            pocket: None,
+            rail: None,
+            jaw: None,
+            contact_pairs: None,
+            phase_before: None,
+            phase_after: None,
+            resolution: None,
+        },
         NBallSystemEvent::MotionTransition {
             ball_index,
             transition,
@@ -1072,6 +1148,8 @@ fn ball_type_name(ball: &BallType) -> &'static str {
         BallType::Seven => "seven",
         BallType::Eight => "eight",
         BallType::Nine => "nine",
+        BallType::YellowCue => "yellow-cue",
+        BallType::Red => "red",
     }
 }
 
@@ -1087,6 +1165,8 @@ fn ball_id(ball: &BallType) -> u8 {
         BallType::Seven => 7,
         BallType::Eight => 8,
         BallType::Nine => 9,
+        BallType::YellowCue => 10,
+        BallType::Red => 11,
     }
 }
 
@@ -1129,6 +1209,7 @@ fn ball_number(ball: &BallType) -> Option<u8> {
         BallType::Seven => Some(7),
         BallType::Eight => Some(8),
         BallType::Nine => Some(9),
+        BallType::YellowCue | BallType::Red => None,
     }
 }
 
@@ -1243,11 +1324,25 @@ mod tests {
     }
 
     #[test]
+    fn simultaneous_cue_contacts_select_the_lowest_numbered_object_ball() {
+        let ball_types = [BallType::Cue, BallType::Nine, BallType::One];
+        let event = NBallSystemEvent::SharedBallBallContact {
+            time_until_contact: Seconds::zero(),
+            ball_indices: vec![0, 1, 2],
+            ball_ball_pairs: vec![(0, 1), (2, 0)],
+            resolution: billiards::SharedBallBallContactResolution::CoupledNormal,
+        };
+
+        assert_eq!(first_cue_contact_index(&event, &ball_types, 0), Some(2));
+    }
+
+    #[test]
     fn board_renderer_returns_png_and_skips_pocketed_final_balls() {
         let request = json!({
             "balls": [
                 {"ball": "cue", "state": "on_table", "x": 10.0, "y": 50.0},
-                {"ball": "one", "state": "pocketed", "x": 25.0, "y": 50.0}
+                {"ball": "one", "state": "pocketed", "x": 25.0, "y": 50.0},
+                {"ball": "two", "state": "airborne", "x": 40.0, "y": 50.0},
             ],
             "render": {"scale_factor": 1}
         });

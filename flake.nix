@@ -63,6 +63,7 @@
             export UV_PYTHON_DOWNLOADS=never
             export UV_PROJECT_ENVIRONMENT=$PWD/gymnasium/.venv
             export UV_LINK_MODE=copy
+            export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}:''${LD_LIBRARY_PATH:-}
 
             # Prefer the uv-managed project venv once synced; otherwise prefer Nix Python/tools
             # over user pyenv/asdf shims.

@@ -191,3 +191,14 @@ def test_render_board_accepts_final_balls_from_simulation():
     png = render_board_png(outcome["final_balls"])
 
     assert png.startswith(PNG_SIGNATURE)
+
+
+def test_render_board_projects_airborne_final_balls_onto_table():
+    png = render_board_png(
+        [
+            {"ball": "cue", "state": "airborne", "x": 10.0, "y": 50.0},
+            {"ball": "one", "state": "pocketed", "x": 25.0, "y": 50.0},
+        ]
+    )
+
+    assert png.startswith(PNG_SIGNATURE)

@@ -219,7 +219,7 @@ def render_board_png(
     """Render a table layout to PNG bytes, optionally writing `path`.
 
     Accepts either initial ball dictionaries or `outcome["final_balls"]` from `simulate_shot`.
-    Pocketed final balls are omitted from the rendered table.
+    Pocketed final balls are omitted; airborne balls are projected onto the table plane.
     """
 
     payload = {

@@ -215,8 +215,8 @@ fn jump_examples_clear_the_blocker_and_hit_the_target_before_landing() {
         let (scenario, trace) = trace_scenario(scenario_path, 8);
         let table = &scenario.game_state.table_spec;
         let shot = scenario
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("jump scenario should contain a shot");
         assert!(
             (shot.shot.cue_elevation().as_degrees() - expected_elevation_degrees).abs() < 1e-9,
@@ -805,8 +805,8 @@ fn low_left_spin_throw_transfer_scenario_uses_near_full_face_vertical_impact_and
     assert!(has_collision(&trace, BallType::Cue, BallType::One));
 
     let shot = scenario
-        .shot
-        .as_ref()
+        .shots
+        .first()
         .expect("scenario should contain a shot");
     assert!(
         shot.shot.heading().as_degrees().abs() < 1e-12,
@@ -1245,8 +1245,8 @@ fn three_cushion_shot_layout(
 
 fn three_cushion_shot_command(scenario: &DslScenario) -> Result<ShotCommand, String> {
     let shot = scenario
-        .shot
-        .as_ref()
+        .shots
+        .first()
         .ok_or_else(|| "scenario has no shot".to_string())?;
     let (cue_ball, _) = three_cushion_ball_identity(&shot.ball)?;
     ShotCommand::new(cue_ball, shot.shot.clone(), shot.cue_strike.clone())

@@ -174,7 +174,7 @@ Supported built-in playing-conditions preset literals:
 
 ### `shot(cue)`
 
-Defines the one declarative shot in the document.
+Defines one shot in the document's ordered shot sequence.
 
 Required methods, each exactly once:
 
@@ -186,7 +186,11 @@ Required methods, each exactly once:
 Current v1 restrictions and elevation semantics:
 
 - only `shot(cue)` is supported
-- at most one `shot(...)` statement may appear in a document
+- any number of `shot(...)` statements may appear; they execute in source order
+- each later shot is resolved and struck only after every non-pocketed ball from the prior shot
+  reaches rest; pocketed states carry forward
+- trace event limits are one budget across the sequence, so exhausting the budget prevents the
+  next shot from starting
 - `.elevation(angle)` sets the cue-stick elevation used by the physics shot model and overrides
   the DSL default; `.elevation(0deg)` explicitly opts into an idealized level cue when side
   English is present
@@ -256,12 +260,13 @@ However, duplicate methods are rejected during lowering.
 
 The DSL lowers to a scenario-level value:
 
-- `DslScenario { game_state, shot, ball_ball_configs, rail_responses, rail_profiles, simulations }`
+- `DslScenario { game_state, shots, trace_max_events, ball_ball_configs, rail_responses, rail_profiles, simulations }`
 
 Each `SimulationPreset` carries its resolved built-in `PlayingConditions`, defaulting to neutral when omitted.
 
-where the named config maps already contain validated domain-level physics configs and `shot`, when
-present, is already constructed from validated domain types.
+where the named config maps already contain validated domain-level physics configs and `shots`
+contains validated shots in source order. Derived aim helpers are resolved again against the
+settled layout immediately before each strike.
 
 ## Engine seams
 
@@ -270,6 +275,7 @@ Useful current seams include:
 - `parse_dsl_to_scenario(...)`
 - `DslScenario::strike_shot_on_table(...)`
 - `DslScenario::trace_shot_path_with_rails_on_table(...)`
+- `DslScenario::simulate_shot_trace_with_preferred_physics_on_table_until_rest(...)`
 - `DslScenario::trace_shot_path_with_simulation_on_table(...)`
 - `DslScenario::simulate_shot_system_with_simulation_on_table_until_rest(...)`
 - `DslScenario::simulate_shot_trace_with_simulation_on_table_until_rest(...)`

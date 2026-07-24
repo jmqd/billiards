@@ -712,12 +712,8 @@ fn render_shot_trace_request(request: RenderShotTraceRequest) -> Result<Vec<u8>,
     let (balls, _, _) = parse_initial_balls(&request.balls, &table)?;
     let mut scenario = DslScenario {
         game_state: GameState::with_balls(table, balls),
-        shot: Some(ScenarioShot {
-            ball_ref: BallRef::Cue,
-            ball: BallType::Cue,
-            shot,
-            cue_strike,
-        }),
+        shots: vec![ScenarioShot::new(BallRef::Cue, shot, cue_strike)],
+        trace_max_events: None,
         ball_ball_configs: HashMap::new(),
         rail_responses: HashMap::new(),
         rail_profiles: HashMap::new(),

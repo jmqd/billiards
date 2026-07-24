@@ -69,7 +69,7 @@ pub enum DslEntry {
 #[derive(Debug, Clone)]
 pub struct DslScenario {
     pub game_state: GameState,
-    pub shot: Option<ScenarioShot>,
+    pub shots: Vec<ScenarioShot>,
     pub trace_max_events: Option<usize>,
     pub ball_ball_configs: HashMap<String, BallBallCollisionConfig>,
     pub rail_responses: HashMap<String, RailCollisionConfig>,
@@ -258,24 +258,24 @@ impl DslScenario {
         )
     }
 
-    pub fn validate_shot_human_speed(
+    pub fn validate_shot_human_speeds(
         &self,
-    ) -> Result<Option<HumanShotSpeedValidation>, DslBuildError> {
-        let Some(shot) = &self.shot else {
-            return Ok(None);
-        };
-
-        shot.shot
-            .human_speed_validation(&shot.cue_strike)
-            .map(Some)
-            .map_err(DslBuildError::InvalidShot)
+    ) -> Result<Vec<HumanShotSpeedValidation>, DslBuildError> {
+        self.shots
+            .iter()
+            .map(|shot| {
+                shot.shot
+                    .human_speed_validation(&shot.cue_strike)
+                    .map_err(DslBuildError::InvalidShot)
+            })
+            .collect()
     }
 
     pub fn strike_shot(
         &self,
         ball_set: &BallSetPhysicsSpec,
     ) -> Result<Option<BallState>, DslBuildError> {
-        let Some(shot) = &self.shot else {
+        let Some(shot) = self.shots.first() else {
             return Ok(None);
         };
         let ball = self
@@ -309,8 +309,8 @@ impl DslScenario {
                         vertical_velocity, ..
                     } => ShotError::ElevatedShotLeavesTable {
                         cue_elevation: self
-                            .shot
-                            .as_ref()
+                            .shots
+                            .first()
                             .expect("shot exists")
                             .shot
                             .cue_elevation(),
@@ -319,8 +319,8 @@ impl DslScenario {
                     crate::OnTableStateError::HeightAboveTablePlane { .. } => {
                         ShotError::ElevatedShotLeavesTable {
                             cue_elevation: self
-                                .shot
-                                .as_ref()
+                                .shots
+                                .first()
                                 .expect("shot exists")
                                 .shot
                                 .cue_elevation(),
@@ -350,20 +350,11 @@ impl DslScenario {
         }
     }
 
-    pub fn initial_shot_system_states_on_table(
+    fn initial_resting_system_states_on_table(
         &self,
         ball_set: &BallSetPhysicsSpec,
-    ) -> Result<Option<Vec<NBallSystemState>>, DslBuildError> {
-        let Some(shot) = &self.shot else {
-            return Ok(None);
-        };
-        let shot_target_index = self
-            .game_state
-            .balls()
-            .iter()
-            .position(|ball| ball.ty == shot.ball)
-            .ok_or(DslBuildError::ShotTargetBallNotPlaced(shot.ball_ref))?;
-        let mut states = self
+    ) -> Result<Vec<NBallSystemState>, DslBuildError> {
+        let states = self
             .game_state
             .balls()
             .iter()
@@ -376,19 +367,163 @@ impl DslScenario {
                 NBallSystemState::from(resting.into_on_table_ball_state())
             })
             .collect::<Vec<_>>();
-        states = crate::validate_and_recover_n_ball_system_states(&states, ball_set)
-            .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
 
-        let NBallSystemState::OnTable(target) = &states[shot_target_index] else {
-            unreachable!("validated initial layouts contain only on-table resting balls");
+        crate::validate_and_recover_n_ball_system_states(&states, ball_set)
+            .map_err(|error| self.invalid_n_ball_geometry_error(error))
+    }
+
+    fn strike_shot_into_system_states(
+        &self,
+        shot: &ScenarioShot,
+        states: &[NBallSystemState],
+        ball_set: &BallSetPhysicsSpec,
+        thresholds: &crate::MotionPhaseThresholds,
+    ) -> Result<Vec<NBallSystemState>, DslBuildError> {
+        let shot_target_index = self
+            .game_state
+            .balls()
+            .iter()
+            .position(|ball| ball.ty == shot.ball)
+            .ok_or(DslBuildError::ShotTargetBallNotPlaced(shot.ball_ref))?;
+        let target = states
+            .get(shot_target_index)
+            .ok_or(DslBuildError::ShotTargetBallNotPlaced(shot.ball_ref))?;
+        let NBallSystemState::OnTable(target) = target else {
+            return Err(DslBuildError::ShotTargetBallNotPlaced(shot.ball_ref));
         };
-        let resting = RestingOnTableBallState::try_from(target.as_ball_state().clone())
-            .expect("validated initial layouts remain resting before the cue strike");
+        let resting = RestingOnTableBallState::try_new_with_thresholds(
+            target.as_ball_state().clone(),
+            thresholds,
+        )
+        .map_err(|_| DslBuildError::ShotTargetBallNotAtRest(shot.ball_ref))?;
         let struck = crate::strike_resting_ball(&resting, &shot.shot, &shot.cue_strike, ball_set)
             .map_err(DslBuildError::InvalidShot)?;
-        states[shot_target_index] = NBallSystemState::from(struck);
+        let mut struck_states = states.to_vec();
+        struck_states[shot_target_index] = NBallSystemState::from(struck);
+        Ok(struck_states)
+    }
 
-        Ok(Some(states))
+    pub fn initial_shot_system_states_on_table(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+    ) -> Result<Option<Vec<NBallSystemState>>, DslBuildError> {
+        let Some(shot) = self.shots.first() else {
+            return Ok(None);
+        };
+        let states = self.initial_resting_system_states_on_table(ball_set)?;
+        let shot = shot.resolved_for_game_state(&self.game_state_for_system_states(&states))?;
+        let thresholds = crate::MotionPhaseThresholds::default();
+        self.strike_shot_into_system_states(&shot, &states, ball_set, &thresholds)
+            .map(Some)
+    }
+
+    fn system_states_are_settled(
+        states: &[NBallSystemState],
+        thresholds: &crate::MotionPhaseThresholds,
+    ) -> bool {
+        states.iter().all(|state| match state {
+            NBallSystemState::Pocketed { .. } => true,
+            NBallSystemState::OnTable(state) => RestingOnTableBallState::try_new_with_thresholds(
+                state.as_ball_state().clone(),
+                thresholds,
+            )
+            .is_ok(),
+            NBallSystemState::Airborne(_) => false,
+        })
+    }
+
+    fn execute_shot_sequence_with_physics_on_table(
+        &self,
+        ball_set: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+        collision_model: CollisionModel,
+        collision_config: &BallBallCollisionConfig,
+        rail_model: RailModel,
+        rail_profile: &RailCollisionProfile,
+        stop: ScenarioTraceStop,
+    ) -> Result<Vec<ScenarioShotExecution>, DslBuildError> {
+        if self.shots.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut states = self.initial_resting_system_states_on_table(ball_set)?;
+        let mut start_time = Seconds::zero();
+        let mut remaining_events = match stop {
+            ScenarioTraceStop::UntilRest => None,
+            ScenarioTraceStop::EventLimit(max_events) => Some(max_events),
+        };
+        let mut executions = Vec::with_capacity(self.shots.len());
+
+        for shot_template in &self.shots {
+            if (!executions.is_empty() && remaining_events == Some(0))
+                || !Self::system_states_are_settled(&states, &motion.phase.thresholds)
+            {
+                break;
+            }
+
+            let game_state = self.game_state_for_system_states(&states);
+            let shot = shot_template.resolved_for_game_state(&game_state)?;
+            let initial_states = self.strike_shot_into_system_states(
+                &shot,
+                &states,
+                ball_set,
+                &motion.phase.thresholds,
+            )?;
+            let simulation = if let Some(max_events) = remaining_events {
+                simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
+                    &initial_states,
+                    ball_set,
+                    &self.game_state.table_spec,
+                    motion,
+                    collision_model,
+                    collision_config,
+                    rail_model,
+                    rail_profile,
+                    Some(max_events),
+                )
+            } else {
+                simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
+                    &initial_states,
+                    ball_set,
+                    &self.game_state.table_spec,
+                    motion,
+                    collision_model,
+                    collision_config,
+                    rail_model,
+                    rail_profile,
+                )
+            }
+            .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
+
+            if let Some(remaining) = remaining_events.as_mut() {
+                *remaining = remaining.saturating_sub(simulation.events.len());
+            }
+            states = simulation.states.clone();
+            let elapsed = simulation.elapsed;
+            executions.push(ScenarioShotExecution {
+                start_time,
+                shot,
+                initial_states,
+                simulation,
+            });
+            start_time = Seconds::new(start_time.as_f64() + elapsed.as_f64());
+        }
+
+        Ok(executions)
+    }
+
+    fn aggregate_shot_executions(
+        executions: &[ScenarioShotExecution],
+    ) -> Option<NBallSystemSimulation> {
+        let last = executions.last()?;
+        Some(NBallSystemSimulation {
+            states: last.simulation.states.clone(),
+            elapsed: Seconds::new(last.start_time.as_f64() + last.simulation.elapsed.as_f64()),
+            events: executions
+                .iter()
+                .flat_map(|execution| execution.simulation.events.iter().cloned())
+                .collect(),
+        })
     }
 
     pub fn simulate_shot_system_with_physics_on_table_until_rest(
@@ -400,22 +535,16 @@ impl DslScenario {
         rail_model: RailModel,
         rail_profile: &RailCollisionProfile,
     ) -> Result<Option<NBallSystemSimulation>, DslBuildError> {
-        let Some(states) = self.initial_shot_system_states_on_table(ball_set)? else {
-            return Ok(None);
-        };
-
-        let simulation = simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
-            &states,
+        let executions = self.execute_shot_sequence_with_physics_on_table(
             ball_set,
-            &self.game_state.table_spec,
             motion,
             collision_model,
             collision_config,
             rail_model,
             rail_profile,
-        )
-        .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
-        Ok(Some(simulation))
+            ScenarioTraceStop::UntilRest,
+        )?;
+        Ok(Self::aggregate_shot_executions(&executions))
     }
 
     pub fn simulate_shot_system_with_rails_and_pockets_on_table_until_rest(
@@ -465,41 +594,22 @@ impl DslScenario {
         rail_profile: &RailCollisionProfile,
         stop: ScenarioTraceStop,
     ) -> Result<Option<ScenarioShotTrace>, DslBuildError> {
-        let Some(initial_states) = self.initial_shot_system_states_on_table(ball_set)? else {
+        let shot_executions = self.execute_shot_sequence_with_physics_on_table(
+            ball_set,
+            motion,
+            collision_model,
+            collision_config,
+            rail_model,
+            rail_profile,
+            stop,
+        )?;
+        let Some(simulation) = Self::aggregate_shot_executions(&shot_executions) else {
             return Ok(None);
         };
-        let simulation = match stop {
-            ScenarioTraceStop::UntilRest => {
-                simulate_n_ball_system_with_physics_and_pockets_on_table_until_rest(
-                    &initial_states,
-                    ball_set,
-                    &self.game_state.table_spec,
-                    motion,
-                    collision_model,
-                    collision_config,
-                    rail_model,
-                    rail_profile,
-                )
-            }
-            ScenarioTraceStop::EventLimit(max_events) => {
-                simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit(
-                    &initial_states,
-                    ball_set,
-                    &self.game_state.table_spec,
-                    motion,
-                    collision_model,
-                    collision_config,
-                    rail_model,
-                    rail_profile,
-                    Some(max_events),
-                )
-            }
-        }
-        .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
-        let event_log = scenario_event_log_from_simulation(&simulation, self.game_state.balls());
-        let ball_traces = self.ball_traces_from_simulation(
-            &initial_states,
-            &simulation,
+        let event_log =
+            scenario_event_log_from_shot_executions(&shot_executions, self.game_state.balls());
+        let ball_traces = self.ball_traces_from_shot_executions(
+            &shot_executions,
             ball_set,
             motion,
             collision_model,
@@ -510,6 +620,7 @@ impl DslScenario {
 
         Ok(Some(ScenarioShotTrace {
             simulation,
+            shot_executions,
             event_log,
             ball_traces,
             ball_set: ball_set.clone(),
@@ -640,10 +751,9 @@ impl DslScenario {
         game_state
     }
 
-    fn ball_traces_from_simulation(
+    fn ball_traces_from_shot_executions(
         &self,
-        initial_states: &[NBallSystemState],
-        simulation: &NBallSystemSimulation,
+        executions: &[ScenarioShotExecution],
         ball_set: &BallSetPhysicsSpec,
         motion: &OnTableMotionConfig,
         collision_model: CollisionModel,
@@ -651,13 +761,14 @@ impl DslScenario {
         rail_model: RailModel,
         rail_profile: &RailCollisionProfile,
     ) -> Result<Vec<ScenarioBallTrace>, DslBuildError> {
-        let mut current_states = initial_states.to_vec();
-        let mut elapsed = Seconds::zero();
+        let Some(first_execution) = executions.first() else {
+            return Ok(Vec::new());
+        };
         let mut traces = self
             .game_state
             .balls()
             .iter()
-            .zip(initial_states)
+            .zip(&first_execution.initial_states)
             .map(|(ball, state)| ScenarioBallTrace {
                 ball: ball.ty.clone(),
                 initial_state: state.as_ball_state().clone(),
@@ -666,72 +777,81 @@ impl DslScenario {
                 timeline_segments: Vec::new(),
             })
             .collect::<Vec<_>>();
+        let mut event_offset = 0;
 
-        for (event_index, event) in simulation.events.iter().enumerate() {
-            let step_time = event.time();
-            let event_time = Seconds::new(elapsed.as_f64() + step_time.as_f64());
-            let event_human = format!(
-                "t={}  {}",
-                format_scenario_trace_time(event_time),
-                scenario_event_kind_from_system_event(event, self.game_state.balls())
-                    .format_human()
-            );
-            for (ball_index, (trace, state)) in traces.iter_mut().zip(&current_states).enumerate() {
-                let start_state = state.as_ball_state().clone();
-                let end_state = match state {
-                    NBallSystemState::OnTable(start) => {
-                        advance_motion_on_table(start, step_time, ball_set, motion).state
-                    }
-                    NBallSystemState::Airborne(airborne) => {
-                        advance_airborne_ball(airborne, step_time)
-                    }
-                    NBallSystemState::Pocketed { .. } => continue,
-                };
-                trace.timeline_segments.push(ScenarioBallTimelineSegment {
-                    start_time: elapsed,
-                    start: start_state,
-                    end: end_state.clone(),
-                    duration: step_time,
-                });
+        for execution in executions {
+            let mut current_states = execution.initial_states.clone();
+            let mut elapsed = execution.start_time;
 
-                let (NBallSystemState::OnTable(start), Ok(end)) =
-                    (state, OnTableBallState::try_from(end_state))
-                else {
-                    continue;
-                };
-                let event_marker_label = scenario_event_involves_ball(event, ball_index)
-                    .then(|| format!("({})", event_index + 1));
-                let event_marker_title = event_marker_label
-                    .as_ref()
-                    .map(|label| format!("{label} {event_human}"));
-                push_visible_trace_segment(
-                    &mut trace.segments,
-                    start,
-                    &end,
-                    step_time,
-                    event_marker_label.is_some(),
-                    event_marker_label,
-                    event_marker_title,
+            for (event_index, event) in execution.simulation.events.iter().enumerate() {
+                let step_time = event.time();
+                let event_time = Seconds::new(elapsed.as_f64() + step_time.as_f64());
+                let event_human = format!(
+                    "t={}  {}",
+                    format_scenario_trace_time(event_time),
+                    scenario_event_kind_from_system_event(event, self.game_state.balls())
+                        .format_human()
                 );
+                for (ball_index, (trace, state)) in
+                    traces.iter_mut().zip(&current_states).enumerate()
+                {
+                    let start_state = state.as_ball_state().clone();
+                    let end_state = match state {
+                        NBallSystemState::OnTable(start) => {
+                            advance_motion_on_table(start, step_time, ball_set, motion).state
+                        }
+                        NBallSystemState::Airborne(airborne) => {
+                            advance_airborne_ball(airborne, step_time)
+                        }
+                        NBallSystemState::Pocketed { .. } => continue,
+                    };
+                    trace.timeline_segments.push(ScenarioBallTimelineSegment {
+                        start_time: elapsed,
+                        start: start_state,
+                        end: end_state.clone(),
+                        duration: step_time,
+                    });
+
+                    let (NBallSystemState::OnTable(start), Ok(end)) =
+                        (state, OnTableBallState::try_from(end_state))
+                    else {
+                        continue;
+                    };
+                    let event_marker_label = scenario_event_involves_ball(event, ball_index)
+                        .then(|| format!("({})", event_offset + event_index + 1));
+                    let event_marker_title = event_marker_label
+                        .as_ref()
+                        .map(|label| format!("{label} {event_human}"));
+                    push_visible_trace_segment(
+                        &mut trace.segments,
+                        start,
+                        &end,
+                        step_time,
+                        event_marker_label.is_some(),
+                        event_marker_label,
+                        event_marker_title,
+                    );
+                }
+
+                current_states = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
+                    &current_states,
+                    event,
+                    ball_set,
+                    &self.game_state.table_spec,
+                    motion,
+                    collision_model,
+                    collision_config,
+                    rail_model,
+                    rail_profile,
+                )
+                .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
+                elapsed = Seconds::new(elapsed.as_f64() + step_time.as_f64());
             }
 
-            current_states = resolve_n_ball_system_event_with_physics_and_pockets_on_table(
-                &current_states,
-                event,
-                ball_set,
-                &self.game_state.table_spec,
-                motion,
-                collision_model,
-                collision_config,
-                rail_model,
-                rail_profile,
-            )
-            .map_err(|error| self.invalid_n_ball_geometry_error(error))?;
-            elapsed = Seconds::new(elapsed.as_f64() + step_time.as_f64());
-        }
-
-        for (trace, final_state) in traces.iter_mut().zip(&simulation.states) {
-            trace.final_state = final_state.clone();
+            for (trace, final_state) in traces.iter_mut().zip(&execution.simulation.states) {
+                trace.final_state = final_state.clone();
+            }
+            event_offset += execution.simulation.events.len();
         }
 
         Ok(traces)
@@ -799,11 +919,55 @@ pub struct ScenarioShot {
     pub ball: BallType,
     pub shot: Shot,
     pub cue_strike: CueStrikeConfig,
+    aim: ShotAimSpec,
+}
+
+impl ScenarioShot {
+    /// Construct a scenario shot whose heading is already absolute.
+    pub fn new(ball_ref: BallRef, shot: Shot, cue_strike: CueStrikeConfig) -> Self {
+        let aim = ShotAimSpec::HeadingDegrees(shot.heading().as_degrees());
+        Self {
+            ball_ref,
+            ball: ball_ref.to_ball_type(),
+            shot,
+            cue_strike,
+            aim,
+        }
+    }
+
+    fn resolved_for_game_state(&self, game_state: &GameState) -> Result<Self, DslBuildError> {
+        let mut shot = Shot::new(
+            resolve_shot_heading(self.aim, game_state)?,
+            self.shot.cue_speed().clone(),
+            self.shot.tip_contact().clone(),
+        )
+        .map_err(DslBuildError::InvalidShot)?;
+        shot = shot
+            .with_cue_elevation(self.shot.cue_elevation())
+            .map_err(DslBuildError::InvalidShot)?;
+
+        Ok(Self {
+            ball_ref: self.ball_ref,
+            ball: self.ball.clone(),
+            shot,
+            cue_strike: self.cue_strike.clone(),
+            aim: self.aim,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScenarioShotExecution {
+    pub start_time: Seconds,
+    pub shot: ScenarioShot,
+    pub initial_states: Vec<NBallSystemState>,
+    pub simulation: NBallSystemSimulation,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScenarioShotTrace {
     pub simulation: NBallSystemSimulation,
+    pub shot_executions: Vec<ScenarioShotExecution>,
     pub event_log: Vec<ScenarioShotTraceEvent>,
     pub ball_traces: Vec<ScenarioBallTrace>,
     pub ball_set: BallSetPhysicsSpec,
@@ -903,6 +1067,11 @@ impl ScenarioShotTrace {
 
         let mut times = vec![0.0, self.simulation.elapsed.as_f64()];
         times.extend(self.event_log.iter().map(|event| event.time.as_f64()));
+        times.extend(
+            self.shot_executions
+                .iter()
+                .map(|execution| execution.start_time.as_f64()),
+        );
         for ball_trace in &self.ball_traces {
             for segment in &ball_trace.timeline_segments {
                 let start = segment.start_time.as_f64();
@@ -1038,10 +1207,20 @@ impl ScenarioShotTrace {
             }
 
             if options.start_ghost_balls && ball_trace.ball == BallType::Cue {
-                let start = ball_trace
-                    .initial_state
-                    .projected_position(&scenario.game_state.table_spec);
-                game_state.add_origin_marker_styled(&start, cue_origin_marker_style());
+                for execution in &self.shot_executions {
+                    let Some(ball_index) = scenario
+                        .game_state
+                        .balls()
+                        .iter()
+                        .position(|ball| ball.ty == execution.shot.ball)
+                    else {
+                        continue;
+                    };
+                    let start = execution.initial_states[ball_index]
+                        .as_ball_state()
+                        .projected_position(&scenario.game_state.table_spec);
+                    game_state.add_origin_marker_styled(&start, cue_origin_marker_style());
+                }
             }
 
             if let Some(pocket_terminal) = ball_trace.pocket_terminal_point() {
@@ -1610,23 +1789,28 @@ fn scenario_trace_times_are_effectively_simultaneous(a: Seconds, b: Seconds) -> 
     (a.as_f64() - b.as_f64()).abs() <= SCENARIO_TRACE_SIMULTANEOUS_EVENT_EPSILON_SECONDS
 }
 
-fn scenario_event_log_from_simulation(
-    simulation: &NBallSystemSimulation,
+fn scenario_event_log_from_shot_executions(
+    executions: &[ScenarioShotExecution],
     balls: &[Ball],
 ) -> Vec<ScenarioShotTraceEvent> {
-    let mut elapsed = Seconds::zero();
-
-    simulation
-        .events
+    let event_count = executions
         .iter()
-        .map(|event| {
+        .map(|execution| execution.simulation.events.len())
+        .sum();
+    let mut event_log = Vec::with_capacity(event_count);
+
+    for execution in executions {
+        let mut elapsed = execution.start_time;
+        for event in &execution.simulation.events {
             elapsed = Seconds::new(elapsed.as_f64() + event.time().as_f64());
-            ScenarioShotTraceEvent {
+            event_log.push(ScenarioShotTraceEvent {
                 time: elapsed,
                 kind: scenario_event_kind_from_system_event(event, balls),
-            }
-        })
-        .collect()
+            });
+        }
+    }
+
+    event_log
 }
 
 fn scenario_event_involves_ball(event: &NBallSystemEvent, ball_index: usize) -> bool {
@@ -1948,7 +2132,7 @@ struct ParsedShotDef {
 #[derive(Debug)]
 struct ParsedDslDoc {
     doc: DslDoc,
-    shot_source: Option<ShotSourceMetadata>,
+    shot_sources: Vec<ShotSourceMetadata>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2211,11 +2395,9 @@ pub enum DslBuildError {
     UnknownRailProfile(String),
     UnknownSimulation(String),
     UnknownPlayingConditionsPreset(String),
-    MultipleShotsNotSupported {
-        count: usize,
-    },
     ShotTargetMustBeCueBall(BallRef),
     ShotTargetBallNotPlaced(BallRef),
+    ShotTargetBallNotAtRest(BallRef),
     ShotAimingBallMustNotBeCueBall(BallRef),
     ShotAimingBallNotPlaced(BallRef),
     CutAngleOutOfRange {
@@ -2359,16 +2541,15 @@ impl std::fmt::Display for DslBuildError {
             Self::UnknownPlayingConditionsPreset(name) => {
                 write!(f, "unknown playing conditions preset '{name}'")
             }
-            Self::MultipleShotsNotSupported { count } => write!(
-                f,
-                "the current DSL supports at most one shot statement, but found {count}"
-            ),
             Self::ShotTargetMustBeCueBall(ball) => write!(
                 f,
                 "the current DSL only supports shot(cue), but found shot({ball})"
             ),
             Self::ShotTargetBallNotPlaced(ball) => {
                 write!(f, "shot target ball '{ball}' is not present in the layout")
+            }
+            Self::ShotTargetBallNotAtRest(ball) => {
+                write!(f, "shot target ball '{ball}' is not at rest")
             }
             Self::ShotAimingBallMustNotBeCueBall(ball) => write!(
                 f,
@@ -2470,6 +2651,7 @@ impl std::str::FromStr for ShotControl {
 pub enum ShotControlError {
     Dsl(DslError),
     NoShot,
+    MultipleShots { count: usize },
     UnknownControl(String),
     NonFiniteValue { control: &'static str },
     MissingSourceMetadata { control: &'static str },
@@ -2480,6 +2662,12 @@ impl std::fmt::Display for ShotControlError {
         match self {
             Self::Dsl(error) => write!(f, "{error}"),
             Self::NoShot => write!(f, "the DSL does not contain a shot"),
+            Self::MultipleShots { count } => {
+                write!(
+                    f,
+                    "shot controls require exactly one shot, but found {count}"
+                )
+            }
             Self::UnknownControl(control) => write!(f, "unknown shot control '{control}'"),
             Self::NonFiniteValue { control } => {
                 write!(f, "shot control '{control}' requires a finite value")
@@ -2581,13 +2769,19 @@ fn shot_controls_from_parsed_dsl(
     parsed: &ParsedDslDoc,
     scenario: &DslScenario,
 ) -> Result<Option<ShotControls>, ShotControlError> {
-    let Some(built_shot) = scenario.shot.as_ref() else {
-        return Ok(None);
+    let built_shot = match scenario.shots.as_slice() {
+        [] => return Ok(None),
+        [shot] => shot,
+        shots => {
+            return Err(ShotControlError::MultipleShots { count: shots.len() });
+        }
     };
     let shot_def =
         shot_def(&parsed.doc).ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })?;
     let shot_source = parsed
-        .shot_source
+        .shot_sources
+        .first()
+        .copied()
         .ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })?;
     let speed_ips = shot_def
         .methods
@@ -2754,7 +2948,7 @@ pub fn apply_shot_candidate_to_dsl(
 
     let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
     let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
-    if scenario.shot.is_some() {
+    if !scenario.shots.is_empty() {
         let candidate = update_shot_control_in_dsl(source, ShotControl::Heading, heading)?.source;
         let candidate = update_shot_control_in_dsl(&candidate, ShotControl::Speed, speed)?.source;
         let candidate =
@@ -2835,12 +3029,15 @@ fn shot_def(doc: &DslDoc) -> Option<&ShotDef> {
 fn editable_shot_source(source: &str) -> Result<ShotSourceMetadata, ShotControlError> {
     let parsed = parse_dsl_with_metadata(source).map_err(DslError::Parse)?;
     let scenario = build_scenario(&parsed.doc).map_err(DslError::Build)?;
-    if scenario.shot.is_none() {
-        return Err(ShotControlError::NoShot);
+    match scenario.shots.len() {
+        0 => Err(ShotControlError::NoShot),
+        1 => parsed
+            .shot_sources
+            .first()
+            .copied()
+            .ok_or(ShotControlError::MissingSourceMetadata { control: "shot" }),
+        count => Err(ShotControlError::MultipleShots { count }),
     }
-    parsed
-        .shot_source
-        .ok_or(ShotControlError::MissingSourceMetadata { control: "shot" })
 }
 
 fn validate_edited_shot_source(candidate: String) -> Result<ShotControlUpdate, ShotControlError> {
@@ -2953,17 +3150,14 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
     let rail_responses = build_rail_responses(&rail_response_defs)?;
     let rail_profiles = build_rail_profiles(&rails_defs, &rail_responses)?;
     let simulations = build_simulations(&simulation_defs, &ball_ball_configs, &rail_profiles)?;
-    let shot = match shots.as_slice() {
-        [] => None,
-        [shot] => Some(build_shot(shot, &cue_strikes, &game_state)?),
-        _ => {
-            return Err(DslBuildError::MultipleShotsNotSupported { count: shots.len() });
-        }
-    };
+    let shots = shots
+        .iter()
+        .map(|shot| build_shot(shot, &cue_strikes, &game_state))
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(DslScenario {
         game_state,
-        shot,
+        shots,
         trace_max_events: doc.trace_max_events,
         ball_ball_configs,
         rail_responses,
@@ -3436,6 +3630,7 @@ fn build_simulation(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum ShotAimSpec {
     HeadingDegrees(f64),
     ToPocket {
@@ -3670,6 +3865,7 @@ fn build_shot(
         ball,
         shot,
         cue_strike,
+        aim,
     })
 }
 
@@ -3811,7 +4007,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedDslDoc> {
         entries: Vec::new(),
     };
     let mut duplicate_singleton = None;
-    let mut shot_source = None;
+    let mut shot_sources = Vec::new();
 
     repeat(0.., statement)
         .fold(
@@ -3840,7 +4036,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedDslDoc> {
                 DslStatement::Rails(def) => doc.entries.push(DslEntry::Rails(def)),
                 DslStatement::Simulation(def) => doc.entries.push(DslEntry::Simulation(def)),
                 DslStatement::Shot(parsed) => {
-                    shot_source = Some(parsed.source);
+                    shot_sources.push(parsed.source);
                     doc.entries.push(DslEntry::Shot(parsed.def));
                 }
                 DslStatement::Empty => {}
@@ -3854,7 +4050,7 @@ fn dsl_doc<'a>(input: &mut Stream<'a>) -> ParseResult<'a, ParsedDslDoc> {
 
     let _ = terminated(hws0, eof).parse_next(input)?;
 
-    Ok(ParsedDslDoc { doc, shot_source })
+    Ok(ParsedDslDoc { doc, shot_sources })
 }
 
 #[derive(Debug)]
@@ -4912,7 +5108,7 @@ mod tests {
             .expect("shot present");
 
         assert_eq!(scenario.game_state.balls().len(), 1);
-        assert_eq!(scenario.shot.as_ref().expect("shot").ball_ref, BallRef::Cue);
+        assert_eq!(scenario.shots.first().expect("shot").ball_ref, BallRef::Cue);
         assert_eq!(
             seeded
                 .as_ball_state()

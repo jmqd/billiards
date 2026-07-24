@@ -160,7 +160,7 @@ fn rendered_svg_scenario(
     let motion = human_tuned_preview_motion_config();
     let trace_options = trace_render_options(options);
 
-    let trace = if scenario.shot.is_some() {
+    let trace = if !scenario.shots.is_empty() {
         if let Some(max_events) = options.trace_max_events.or(scenario.trace_max_events) {
             scenario.simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
                 &ball_set,

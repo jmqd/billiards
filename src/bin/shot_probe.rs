@@ -310,7 +310,9 @@ fn run_probe_case(
 
     let scenario = parse_dsl_to_scenario(&probe.dsl)?;
     let launch = scenario
-        .validate_shot_human_speed()?
+        .validate_shot_human_speeds()?
+        .into_iter()
+        .next()
         .expect("generated probe should always include a shot");
     let trace = scenario
         .simulate_shot_trace_with_rails_and_pockets_on_table_until_rest(

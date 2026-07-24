@@ -48,6 +48,11 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
+const TWO_SHOT_DSL: &str = "ball cue at center\n\
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+shot(cue).heading(90deg).speed(12ips).tip(side: 0.0R, height: 0.0R).using(default)\n\
+shot(cue).heading(270deg).speed(12ips).tip(side: 0.0R, height: 0.0R).using(default)\n";
+
 fn render_png(state: &billiards::GameState) -> image::RgbaImage {
     load_from_memory(&state.draw_2d_diagram())
         .expect("png decode")
@@ -354,7 +359,7 @@ fn a_chained_shot_scenario_builds_validated_domain_types_and_can_seed_the_engine
         .game_state
         .select_ball(BallType::Cue)
         .expect("cue ball placement");
-    let shot = scenario.shot.as_ref().expect("scenario shot");
+    let shot = scenario.shots.first().expect("scenario shot");
     let seeded = scenario
         .strike_shot_on_table(&BallSetPhysicsSpec::default())
         .expect("expected strike to succeed")
@@ -656,8 +661,8 @@ fn shot_scenarios_can_derive_heading_with_to_pocket() {
 
     assert_close(
         scenario
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("shot")
             .shot
             .heading()
@@ -685,15 +690,15 @@ fn shot_scenarios_can_derive_heading_with_pocket_alias() {
 
     assert_close(
         via_pocket
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("shot")
             .shot
             .heading()
             .as_degrees(),
         via_to_pocket
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("shot")
             .shot
             .heading()
@@ -729,8 +734,8 @@ fn shot_scenarios_can_derive_heading_with_cut_helpers() {
 
     assert_close(
         scenario
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("shot")
             .shot
             .heading()
@@ -785,15 +790,15 @@ fn shot_scenarios_can_derive_heading_with_cut_left_and_cut_right_aliases() {
 
     assert_close(
         via_cut_left
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("shot")
             .shot
             .heading()
             .as_degrees(),
         via_cut
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("shot")
             .shot
             .heading()
@@ -801,8 +806,8 @@ fn shot_scenarios_can_derive_heading_with_cut_left_and_cut_right_aliases() {
     );
     assert_close(
         via_cut_right
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("shot")
             .shot
             .heading()
@@ -838,8 +843,10 @@ fn shot_scenarios_can_report_human_speed_validation() {
     .expect("expected shot DSL to build");
 
     let validation = scenario
-        .validate_shot_human_speed()
+        .validate_shot_human_speeds()
         .expect("human speed validation should succeed")
+        .into_iter()
+        .next()
         .expect("scenario should contain a shot");
 
     assert_eq!(validation.cue_speed_band, HumanShotSpeedBand::MediumFast);
@@ -1710,6 +1717,7 @@ fn timeline_subdivision_shot_trace() -> ScenarioShotTrace {
             elapsed: Seconds::new(1.0),
             events: Vec::new(),
         },
+        shot_executions: Vec::new(),
         event_log: Vec::new(),
         ball_traces: vec![ball_trace],
         ball_set: BallSetPhysicsSpec::default(),
@@ -1997,6 +2005,7 @@ fn playback_frames_omit_pocketed_balls_after_their_capture_time() {
             elapsed: Seconds::new(2.0),
             events: Vec::new(),
         },
+        shot_executions: Vec::new(),
         event_log: Vec::new(),
         ball_traces: vec![ScenarioBallTrace {
             ball: BallType::Cue,
@@ -2051,8 +2060,8 @@ fn parses_elevated_cue_method_and_jump_alias() {
     )
     .expect("elevated shot DSL should build");
     let shot = scenario
-        .shot
-        .as_ref()
+        .shots
+        .first()
         .expect("scenario should contain a shot");
     assert_close(shot.shot.cue_elevation().as_degrees(), 15.0);
 
@@ -2064,8 +2073,8 @@ fn parses_elevated_cue_method_and_jump_alias() {
     .expect("jump alias DSL should build");
     assert_close(
         default_jump
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("scenario should contain a shot")
             .shot
             .cue_elevation()
@@ -2081,8 +2090,8 @@ fn parses_elevated_cue_method_and_jump_alias() {
     .expect("parameterized jump alias DSL should build");
     assert_close(
         tuned_jump
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("scenario should contain a shot")
             .shot
             .cue_elevation()
@@ -2128,7 +2137,8 @@ fn rejects_raw_cue_elevations_before_angle_normalization() {
     .expect("the documented maximum cue elevation should remain valid");
     assert_close(
         maximum
-            .shot
+            .shots
+            .first()
             .expect("scenario should contain a shot")
             .shot
             .cue_elevation()
@@ -2147,8 +2157,8 @@ fn side_english_dsl_derives_rail_clearance_elevation_unless_explicitly_level() {
     .expect("side-English shot should build");
     assert_close(
         derived
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("scenario should contain a shot")
             .shot
             .cue_elevation()
@@ -2164,8 +2174,8 @@ fn side_english_dsl_derives_rail_clearance_elevation_unless_explicitly_level() {
     .expect("center-ball shot should build");
     assert_close(
         center_ball
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("scenario should contain a shot")
             .shot
             .cue_elevation()
@@ -2181,8 +2191,8 @@ fn side_english_dsl_derives_rail_clearance_elevation_unless_explicitly_level() {
     .expect("explicitly level side-English shot should build");
     assert_close(
         explicit_level
-            .shot
-            .as_ref()
+            .shots
+            .first()
             .expect("scenario should contain a shot")
             .shot
             .cue_elevation()
@@ -2408,7 +2418,8 @@ fn shot_candidate_apply_adds_a_unique_canonical_cue_when_selection_is_ambiguous(
     let scenario =
         parse_dsl_to_scenario(&updated.source).expect("the inserted canonical shot should build");
     let shot = scenario
-        .shot
+        .shots
+        .first()
         .expect("the inserted source should contain one shot");
     assert_eq!(
         shot.cue_strike,
@@ -2684,5 +2695,263 @@ fn shot_control_updates_reject_non_finite_and_build_invalid_values() {
         Err(ShotControlError::Dsl(DslError::Build(
             DslBuildError::InvalidShot(ShotError::CueTipContactRadiusNotFinite { .. })
         )))
+    ));
+}
+
+#[test]
+fn ordered_shots_execute_recursively_from_each_prior_settled_state() {
+    let source = format!(
+        "{TWO_SHOT_DSL}shot(cue).heading(0deg).speed(8ips).tip(side: 0.0R, height: 0.0R).using(default)\n"
+    );
+    let scenario = parse_dsl_to_scenario(&source).expect("three ordered shots should build");
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("three-shot simulation should succeed")
+        .expect("three-shot scenario should produce a trace");
+
+    assert_eq!(scenario.shots.len(), 3);
+    assert_eq!(trace.shot_executions.len(), 3);
+    assert_close(trace.shot_executions[0].start_time.as_f64(), 0.0);
+    for executions in trace.shot_executions.windows(2) {
+        let previous = &executions[0];
+        let next = &executions[1];
+        assert_close(
+            next.start_time.as_f64(),
+            previous.start_time.as_f64() + previous.simulation.elapsed.as_f64(),
+        );
+        assert!(previous.simulation.states.iter().all(|state| match state {
+            NBallSystemState::Pocketed { .. } => true,
+            NBallSystemState::OnTable(state) => {
+                state
+                    .as_ball_state()
+                    .motion_phase(TYPICAL_BALL_RADIUS.clone())
+                    == MotionPhase::Rest
+            }
+            NBallSystemState::Airborne(_) => false,
+        }));
+        for (settled, restruck) in previous.simulation.states.iter().zip(&next.initial_states) {
+            assert_close(
+                settled.as_ball_state().position.x().as_f64(),
+                restruck.as_ball_state().position.x().as_f64(),
+            );
+            assert_close(
+                settled.as_ball_state().position.y().as_f64(),
+                restruck.as_ball_state().position.y().as_f64(),
+            );
+        }
+    }
+    let final_execution = trace.shot_executions.last().expect("third execution");
+    assert_close(
+        trace.simulation.elapsed.as_f64(),
+        final_execution.start_time.as_f64() + final_execution.simulation.elapsed.as_f64(),
+    );
+
+    let second = &trace.shot_executions[1];
+    let boundary_frame = trace
+        .playback_frames(Seconds::new(0.25))
+        .into_iter()
+        .find(|frame| (frame.time.as_f64() - second.start_time.as_f64()).abs() <= f64::EPSILON)
+        .expect("playback should include the second strike boundary");
+    let cue = boundary_frame
+        .balls
+        .iter()
+        .find(|ball| ball.ball == BallType::Cue)
+        .expect("cue ball should remain visible at the second strike");
+    assert_close(cue.state.speed().as_f64(), 12.0);
+    assert_close(
+        cue.state
+            .velocity
+            .angle_from_north()
+            .expect("second strike should have planar velocity")
+            .as_degrees(),
+        second.shot.shot.heading().as_degrees(),
+    );
+}
+
+#[test]
+fn ordered_shots_use_configured_rest_thresholds_at_strike_boundaries() {
+    let scenario = parse_dsl_to_scenario(TWO_SHOT_DSL).expect("two shots should build");
+    let mut motion = motion_config();
+    motion.phase.thresholds.rest_linear_speed = billiards::InchesPerSecond::new("20");
+    motion.phase.thresholds.rest_angular_speed = 20.0_f64.into();
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("threshold-rest sequence should simulate")
+        .expect("threshold-rest sequence should trace");
+
+    assert_eq!(trace.shot_executions.len(), 2);
+    assert_close(trace.shot_executions[1].start_time.as_f64(), 0.0);
+    assert_close(
+        trace.shot_executions[1].initial_states[0]
+            .as_ball_state()
+            .speed()
+            .as_f64(),
+        12.0,
+    );
+}
+
+#[test]
+fn derived_aim_for_a_later_shot_uses_the_prior_shot_final_layout() {
+    let scenario = parse_dsl_to_scenario(
+        "ball cue at center\n\
+         ball nine at (3.0, 6.0)\n\
+         cue_strike(default).mass_ratio(1.0).energy_loss(0.1)\n\
+         shot(cue).heading(90deg).speed(12ips).tip(side: 0.0R, height: 0.0R).using(default)\n\
+         shot(cue).to_pocket(nine, top-right).speed(8ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+    )
+    .expect("derived second shot should build");
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("derived second shot should simulate")
+        .expect("scenario should produce a trace");
+
+    assert_eq!(trace.shot_executions.len(), 2);
+    let settled_layout =
+        scenario.game_state_for_system_states(&trace.shot_executions[0].simulation.states);
+    let cue = settled_layout
+        .select_ball(BallType::Cue)
+        .expect("cue should remain on table after the first shot");
+    let nine = settled_layout
+        .select_ball(BallType::Nine)
+        .expect("nine should remain on table before the second shot");
+    let expected =
+        nine.aim_angle_to_pocket(Pocket::TopRight, &cue.position, &settled_layout.table_spec);
+    let initial_layout_heading = scenario.shots[1].shot.heading().as_degrees();
+    let executed_heading = trace.shot_executions[1].shot.shot.heading().as_degrees();
+
+    assert_close(executed_heading, expected.as_degrees());
+    assert!(
+        (executed_heading - initial_layout_heading).abs() > 0.1,
+        "the second shot heading should be recomputed after the cue ball moves"
+    );
+}
+
+#[test]
+fn event_limits_form_one_budget_across_the_ordered_shot_sequence() {
+    let scenario = parse_dsl_to_scenario(TWO_SHOT_DSL).expect("two shots should build");
+    let ball_set = BallSetPhysicsSpec::default();
+    let motion = motion_config();
+    let zero_event_budget = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+            0,
+        )
+        .expect("zero-event sequence should preserve the initial strike")
+        .expect("zero-event sequence should still produce a trace");
+    assert_eq!(zero_event_budget.shot_executions.len(), 1);
+    assert!(zero_event_budget.simulation.events.is_empty());
+
+    let full = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("full sequence should simulate")
+        .expect("full sequence should trace");
+    let first_shot_events = full.shot_executions[0].simulation.events.len();
+    assert!(first_shot_events > 0);
+
+    let first_only = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+            first_shot_events,
+        )
+        .expect("limited sequence should simulate")
+        .expect("limited sequence should trace");
+    assert_eq!(first_only.shot_executions.len(), 1);
+    assert_eq!(first_only.simulation.events.len(), first_shot_events);
+
+    let one_event_into_second = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+            first_shot_events + 1,
+        )
+        .expect("cross-shot event limit should simulate")
+        .expect("cross-shot event limit should trace");
+    assert_eq!(one_event_into_second.shot_executions.len(), 2);
+    assert_eq!(
+        one_event_into_second.simulation.events.len(),
+        first_shot_events + 1
+    );
+    assert_eq!(
+        one_event_into_second.shot_executions[1]
+            .simulation
+            .events
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn pocketed_balls_remain_pocketed_when_a_later_shot_starts() {
+    let source = format!(
+        "{}\nshot(cue).heading(180deg).speed(8ips).tip(side: 0.0R, height: 0.0R).using(default)\n",
+        include_str!("../examples/scenarios/routine_nine_ball_corner_cut.billiards")
+    );
+    let scenario = parse_dsl_to_scenario(&source).expect("two-shot pocket scenario should build");
+    let nine_index = scenario
+        .game_state
+        .balls()
+        .iter()
+        .position(|ball| ball.ty == BallType::Nine)
+        .expect("nine ball should be present initially");
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &BallSetPhysicsSpec::default(),
+            &human_tuned_preview_motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("two-shot pocket scenario should simulate")
+        .expect("two-shot pocket scenario should trace");
+
+    assert_eq!(trace.shot_executions.len(), 2);
+    assert!(matches!(
+        trace.shot_executions[0].simulation.states[nine_index],
+        NBallSystemState::Pocketed { .. }
+    ));
+    assert!(matches!(
+        trace.shot_executions[1].initial_states[nine_index],
+        NBallSystemState::Pocketed { .. }
+    ));
+    assert!(matches!(
+        trace.simulation.states[nine_index],
+        NBallSystemState::Pocketed { .. }
+    ));
+}
+
+#[test]
+fn shot_controls_reject_ambiguous_multi_shot_sources() {
+    assert!(matches!(
+        shot_controls_from_dsl(TWO_SHOT_DSL),
+        Err(ShotControlError::MultipleShots { count: 2 })
     ));
 }

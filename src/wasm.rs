@@ -298,7 +298,7 @@ pub fn robust_three_cushion_shot_from_dsl(
         carom_ball_position(&scenario, crate::BallType::Red, "red object ball")?,
     )
     .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let cue = if let Some(shot) = scenario.shot.as_ref() {
+    let cue = if let Some(shot) = scenario.shots.first() {
         shot.cue_strike.clone()
     } else {
         preferred_cue.unwrap_or_else(crate::canonical_three_cushion_cue_config)

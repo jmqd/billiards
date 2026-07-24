@@ -1068,18 +1068,19 @@ fn render_scenario(
     fs::write(&svg_path, svg.as_bytes())
         .map_err(|error| format!("failed to write {}: {error}", svg_path.display()))?;
 
-    let speed_validation = scenario.validate_shot_human_speed().map_err(|error| {
+    let speed_validations = scenario.validate_shot_human_speeds().map_err(|error| {
         format!(
             "failed to validate shot speed for {}: {error}",
             scenario_path.display()
         )
     })?;
-    let shot_line = source
+    let shot_lines = source
         .lines()
-        .find(|line| line.trim_start().starts_with("shot("))
-        .map(|line| line.trim().to_string());
-    let cue_ball_launch_speed_kmh = speed_validation
-        .as_ref()
+        .filter(|line| line.trim_start().starts_with("shot("))
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    let cue_ball_launch_speed_kmh = speed_validations
+        .first()
         .map(|validation| validation.estimated_cue_ball_speed_after_impact.as_kmh());
 
     let mut info_rows = Vec::new();
@@ -1092,11 +1093,18 @@ fn render_scenario(
         simulation_summary.as_str(),
     ));
 
-    if let Some(validation) = &speed_validation {
+    for (shot_index, validation) in speed_validations.iter().enumerate() {
+        let label = |name: &str| {
+            if speed_validations.len() == 1 {
+                name.to_string()
+            } else {
+                format!("Shot {} {name}", shot_index + 1)
+            }
+        };
         let nearest =
             ShotSpeedPreset::nearest_to_speed(&validation.estimated_cue_ball_speed_after_impact);
         info_rows.push(ReportInfoRow::new(
-            "Cue-ball launch",
+            label("Cue-ball launch"),
             format!(
                 "{:.2} km/h · {} · {} band",
                 validation.estimated_cue_ball_speed_after_impact.as_kmh(),
@@ -1105,7 +1113,7 @@ fn render_scenario(
             ),
         ));
         info_rows.push(ReportInfoRow::new(
-            "Cue-stick impact",
+            label("Cue-stick impact"),
             format!(
                 "{:.2} km/h · {} band",
                 validation.cue_speed_at_impact.as_kmh(),
@@ -1114,34 +1122,46 @@ fn render_scenario(
         ));
     }
 
-    if let Some(shot) = scenario.shot.as_ref() {
+    for (shot_index, shot) in scenario.shots.iter().enumerate() {
+        let label = |single: &str, multi: &str| {
+            if scenario.shots.len() == 1 {
+                single.to_string()
+            } else {
+                format!("Shot {} {multi}", shot_index + 1)
+            }
+        };
         info_rows.push(ReportInfoRow::new(
-            "Shot target",
+            label("Shot target", "target"),
             format!("{:?}", shot.ball),
         ));
         info_rows.push(ReportInfoRow::new(
-            "Heading",
+            label("Heading", "heading"),
             format!("{:.2}°", shot.shot.heading().as_degrees()),
         ));
         info_rows.push(ReportInfoRow::new(
-            "Tip side",
+            label("Tip side", "tip side"),
             format!("{:+.2} R", shot.shot.tip_contact().side_offset().as_f64()),
         ));
         info_rows.push(ReportInfoRow::new(
-            "Tip height",
+            label("Tip height", "tip height"),
             format!("{:+.2} R", shot.shot.tip_contact().height_offset().as_f64()),
         ));
         info_rows.push(ReportInfoRow::new(
-            "Clean-cuing limit",
+            label("Clean-cuing limit", "clean-cuing limit"),
             format!("{:.2} R", shot.cue_strike.miscue_offset_limit().as_f64()),
         ));
     }
 
-    if let Some(shot_line) = &shot_line {
-        info_rows.push(ReportInfoRow::new("DSL shot", shot_line.as_str()));
+    for (shot_index, shot_line) in shot_lines.iter().enumerate() {
+        let label = if shot_lines.len() == 1 {
+            "DSL shot".to_string()
+        } else {
+            format!("DSL shot {}", shot_index + 1)
+        };
+        info_rows.push(ReportInfoRow::new(label, *shot_line));
     }
 
-    let cue_tip_diagram_svg = scenario.shot.as_ref().map(|shot| {
+    let cue_tip_diagram_svg = scenario.shots.first().map(|shot| {
         render_cue_tip_diagram_svg(
             shot.shot.tip_contact().side_offset().as_f64(),
             shot.shot.tip_contact().height_offset().as_f64(),
@@ -1149,7 +1169,7 @@ fn render_scenario(
             cue_ball_launch_speed_kmh.unwrap_or_else(|| shot.shot.cue_speed().as_kmh()),
         )
     });
-    let power_meter_svg = speed_validation.as_ref().map(|validation| {
+    let power_meter_svg = speed_validations.first().map(|validation| {
         render_power_meter_svg(
             validation.estimated_cue_ball_speed_after_impact.as_kmh(),
             validation.cue_ball_speed_band,

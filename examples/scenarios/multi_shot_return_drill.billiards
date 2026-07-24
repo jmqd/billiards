@@ -1,0 +1,7 @@
+# Ordered shots execute from the settled final layout of the previous shot.
+# The cue ball travels right, returns left, then finishes up-table.
+ball cue at center
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(90deg).speed(12ips).tip(side: 0.0R, height: 0.0R).using(default)
+shot(cue).heading(270deg).speed(12ips).tip(side: 0.0R, height: 0.0R).using(default)
+shot(cue).heading(0deg).speed(8ips).tip(side: 0.0R, height: 0.0R).using(default)

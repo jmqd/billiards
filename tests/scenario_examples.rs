@@ -107,6 +107,57 @@ fn svg_path_numbers(element: &str) -> Vec<f32> {
 }
 
 #[test]
+fn multi_shot_return_drill_animates_every_ordered_strike() {
+    let (scenario, trace) =
+        trace_scenario("examples/scenarios/multi_shot_return_drill.billiards", 0);
+    assert_eq!(scenario.shots.len(), 3);
+    assert_eq!(trace.shot_executions.len(), 3);
+
+    let frames = trace.playback_frames(Seconds::new(0.05));
+    for execution in &trace.shot_executions {
+        let frame = frames
+            .iter()
+            .find(|frame| (frame.time.as_f64() - execution.start_time.as_f64()).abs() <= 1e-9)
+            .expect("playback should include every strike boundary");
+        let cue = frame
+            .balls
+            .iter()
+            .find(|ball| ball.ball == BallType::Cue)
+            .expect("cue should be visible at every strike boundary");
+        assert!(
+            (cue.state.speed().as_f64()
+                - execution.initial_states[0].as_ball_state().speed().as_f64())
+            .abs()
+                <= 1e-9
+        );
+        assert!(
+            (cue.state
+                .velocity
+                .angle_from_north()
+                .expect("each strike should have planar velocity")
+                .as_degrees()
+                - execution.shot.shot.heading().as_degrees())
+            .abs()
+                <= 1e-9
+        );
+    }
+
+    let rendered = trace.rendered_final_layout_with_trace_options(
+        &scenario,
+        &ScenarioTraceRenderOptions {
+            start_ghost_balls: true,
+            ..ScenarioTraceRenderOptions::default()
+        },
+    );
+    let svg = String::from_utf8(rendered.render_2d_diagram_with_options(
+        DiagramOutputFormat::Svg,
+        &DiagramRenderOptions::default(),
+    ))
+    .expect("multi-shot trace SVG should be UTF-8");
+    assert_eq!(svg.matches("class=\"overlay origin-marker\"").count(), 3);
+}
+
+#[test]
 fn elevated_side_spin_examples_expose_height_and_z_spin_for_gallery_playback() {
     for (scenario_path, expected_z_sign) in [
         (

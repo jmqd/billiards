@@ -1093,18 +1093,11 @@ fn render_scenario(
         simulation_summary.as_str(),
     ));
 
-    for (shot_index, validation) in speed_validations.iter().enumerate() {
-        let label = |name: &str| {
-            if speed_validations.len() == 1 {
-                name.to_string()
-            } else {
-                format!("Shot {} {name}", shot_index + 1)
-            }
-        };
+    if let ([shot], [validation]) = (scenario.shots.as_slice(), speed_validations.as_slice()) {
         let nearest =
             ShotSpeedPreset::nearest_to_speed(&validation.estimated_cue_ball_speed_after_impact);
         info_rows.push(ReportInfoRow::new(
-            label("Cue-ball launch"),
+            "Cue-ball launch",
             format!(
                 "{:.2} km/h · {} · {} band",
                 validation.estimated_cue_ball_speed_after_impact.as_kmh(),
@@ -1113,43 +1106,53 @@ fn render_scenario(
             ),
         ));
         info_rows.push(ReportInfoRow::new(
-            label("Cue-stick impact"),
+            "Cue-stick impact",
             format!(
                 "{:.2} km/h · {} band",
                 validation.cue_speed_at_impact.as_kmh(),
                 speed_band_label(validation.cue_speed_band)
             ),
         ));
-    }
-
-    for (shot_index, shot) in scenario.shots.iter().enumerate() {
-        let label = |single: &str, multi: &str| {
-            if scenario.shots.len() == 1 {
-                single.to_string()
-            } else {
-                format!("Shot {} {multi}", shot_index + 1)
-            }
-        };
         info_rows.push(ReportInfoRow::new(
-            label("Shot target", "target"),
+            "Shot target",
             format!("{:?}", shot.ball),
         ));
         info_rows.push(ReportInfoRow::new(
-            label("Heading", "heading"),
+            "Heading",
             format!("{:.2}°", shot.shot.heading().as_degrees()),
         ));
         info_rows.push(ReportInfoRow::new(
-            label("Tip side", "tip side"),
+            "Tip side",
             format!("{:+.2} R", shot.shot.tip_contact().side_offset().as_f64()),
         ));
         info_rows.push(ReportInfoRow::new(
-            label("Tip height", "tip height"),
+            "Tip height",
             format!("{:+.2} R", shot.shot.tip_contact().height_offset().as_f64()),
         ));
         info_rows.push(ReportInfoRow::new(
-            label("Clean-cuing limit", "clean-cuing limit"),
+            "Clean-cuing limit",
             format!("{:.2} R", shot.cue_strike.miscue_offset_limit().as_f64()),
         ));
+    } else if !scenario.shots.is_empty() {
+        info_rows.push(ReportInfoRow::new(
+            "Shots",
+            scenario.shots.len().to_string(),
+        ));
+        for (shot_index, (shot, validation)) in
+            scenario.shots.iter().zip(&speed_validations).enumerate()
+        {
+            info_rows.push(ReportInfoRow::new(
+                format!("Shot {}", shot_index + 1),
+                format!(
+                    "{:?} · {:.2}° · {:.2} km/h · tip ({:+.2} R, {:+.2} R)",
+                    shot.ball,
+                    shot.shot.heading().as_degrees(),
+                    validation.estimated_cue_ball_speed_after_impact.as_kmh(),
+                    shot.shot.tip_contact().side_offset().as_f64(),
+                    shot.shot.tip_contact().height_offset().as_f64(),
+                ),
+            ));
+        }
     }
 
     for (shot_index, shot_line) in shot_lines.iter().enumerate() {

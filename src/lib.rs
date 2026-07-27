@@ -16406,23 +16406,32 @@ fn rail_impact_contact_slip_direction(
         tangent_speed,
         normal_or_vertical_speed * normal_or_vertical_speed,
     );
-    let slip_speed = if squared_speed.is_finite() {
-        squared_speed.sqrt()
+    let adherence_speed = RAIL_IMPACT_ADHERENCE_SLIP_SPEED_INCHES_PER_SECOND;
+    let direction_scale = if squared_speed.is_finite() {
+        if squared_speed <= f64::EPSILON * f64::EPSILON {
+            return RailImpactContactSlipDirection {
+                tangent: 0.0,
+                normal_or_vertical: 0.0,
+            };
+        }
+        if squared_speed < adherence_speed * adherence_speed {
+            adherence_speed.recip()
+        } else {
+            squared_speed.sqrt().recip()
+        }
     } else {
-        tangent_speed.hypot(normal_or_vertical_speed)
+        let slip_speed = tangent_speed.hypot(normal_or_vertical_speed);
+        if slip_speed <= f64::EPSILON {
+            return RailImpactContactSlipDirection {
+                tangent: 0.0,
+                normal_or_vertical: 0.0,
+            };
+        }
+        (slip_speed / adherence_speed).clamp(0.0, 1.0) / slip_speed
     };
-    if slip_speed <= f64::EPSILON {
-        return RailImpactContactSlipDirection {
-            tangent: 0.0,
-            normal_or_vertical: 0.0,
-        };
-    }
-
-    let adherence_scale =
-        (slip_speed / RAIL_IMPACT_ADHERENCE_SLIP_SPEED_INCHES_PER_SECOND).clamp(0.0, 1.0);
     RailImpactContactSlipDirection {
-        tangent: adherence_scale * tangent_speed / slip_speed,
-        normal_or_vertical: adherence_scale * normal_or_vertical_speed / slip_speed,
+        tangent: tangent_speed * direction_scale,
+        normal_or_vertical: normal_or_vertical_speed * direction_scale,
     }
 }
 

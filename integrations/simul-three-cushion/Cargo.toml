@@ -19,3 +19,7 @@ simul = { path = "../../../simul" }
 [[bench]]
 name = "direct_trials"
 harness = false
+
+[[bench]]
+name = "cross_entropy_search"
+harness = false

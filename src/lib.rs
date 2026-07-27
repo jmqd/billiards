@@ -5584,7 +5584,9 @@ pub fn classify_motion_phase(
         return MotionPhase::Airborne;
     }
 
-    let linear_speed = ball_speed(state).as_f64();
+    let vx = state.velocity.x().as_f64();
+    let vy = state.velocity.y().as_f64();
+    let linear_speed = vx.hypot(vy);
     let wx = state.angular_velocity.x().as_f64();
     let wy = state.angular_velocity.y().as_f64();
     let wz = state.angular_velocity.z().as_f64();
@@ -5606,10 +5608,8 @@ pub fn classify_motion_phase(
         return MotionPhase::Spinning;
     }
 
-    let on_table_state = try_on_table_state(state, config)
-        .expect("states classified as non-airborne should normalize to on-table state");
-    let contact_speed =
-        cloth_contact_speed_on_table(on_table_state.as_ball_state(), ball.radius.clone()).as_f64();
+    let radius = ball.radius.as_f64();
+    let contact_speed = (vx - radius * wy).hypot(vy + radius * wx);
     let is_rolling = match &config.sliding_to_rolling {
         SlidingToRollingModel::ExactNoSlip => contact_speed <= f64::EPSILON,
         SlidingToRollingModel::Thresholded {

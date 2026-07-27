@@ -16402,7 +16402,15 @@ fn rail_impact_contact_slip_direction(
     tangent_speed: f64,
     normal_or_vertical_speed: f64,
 ) -> RailImpactContactSlipDirection {
-    let slip_speed = tangent_speed.hypot(normal_or_vertical_speed);
+    let squared_speed = tangent_speed.mul_add(
+        tangent_speed,
+        normal_or_vertical_speed * normal_or_vertical_speed,
+    );
+    let slip_speed = if squared_speed.is_finite() {
+        squared_speed.sqrt()
+    } else {
+        tangent_speed.hypot(normal_or_vertical_speed)
+    };
     if slip_speed <= f64::EPSILON {
         return RailImpactContactSlipDirection {
             tangent: 0.0,

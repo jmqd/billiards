@@ -5,8 +5,9 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::str::FromStr;
 
 use simul::experiment::{
-    run_replicated, Candidate, ReplicationPlan, SampleContext, SampleStream, SamplingError,
-    TrialContext, TrialError, TrialRecord, SEED_PROTOCOL,
+    run_replicated, Candidate, CrossEntropyConfig, CrossEntropyDimension, CrossEntropyOptimizer,
+    CrossEntropySample, ReplicationPlan, SampleContext, SampleStream, SamplingError, TrialContext,
+    TrialError, TrialRecord, SEED_PROTOCOL,
 };
 pub use simul::experiment::{RandomDomain, ReplayKey};
 
@@ -30,10 +31,21 @@ const SPEED_STREAM: SampleStream = SampleStream::new(0x5350_4545_4400_0001);
 const TIP_SIDE_STREAM: SampleStream = SampleStream::new(0x5349_4445_0000_0001);
 const TIP_HEIGHT_STREAM: SampleStream = SampleStream::new(0x4845_4947_4854_0001);
 const ELEVATION_STREAM: SampleStream = SampleStream::new(0x454c_4556_4154_0001);
-const ANNEALING_ACCEPTANCE_STREAM: SampleStream = SampleStream::new(0x4143_4345_5054_0001);
-const SEARCH_GLOBAL_PROPOSAL_INTERVAL: usize = 8;
-const SEARCH_FINAL_TEMPERATURE: f64 = 0.05;
-const SEARCH_LOCAL_STEP_FRACTION: f64 = 0.2;
+const CROSS_ENTROPY_POPULATION_SIZE: usize = 24;
+const CROSS_ENTROPY_ISLAND_COUNT: usize = 2;
+const CROSS_ENTROPY_ELITE_FRACTION: f64 = 0.25;
+const CROSS_ENTROPY_LEARNING_RATE: f64 = 0.6;
+const CROSS_ENTROPY_GLOBAL_IMMIGRANT_INTERVAL: usize = 6;
+const CROSS_ENTROPY_NORMAL_TRUNCATION: f64 = 3.0;
+const CROSS_ENTROPY_INITIAL_STANDARD_DEVIATION: [f64; 5] = [0.125, 0.18, 0.25, 0.25, 0.12];
+const CROSS_ENTROPY_MINIMUM_STANDARD_DEVIATION: [f64; 5] = [0.01, 0.02, 0.025, 0.025, 0.01];
+const CROSS_ENTROPY_STREAMS: [SampleStream; 5] = [
+    HEADING_STREAM,
+    SPEED_STREAM,
+    TIP_SIDE_STREAM,
+    TIP_HEIGHT_STREAM,
+    ELEVATION_STREAM,
+];
 // Domain priors are fractions of validated search bounds, not fixture controls.
 const GUIDED_SPEED_FRACTION: f64 = 0.36;
 const GUIDED_SIDE_MAGNITUDE_FRACTION: f64 = 0.87;
@@ -817,7 +829,7 @@ pub fn run_robust_three_cushion_experiment(
 ) -> Result<RobustThreeCushionExperimentReport, RobustExperimentError> {
     config.validate()?;
     let (candidates, screening) = match config.mode {
-        RobustExperimentMode::Search => run_adaptive_search_screening(config)?,
+        RobustExperimentMode::Search => run_cross_entropy_search_screening(config)?,
         RobustExperimentMode::Sensitivity => {
             let candidates = make_candidates(config)?;
             let screening = run_stage(
@@ -892,34 +904,29 @@ pub fn run_robust_three_cushion_experiment(
     })
 }
 
-#[derive(Clone, Copy)]
-struct AnnealingState {
-    controls: RobustShotControls,
-    score: f64,
-}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SearchProposalKind {
-    Guided,
+enum CrossEntropyProposalKind {
+    Center,
+    Distribution,
     Global,
-    Local,
 }
 
-/// Evaluates each screening proposal before choosing the next search point.
-fn run_adaptive_search_screening(
+/// Evaluates proposal generations in batches, then updates two object-directed CEM islands.
+fn run_cross_entropy_search_screening(
     config: &RobustThreeCushionExperimentConfig,
 ) -> Result<(Vec<Candidate<RobustShotControls>>, StageResults), RobustExperimentError> {
     let mut candidates = Vec::new();
     candidates
         .try_reserve_exact(config.candidate_budget)
-        .map_err(|error| resource_error("adaptive candidate set", error))?;
+        .map_err(|error| resource_error("cross-entropy candidate set", error))?;
     let mut summaries = Vec::new();
     summaries
         .try_reserve_exact(config.candidate_budget)
-        .map_err(|error| resource_error("adaptive screening summaries", error))?;
+        .map_err(|error| resource_error("cross-entropy screening summaries", error))?;
     let mut search_fitnesses = Vec::new();
     search_fitnesses
         .try_reserve_exact(config.candidate_budget)
-        .map_err(|error| resource_error("adaptive search fitnesses", error))?;
+        .map_err(|error| resource_error("cross-entropy search fitnesses", error))?;
     let trial_capacity = config
         .candidate_budget
         .checked_mul(
@@ -931,76 +938,112 @@ fn run_adaptive_search_screening(
         )
         .ok_or_else(|| {
             RobustExperimentError::InvalidConfiguration(
-                "adaptive screening trial count overflowed platform size".to_string(),
+                "cross-entropy screening trial count overflowed platform size".to_string(),
             )
         })?;
     let mut trials = Vec::new();
     trials
         .try_reserve_exact(trial_capacity)
-        .map_err(|error| resource_error("adaptive screening trials", error))?;
-    let mut accepted = AnnealingState {
-        controls: config.nominal,
-        score: f64::NEG_INFINITY,
-    };
-    for candidate_index in 0..config.candidate_budget {
-        let candidate_id = u64::try_from(candidate_index).map_err(|_| {
+        .map_err(|error| resource_error("cross-entropy screening trials", error))?;
+
+    candidates.push(Candidate {
+        id: 0,
+        value: config.nominal,
+    });
+    for controls in &config.additional_candidates {
+        let id = u64::try_from(candidates.len()).map_err(|_| {
             RobustExperimentError::CandidateGeneration("candidate ID does not fit u64".to_string())
         })?;
-        let temperature = search_temperature(candidate_index, config.candidate_budget);
-        let controls = if candidate_index == 0 {
-            config.nominal
-        } else if candidate_index <= config.additional_candidates.len() {
-            config.additional_candidates[candidate_index - 1]
-        } else {
-            generate_adaptive_search_candidate(
+        candidates.push(Candidate {
+            id,
+            value: *controls,
+        });
+    }
+    let mut configured_results = run_stage(
+        config,
+        &candidates,
+        RobustTrialStage::Screening,
+        ROBUST_SEARCH_SCREENING_DOMAIN,
+        config.screening_replication_budget,
+    )?;
+    summaries.append(&mut configured_results.summaries);
+    search_fitnesses.append(&mut configured_results.search_fitnesses);
+    trials.append(&mut configured_results.trials);
+
+    let mut optimizers = cross_entropy_islands(config)?;
+    let mut batch = Vec::new();
+    batch
+        .try_reserve_exact(CROSS_ENTROPY_POPULATION_SIZE)
+        .map_err(|error| resource_error("cross-entropy generation", error))?;
+    let mut island_by_offset = [0; CROSS_ENTROPY_POPULATION_SIZE];
+    let mut point_by_offset = [[0.0; 5]; CROSS_ENTROPY_POPULATION_SIZE];
+    let empty_sample = CrossEntropySample::new([0.0; 5], f64::NAN);
+    let mut island_samples = [[empty_sample; CROSS_ENTROPY_POPULATION_SIZE / 2]; 2];
+    let mut island_sample_counts = [0; CROSS_ENTROPY_ISLAND_COUNT];
+    let mut generated_count = 0;
+
+    while candidates.len() < config.candidate_budget {
+        batch.clear();
+        island_sample_counts.fill(0);
+        let batch_size =
+            CROSS_ENTROPY_POPULATION_SIZE.min(config.candidate_budget - candidates.len());
+        for offset in 0..batch_size {
+            let candidate_id = u64::try_from(candidates.len() + offset).map_err(|_| {
+                RobustExperimentError::CandidateGeneration(
+                    "candidate ID does not fit u64".to_string(),
+                )
+            })?;
+            let island = generated_count % CROSS_ENTROPY_ISLAND_COUNT;
+            let proposal_kind = cross_entropy_proposal_kind(generated_count);
+            let (controls, point) = generate_cross_entropy_candidate(
                 config,
                 candidate_id,
-                accepted.controls,
-                temperature,
-                search_proposal_kind(candidate_index, config.candidate_budget),
-            )?
-        };
-        let candidate = Candidate {
-            id: candidate_id,
-            value: controls,
-        };
+                &optimizers[island],
+                proposal_kind,
+            )?;
+            island_by_offset[offset] = island;
+            point_by_offset[offset] = point;
+            batch.push(Candidate {
+                id: candidate_id,
+                value: controls,
+            });
+            generated_count += 1;
+        }
+
         let mut result = run_stage(
             config,
-            std::slice::from_ref(&candidate),
+            &batch,
             RobustTrialStage::Screening,
             ROBUST_SEARCH_SCREENING_DOMAIN,
             config.screening_replication_budget,
         )?;
-        let summary = result.summaries.pop().ok_or_else(|| {
-            RobustExperimentError::ReportAssembly(format!(
-                "adaptive screening returned no summary for candidate {candidate_id}"
-            ))
-        })?;
-        let search_fitness = result.search_fitnesses.pop().ok_or_else(|| {
-            RobustExperimentError::ReportAssembly(format!(
-                "adaptive screening returned no fitness for candidate {candidate_id}"
-            ))
-        })?;
-        if !result.summaries.is_empty() || !result.search_fitnesses.is_empty() {
-            return Err(RobustExperimentError::ReportAssembly(format!(
-                "adaptive screening returned multiple summaries for candidate {candidate_id}"
-            )));
+        if result.summaries.len() != batch.len() || result.search_fitnesses.len() != batch.len() {
+            return Err(RobustExperimentError::ReportAssembly(
+                "cross-entropy generation result count did not match its candidates".to_string(),
+            ));
         }
-        let score = annealing_score(&summary, search_fitness);
-        if summary.eligible
-            && accept_annealing_proposal(
-                config.master_seed,
-                candidate_id,
-                accepted.score,
-                score,
-                temperature,
-            )
-        {
-            accepted = AnnealingState { controls, score };
+        for offset in 0..batch.len() {
+            let island = island_by_offset[offset];
+            let sample_index = island_sample_counts[island];
+            island_samples[island][sample_index] = CrossEntropySample::new(
+                point_by_offset[offset],
+                cross_entropy_score(&result.summaries[offset], result.search_fitnesses[offset]),
+            );
+            island_sample_counts[island] += 1;
         }
-        candidates.push(candidate);
-        summaries.push(summary);
-        search_fitnesses.push(search_fitness);
+        for island in 0..CROSS_ENTROPY_ISLAND_COUNT {
+            optimizers[island]
+                .tell(&mut island_samples[island][..island_sample_counts[island]])
+                .map_err(|error| {
+                    RobustExperimentError::ReportAssembly(format!(
+                        "cross-entropy island update failed: {error}"
+                    ))
+                })?;
+        }
+
+        candidates.append(&mut batch);
+        summaries.append(&mut result.summaries);
+        search_fitnesses.append(&mut result.search_fitnesses);
         trials.append(&mut result.trials);
     }
 
@@ -1014,51 +1057,187 @@ fn run_adaptive_search_screening(
     ))
 }
 
-/// Uses normalized soft progress for proposal steering; legal-score probability remains the
-/// held-out finalist-ranking objective.
-fn annealing_score(summary: &RobustOutcomeSummary, search_fitness: f64) -> f64 {
+/// Creates one proposal distribution aimed at each possible first object ball.
+fn cross_entropy_islands(
+    config: &RobustThreeCushionExperimentConfig,
+) -> Result<[CrossEntropyOptimizer<5>; CROSS_ENTROPY_ISLAND_COUNT], RobustExperimentError> {
+    Ok([
+        cross_entropy_island(config, 1)?,
+        cross_entropy_island(config, 2)?,
+    ])
+}
+
+/// Creates one normalized diagonal Gaussian CEM island.
+fn cross_entropy_island(
+    config: &RobustThreeCushionExperimentConfig,
+    object_selector: u64,
+) -> Result<CrossEntropyOptimizer<5>, RobustExperimentError> {
+    let samples = SampleContext::new(
+        config.master_seed,
+        ROBUST_SEARCH_PROPOSAL_DOMAIN,
+        object_selector,
+    );
+    let center = sample_guided_search_candidate(config, object_selector, samples, true)?;
+    let dimensions = cross_entropy_dimensions(config.search_bounds);
+    CrossEntropyOptimizer::new(
+        CrossEntropyConfig::new(
+            normalize_search_controls(center, config.search_bounds),
+            CROSS_ENTROPY_INITIAL_STANDARD_DEVIATION,
+        )
+        .with_dimensions(dimensions)
+        .with_minimum_standard_deviation(CROSS_ENTROPY_MINIMUM_STANDARD_DEVIATION)
+        .with_elite_fraction(CROSS_ENTROPY_ELITE_FRACTION)
+        .with_learning_rate(CROSS_ENTROPY_LEARNING_RATE),
+    )
+    .map_err(|error| {
+        RobustExperimentError::CandidateGeneration(format!(
+            "could not initialize cross-entropy island: {error}"
+        ))
+    })
+}
+
+/// Chooses structured centers, global immigrants, or an island distribution.
+fn cross_entropy_proposal_kind(generated_index: usize) -> CrossEntropyProposalKind {
+    if generated_index < CROSS_ENTROPY_ISLAND_COUNT {
+        CrossEntropyProposalKind::Center
+    } else if (generated_index + 1).is_multiple_of(CROSS_ENTROPY_GLOBAL_IMMIGRANT_INTERVAL) {
+        CrossEntropyProposalKind::Global
+    } else {
+        CrossEntropyProposalKind::Distribution
+    }
+}
+
+/// Generates an executable proposal and its normalized representation.
+fn generate_cross_entropy_candidate(
+    config: &RobustThreeCushionExperimentConfig,
+    candidate_id: u64,
+    optimizer: &CrossEntropyOptimizer<5>,
+    proposal_kind: CrossEntropyProposalKind,
+) -> Result<(RobustShotControls, [f64; 5]), RobustExperimentError> {
+    let base_sample_id = candidate_id
+        .checked_mul(ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE)
+        .ok_or_else(|| {
+            RobustExperimentError::CandidateGeneration(
+                "candidate proposal sample ID overflowed u64".to_string(),
+            )
+        })?;
+    for attempt in 0..ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE {
+        let sample_id = base_sample_id.checked_add(attempt).ok_or_else(|| {
+            RobustExperimentError::CandidateGeneration(
+                "candidate proposal sample ID overflowed u64".to_string(),
+            )
+        })?;
+        let samples =
+            SampleContext::new(config.master_seed, ROBUST_SEARCH_PROPOSAL_DOMAIN, sample_id);
+        let point = match proposal_kind {
+            CrossEntropyProposalKind::Center if attempt == 0 => *optimizer.mean(),
+            CrossEntropyProposalKind::Global => {
+                std::array::from_fn(|dimension| samples.uniform(CROSS_ENTROPY_STREAMS[dimension]))
+            }
+            CrossEntropyProposalKind::Center | CrossEntropyProposalKind::Distribution => {
+                sample_cross_entropy_point(optimizer, samples)?
+            }
+        };
+        let controls = denormalize_search_controls(point, config.search_bounds);
+        if candidate_is_executable(config, controls) {
+            return Ok((controls, point));
+        }
+    }
+    Err(RobustExperimentError::CandidateGeneration(format!(
+        "could not generate cross-entropy candidate {candidate_id} with an executable ±3σ envelope after 4096 attempts"
+    )))
+}
+
+/// Samples a CEM point from deterministic named standard-normal streams.
+fn sample_cross_entropy_point(
+    optimizer: &CrossEntropyOptimizer<5>,
+    samples: SampleContext,
+) -> Result<[f64; 5], RobustExperimentError> {
+    let mut sampling_error = None;
+    let point = optimizer
+        .ask_with_standard_normal(|dimension| {
+            match samples.truncated_standard_normal(
+                CROSS_ENTROPY_STREAMS[dimension],
+                CROSS_ENTROPY_NORMAL_TRUNCATION,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    sampling_error.get_or_insert(error);
+                    0.0
+                }
+            }
+        })
+        .map_err(|error| {
+            RobustExperimentError::CandidateGeneration(format!(
+                "cross-entropy sampling failed: {error}"
+            ))
+        })?;
+    if let Some(error) = sampling_error {
+        Err(RobustExperimentError::CandidateGeneration(format!(
+            "cross-entropy normal sampling failed: {error}"
+        )))
+    } else {
+        Ok(point)
+    }
+}
+
+/// Uses eligible soft progress for CEM fitting; validation still ranks legal-score probability.
+fn cross_entropy_score(summary: &RobustOutcomeSummary, search_fitness: f64) -> f64 {
     if summary.eligible {
         search_fitness
     } else {
-        -1.0
+        f64::NAN
     }
 }
 
-fn accept_annealing_proposal(
-    master_seed: u64,
-    candidate_id: u64,
-    current_score: f64,
-    proposal_score: f64,
-    temperature: f64,
-) -> bool {
-    if proposal_score >= current_score {
-        return true;
-    }
-    let acceptance_probability = ((proposal_score - current_score) / temperature).exp();
-    let samples = SampleContext::new(master_seed, ROBUST_SEARCH_PROPOSAL_DOMAIN, candidate_id);
-    samples.uniform(ANNEALING_ACCEPTANCE_STREAM) < acceptance_probability
-}
-
-fn search_temperature(candidate_index: usize, candidate_budget: usize) -> f64 {
-    if candidate_budget <= 1 {
-        return SEARCH_FINAL_TEMPERATURE;
-    }
-    let progress = candidate_index as f64 / (candidate_budget - 1) as f64;
-    SEARCH_FINAL_TEMPERATURE.powf(progress)
-}
-
-fn search_proposal_kind(candidate_index: usize, candidate_budget: usize) -> SearchProposalKind {
-    let exploration_end = candidate_budget.saturating_mul(2).div_ceil(3);
-    if candidate_index <= 2
-        || (candidate_index < exploration_end && !candidate_index.is_multiple_of(2))
-    {
-        SearchProposalKind::Guided
-    } else if candidate_index < exploration_end
-        || candidate_index.is_multiple_of(SEARCH_GLOBAL_PROPOSAL_INTERVAL)
-    {
-        SearchProposalKind::Global
+/// Returns normalized geometry, treating only a full heading range as circular.
+fn cross_entropy_dimensions(bounds: [RobustControlBounds; 5]) -> [CrossEntropyDimension; 5] {
+    let heading = if bounds[0].minimum == 0.0 && bounds[0].maximum == 360.0 {
+        CrossEntropyDimension::Circular
     } else {
-        SearchProposalKind::Local
+        CrossEntropyDimension::Linear
+    };
+    [
+        heading,
+        CrossEntropyDimension::Linear,
+        CrossEntropyDimension::Linear,
+        CrossEntropyDimension::Linear,
+        CrossEntropyDimension::Linear,
+    ]
+}
+
+/// Maps physical controls into CEM's normalized search space.
+fn normalize_search_controls(
+    controls: RobustShotControls,
+    bounds: [RobustControlBounds; 5],
+) -> [f64; 5] {
+    let values = controls.as_array();
+    std::array::from_fn(|dimension| {
+        let span = bounds[dimension].maximum - bounds[dimension].minimum;
+        if span == 0.0 {
+            0.5
+        } else if dimension == 0
+            && bounds[dimension].minimum == 0.0
+            && bounds[dimension].maximum == 360.0
+        {
+            (values[dimension] - bounds[dimension].minimum).rem_euclid(span) / span
+        } else {
+            ((values[dimension] - bounds[dimension].minimum) / span).clamp(0.0, 1.0)
+        }
+    })
+}
+
+/// Maps normalized CEM coordinates into physical shot controls.
+fn denormalize_search_controls(
+    point: [f64; 5],
+    bounds: [RobustControlBounds; 5],
+) -> RobustShotControls {
+    RobustShotControls {
+        heading: interpolate(bounds[0], point[0]),
+        speed: interpolate(bounds[1], point[1]),
+        tip_side: interpolate(bounds[2], point[2]),
+        tip_height: interpolate(bounds[3], point[3]),
+        elevation: interpolate(bounds[4], point[4]),
     }
 }
 
@@ -1285,49 +1464,6 @@ fn generate_candidate(
         "could not generate candidate {candidate_id} with an executable ±3σ envelope after 4096 attempts; tighten bounds/perturbations or shot-inaccuracy sigmas"
     )))
 }
-fn generate_adaptive_search_candidate(
-    config: &RobustThreeCushionExperimentConfig,
-    candidate_id: u64,
-    center: RobustShotControls,
-    temperature: f64,
-    proposal_kind: SearchProposalKind,
-) -> Result<RobustShotControls, RobustExperimentError> {
-    let base_sample_id = candidate_id
-        .checked_mul(ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE)
-        .ok_or_else(|| {
-            RobustExperimentError::CandidateGeneration(
-                "candidate proposal sample ID overflowed u64".to_string(),
-            )
-        })?;
-    for attempt in 0..ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE {
-        let sample_id = base_sample_id.checked_add(attempt).ok_or_else(|| {
-            RobustExperimentError::CandidateGeneration(
-                "candidate proposal sample ID overflowed u64".to_string(),
-            )
-        })?;
-        let samples =
-            SampleContext::new(config.master_seed, ROBUST_SEARCH_PROPOSAL_DOMAIN, sample_id);
-        let controls = match proposal_kind {
-            SearchProposalKind::Guided => {
-                sample_guided_search_candidate(config, candidate_id, samples, attempt == 0)?
-            }
-            SearchProposalKind::Global => sample_search_candidate(config.search_bounds, samples),
-            SearchProposalKind::Local => sample_local_search_candidate(
-                center,
-                config.search_bounds,
-                temperature,
-                candidate_id,
-                samples,
-            ),
-        };
-        if candidate_is_executable(config, controls) {
-            return Ok(controls);
-        }
-    }
-    Err(RobustExperimentError::CandidateGeneration(format!(
-        "could not generate adaptive candidate {candidate_id} with an executable ±3σ envelope after 4096 attempts"
-    )))
-}
 
 fn sensitivity_center(
     config: &RobustThreeCushionExperimentConfig,
@@ -1466,99 +1602,6 @@ fn layout_position(
         })?;
     let position = &ball.state.as_ball_state().position;
     Ok((position.x().as_f64(), position.y().as_f64()))
-}
-
-fn sample_local_search_candidate(
-    center: RobustShotControls,
-    bounds: [RobustControlBounds; 5],
-    temperature: f64,
-    candidate_id: u64,
-    samples: SampleContext,
-) -> RobustShotControls {
-    let step_fraction = SEARCH_LOCAL_STEP_FRACTION * temperature;
-    let mut proposal = center;
-    match candidate_id % 5 {
-        0 => {
-            proposal.heading = local_search_value(
-                center.heading,
-                bounds[0],
-                step_fraction,
-                samples,
-                HEADING_STREAM,
-                true,
-            );
-        }
-        1 => {
-            proposal.speed = local_search_value(
-                center.speed,
-                bounds[1],
-                step_fraction,
-                samples,
-                SPEED_STREAM,
-                false,
-            );
-        }
-        2 => {
-            proposal.tip_side = local_search_value(
-                center.tip_side,
-                bounds[2],
-                step_fraction,
-                samples,
-                TIP_SIDE_STREAM,
-                false,
-            );
-        }
-        3 => {
-            proposal.tip_height = local_search_value(
-                center.tip_height,
-                bounds[3],
-                step_fraction,
-                samples,
-                TIP_HEIGHT_STREAM,
-                false,
-            );
-        }
-        _ => {
-            proposal.elevation = local_search_value(
-                center.elevation,
-                bounds[4],
-                step_fraction,
-                samples,
-                ELEVATION_STREAM,
-                false,
-            );
-        }
-    }
-    proposal
-}
-
-fn local_search_value(
-    center: f64,
-    bounds: RobustControlBounds,
-    step_fraction: f64,
-    samples: SampleContext,
-    stream: SampleStream,
-    circular_heading: bool,
-) -> f64 {
-    if bounds.minimum == bounds.maximum {
-        return bounds.minimum;
-    }
-    let span = bounds.maximum - bounds.minimum;
-    let proposal = center + span * step_fraction * symmetric_uniform(samples, stream);
-    if circular_heading && bounds.minimum == 0.0 && bounds.maximum == 360.0 {
-        return proposal.rem_euclid(360.0);
-    }
-    reflect_search_value(proposal, bounds)
-}
-
-fn reflect_search_value(proposal: f64, bounds: RobustControlBounds) -> f64 {
-    let span = bounds.maximum - bounds.minimum;
-    let reflected = (proposal - bounds.minimum).rem_euclid(2.0 * span);
-    if reflected <= span {
-        bounds.minimum + reflected
-    } else {
-        bounds.maximum - (reflected - span)
-    }
 }
 
 fn sample_sensitivity_candidate(
@@ -2160,7 +2203,7 @@ mod tests {
     }
 
     #[test]
-    fn annealing_score_is_normalized_across_replication_counts() {
+    fn cross_entropy_score_is_normalized_and_ignores_ineligible_trials() {
         let one_replication = RobustOutcomeSummary {
             requested: 1,
             scored: 0,
@@ -2185,15 +2228,15 @@ mod tests {
         };
         let fitness = 0.73;
         assert!(
-            (annealing_score(&one_replication, fitness)
-                - annealing_score(&many_replications, fitness))
+            (cross_entropy_score(&one_replication, fitness)
+                - cross_entropy_score(&many_replications, fitness))
             .abs()
                 <= f64::EPSILON
         );
 
         let mut ineligible = many_replications;
         ineligible.eligible = false;
-        assert!(annealing_score(&ineligible, fitness) < 0.0);
+        assert!(cross_entropy_score(&ineligible, fitness).is_nan());
     }
 
     #[test]
@@ -2243,64 +2286,70 @@ mod tests {
     }
 
     #[test]
-    fn search_schedule_guides_explores_and_refines_one_reflected_coordinate() {
-        assert_eq!(search_proposal_kind(19, 31), SearchProposalKind::Guided);
-        assert_eq!(search_proposal_kind(20, 31), SearchProposalKind::Global);
-        assert_eq!(search_proposal_kind(21, 31), SearchProposalKind::Local);
-        assert_eq!(search_proposal_kind(24, 31), SearchProposalKind::Global);
-        assert!((search_temperature(0, 31) - 1.0).abs() <= f64::EPSILON);
-        assert!(search_temperature(15, 31) < 0.5);
-        assert!((search_temperature(30, 31) - SEARCH_FINAL_TEMPERATURE).abs() <= f64::EPSILON);
-
-        assert!(accept_annealing_proposal(7, 1, 0.0, 1.0, 0.5));
-        assert!((0_u64..64).any(|candidate_id| accept_annealing_proposal(
-            7,
-            candidate_id,
-            1.0,
-            0.5,
-            1.0
-        )));
-        assert!((0_u64..64).any(|candidate_id| !accept_annealing_proposal(
-            7,
-            candidate_id,
-            1.0,
-            0.5,
-            1.0
-        )));
+    fn cross_entropy_schedule_and_normalized_mapping_preserve_domain_geometry() {
+        assert_eq!(
+            cross_entropy_proposal_kind(0),
+            CrossEntropyProposalKind::Center
+        );
+        assert_eq!(
+            cross_entropy_proposal_kind(1),
+            CrossEntropyProposalKind::Center
+        );
+        assert_eq!(
+            cross_entropy_proposal_kind(2),
+            CrossEntropyProposalKind::Distribution
+        );
+        assert_eq!(
+            cross_entropy_proposal_kind(5),
+            CrossEntropyProposalKind::Global
+        );
+        assert_eq!(
+            cross_entropy_proposal_kind(6),
+            CrossEntropyProposalKind::Distribution
+        );
+        assert_eq!(
+            cross_entropy_proposal_kind(11),
+            CrossEntropyProposalKind::Global
+        );
 
         let bounds = [
             RobustControlBounds::new(0.0, 360.0),
             RobustControlBounds::new(1.0, 300.0),
             RobustControlBounds::new(-0.45, 0.45),
             RobustControlBounds::new(-0.45, 0.45),
-            RobustControlBounds::new(0.0, 85.0),
+            RobustControlBounds::new(10.0, 10.0),
         ];
-        let center = RobustShotControls {
+        assert_eq!(
+            cross_entropy_dimensions(bounds)[0],
+            CrossEntropyDimension::Circular
+        );
+        let controls = RobustShotControls {
             heading: 90.0,
             speed: 100.0,
             tip_side: -0.1,
             tip_height: 0.1,
             elevation: 10.0,
         };
-        let proposal = sample_local_search_candidate(
-            center,
-            bounds,
-            0.5,
-            21,
-            SampleContext::new(7, ROBUST_SEARCH_PROPOSAL_DOMAIN, 21),
-        );
-        assert_eq!(proposal.heading.to_bits(), center.heading.to_bits());
-        assert_ne!(proposal.speed.to_bits(), center.speed.to_bits());
-        assert_eq!(proposal.tip_side.to_bits(), center.tip_side.to_bits());
-        assert_eq!(proposal.tip_height.to_bits(), center.tip_height.to_bits());
-        assert_eq!(proposal.elevation.to_bits(), center.elevation.to_bits());
+        let normalized = normalize_search_controls(controls, bounds);
+        assert!((normalized[0] - 0.25).abs() <= f64::EPSILON);
+        assert!((normalized[4] - 0.5).abs() <= f64::EPSILON);
+        assert!(normalized
+            .into_iter()
+            .all(|coordinate| (0.0..=1.0).contains(&coordinate)));
 
-        let unit = RobustControlBounds::new(0.0, 1.0);
-        for (outside, expected) in [(-0.25, 0.25), (0.0, 0.0), (1.0, 1.0), (1.25, 0.75)] {
-            let reflected = reflect_search_value(outside, unit);
-            assert!((reflected - expected).abs() <= f64::EPSILON);
-            assert!((unit.minimum..=unit.maximum).contains(&reflected));
+        let reconstructed = denormalize_search_controls(normalized, bounds);
+        for (actual, expected) in reconstructed
+            .as_array()
+            .into_iter()
+            .zip(controls.as_array())
+        {
+            assert!((actual - expected).abs() <= 1.0e-12);
         }
+        let wrapped = RobustShotControls {
+            heading: 360.0,
+            ..controls
+        };
+        assert!(normalize_search_controls(wrapped, bounds)[0].abs() <= f64::EPSILON);
     }
 
     #[test]

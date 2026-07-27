@@ -1,4 +1,3 @@
-use bigdecimal::BigDecimal;
 use billiards::{
     frozen_cue_ball_jewett_cut_angle, gearing_english, predict_small_gap_combination_throw, Angle,
     BallBallCollisionConfig, BallBallFrictionModel, CutAngle, Displacement, Inches,
@@ -6,9 +5,7 @@ use billiards::{
 };
 
 fn shot_speed_ips(ips: i64) -> InchesPerSecond {
-    InchesPerSecond::new(Inches {
-        magnitude: BigDecimal::from(ips),
-    })
+    InchesPerSecond::new(Inches::from(ips))
 }
 
 fn assert_close(actual: f64, expected: f64) {

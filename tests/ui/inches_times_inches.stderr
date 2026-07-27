@@ -1,7 +1,7 @@
 error[E0277]: cannot multiply `Inches` by `Inches`
- --> tests/ui/inches_times_inches.rs:9:28
+ --> tests/ui/inches_times_inches.rs:6:28
   |
-9 |     let _ = inches.clone() * inches;
+6 |     let _ = inches.clone() * inches;
   |                            ^ no implementation for `Inches * Inches`
   |
   = help: the trait `Mul` is not implemented for `Inches`

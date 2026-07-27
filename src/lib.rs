@@ -39,36 +39,21 @@ use bigdecimal::FromPrimitive;
 use bigdecimal::ToPrimitive;
 
 lazy_static! {
-    pub static ref DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
-        magnitude: BigDecimal::from_str("3.6875").unwrap()
-    };
-    pub static ref OFFICIAL_DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches {
-        magnitude: BigDecimal::from_str("3.6875").unwrap()
-    };
+    pub static ref DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches::from("3.6875");
+    pub static ref OFFICIAL_DIAMOND_SIGHT_NOSE_OFFSET: Inches = Inches::from("3.6875");
     /// When optimally packing pool balls into a "frozen" configuration, each
     /// set of three balls forms an equilateral triangle from center <-> center
     /// <-> center with each side being 2R. From this, we know that for any 2
     /// adjacent pairs in the triple, drawing a line between their centers, the
     /// distance we must shift that line to go through the center of the third
     /// ball is a dimensionless factor of sqrt(3), applied to the ball radius.
-    pub static ref OPTIMAL_PACKING_RADIUS_SHIFT: Scale = Scale {
-        magnitude: BigDecimal::from_usize(3).unwrap().sqrt().unwrap()
-    };
-    pub static ref GC4_POCKET_DEPTH: Inches = Inches {
-        magnitude: BigDecimal::from_str("1.4").unwrap()
-    };
-    pub static ref GC4_CORNER_POCKET_WIDTH: Inches = Inches {
-        magnitude: BigDecimal::from_str("4.5").unwrap()
-    };
-    pub static ref GC4_SIDE_POCKET_WIDTH: Inches = Inches {
-        magnitude: BigDecimal::from_str("5").unwrap()
-    };
-    pub static ref TYPICAL_BALL_RADIUS: Inches = Inches {
-        magnitude: BigDecimal::from_str("1.125").unwrap()
-    };
-    pub static ref CAROM_BALL_RADIUS: Inches = Inches {
-        magnitude: BigDecimal::from_str("1.21063").unwrap()
-    };
+    pub static ref OPTIMAL_PACKING_RADIUS_SHIFT: Scale =
+        Scale::from_big_decimal(BigDecimal::from_usize(3).unwrap().sqrt().unwrap());
+    pub static ref GC4_POCKET_DEPTH: Inches = Inches::from("1.4");
+    pub static ref GC4_CORNER_POCKET_WIDTH: Inches = Inches::from("4.5");
+    pub static ref GC4_SIDE_POCKET_WIDTH: Inches = Inches::from("5");
+    pub static ref TYPICAL_BALL_RADIUS: Inches = Inches::from("1.125");
+    pub static ref CAROM_BALL_RADIUS: Inches = Inches::from("1.21063");
     pub static ref CENTER_SPOT: Position = Position {
         x: Diamond::from("2"),
         y: Diamond::from("4"),
@@ -322,58 +307,78 @@ impl Default for Diamond {
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 /// A dimensionless scale factor.
 pub struct Scale {
-    pub magnitude: BigDecimal,
+    magnitude: BigDecimal,
+    value: f64,
 }
 
 impl Scale {
+    fn from_big_decimal(magnitude: BigDecimal) -> Self {
+        let value = magnitude.to_f64().unwrap();
+        Self { magnitude, value }
+    }
+
     pub fn zero() -> Self {
         Self::from(0u8)
     }
 
-    pub fn from_f64(magnitude: f64) -> Self {
-        assert!(magnitude.is_finite(), "scale magnitude must be finite");
+    pub fn from_f64(value: f64) -> Self {
+        assert!(value.is_finite(), "scale magnitude must be finite");
         Self {
-            magnitude: BigDecimal::from_f64(magnitude).unwrap(),
+            magnitude: BigDecimal::from_f64(value).unwrap(),
+            value,
         }
     }
 
     pub fn as_f64(&self) -> f64 {
-        self.magnitude.to_f64().unwrap()
+        self.value
+    }
+
+    /// Returns the exact decimal magnitude.
+    pub fn as_big_decimal(&self) -> &BigDecimal {
+        &self.magnitude
     }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 /// Our representation for converting to inches.
 pub struct Inches {
-    pub magnitude: BigDecimal,
+    magnitude: BigDecimal,
+    value: f64,
 }
 
 impl Inches {
+    fn from_big_decimal(magnitude: BigDecimal) -> Self {
+        let value = magnitude.to_f64().unwrap();
+        Self { magnitude, value }
+    }
+
     pub fn zero() -> Self {
         Self::from(0u8)
     }
 
-    pub fn from_f64(magnitude: f64) -> Self {
-        assert!(magnitude.is_finite(), "inch magnitude must be finite");
+    pub fn from_f64(value: f64) -> Self {
+        assert!(value.is_finite(), "inch magnitude must be finite");
         Self {
-            magnitude: BigDecimal::from_f64(magnitude).unwrap(),
+            magnitude: BigDecimal::from_f64(value).unwrap(),
+            value,
         }
     }
 
     pub fn as_f64(&self) -> f64 {
-        self.magnitude.to_f64().unwrap()
+        self.value
+    }
+
+    /// Returns the exact decimal magnitude.
+    pub fn as_big_decimal(&self) -> &BigDecimal {
+        &self.magnitude
     }
 
     pub fn double(self) -> Self {
-        Self {
-            magnitude: self.magnitude.double(),
-        }
+        Self::from_big_decimal(self.magnitude.double())
     }
 
     pub fn half(self) -> Self {
-        Self {
-            magnitude: self.magnitude.half(),
-        }
+        Self::from_big_decimal(self.magnitude.half())
     }
 }
 
@@ -381,10 +386,39 @@ impl Neg for Inches {
     type Output = Inches;
 
     fn neg(self) -> Self {
-        Self {
-            magnitude: self.magnitude.neg(),
-        }
+        Self::from_big_decimal(self.magnitude.neg())
     }
+}
+
+#[cfg(test)]
+#[test]
+fn cached_decimal_units_preserve_conversion_and_arithmetic() {
+    for expected in [
+        f64::from_bits(1),
+        f64::MIN_POSITIVE,
+        std::f64::consts::PI,
+        f64::MAX,
+        -f64::MAX,
+    ] {
+        assert_eq!(
+            Inches::from_f64(expected).as_f64().to_bits(),
+            expected.to_bits()
+        );
+        assert_eq!(
+            Scale::from_f64(expected).as_f64().to_bits(),
+            expected.to_bits()
+        );
+    }
+
+    let decimal = Inches::from("0.1");
+    assert_eq!(
+        decimal.as_f64().to_bits(),
+        decimal.as_big_decimal().to_f64().unwrap().to_bits()
+    );
+
+    let sum = Inches::from("1.25") + Inches::from("2.5");
+    assert_eq!(sum.as_f64(), 3.75);
+    assert_eq!(sum.as_big_decimal(), &BigDecimal::from_str("3.75").unwrap());
 }
 
 /// A measure of speed in terms of inches per second.
@@ -17368,12 +17402,9 @@ impl Position {
         let ux = rad.sin();
         let uy = rad.cos();
 
-        let dx = Inches {
-            magnitude: inches.magnitude.clone() * BigDecimal::from_f64(ux).unwrap(),
-        };
-        let dy = Inches {
-            magnitude: inches.magnitude * BigDecimal::from_f64(uy).unwrap(),
-        };
+        let dx =
+            Inches::from_big_decimal(inches.magnitude.clone() * BigDecimal::from_f64(ux).unwrap());
+        let dy = Inches::from_big_decimal(inches.magnitude * BigDecimal::from_f64(uy).unwrap());
 
         Self {
             unresolved_x_shift: Some(self.unresolved_x_shift.clone().unwrap_or_default() + dx),
@@ -17422,9 +17453,7 @@ pub fn gearing_english_for_radius(
     shot_speed: InchesPerSecond,
     radius: Inches,
 ) -> RadiansPerSecond {
-    let omega = shot_speed.inches.magnitude.to_f64().unwrap()
-        * cut_angle.as_degrees().to_radians().sin()
-        / radius.magnitude.to_f64().unwrap();
+    let omega = shot_speed.as_f64() * cut_angle.as_degrees().to_radians().sin() / radius.as_f64();
     RadiansPerSecond::new(omega)
 }
 
@@ -17505,9 +17534,7 @@ impl Add for Inches {
     type Output = Inches;
 
     fn add(self, rhs: Inches) -> Self::Output {
-        Self {
-            magnitude: self.magnitude + rhs.magnitude,
-        }
+        Self::from_big_decimal(self.magnitude + rhs.magnitude)
     }
 }
 
@@ -17515,9 +17542,7 @@ impl Mul<Scale> for Inches {
     type Output = Inches;
 
     fn mul(self, rhs: Scale) -> Self::Output {
-        Self {
-            magnitude: self.magnitude * rhs.magnitude,
-        }
+        Self::from_big_decimal(self.magnitude * rhs.magnitude)
     }
 }
 
@@ -17613,9 +17638,7 @@ impl Sub for Inches {
     type Output = Inches;
 
     fn sub(self, rhs: Inches) -> Self::Output {
-        Self {
-            magnitude: self.magnitude - rhs.magnitude,
-        }
+        Self::from_big_decimal(self.magnitude - rhs.magnitude)
     }
 }
 
@@ -17623,9 +17646,7 @@ impl Div<BigDecimal> for Inches {
     type Output = Inches;
 
     fn div(self, rhs: BigDecimal) -> Self::Output {
-        Inches {
-            magnitude: self.magnitude / rhs,
-        }
+        Inches::from_big_decimal(self.magnitude / rhs)
     }
 }
 
@@ -17641,49 +17662,37 @@ impl Mul<BigDecimal> for Diamond {
 
 impl From<u8> for Scale {
     fn from(value: u8) -> Self {
-        Self {
-            magnitude: BigDecimal::from_u8(value).unwrap(),
-        }
+        Self::from_big_decimal(BigDecimal::from_u8(value).unwrap())
     }
 }
 
 impl From<i64> for Scale {
     fn from(value: i64) -> Self {
-        Self {
-            magnitude: BigDecimal::from_i64(value).unwrap(),
-        }
+        Self::from_big_decimal(BigDecimal::from_i64(value).unwrap())
     }
 }
 
 impl From<&str> for Scale {
     fn from(value: &str) -> Self {
-        Self {
-            magnitude: BigDecimal::from_str(value).unwrap(),
-        }
+        Self::from_big_decimal(BigDecimal::from_str(value).unwrap())
     }
 }
 
 impl From<u8> for Inches {
     fn from(value: u8) -> Self {
-        Self {
-            magnitude: BigDecimal::from_u8(value).unwrap(),
-        }
+        Self::from_big_decimal(BigDecimal::from_u8(value).unwrap())
     }
 }
 
 impl From<i64> for Inches {
     fn from(value: i64) -> Self {
-        Self {
-            magnitude: BigDecimal::from_i64(value).unwrap(),
-        }
+        Self::from_big_decimal(BigDecimal::from_i64(value).unwrap())
     }
 }
 
 impl From<&str> for Inches {
     fn from(value: &str) -> Self {
-        Self {
-            magnitude: BigDecimal::from_str(value).unwrap(),
-        }
+        Self::from_big_decimal(BigDecimal::from_str(value).unwrap())
     }
 }
 
@@ -17910,15 +17919,13 @@ impl Default for BallSpec {
 impl TableSpec {
     /// A typical 9ft Brunswick Gold Crown IV specification.
     pub fn brunswick_gc4_9ft() -> Self {
-        let diamond_length = Inches {
-            magnitude: BigDecimal::from_str("12.5").unwrap(),
-        };
+        let diamond_length = Inches::from("12.5");
         Self {
             kind: TableKind::Pool,
             diamond_length: diamond_length.clone(),
             cushion_diamond_buffer: Diamond {
-                magnitude: DIAMOND_SIGHT_NOSE_OFFSET.magnitude.clone()
-                    / diamond_length.magnitude.clone(),
+                magnitude: DIAMOND_SIGHT_NOSE_OFFSET.as_big_decimal().clone()
+                    / diamond_length.as_big_decimal().clone(),
             },
             pockets: [
                 Self::brunswick_gc4_corner_pocket(diamond_length.clone()),
@@ -17933,14 +17940,13 @@ impl TableSpec {
 
     /// A pocketless 10ft three-cushion/carom table: 2.84m x 1.42m playing surface.
     pub fn three_cushion_carom_10ft() -> Self {
-        let diamond_length = Inches {
-            magnitude: BigDecimal::from_str("13.97638").unwrap(),
-        };
+        let diamond_length = Inches::from("13.97638");
         Self {
             kind: TableKind::ThreeCushionCarom,
             diamond_length: diamond_length.clone(),
             cushion_diamond_buffer: Diamond {
-                magnitude: DIAMOND_SIGHT_NOSE_OFFSET.magnitude.clone() / diamond_length.magnitude,
+                magnitude: DIAMOND_SIGHT_NOSE_OFFSET.as_big_decimal().clone()
+                    / diamond_length.as_big_decimal().clone(),
             },
             pockets: [
                 Self::disabled_corner_pocket(),
@@ -17958,10 +17964,12 @@ impl TableSpec {
         PocketSpec {
             ty: PocketType::Corner,
             depth: Diamond {
-                magnitude: GC4_POCKET_DEPTH.magnitude.clone() / diamond_length.magnitude.clone(),
+                magnitude: GC4_POCKET_DEPTH.as_big_decimal().clone()
+                    / diamond_length.as_big_decimal().clone(),
             },
             width: Diamond {
-                magnitude: GC4_CORNER_POCKET_WIDTH.magnitude.clone() / diamond_length.magnitude,
+                magnitude: GC4_CORNER_POCKET_WIDTH.as_big_decimal().clone()
+                    / diamond_length.as_big_decimal().clone(),
             },
             shape: Self::brunswick_gc4_corner_pocket_shape(),
         }
@@ -17972,10 +17980,12 @@ impl TableSpec {
         PocketSpec {
             ty: PocketType::Side,
             depth: Diamond {
-                magnitude: GC4_POCKET_DEPTH.magnitude.clone() / diamond_length.magnitude.clone(),
+                magnitude: GC4_POCKET_DEPTH.as_big_decimal().clone()
+                    / diamond_length.as_big_decimal().clone(),
             },
             width: Diamond {
-                magnitude: GC4_SIDE_POCKET_WIDTH.magnitude.clone() / diamond_length.magnitude,
+                magnitude: GC4_SIDE_POCKET_WIDTH.as_big_decimal().clone()
+                    / diamond_length.as_big_decimal().clone(),
             },
             shape: Self::brunswick_gc4_side_pocket_shape(),
         }
@@ -18048,15 +18058,13 @@ impl TableSpec {
     /// For a given table, convert Diamond Units into Inches.
     /// On a typical 9ft table, 1 Diamond is equal to 12.5 inches.
     pub fn diamond_to_inches(&self, val: Diamond) -> Inches {
-        Inches {
-            magnitude: val.magnitude * self.diamond_length.magnitude.clone(),
-        }
+        Inches::from_big_decimal(val.magnitude * self.diamond_length.as_big_decimal())
     }
 
     /// For a given table, convert inches into Diamond Units.
     pub fn inches_to_diamond(&self, val: Inches) -> Diamond {
         Diamond {
-            magnitude: val.magnitude / self.diamond_length.magnitude.clone(),
+            magnitude: val.magnitude / self.diamond_length.as_big_decimal(),
         }
     }
 }

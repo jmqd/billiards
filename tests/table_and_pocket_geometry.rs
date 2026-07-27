@@ -23,14 +23,7 @@ fn given_a_brunswick_gc4_table_when_constructed_then_the_standard_lengths_and_po
 ) {
     let table = TableSpec::brunswick_gc4_9ft();
 
-    assert_close(
-        table
-            .diamond_length
-            .magnitude
-            .to_f64()
-            .expect("diamond length"),
-        12.5,
-    );
+    assert_close(table.diamond_length.as_f64(), 12.5);
     assert_close(
         table
             .cushion_diamond_buffer
@@ -82,14 +75,7 @@ fn given_a_three_cushion_table_when_constructed_then_it_is_pocketless_and_uses_c
     assert_eq!(table.kind, TableKind::ThreeCushionCarom);
     assert!(!table.has_pockets());
     assert_eq!(table.default_game_type(), GameType::ThreeCushion);
-    assert_close(
-        table
-            .diamond_length
-            .magnitude
-            .to_f64()
-            .expect("diamond length"),
-        13.97638,
-    );
+    assert_close(table.diamond_length.as_f64(), 13.97638);
     assert_close(
         table.default_ball_spec().radius.as_f64(),
         CAROM_BALL_RADIUS.as_f64(),

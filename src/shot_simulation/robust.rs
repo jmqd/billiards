@@ -11,8 +11,9 @@ use simul::experiment::{
 pub use simul::experiment::{RandomDomain, ReplayKey};
 
 use super::{
-    execute_three_cushion_compact, CueStrikeConfig, PhysicsProfile, ShotControls, ShotLayout,
-    ShotLimit, ThreeCushionAdjudication, ThreeCushionShooter, ThreeCushionShot,
+    execute_three_cushion_compact, CaromBallRole, CueStrikeConfig, PhysicsProfile, ShotControls,
+    ShotLayout, ShotLimit, ThreeCushionAdjudication, ThreeCushionShooter, ThreeCushionShot,
+    THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES,
 };
 
 pub const ROBUST_SEED_PROTOCOL: &str = SEED_PROTOCOL;
@@ -29,6 +30,15 @@ const SPEED_STREAM: SampleStream = SampleStream::new(0x5350_4545_4400_0001);
 const TIP_SIDE_STREAM: SampleStream = SampleStream::new(0x5349_4445_0000_0001);
 const TIP_HEIGHT_STREAM: SampleStream = SampleStream::new(0x4845_4947_4854_0001);
 const ELEVATION_STREAM: SampleStream = SampleStream::new(0x454c_4556_4154_0001);
+const ANNEALING_ACCEPTANCE_STREAM: SampleStream = SampleStream::new(0x4143_4345_5054_0001);
+const SEARCH_GLOBAL_PROPOSAL_INTERVAL: usize = 8;
+const SEARCH_FINAL_TEMPERATURE: f64 = 0.05;
+const SEARCH_LOCAL_STEP_FRACTION: f64 = 0.2;
+// Domain priors are fractions of validated search bounds, not fixture controls.
+const GUIDED_SPEED_FRACTION: f64 = 0.36;
+const GUIDED_SIDE_MAGNITUDE_FRACTION: f64 = 0.87;
+const GUIDED_HEIGHT_FRACTION: f64 = 0.25;
+const GUIDED_ELEVATION_FRACTION: f64 = 0.01;
 
 pub const ROBUST_NOISE_TRUNCATION_STANDARD_DEVIATIONS: f64 = 3.0;
 pub const ROBUST_MAX_CANONICAL_TIP_OFFSET: f64 = 0.5;
@@ -40,7 +50,7 @@ pub const ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE: u64 = 4_096;
 pub const MIN_ROBUST_SEARCH_EVALUATIONS: u32 = 16;
 pub const MAX_ROBUST_SEARCH_EVALUATIONS: u32 = 10_000;
 pub const DEFAULT_ROBUST_SEARCH_SEED: u64 = 0x524f_4255_5354_0001;
-const MAX_PLAYER_SEARCH_CANDIDATES: usize = 128;
+const MAX_PLAYER_SEARCH_CANDIDATES: usize = 512;
 const PLAYER_SEARCH_FINALISTS: usize = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -419,6 +429,7 @@ struct PreparedTrial {
 struct EvaluatedTrial {
     applied: RobustShotControls,
     outcome: EvaluatedOutcome,
+    search_fitness: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -461,10 +472,13 @@ struct OutcomeAccumulator {
     indeterminate: u32,
     failed: u32,
     reducer: BernoulliReducer,
+    search_fitness_total: f64,
+    evaluated: u32,
 }
 
 struct StageResults {
     summaries: Vec<RobustOutcomeSummary>,
+    search_fitnesses: Vec<f64>,
     trials: Vec<RobustTrialReport>,
 }
 
@@ -474,7 +488,7 @@ impl Evaluator {
         shooter: ThreeCushionShooter,
         controls: RobustShotControls,
         max_events: usize,
-    ) -> Result<EvaluatedOutcome, String> {
+    ) -> Result<(EvaluatedOutcome, f64), String> {
         let controls = ShotControls::new(
             controls.heading,
             controls.speed,
@@ -491,7 +505,11 @@ impl Evaluator {
             ShotLimit::EventCount(max_events),
         )
         .map_err(|error| format!("shot execution failed: {error}"))?;
-        Ok(match result.completion.summary {
+        let search_fitness = three_cushion_search_fitness(
+            &result.completion.summary,
+            2.0 * self.physics.ball.radius.as_f64(),
+        );
+        let outcome = match result.completion.summary {
             ThreeCushionAdjudication::Scored(_) => EvaluatedOutcome::Scored,
             ThreeCushionAdjudication::Miss { reason, .. } => {
                 EvaluatedOutcome::Miss(format!("{reason:?}"))
@@ -499,8 +517,47 @@ impl Evaluator {
             ThreeCushionAdjudication::Indeterminate { reason, .. } => {
                 EvaluatedOutcome::Indeterminate(format!("{reason:?}"))
             }
-        })
+        };
+        Ok((outcome, search_fitness))
     }
+}
+
+/// Bounded partial progress used only to steer search proposals.
+fn three_cushion_search_fitness(
+    adjudication: &ThreeCushionAdjudication,
+    contact_distance: f64,
+) -> f64 {
+    let facts = adjudication.facts();
+    if facts.maximum_cue_ball_height.as_f64() > THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES {
+        return 0.0;
+    }
+    if adjudication.is_scored() {
+        return 1.0;
+    }
+
+    let cushions = facts.cushion_contacts_before_completion.min(3);
+    if facts.completion.is_some() {
+        // Reaching the second object before three cushions is terminal, not useful progress.
+        return 0.02 + 0.04 * f64::from(cushions);
+    }
+
+    let object_contacts = u8::from(facts.object_a_first_contact.is_some())
+        + u8::from(facts.object_b_first_contact.is_some());
+    let cushion_tier = 0.2 * f64::from(cushions);
+    let first_object_bonus = if object_contacts == 1 { 0.1 } else { 0.0 };
+    let clearance_bonus = if cushions == 3 && object_contacts == 1 {
+        facts
+            .estimated_closest_second_object_clearance
+            .as_ref()
+            .filter(|_| contact_distance.is_finite() && contact_distance > 0.0)
+            .map_or(0.0, |clearance| {
+                let clearance = clearance.as_f64().max(0.0);
+                0.25 * contact_distance / (contact_distance + clearance)
+            })
+    } else {
+        0.0
+    };
+    (cushion_tier + first_object_bonus + clearance_bonus).min(0.95)
 }
 
 impl OutcomeAccumulator {
@@ -515,33 +572,38 @@ impl OutcomeAccumulator {
                 successes: 0,
                 observations: 0,
             },
+            search_fitness_total: 0.0,
+            evaluated: 0,
         }
     }
 
     fn record(&mut self, stage: RobustTrialStage, record: StageTrialRecord) -> RobustTrialReport {
         let (applied, disposition) = match record.result {
-            Ok(evaluated) => match evaluated.outcome {
-                EvaluatedOutcome::Scored => {
-                    self.scored += 1;
-                    self.reducer.observe(true);
-                    (Some(evaluated.applied), RobustTrialDisposition::Scored)
+            Ok(evaluated) => {
+                let EvaluatedTrial {
+                    applied,
+                    outcome,
+                    search_fitness,
+                } = evaluated;
+                self.search_fitness_total += search_fitness;
+                self.evaluated += 1;
+                match outcome {
+                    EvaluatedOutcome::Scored => {
+                        self.scored += 1;
+                        self.reducer.observe(true);
+                        (Some(applied), RobustTrialDisposition::Scored)
+                    }
+                    EvaluatedOutcome::Miss(detail) => {
+                        self.missed += 1;
+                        self.reducer.observe(false);
+                        (Some(applied), RobustTrialDisposition::Miss(detail))
+                    }
+                    EvaluatedOutcome::Indeterminate(detail) => {
+                        self.indeterminate += 1;
+                        (Some(applied), RobustTrialDisposition::Indeterminate(detail))
+                    }
                 }
-                EvaluatedOutcome::Miss(detail) => {
-                    self.missed += 1;
-                    self.reducer.observe(false);
-                    (
-                        Some(evaluated.applied),
-                        RobustTrialDisposition::Miss(detail),
-                    )
-                }
-                EvaluatedOutcome::Indeterminate(detail) => {
-                    self.indeterminate += 1;
-                    (
-                        Some(evaluated.applied),
-                        RobustTrialDisposition::Indeterminate(detail),
-                    )
-                }
-            },
+            }
             Err(TrialError::Prepare(error)) => {
                 self.failed += 1;
                 (
@@ -566,6 +628,14 @@ impl OutcomeAccumulator {
             replay_key: record.replay_key,
             applied,
             disposition,
+        }
+    }
+
+    fn mean_search_fitness(&self) -> f64 {
+        if self.evaluated == 0 {
+            0.0
+        } else {
+            self.search_fitness_total / f64::from(self.evaluated)
         }
     }
 
@@ -637,13 +707,24 @@ pub fn allocate_robust_search_budget(
         )));
     }
 
-    let candidate_budget = usize::try_from(requested_evaluations.isqrt())
-        .map_err(|_| {
-            RobustExperimentError::InvalidConfiguration(
-                "iteration square root does not fit platform size".to_string(),
-            )
-        })?
-        .min(MAX_PLAYER_SEARCH_CANDIDATES);
+    // Preserve the exact minimum-budget schedule. Larger searches reserve one quarter for
+    // held-out validation and use at least two CRN observations per screening proposal.
+    let (screening_budget, minimum_screening_replications) = if requested_evaluations < 32 {
+        (requested_evaluations.div_euclid(2), 1)
+    } else {
+        (
+            requested_evaluations - requested_evaluations.div_euclid(4),
+            2,
+        )
+    };
+    let candidate_budget =
+        usize::try_from(screening_budget.div_euclid(minimum_screening_replications))
+            .map_err(|_| {
+                RobustExperimentError::InvalidConfiguration(
+                    "screening candidate budget does not fit platform size".to_string(),
+                )
+            })?
+            .clamp(1, MAX_PLAYER_SEARCH_CANDIDATES);
     let finalist_budget = candidate_budget.min(PLAYER_SEARCH_FINALISTS);
     let candidate_count = u32::try_from(candidate_budget).map_err(|_| {
         RobustExperimentError::InvalidConfiguration(
@@ -655,15 +736,22 @@ pub fn allocate_robust_search_budget(
             "finalist budget does not fit evaluation counter".to_string(),
         )
     })?;
-    let screening_replications = requested_evaluations
-        .div_euclid(2)
+    let screening_replications = screening_budget
         .div_euclid(candidate_count)
-        .max(1);
-    let screening_cost = candidate_count * screening_replications;
-    let validation_replications = (requested_evaluations - screening_cost)
-        .div_euclid(finalist_count)
-        .max(1);
-    let planned_evaluations = screening_cost + finalist_count * validation_replications;
+        .max(minimum_screening_replications);
+    let screening_cost = candidate_count
+        .checked_mul(screening_replications)
+        .ok_or_else(|| invalid_configuration("screening evaluation count overflowed"))?;
+    let remaining = requested_evaluations
+        .checked_sub(screening_cost)
+        .ok_or_else(|| invalid_configuration("screening exceeded requested evaluations"))?;
+    let validation_replications = remaining.div_euclid(finalist_count).max(1);
+    let validation_cost = finalist_count
+        .checked_mul(validation_replications)
+        .ok_or_else(|| invalid_configuration("validation evaluation count overflowed"))?;
+    let planned_evaluations = screening_cost
+        .checked_add(validation_cost)
+        .ok_or_else(|| invalid_configuration("planned evaluation count overflowed"))?;
     if planned_evaluations > requested_evaluations {
         return Err(RobustExperimentError::InvalidConfiguration(
             "iteration allocation exceeded requested maximum".to_string(),
@@ -728,18 +816,20 @@ pub fn run_robust_three_cushion_experiment(
     config: &RobustThreeCushionExperimentConfig,
 ) -> Result<RobustThreeCushionExperimentReport, RobustExperimentError> {
     config.validate()?;
-    let candidates = make_candidates(config)?;
-    let screening_domain = match config.mode {
-        RobustExperimentMode::Search => ROBUST_SEARCH_SCREENING_DOMAIN,
-        RobustExperimentMode::Sensitivity => ROBUST_SENSITIVITY_TRIAL_DOMAIN,
+    let (candidates, screening) = match config.mode {
+        RobustExperimentMode::Search => run_adaptive_search_screening(config)?,
+        RobustExperimentMode::Sensitivity => {
+            let candidates = make_candidates(config)?;
+            let screening = run_stage(
+                config,
+                &candidates,
+                RobustTrialStage::Screening,
+                ROBUST_SENSITIVITY_TRIAL_DOMAIN,
+                config.screening_replication_budget,
+            )?;
+            (candidates, screening)
+        }
     };
-    let screening = run_stage(
-        config,
-        &candidates,
-        RobustTrialStage::Screening,
-        screening_domain,
-        config.screening_replication_budget,
-    )?;
 
     let mut candidate_reports = Vec::new();
     candidate_reports
@@ -757,7 +847,12 @@ pub fn run_robust_three_cushion_experiment(
 
     let mut trials = screening.trials;
     if config.mode == RobustExperimentMode::Search {
-        let finalists = select_finalists(&candidate_reports, &candidates, config.finalist_budget)?;
+        let finalists = select_finalists(
+            &candidate_reports,
+            &candidates,
+            &screening.search_fitnesses,
+            config.finalist_budget,
+        )?;
         if !finalists.is_empty() {
             let validation = run_stage(
                 config,
@@ -797,6 +892,176 @@ pub fn run_robust_three_cushion_experiment(
     })
 }
 
+#[derive(Clone, Copy)]
+struct AnnealingState {
+    controls: RobustShotControls,
+    score: f64,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SearchProposalKind {
+    Guided,
+    Global,
+    Local,
+}
+
+/// Evaluates each screening proposal before choosing the next search point.
+fn run_adaptive_search_screening(
+    config: &RobustThreeCushionExperimentConfig,
+) -> Result<(Vec<Candidate<RobustShotControls>>, StageResults), RobustExperimentError> {
+    let mut candidates = Vec::new();
+    candidates
+        .try_reserve_exact(config.candidate_budget)
+        .map_err(|error| resource_error("adaptive candidate set", error))?;
+    let mut summaries = Vec::new();
+    summaries
+        .try_reserve_exact(config.candidate_budget)
+        .map_err(|error| resource_error("adaptive screening summaries", error))?;
+    let mut search_fitnesses = Vec::new();
+    search_fitnesses
+        .try_reserve_exact(config.candidate_budget)
+        .map_err(|error| resource_error("adaptive search fitnesses", error))?;
+    let trial_capacity = config
+        .candidate_budget
+        .checked_mul(
+            usize::try_from(config.screening_replication_budget).map_err(|_| {
+                RobustExperimentError::InvalidConfiguration(
+                    "screening replication budget does not fit platform size".to_string(),
+                )
+            })?,
+        )
+        .ok_or_else(|| {
+            RobustExperimentError::InvalidConfiguration(
+                "adaptive screening trial count overflowed platform size".to_string(),
+            )
+        })?;
+    let mut trials = Vec::new();
+    trials
+        .try_reserve_exact(trial_capacity)
+        .map_err(|error| resource_error("adaptive screening trials", error))?;
+    let mut accepted = AnnealingState {
+        controls: config.nominal,
+        score: f64::NEG_INFINITY,
+    };
+    for candidate_index in 0..config.candidate_budget {
+        let candidate_id = u64::try_from(candidate_index).map_err(|_| {
+            RobustExperimentError::CandidateGeneration("candidate ID does not fit u64".to_string())
+        })?;
+        let temperature = search_temperature(candidate_index, config.candidate_budget);
+        let controls = if candidate_index == 0 {
+            config.nominal
+        } else if candidate_index <= config.additional_candidates.len() {
+            config.additional_candidates[candidate_index - 1]
+        } else {
+            generate_adaptive_search_candidate(
+                config,
+                candidate_id,
+                accepted.controls,
+                temperature,
+                search_proposal_kind(candidate_index, config.candidate_budget),
+            )?
+        };
+        let candidate = Candidate {
+            id: candidate_id,
+            value: controls,
+        };
+        let mut result = run_stage(
+            config,
+            std::slice::from_ref(&candidate),
+            RobustTrialStage::Screening,
+            ROBUST_SEARCH_SCREENING_DOMAIN,
+            config.screening_replication_budget,
+        )?;
+        let summary = result.summaries.pop().ok_or_else(|| {
+            RobustExperimentError::ReportAssembly(format!(
+                "adaptive screening returned no summary for candidate {candidate_id}"
+            ))
+        })?;
+        let search_fitness = result.search_fitnesses.pop().ok_or_else(|| {
+            RobustExperimentError::ReportAssembly(format!(
+                "adaptive screening returned no fitness for candidate {candidate_id}"
+            ))
+        })?;
+        if !result.summaries.is_empty() || !result.search_fitnesses.is_empty() {
+            return Err(RobustExperimentError::ReportAssembly(format!(
+                "adaptive screening returned multiple summaries for candidate {candidate_id}"
+            )));
+        }
+        let score = annealing_score(&summary, search_fitness);
+        if summary.eligible
+            && accept_annealing_proposal(
+                config.master_seed,
+                candidate_id,
+                accepted.score,
+                score,
+                temperature,
+            )
+        {
+            accepted = AnnealingState { controls, score };
+        }
+        candidates.push(candidate);
+        summaries.push(summary);
+        search_fitnesses.push(search_fitness);
+        trials.append(&mut result.trials);
+    }
+
+    Ok((
+        candidates,
+        StageResults {
+            summaries,
+            search_fitnesses,
+            trials,
+        },
+    ))
+}
+
+/// Uses normalized soft progress for proposal steering; legal-score probability remains the
+/// held-out finalist-ranking objective.
+fn annealing_score(summary: &RobustOutcomeSummary, search_fitness: f64) -> f64 {
+    if summary.eligible {
+        search_fitness
+    } else {
+        -1.0
+    }
+}
+
+fn accept_annealing_proposal(
+    master_seed: u64,
+    candidate_id: u64,
+    current_score: f64,
+    proposal_score: f64,
+    temperature: f64,
+) -> bool {
+    if proposal_score >= current_score {
+        return true;
+    }
+    let acceptance_probability = ((proposal_score - current_score) / temperature).exp();
+    let samples = SampleContext::new(master_seed, ROBUST_SEARCH_PROPOSAL_DOMAIN, candidate_id);
+    samples.uniform(ANNEALING_ACCEPTANCE_STREAM) < acceptance_probability
+}
+
+fn search_temperature(candidate_index: usize, candidate_budget: usize) -> f64 {
+    if candidate_budget <= 1 {
+        return SEARCH_FINAL_TEMPERATURE;
+    }
+    let progress = candidate_index as f64 / (candidate_budget - 1) as f64;
+    SEARCH_FINAL_TEMPERATURE.powf(progress)
+}
+
+fn search_proposal_kind(candidate_index: usize, candidate_budget: usize) -> SearchProposalKind {
+    let exploration_end = candidate_budget.saturating_mul(2).div_ceil(3);
+    if candidate_index <= 2
+        || (candidate_index < exploration_end && !candidate_index.is_multiple_of(2))
+    {
+        SearchProposalKind::Guided
+    } else if candidate_index < exploration_end
+        || candidate_index.is_multiple_of(SEARCH_GLOBAL_PROPOSAL_INTERVAL)
+    {
+        SearchProposalKind::Global
+    } else {
+        SearchProposalKind::Local
+    }
+}
+
 fn run_stage(
     config: &RobustThreeCushionExperimentConfig,
     candidates: &[Candidate<RobustShotControls>],
@@ -828,9 +1093,10 @@ fn run_stage(
         |evaluator, prepared| {
             evaluator
                 .evaluate(config.shooter, prepared.applied, config.max_events)
-                .map(|outcome| EvaluatedTrial {
+                .map(|(outcome, search_fitness)| EvaluatedTrial {
                     applied: prepared.applied,
                     outcome,
+                    search_fitness,
                 })
                 .map_err(|detail| FailedTrial {
                     applied: prepared.applied,
@@ -872,6 +1138,10 @@ fn assemble_stage(
     summaries
         .try_reserve_exact(candidates.len())
         .map_err(|error| resource_error("stage summaries", error))?;
+    let mut search_fitnesses = Vec::new();
+    search_fitnesses
+        .try_reserve_exact(candidates.len())
+        .map_err(|error| resource_error("stage search fitnesses", error))?;
     let mut trials = Vec::new();
     trials
         .try_reserve_exact(records.len())
@@ -896,6 +1166,7 @@ fn assemble_stage(
             }
             trials.push(accumulator.record(stage, record));
         }
+        search_fitnesses.push(accumulator.mean_search_fitness());
         summaries.push(accumulator.finish()?);
     }
     if records.next().is_some() {
@@ -903,7 +1174,11 @@ fn assemble_stage(
             "{stage} left unconsumed records"
         )));
     }
-    Ok(StageResults { summaries, trials })
+    Ok(StageResults {
+        summaries,
+        search_fitnesses,
+        trials,
+    })
 }
 
 fn prepare_trial(
@@ -1010,6 +1285,49 @@ fn generate_candidate(
         "could not generate candidate {candidate_id} with an executable ±3σ envelope after 4096 attempts; tighten bounds/perturbations or shot-inaccuracy sigmas"
     )))
 }
+fn generate_adaptive_search_candidate(
+    config: &RobustThreeCushionExperimentConfig,
+    candidate_id: u64,
+    center: RobustShotControls,
+    temperature: f64,
+    proposal_kind: SearchProposalKind,
+) -> Result<RobustShotControls, RobustExperimentError> {
+    let base_sample_id = candidate_id
+        .checked_mul(ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE)
+        .ok_or_else(|| {
+            RobustExperimentError::CandidateGeneration(
+                "candidate proposal sample ID overflowed u64".to_string(),
+            )
+        })?;
+    for attempt in 0..ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE {
+        let sample_id = base_sample_id.checked_add(attempt).ok_or_else(|| {
+            RobustExperimentError::CandidateGeneration(
+                "candidate proposal sample ID overflowed u64".to_string(),
+            )
+        })?;
+        let samples =
+            SampleContext::new(config.master_seed, ROBUST_SEARCH_PROPOSAL_DOMAIN, sample_id);
+        let controls = match proposal_kind {
+            SearchProposalKind::Guided => {
+                sample_guided_search_candidate(config, candidate_id, samples, attempt == 0)?
+            }
+            SearchProposalKind::Global => sample_search_candidate(config.search_bounds, samples),
+            SearchProposalKind::Local => sample_local_search_candidate(
+                center,
+                config.search_bounds,
+                temperature,
+                candidate_id,
+                samples,
+            ),
+        };
+        if candidate_is_executable(config, controls) {
+            return Ok(controls);
+        }
+    }
+    Err(RobustExperimentError::CandidateGeneration(format!(
+        "could not generate adaptive candidate {candidate_id} with an executable ±3σ envelope after 4096 attempts"
+    )))
+}
 
 fn sensitivity_center(
     config: &RobustThreeCushionExperimentConfig,
@@ -1047,6 +1365,199 @@ fn sample_search_candidate(
         tip_side: interpolate(bounds[2], samples.uniform(TIP_SIDE_STREAM)),
         tip_height: interpolate(bounds[3], samples.uniform(TIP_HEIGHT_STREAM)),
         elevation: interpolate(bounds[4], samples.uniform(ELEVATION_STREAM)),
+    }
+}
+fn sample_guided_search_candidate(
+    config: &RobustThreeCushionExperimentConfig,
+    candidate_id: u64,
+    samples: SampleContext,
+    structured_seed: bool,
+) -> Result<RobustShotControls, RobustExperimentError> {
+    let direct_heading = direct_object_heading(config, candidate_id)?;
+    let bounded_heading = direct_heading.clamp(
+        config.search_bounds[0].minimum,
+        config.search_bounds[0].maximum,
+    );
+    if structured_seed && candidate_id <= 2 {
+        let side_sample = if candidate_id.is_multiple_of(2) {
+            (1.0 - GUIDED_SIDE_MAGNITUDE_FRACTION) / 2.0
+        } else {
+            (1.0 + GUIDED_SIDE_MAGNITUDE_FRACTION) / 2.0
+        };
+        return Ok(RobustShotControls {
+            heading: bounded_heading,
+            speed: interpolate(config.search_bounds[1], GUIDED_SPEED_FRACTION),
+            tip_side: interpolate(config.search_bounds[2], side_sample),
+            tip_height: interpolate(
+                config.search_bounds[3],
+                (1.0 + GUIDED_HEIGHT_FRACTION) / 2.0,
+            ),
+            elevation: interpolate(config.search_bounds[4], GUIDED_ELEVATION_FRACTION),
+        });
+    }
+
+    let heading_deviation = if candidate_id <= 2 {
+        0.0
+    } else {
+        45.0 * symmetric_uniform(samples, HEADING_STREAM)
+    };
+    let speed = if candidate_id <= 2 {
+        interpolate(config.search_bounds[1], GUIDED_SPEED_FRACTION)
+    } else {
+        let practical_speed_sample = 0.15 + 0.55 * samples.uniform(SPEED_STREAM);
+        interpolate(config.search_bounds[1], practical_speed_sample)
+    };
+    let elevation_sample = samples.uniform(ELEVATION_STREAM);
+    Ok(RobustShotControls {
+        heading: (direct_heading + heading_deviation)
+            .rem_euclid(360.0)
+            .clamp(
+                config.search_bounds[0].minimum,
+                config.search_bounds[0].maximum,
+            ),
+        speed,
+        tip_side: interpolate(config.search_bounds[2], samples.uniform(TIP_SIDE_STREAM)),
+        tip_height: interpolate(config.search_bounds[3], samples.uniform(TIP_HEIGHT_STREAM)),
+        elevation: interpolate(config.search_bounds[4], elevation_sample.powi(3)),
+    })
+}
+
+fn direct_object_heading(
+    config: &RobustThreeCushionExperimentConfig,
+    candidate_id: u64,
+) -> Result<f64, RobustExperimentError> {
+    let (shooter_role, first_object, second_object) = match config.shooter {
+        ThreeCushionShooter::Cue => (
+            CaromBallRole::Cue,
+            CaromBallRole::YellowCue,
+            CaromBallRole::Red,
+        ),
+        ThreeCushionShooter::YellowCue => (
+            CaromBallRole::YellowCue,
+            CaromBallRole::Cue,
+            CaromBallRole::Red,
+        ),
+    };
+    let target_role = if candidate_id.is_multiple_of(2) {
+        second_object
+    } else {
+        first_object
+    };
+    let (shooter_x, shooter_y) = layout_position(&config.layout, shooter_role)?;
+    let (target_x, target_y) = layout_position(&config.layout, target_role)?;
+    Ok((target_x - shooter_x)
+        .atan2(target_y - shooter_y)
+        .to_degrees()
+        .rem_euclid(360.0))
+}
+
+fn layout_position(
+    layout: &ShotLayout,
+    role: CaromBallRole,
+) -> Result<(f64, f64), RobustExperimentError> {
+    let ball = layout
+        .balls()
+        .iter()
+        .find(|ball| ball.role == role)
+        .ok_or_else(|| {
+            RobustExperimentError::CandidateGeneration(format!(
+                "validated layout is missing {role:?}"
+            ))
+        })?;
+    let position = &ball.state.as_ball_state().position;
+    Ok((position.x().as_f64(), position.y().as_f64()))
+}
+
+fn sample_local_search_candidate(
+    center: RobustShotControls,
+    bounds: [RobustControlBounds; 5],
+    temperature: f64,
+    candidate_id: u64,
+    samples: SampleContext,
+) -> RobustShotControls {
+    let step_fraction = SEARCH_LOCAL_STEP_FRACTION * temperature;
+    let mut proposal = center;
+    match candidate_id % 5 {
+        0 => {
+            proposal.heading = local_search_value(
+                center.heading,
+                bounds[0],
+                step_fraction,
+                samples,
+                HEADING_STREAM,
+                true,
+            );
+        }
+        1 => {
+            proposal.speed = local_search_value(
+                center.speed,
+                bounds[1],
+                step_fraction,
+                samples,
+                SPEED_STREAM,
+                false,
+            );
+        }
+        2 => {
+            proposal.tip_side = local_search_value(
+                center.tip_side,
+                bounds[2],
+                step_fraction,
+                samples,
+                TIP_SIDE_STREAM,
+                false,
+            );
+        }
+        3 => {
+            proposal.tip_height = local_search_value(
+                center.tip_height,
+                bounds[3],
+                step_fraction,
+                samples,
+                TIP_HEIGHT_STREAM,
+                false,
+            );
+        }
+        _ => {
+            proposal.elevation = local_search_value(
+                center.elevation,
+                bounds[4],
+                step_fraction,
+                samples,
+                ELEVATION_STREAM,
+                false,
+            );
+        }
+    }
+    proposal
+}
+
+fn local_search_value(
+    center: f64,
+    bounds: RobustControlBounds,
+    step_fraction: f64,
+    samples: SampleContext,
+    stream: SampleStream,
+    circular_heading: bool,
+) -> f64 {
+    if bounds.minimum == bounds.maximum {
+        return bounds.minimum;
+    }
+    let span = bounds.maximum - bounds.minimum;
+    let proposal = center + span * step_fraction * symmetric_uniform(samples, stream);
+    if circular_heading && bounds.minimum == 0.0 && bounds.maximum == 360.0 {
+        return proposal.rem_euclid(360.0);
+    }
+    reflect_search_value(proposal, bounds)
+}
+
+fn reflect_search_value(proposal: f64, bounds: RobustControlBounds) -> f64 {
+    let span = bounds.maximum - bounds.minimum;
+    let reflected = (proposal - bounds.minimum).rem_euclid(2.0 * span);
+    if reflected <= span {
+        bounds.minimum + reflected
+    } else {
+        bounds.maximum - (reflected - span)
     }
 }
 
@@ -1091,8 +1602,16 @@ fn candidate_is_executable(
 fn select_finalists(
     reports: &[RobustCandidateReport],
     candidates: &[Candidate<RobustShotControls>],
+    search_fitnesses: &[f64],
     finalist_budget: usize,
 ) -> Result<Vec<Candidate<RobustShotControls>>, RobustExperimentError> {
+    if reports.len() != search_fitnesses.len() {
+        return Err(RobustExperimentError::ReportAssembly(format!(
+            "screening returned {} fitnesses for {} candidates",
+            search_fitnesses.len(),
+            reports.len()
+        )));
+    }
     let mut eligible_indices = Vec::new();
     eligible_indices
         .try_reserve_exact(reports.len())
@@ -1104,12 +1623,13 @@ fn select_finalists(
             .filter_map(|(index, report)| report.screening.eligible.then_some(index)),
     );
     eligible_indices.sort_by(|left, right| {
-        compare_summary(
-            reports[*left].candidate_id,
-            &reports[*left].screening,
-            reports[*right].candidate_id,
-            &reports[*right].screening,
-        )
+        compare_summary_metrics(&reports[*left].screening, &reports[*right].screening)
+            .then_with(|| search_fitnesses[*right].total_cmp(&search_fitnesses[*left]))
+            .then_with(|| {
+                reports[*left]
+                    .candidate_id
+                    .cmp(&reports[*right].candidate_id)
+            })
     });
     eligible_indices.truncate(finalist_budget.min(eligible_indices.len()));
 
@@ -1145,7 +1665,7 @@ fn rank_validated_candidates(
         report
             .validation
             .as_ref()
-            .is_some_and(|summary| summary.eligible)
+            .is_some_and(|summary| summary.eligible && summary.scored > 0)
             .then_some(index)
     }));
     eligible_indices.sort_by(|left, right| {
@@ -1173,9 +1693,12 @@ fn compare_summary(
     right_id: u64,
     right: &RobustOutcomeSummary,
 ) -> Ordering {
+    compare_summary_metrics(left, right).then_with(|| left_id.cmp(&right_id))
+}
+
+fn compare_summary_metrics(left: &RobustOutcomeSummary, right: &RobustOutcomeSummary) -> Ordering {
     compare_optional_descending(left.confidence_low, right.confidence_low)
         .then_with(|| compare_optional_descending(left.success_rate, right.success_rate))
-        .then_with(|| left_id.cmp(&right_id))
 }
 
 fn compare_optional_descending(left: Option<f64>, right: Option<f64>) -> Ordering {
@@ -1511,7 +2034,71 @@ fn resource_error(resource: &str, error: impl fmt::Display) -> RobustExperimentE
 
 #[cfg(test)]
 mod tests {
+    use super::super::{ContactInstant, ThreeCushionFacts, ThreeCushionMiss};
     use super::*;
+    use crate::{Inches, Seconds};
+
+    fn progress_miss(
+        cushions: u16,
+        object_contacts: u8,
+        clearance: Option<f64>,
+    ) -> ThreeCushionAdjudication {
+        let contact = ContactInstant {
+            event_index: 0,
+            at: Seconds::zero(),
+        };
+        ThreeCushionAdjudication::Miss {
+            facts: ThreeCushionFacts {
+                object_a_first_contact: (object_contacts >= 1).then_some(contact),
+                object_b_first_contact: (object_contacts >= 2).then_some(contact),
+                completion: (object_contacts >= 2).then_some(contact),
+                cushion_contacts_before_completion: cushions,
+                first_three_qualifying_cushions: [None; 3],
+                maximum_cue_ball_height: Inches::zero(),
+                estimated_closest_second_object_clearance: clearance.map(Inches::from_f64),
+            },
+            reason: if object_contacts >= 2 {
+                ThreeCushionMiss::InsufficientCushions {
+                    required: 3,
+                    observed: cushions,
+                }
+            } else {
+                ThreeCushionMiss::MissingObjectContact
+            },
+        }
+    }
+
+    #[test]
+    fn soft_fitness_prioritizes_cushions_and_continuous_second_object_clearance() {
+        let contact_distance = 2.25;
+        let no_object_three_cushions =
+            three_cushion_search_fitness(&progress_miss(3, 0, None), contact_distance);
+        let one_object_two_cushions =
+            three_cushion_search_fitness(&progress_miss(2, 1, None), contact_distance);
+        let early_second_object =
+            three_cushion_search_fitness(&progress_miss(2, 2, None), contact_distance);
+        assert!(no_object_three_cushions > one_object_two_cushions);
+        assert!(one_object_two_cushions > early_second_object);
+
+        let no_clearance =
+            three_cushion_search_fitness(&progress_miss(3, 1, None), contact_distance);
+        let far = three_cushion_search_fitness(&progress_miss(3, 1, Some(9.0)), contact_distance);
+        let near = three_cushion_search_fitness(&progress_miss(3, 1, Some(0.5)), contact_distance);
+        let contact =
+            three_cushion_search_fitness(&progress_miss(3, 1, Some(0.0)), contact_distance);
+        assert!(no_clearance < far);
+        assert!(far < near);
+        assert!(near < contact);
+        assert!(contact < 1.0);
+
+        let mut jumping = progress_miss(3, 1, Some(0.0));
+        let ThreeCushionAdjudication::Miss { facts, .. } = &mut jumping else {
+            panic!("progress fixture must be a miss");
+        };
+        facts.maximum_cue_ball_height =
+            Inches::from_f64(THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES + 0.001);
+        assert!(three_cushion_search_fitness(&jumping, contact_distance).abs() <= f64::EPSILON);
+    }
 
     #[test]
     fn player_profiles_are_monotonic_and_parse_stable_keys() {
@@ -1544,11 +2131,69 @@ mod tests {
 
         let exact = allocate_robust_search_budget(16)
             .unwrap_or_else(|error| panic!("minimum budget failed: {error}"));
-        assert_eq!(exact.candidate_budget, 4);
-        assert_eq!(exact.screening_replications, 2);
+        assert_eq!(exact.candidate_budget, 8);
+        assert_eq!(exact.screening_replications, 1);
         assert_eq!(exact.finalist_budget, 4);
         assert_eq!(exact.validation_replications, 2);
         assert_eq!(exact.planned_evaluations, 16);
+
+        let repeated = allocate_robust_search_budget(32)
+            .unwrap_or_else(|error| panic!("32-evaluation budget failed: {error}"));
+        assert_eq!(repeated.candidate_budget, 12);
+        assert_eq!(repeated.screening_replications, 2);
+        assert_eq!(repeated.validation_replications, 2);
+        assert_eq!(repeated.planned_evaluations, 32);
+
+        let default = allocate_robust_search_budget(256)
+            .unwrap_or_else(|error| panic!("256-evaluation budget failed: {error}"));
+        assert_eq!(default.candidate_budget, 96);
+        assert_eq!(default.screening_replications, 2);
+        assert_eq!(default.validation_replications, 16);
+        assert_eq!(default.planned_evaluations, 256);
+
+        let maximum = allocate_robust_search_budget(MAX_ROBUST_SEARCH_EVALUATIONS)
+            .unwrap_or_else(|error| panic!("maximum budget failed: {error}"));
+        assert_eq!(maximum.candidate_budget, MAX_PLAYER_SEARCH_CANDIDATES);
+        assert_eq!(maximum.screening_replications, 14);
+        assert_eq!(maximum.validation_replications, 708);
+        assert_eq!(maximum.planned_evaluations, MAX_ROBUST_SEARCH_EVALUATIONS);
+    }
+
+    #[test]
+    fn annealing_score_is_normalized_across_replication_counts() {
+        let one_replication = RobustOutcomeSummary {
+            requested: 1,
+            scored: 0,
+            missed: 1,
+            indeterminate: 0,
+            failed: 0,
+            success_rate: Some(0.0),
+            confidence_low: Some(0.0),
+            confidence_high: Some(1.0),
+            eligible: true,
+        };
+        let many_replications = RobustOutcomeSummary {
+            requested: 32,
+            scored: 17,
+            missed: 15,
+            indeterminate: 0,
+            failed: 0,
+            success_rate: Some(17.0 / 32.0),
+            confidence_low: Some(0.0),
+            confidence_high: Some(1.0),
+            eligible: true,
+        };
+        let fitness = 0.73;
+        assert!(
+            (annealing_score(&one_replication, fitness)
+                - annealing_score(&many_replications, fitness))
+            .abs()
+                <= f64::EPSILON
+        );
+
+        let mut ineligible = many_replications;
+        ineligible.eligible = false;
+        assert!(annealing_score(&ineligible, fitness) < 0.0);
     }
 
     #[test]
@@ -1589,6 +2234,160 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.budget.planned_evaluations, 16);
         assert_eq!(first.actual_evaluations(), 16);
-        assert!(first.winner().is_some());
+        if let Some(winner) = first.winner() {
+            assert!(winner
+                .validation
+                .as_ref()
+                .is_some_and(|summary| summary.scored > 0));
+        }
+    }
+
+    #[test]
+    fn search_schedule_guides_explores_and_refines_one_reflected_coordinate() {
+        assert_eq!(search_proposal_kind(19, 31), SearchProposalKind::Guided);
+        assert_eq!(search_proposal_kind(20, 31), SearchProposalKind::Global);
+        assert_eq!(search_proposal_kind(21, 31), SearchProposalKind::Local);
+        assert_eq!(search_proposal_kind(24, 31), SearchProposalKind::Global);
+        assert!((search_temperature(0, 31) - 1.0).abs() <= f64::EPSILON);
+        assert!(search_temperature(15, 31) < 0.5);
+        assert!((search_temperature(30, 31) - SEARCH_FINAL_TEMPERATURE).abs() <= f64::EPSILON);
+
+        assert!(accept_annealing_proposal(7, 1, 0.0, 1.0, 0.5));
+        assert!((0_u64..64).any(|candidate_id| accept_annealing_proposal(
+            7,
+            candidate_id,
+            1.0,
+            0.5,
+            1.0
+        )));
+        assert!((0_u64..64).any(|candidate_id| !accept_annealing_proposal(
+            7,
+            candidate_id,
+            1.0,
+            0.5,
+            1.0
+        )));
+
+        let bounds = [
+            RobustControlBounds::new(0.0, 360.0),
+            RobustControlBounds::new(1.0, 300.0),
+            RobustControlBounds::new(-0.45, 0.45),
+            RobustControlBounds::new(-0.45, 0.45),
+            RobustControlBounds::new(0.0, 85.0),
+        ];
+        let center = RobustShotControls {
+            heading: 90.0,
+            speed: 100.0,
+            tip_side: -0.1,
+            tip_height: 0.1,
+            elevation: 10.0,
+        };
+        let proposal = sample_local_search_candidate(
+            center,
+            bounds,
+            0.5,
+            21,
+            SampleContext::new(7, ROBUST_SEARCH_PROPOSAL_DOMAIN, 21),
+        );
+        assert_eq!(proposal.heading.to_bits(), center.heading.to_bits());
+        assert_ne!(proposal.speed.to_bits(), center.speed.to_bits());
+        assert_eq!(proposal.tip_side.to_bits(), center.tip_side.to_bits());
+        assert_eq!(proposal.tip_height.to_bits(), center.tip_height.to_bits());
+        assert_eq!(proposal.elevation.to_bits(), center.elevation.to_bits());
+
+        let unit = RobustControlBounds::new(0.0, 1.0);
+        for (outside, expected) in [(-0.25, 0.25), (0.0, 0.0), (1.0, 1.0), (1.25, 0.75)] {
+            let reflected = reflect_search_value(outside, unit);
+            assert!((reflected - expected).abs() <= f64::EPSILON);
+            assert!((unit.minimum..=unit.maximum).contains(&reflected));
+        }
+    }
+
+    #[test]
+    fn shotless_search_discovers_and_validates_a_scoring_stroke() {
+        let source = concat!(
+            "table three_cushion_carom_10ft\n",
+            "game three_cushion\n",
+            "ball cue at (3.354, 3.309)\n",
+            "ball yellow at (2.491, 5.838)\n",
+            "ball red at (2.762, 3.888)\n",
+            "cue_strike(default).mass_ratio(1.0).energy_loss(0.08)\n",
+            "ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)\n",
+            "rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)\n",
+            "rails(carom).default(lively)\n",
+            "simulation(default)\n",
+            " .collision_model(throw_aware)\n",
+            " .ball_ball(carom)\n",
+            " .rail_model(spin_aware)\n",
+            " .rails(carom)\n",
+            " .conditions(heated_carom)\n",
+            " .max_events(24)\n",
+            "trace(max_events: 24)\n",
+        );
+        let (scenario, controls, preferred_cue) =
+            match crate::dsl::scenario_controls_and_preferred_cue_from_dsl(source) {
+                Ok(parsed) => parsed,
+                Err(error) => panic!("shotless fixture DSL failed: {error}"),
+            };
+        assert_eq!(controls, None);
+        let simulation = match scenario.preferred_simulation_physics(
+            &crate::human_tuned_preview_motion_config(),
+            crate::CollisionModel::ThrowAware,
+            crate::RailModel::SpinAware,
+        ) {
+            Ok(simulation) => simulation,
+            Err(error) => panic!("shotless fixture physics failed: {error}"),
+        };
+        let physics = match PhysicsProfile::new(
+            scenario.game_state.table_spec.clone(),
+            scenario.ball_set_physics_spec(),
+            simulation.motion,
+            simulation.collision_model,
+            simulation.collision_config,
+            simulation.rail_model,
+            simulation.rail_profile,
+        ) {
+            Ok(physics) => physics,
+            Err(error) => panic!("shotless fixture profile failed: {error}"),
+        };
+        let Some(cue) = preferred_cue else {
+            panic!("shotless fixture lost its default cue");
+        };
+        let layout = match ShotLayout::three_cushion_from_diamonds(
+            (3.354, 3.309),
+            (2.491, 5.838),
+            (2.762, 3.888),
+        ) {
+            Ok(layout) => layout,
+            Err(error) => panic!("shotless fixture layout failed: {error}"),
+        };
+        let report = match run_player_robust_search(&PlayerRobustSearchRequest {
+            physics,
+            layout,
+            cue,
+            shooter: ThreeCushionShooter::Cue,
+            current_controls: RobustShotControls {
+                heading: 0.0,
+                speed: 150.0,
+                tip_side: 0.0,
+                tip_height: 0.0,
+                elevation: 0.0,
+            },
+            requested_evaluations: 256,
+            player_level: ThreeCushionPlayerLevel::Pro,
+            max_events: 24,
+        }) {
+            Ok(report) => report,
+            Err(error) => panic!("shotless adaptive search failed: {error}"),
+        };
+        let Some(winner) = report.winner() else {
+            panic!("shotless adaptive search found no scoring winner");
+        };
+        let Some(validation) = &winner.validation else {
+            panic!("shotless adaptive search winner was not validated");
+        };
+
+        assert_eq!(report.actual_evaluations(), 256);
+        assert!(validation.scored > 0);
     }
 }

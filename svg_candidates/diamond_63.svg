@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 690" width="1200" height="690" role="img" aria-label="Diamond billiards table SVG candidate 63">
+<title>Diamond billiards table candidate 63</title>
+<desc>Attempt 63: Minimal orthographic engineering: simplified exact mouths, cushions, sights, and pocket cutouts. Playing surface 100 x 50 in; corner mouth 5.400 in, side mouth 4.975 in, cushion width 1.786 in, corner black-well depth 7.851 in.</desc>
+<metadata>{&quot;attempt&quot;:63,&quot;approach&quot;:8,&quot;approachName&quot;:&quot;Minimal orthographic engineering: simplified exact mouths, cushions, sights, and pocket cutouts&quot;,&quot;pxPerIn&quot;:9.2,&quot;mouthScale&quot;:1.2,&quot;depthScale&quot;:1.22,&quot;params&quot;:{&quot;run&quot;:35.129064889347674,&quot;cw&quot;:16.431199999999997,&quot;bevel&quot;:8.556,&quot;depth&quot;:72.232052,&quot;lip&quot;:0.245,&quot;pad&quot;:13.2,&quot;sideMouth&quot;:45.77,&quot;sideDepth&quot;:54.05000000000001,&quot;sideLip&quot;:13.836799999999998}}</metadata>
+<style>
+  *{shape-rendering:geometricPrecision}.rail{fill:url(#railGrad);stroke:#2a0b07;stroke-width:2}.grain{fill:none;stroke:#2d0c07;stroke-width:1.870;opacity:.34}.cloth{fill:url(#clothGrad)}.cloth-texture{fill:url(#clothTexture);opacity:.42}.cushion{fill:url(#cushionGrad);stroke:#04718f;stroke-width:1.1}.cushion-nose{stroke:#75edff;stroke-width:2.3;stroke-linecap:round;opacity:.75}.cushion-back{stroke:#05556e;stroke-width:2;stroke-linecap:round;opacity:.58}.corner-pocket,.side-pocket{fill:#020202;stroke:#100d0b;stroke-width:1.200;filter:url(#softShadow)}.pocket-facing-fill{fill:#020202;stroke:none}.pocket-rim{fill:none;stroke:#3b3633;stroke-width:2.960;stroke-linecap:round;opacity:.78}.inner-well{fill:none;stroke:#0d0a08;stroke-width:13.000;stroke-linecap:round;opacity:.66}.inner-shadow{fill:none;stroke:#15110e;stroke-width:7;opacity:.32}.sight{fill:#f3f0e9;stroke:#d7d0c0;stroke-width:.8}.approach-4{stroke-linejoin:round}.approach-8{stroke-linejoin:round}
+</style>
+<defs>
+  <linearGradient id="railGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5f1f17"/><stop offset="0.32" stop-color="#9a3d26"/><stop offset="0.58" stop-color="#6b2419"/><stop offset="1" stop-color="#3e120d"/></linearGradient>
+  <linearGradient id="clothGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#19b9e6"/><stop offset="0.55" stop-color="#079bc6"/><stop offset="1" stop-color="#087fa7"/></linearGradient>
+  <linearGradient id="cushionGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3ed4f2"/><stop offset="0.55" stop-color="#10afd7"/><stop offset="1" stop-color="#057da5"/></linearGradient>
+  <pattern id="clothTexture" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 4H8M4 0V8" stroke="#73dcf1" stroke-width="0.35" opacity="0.13"/></pattern>
+  <clipPath id="railClip"><rect x="20.000" y="18.000" width="1160.000" height="654.000" rx="58.000"/></clipPath>
+  <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#000" flood-opacity="0.28"/></filter>
+</defs>
+<g id="diamond-table-candidate-63">
+<rect x="0" y="0" width="1200" height="690" fill="#ffffff"/>
+<rect class="rail" x="20.000" y="18.000" width="1160.000" height="654.000" rx="55.000"/>
+<g clip-path="url(#railClip)"><path class="grain" d="M 44.000 36.000 C 310.000 28.000 576.800 44.000 855.200 36.000 S 1156.000 32.000 1156.000 36.000"/>
+<path class="grain" d="M 44.000 52.263 C 310.000 41.263 576.800 63.263 855.200 52.263 S 1156.000 46.763 1156.000 52.263"/>
+<path class="grain" d="M 44.000 68.526 C 310.000 54.526 576.800 82.526 855.200 68.526 S 1156.000 61.526 1156.000 68.526"/>
+<path class="grain" d="M 44.000 84.789 C 310.000 67.789 576.800 101.789 855.200 84.789 S 1156.000 76.289 1156.000 84.789"/>
+<path class="grain" d="M 44.000 101.053 C 310.000 93.053 576.800 109.053 855.200 101.053 S 1156.000 97.053 1156.000 101.053"/>
+<path class="grain" d="M 44.000 117.316 C 310.000 106.316 576.800 128.316 855.200 117.316 S 1156.000 111.816 1156.000 117.316"/>
+<path class="grain" d="M 44.000 133.579 C 310.000 119.579 576.800 147.579 855.200 133.579 S 1156.000 126.579 1156.000 133.579"/>
+<path class="grain" d="M 44.000 149.842 C 310.000 132.842 576.800 166.842 855.200 149.842 S 1156.000 141.342 1156.000 149.842"/>
+<path class="grain" d="M 44.000 166.105 C 310.000 158.105 576.800 174.105 855.200 166.105 S 1156.000 162.105 1156.000 166.105"/>
+<path class="grain" d="M 44.000 182.368 C 310.000 171.368 576.800 193.368 855.200 182.368 S 1156.000 176.868 1156.000 182.368"/>
+<path class="grain" d="M 44.000 198.632 C 310.000 184.632 576.800 212.632 855.200 198.632 S 1156.000 191.632 1156.000 198.632"/>
+<path class="grain" d="M 44.000 214.895 C 310.000 197.895 576.800 231.895 855.200 214.895 S 1156.000 206.395 1156.000 214.895"/>
+<path class="grain" d="M 44.000 231.158 C 310.000 223.158 576.800 239.158 855.200 231.158 S 1156.000 227.158 1156.000 231.158"/>
+<path class="grain" d="M 44.000 247.421 C 310.000 236.421 576.800 258.421 855.200 247.421 S 1156.000 241.921 1156.000 247.421"/>
+<path class="grain" d="M 44.000 263.684 C 310.000 249.684 576.800 277.684 855.200 263.684 S 1156.000 256.684 1156.000 263.684"/>
+<path class="grain" d="M 44.000 279.947 C 310.000 262.947 576.800 296.947 855.200 279.947 S 1156.000 271.447 1156.000 279.947"/>
+<path class="grain" d="M 44.000 296.211 C 310.000 288.211 576.800 304.211 855.200 296.211 S 1156.000 292.211 1156.000 296.211"/>
+<path class="grain" d="M 44.000 312.474 C 310.000 301.474 576.800 323.474 855.200 312.474 S 1156.000 306.974 1156.000 312.474"/>
+<path class="grain" d="M 44.000 328.737 C 310.000 314.737 576.800 342.737 855.200 328.737 S 1156.000 321.737 1156.000 328.737"/>
+<path class="grain" d="M 44.000 345.000 C 310.000 328.000 576.800 362.000 855.200 345.000 S 1156.000 336.500 1156.000 345.000"/>
+<path class="grain" d="M 44.000 361.263 C 310.000 353.263 576.800 369.263 855.200 361.263 S 1156.000 357.263 1156.000 361.263"/>
+<path class="grain" d="M 44.000 377.526 C 310.000 366.526 576.800 388.526 855.200 377.526 S 1156.000 372.026 1156.000 377.526"/>
+<path class="grain" d="M 44.000 393.789 C 310.000 379.789 576.800 407.789 855.200 393.789 S 1156.000 386.789 1156.000 393.789"/>
+<path class="grain" d="M 44.000 410.053 C 310.000 393.053 576.800 427.053 855.200 410.053 S 1156.000 401.553 1156.000 410.053"/>
+<path class="grain" d="M 44.000 426.316 C 310.000 418.316 576.800 434.316 855.200 426.316 S 1156.000 422.316 1156.000 426.316"/>
+<path class="grain" d="M 44.000 442.579 C 310.000 431.579 576.800 453.579 855.200 442.579 S 1156.000 437.079 1156.000 442.579"/>
+<path class="grain" d="M 44.000 458.842 C 310.000 444.842 576.800 472.842 855.200 458.842 S 1156.000 451.842 1156.000 458.842"/>
+<path class="grain" d="M 44.000 475.105 C 310.000 458.105 576.800 492.105 855.200 475.105 S 1156.000 466.605 1156.000 475.105"/>
+<path class="grain" d="M 44.000 491.368 C 310.000 483.368 576.800 499.368 855.200 491.368 S 1156.000 487.368 1156.000 491.368"/>
+<path class="grain" d="M 44.000 507.632 C 310.000 496.632 576.800 518.632 855.200 507.632 S 1156.000 502.132 1156.000 507.632"/>
+<path class="grain" d="M 44.000 523.895 C 310.000 509.895 576.800 537.895 855.200 523.895 S 1156.000 516.895 1156.000 523.895"/>
+<path class="grain" d="M 44.000 540.158 C 310.000 523.158 576.800 557.158 855.200 540.158 S 1156.000 531.658 1156.000 540.158"/>
+<path class="grain" d="M 44.000 556.421 C 310.000 548.421 576.800 564.421 855.200 556.421 S 1156.000 552.421 1156.000 556.421"/>
+<path class="grain" d="M 44.000 572.684 C 310.000 561.684 576.800 583.684 855.200 572.684 S 1156.000 567.184 1156.000 572.684"/>
+<path class="grain" d="M 44.000 588.947 C 310.000 574.947 576.800 602.947 855.200 588.947 S 1156.000 581.947 1156.000 588.947"/>
+<path class="grain" d="M 44.000 605.211 C 310.000 588.211 576.800 622.211 855.200 605.211 S 1156.000 596.711 1156.000 605.211"/>
+<path class="grain" d="M 44.000 621.474 C 310.000 613.474 576.800 629.474 855.200 621.474 S 1156.000 617.474 1156.000 621.474"/>
+<path class="grain" d="M 44.000 637.737 C 310.000 626.737 576.800 648.737 855.200 637.737 S 1156.000 632.237 1156.000 637.737"/></g>
+<rect class="cloth" x="140.000" y="115.000" width="920.000" height="460.000"/>
+<rect class="cloth-texture" x="140.000" y="115.000" width="920.000" height="460.000"/>
+<path class="cushion" d="M 175.129 115.000 L 1024.871 115.000 L 1033.427 98.569 L 166.573 98.569 Z"/>
+<line class="cushion-nose" x1="175.129" y1="115.000" x2="1024.871" y2="115.000"/>
+<line class="cushion-back" x1="166.573" y1="98.569" x2="1033.427" y2="98.569"/>
+<path class="cushion" d="M 175.129 575.000 L 1024.871 575.000 L 1033.427 591.431 L 166.573 591.431 Z"/>
+<line class="cushion-nose" x1="175.129" y1="575.000" x2="1024.871" y2="575.000"/>
+<line class="cushion-back" x1="166.573" y1="591.431" x2="1033.427" y2="591.431"/>
+<path class="cushion" d="M 140.000 150.129 L 140.000 322.115 L 123.569 330.671 L 123.569 141.573 Z"/>
+<line class="cushion-nose" x1="140.000" y1="150.129" x2="140.000" y2="322.115"/>
+<line class="cushion-back" x1="123.569" y1="141.573" x2="123.569" y2="330.671"/>
+<path class="cushion" d="M 140.000 367.885 L 140.000 539.871 L 123.569 548.427 L 123.569 359.329 Z"/>
+<line class="cushion-nose" x1="140.000" y1="367.885" x2="140.000" y2="539.871"/>
+<line class="cushion-back" x1="123.569" y1="359.329" x2="123.569" y2="548.427"/>
+<path class="cushion" d="M 1060.000 150.129 L 1060.000 322.115 L 1076.431 330.671 L 1076.431 141.573 Z"/>
+<line class="cushion-nose" x1="1060.000" y1="150.129" x2="1060.000" y2="322.115"/>
+<line class="cushion-back" x1="1076.431" y1="141.573" x2="1076.431" y2="330.671"/>
+<path class="cushion" d="M 1060.000 367.885 L 1060.000 539.871 L 1076.431 548.427 L 1076.431 359.329 Z"/>
+<line class="cushion-nose" x1="1060.000" y1="367.885" x2="1060.000" y2="539.871"/>
+<line class="cushion-back" x1="1076.431" y1="359.329" x2="1076.431" y2="548.427"/>
+<path class="pocket-facing-fill" d="M 166.573 98.569 L 175.129 115.000 L 158.267 106.332 Z"/>
+<path class="pocket-facing-fill" d="M 123.569 141.573 L 140.000 150.129 L 131.332 133.267 Z"/>
+<path class="corner-pocket approach-8" d="M 175.129 115.000 L 175.129 101.855 L 118.330 57.214 C 71.380 57.214 71.380 172.786 118.330 172.786 L 126.855 150.129 L 140.000 150.129 Q 148.607 123.607 175.129 115.000 Z"/>
+<path class="pocket-rim" d="M 159.321 106.332 C 136.388 75.272 108.218 73.105 93.771 84.663 C 72.102 106.332 92.327 146.782 124.109 135.375"/>
+<path class="pocket-facing-fill" d="M 1033.427 98.569 L 1024.871 115.000 L 1041.733 106.332 Z"/>
+<path class="pocket-facing-fill" d="M 1076.431 141.573 L 1060.000 150.129 L 1068.668 133.267 Z"/>
+<path class="corner-pocket approach-8" d="M 1024.871 115.000 L 1024.871 101.855 L 1081.670 57.214 C 1128.620 57.214 1128.620 172.786 1081.670 172.786 L 1073.145 150.129 L 1060.000 150.129 Q 1051.393 123.607 1024.871 115.000 Z"/>
+<path class="pocket-rim" d="M 1040.679 106.332 C 1063.612 75.272 1091.782 73.105 1106.229 84.663 C 1127.898 106.332 1107.673 146.782 1075.891 135.375"/>
+<path class="pocket-facing-fill" d="M 166.573 591.431 L 175.129 575.000 L 158.267 583.668 Z"/>
+<path class="pocket-facing-fill" d="M 123.569 548.427 L 140.000 539.871 L 131.332 556.733 Z"/>
+<path class="corner-pocket approach-8" d="M 175.129 575.000 L 175.129 588.145 L 118.330 632.786 C 71.380 632.786 71.380 517.214 118.330 517.214 L 126.855 539.871 L 140.000 539.871 Q 148.607 566.393 175.129 575.000 Z"/>
+<path class="pocket-rim" d="M 159.321 583.668 C 136.388 614.728 108.218 616.895 93.771 605.337 C 72.102 583.668 92.327 543.218 124.109 554.625"/>
+<path class="pocket-facing-fill" d="M 1033.427 591.431 L 1024.871 575.000 L 1041.733 583.668 Z"/>
+<path class="pocket-facing-fill" d="M 1076.431 548.427 L 1060.000 539.871 L 1068.668 556.733 Z"/>
+<path class="corner-pocket approach-8" d="M 1024.871 575.000 L 1024.871 588.145 L 1081.670 632.786 C 1128.620 632.786 1128.620 517.214 1081.670 517.214 L 1073.145 539.871 L 1060.000 539.871 Q 1051.393 566.393 1024.871 575.000 Z"/>
+<path class="pocket-rim" d="M 1040.679 583.668 C 1063.612 614.728 1091.782 616.895 1106.229 605.337 C 1127.898 583.668 1107.673 543.218 1075.891 554.625"/>
+<path class="side-pocket approach-8" d="M 140.000 322.115 L 119.461 323.946 L 84.869 332.184 L 79.464 345.000 L 84.869 357.816 L 119.461 366.054 L 140.000 367.885 Q 126.163 345.000 140.000 322.115 Z"/>
+<path class="pocket-rim" d="M 130.271 325.319 C 102.165 328.065 84.869 337.677 84.869 345.000 C 84.869 352.323 102.165 361.935 130.271 364.681"/>
+<path class="side-pocket approach-8" d="M 1060.000 322.115 L 1080.539 323.946 L 1115.131 332.184 L 1120.536 345.000 L 1115.131 357.816 L 1080.539 366.054 L 1060.000 367.885 Q 1073.837 345.000 1060.000 322.115 Z"/>
+<path class="pocket-rim" d="M 1069.729 325.319 C 1097.835 328.065 1115.131 337.677 1115.131 345.000 C 1115.131 352.323 1097.835 361.935 1069.729 364.681"/>
+<rect class="inner-shadow" x="140.000" y="115.000" width="920.000" height="460.000"/>
+<polygon class="sight" points="248.790,73.773 255.000,70.921 261.210,73.773 255.000,76.625"/>
+<polygon class="sight" points="248.790,616.227 255.000,613.375 261.210,616.227 255.000,619.079"/>
+<polygon class="sight" points="363.790,73.773 370.000,70.921 376.210,73.773 370.000,76.625"/>
+<polygon class="sight" points="363.790,616.227 370.000,613.375 376.210,616.227 370.000,619.079"/>
+<polygon class="sight" points="478.790,73.773 485.000,70.921 491.210,73.773 485.000,76.625"/>
+<polygon class="sight" points="478.790,616.227 485.000,613.375 491.210,616.227 485.000,619.079"/>
+<polygon class="sight" points="708.790,73.773 715.000,70.921 721.210,73.773 715.000,76.625"/>
+<polygon class="sight" points="708.790,616.227 715.000,613.375 721.210,616.227 715.000,619.079"/>
+<polygon class="sight" points="823.790,73.773 830.000,70.921 836.210,73.773 830.000,76.625"/>
+<polygon class="sight" points="823.790,616.227 830.000,613.375 836.210,616.227 830.000,619.079"/>
+<polygon class="sight" points="938.790,73.773 945.000,70.921 951.210,73.773 945.000,76.625"/>
+<polygon class="sight" points="938.790,616.227 945.000,613.375 951.210,616.227 945.000,619.079"/>
+<polygon class="sight" points="95.921,230.000 98.773,223.790 101.625,230.000 98.773,236.210"/>
+<polygon class="sight" points="1098.375,230.000 1101.227,223.790 1104.080,230.000 1101.227,236.210"/>
+<polygon class="sight" points="95.921,345.000 98.773,338.790 101.625,345.000 98.773,351.210"/>
+<polygon class="sight" points="1098.375,345.000 1101.227,338.790 1104.080,345.000 1101.227,351.210"/>
+<polygon class="sight" points="95.921,460.000 98.773,453.790 101.625,460.000 98.773,466.210"/>
+<polygon class="sight" points="1098.375,460.000 1101.227,453.790 1104.080,460.000 1101.227,466.210"/>
+</g>
+</svg>

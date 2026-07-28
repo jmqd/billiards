@@ -276,6 +276,9 @@ fn bench_function_throughput(c: &mut Criterion) {
         );
     }
 
+    group.measurement_time(Duration::from_secs(8));
+    group.sample_size(30);
+
     for batch_size in [100usize, 1_000] {
         let workload = generate_collision_workload(batch_size);
         group.throughput(Throughput::Elements(batch_size as u64));

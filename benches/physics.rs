@@ -1164,6 +1164,57 @@ fn bench_collision_predictor_paths(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_rail_predictor_paths(c: &mut Criterion) {
+    let radius = TYPICAL_BALL_RADIUS.as_f64();
+    let curved_state = |vertical_spin| {
+        on_table(BallState::on_table(
+            inches2(48.871, 20.0),
+            Velocity2::new("0", "10"),
+            AngularVelocity3::new(-10.0 / radius, 0.0, vertical_spin),
+        ))
+    };
+    let curved_hit = curved_state(2.0);
+    let curved_no_hit = curved_state(-2.0);
+    let ball_set = BallSetPhysicsSpec::default();
+    let table = TableSpec::default();
+    let motion = motion_config();
+
+    let hit = compute_next_ball_rail_impact_on_table(&curved_hit, &ball_set, &table, &motion)
+        .expect("curved rail hit benchmark fixture should reach the right rail");
+    assert_eq!(hit.rail, Rail::Right);
+    assert!(hit.time_until_impact.as_f64() < 1.0);
+    assert!(
+        compute_next_ball_rail_impact_on_table(&curved_no_hit, &ball_set, &table, &motion,)
+            .is_none(),
+        "opposite-spin rail benchmark fixture should curve away"
+    );
+
+    let mut group = c.benchmark_group("rail_predictor_paths");
+    group.measurement_time(Duration::from_secs(8));
+    group.sample_size(30);
+    group.bench_function("curved_rolling_hit", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_rail_impact_on_table(
+                black_box(&curved_hit),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.bench_function("curved_rolling_no_hit", |b| {
+        b.iter(|| {
+            black_box(compute_next_ball_rail_impact_on_table(
+                black_box(&curved_no_hit),
+                black_box(&ball_set),
+                black_box(&table),
+                black_box(&motion),
+            ))
+        })
+    });
+    group.finish();
+}
+
 fn bench_shared_contact_resolution(c: &mut Criterion) {
     let states = zero_time_shared_contact_states();
     let ball_set = BallSetPhysicsSpec::default();
@@ -1427,6 +1478,6 @@ fn bench_player_robust_search(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_shared_contact_resolution, bench_rail_resolution, bench_pocket_cache_rebuild, bench_end_to_end, bench_player_robust_search
+    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_rail_predictor_paths, bench_shared_contact_resolution, bench_rail_resolution, bench_pocket_cache_rebuild, bench_end_to_end, bench_player_robust_search
 );
 criterion_main!(benches);

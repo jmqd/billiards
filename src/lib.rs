@@ -16486,6 +16486,7 @@ fn cushion_contact_cos_theta() -> f64 {
     (1.0 - cushion_contact_sin_theta().powi(2)).sqrt()
 }
 
+#[inline]
 fn rail_impact_contact_slip_direction(
     tangent_speed: f64,
     normal_or_vertical_speed: f64,
@@ -16523,6 +16524,7 @@ fn rail_impact_contact_slip_direction(
     }
 }
 
+#[inline]
 fn rail_impact_frame_slip_directions(
     state: RailImpactFrameState,
     ball_radius: f64,
@@ -16551,6 +16553,7 @@ fn rail_impact_frame_slip_directions(
     )
 }
 
+#[inline]
 fn advance_rail_impact_frame_by_impulse_step(
     state: RailImpactFrameState,
     ball_radius: f64,

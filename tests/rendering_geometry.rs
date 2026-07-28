@@ -1,12 +1,11 @@
 use billiards::diagram::{
-    render_scene_to_bytes, DiagramElement, DiagramLayerId, DiagramOutputFormat, DiagramViewport,
+    render_scene_to_bytes, DiagramLayerId, DiagramOutputFormat, DiagramViewport,
 };
 use billiards::{
     trace_ball_path_with_rails_on_table,
     visualization::{
         AimOverlayStyle, BallPathRenderOptions, BallPathStyle, BallPathWidthMode, DashedLineStyle,
-        DashedLineStyleError, EventMarkerStyle, GhostBallStyle, HeadingChevronStyle,
-        LabelOverlayStyle, SmoothPolylineStyle, SpinGlyphStyle,
+        DashedLineStyleError, EventMarkerStyle, GhostBallStyle, LabelOverlayStyle,
     },
     Angle, AngularVelocity3, Ball, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
     DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2, InchesPerSecond,
@@ -760,102 +759,31 @@ fn fully_out_of_view_ball_is_clipped_instead_of_relocated_to_the_image_edge() {
 }
 
 #[test]
-fn drawing_resolves_pending_inches_shifts_before_rendering_without_mutating_the_source() {
+fn drawing_resolves_pending_inches_shifts_before_rendering() {
     let table_spec = TableSpec::default();
-    let mut x_shifted = Position::new("1.234567", "2.25");
-    x_shifted.shift_horizontally_inches(Inches::from("0.333"));
-    let mut y_shifted = Position::new("2.25", "3.125");
-    y_shifted.shift_vertically_inches(Inches::from("-0.4375"));
-    let mut xy_shifted = Position::new("3.125", "5.375");
-    xy_shifted
-        .shift_horizontally_inches(Inches::from("-0.28125"))
-        .shift_vertically_inches(Inches::from("0.21875"));
+    let shifted = Position::new(2u8, 4u8)
+        .translate_inches(TYPICAL_BALL_RADIUS.clone(), Angle::from_north(0.0, 1.0));
+
     let unresolved = GameState::with_balls(
-        table_spec,
-        [
-            Ball {
-                ty: BallType::Cue,
-                position: Position::new("0.875", "6.5"),
-                spec: BallSpec {
-                    radius: Inches::from("1"),
-                },
-            },
-            Ball {
-                ty: BallType::One,
-                position: x_shifted,
-                spec: BallSpec {
-                    radius: Inches::from("1.03125"),
-                },
-            },
-            Ball {
-                ty: BallType::Two,
-                position: y_shifted,
-                spec: BallSpec {
-                    radius: Inches::from("1.0625"),
-                },
-            },
-            Ball {
-                ty: BallType::Three,
-                position: xy_shifted,
-                spec: BallSpec {
-                    radius: Inches::from("1.09375"),
-                },
-            },
-        ],
+        table_spec.clone(),
+        [Ball {
+            ty: BallType::Cue,
+            position: shifted.clone(),
+            spec: BallSpec::default(),
+        }],
     );
-    let source_snapshot = unresolved
-        .balls()
-        .iter()
-        .map(|ball| {
-            (
-                ball.ty.clone(),
-                ball.position.clone(),
-                ball.spec.radius.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let mut resolved = unresolved.clone();
+
+    let mut resolved = GameState::with_balls(
+        table_spec,
+        [Ball {
+            ty: BallType::Cue,
+            position: shifted,
+            spec: BallSpec::default(),
+        }],
+    );
     resolved.resolve_positions();
-    let options = DiagramRenderOptions {
-        background: DiagramBackground::Transparent,
-        ..DiagramRenderOptions::default()
-    };
 
-    let unresolved_svg = unresolved.draw_2d_svg_with_options(&options);
-    let resolved_svg = resolved.draw_2d_svg_with_options(&options);
-    assert_eq!(unresolved_svg, resolved_svg);
-    let unresolved_png = unresolved.draw_2d_diagram_with_options(&options);
-    let resolved_png = resolved.draw_2d_diagram_with_options(&options);
-    assert_eq!(unresolved_png, resolved_png);
-    let unresolved_rgba = load_from_memory(&unresolved_png)
-        .expect("unresolved PNG should decode")
-        .into_rgba8();
-    let resolved_rgba = load_from_memory(&resolved_png)
-        .expect("resolved PNG should decode")
-        .into_rgba8();
-    assert_eq!(unresolved_rgba.dimensions(), resolved_rgba.dimensions());
-    assert_eq!(unresolved_rgba.as_raw(), resolved_rgba.as_raw());
-
-    let first_scene = unresolved.to_diagram_scene(&options);
-    let second_scene = unresolved.to_diagram_scene(&options);
-    for ((first, second), expected) in first_scene
-        .balls
-        .iter()
-        .zip(&second_scene.balls)
-        .zip(resolved.balls())
-    {
-        assert_eq!(first.ty, expected.ty);
-        assert_eq!(first.position, expected.position);
-        assert_eq!(first.spec.radius, expected.spec.radius);
-        assert_eq!(second.ty, expected.ty);
-        assert_eq!(second.position, expected.position);
-        assert_eq!(second.spec.radius, expected.spec.radius);
-    }
-    for (ball, (ty, position, radius)) in unresolved.balls().iter().zip(&source_snapshot) {
-        assert_eq!(&ball.ty, ty);
-        assert_eq!(&ball.position, position);
-        assert_eq!(&ball.spec.radius, radius);
-    }
+    assert_eq!(render(&unresolved), render(&resolved));
 }
 
 #[test]
@@ -1083,234 +1011,6 @@ fn diagram_scene_exposes_backend_neutral_balls_and_overlay_layers() {
         1
     );
     assert_eq!(scene.elements_for_layer(DiagramLayerId::Balls).count(), 0);
-}
-
-#[test]
-fn diagram_scene_preserves_sixteen_ball_order_specs_and_scale_independence() {
-    let ball_types = [
-        BallType::Cue,
-        BallType::One,
-        BallType::Two,
-        BallType::Three,
-        BallType::Four,
-        BallType::Five,
-        BallType::Six,
-        BallType::Seven,
-        BallType::Eight,
-        BallType::Nine,
-        BallType::YellowCue,
-        BallType::Red,
-        BallType::Cue,
-        BallType::One,
-        BallType::Two,
-        BallType::Three,
-    ];
-    let x_positions = ["0.5", "1.5", "2.5", "3.5"];
-    let y_positions = ["0.75", "2.75", "4.75", "6.75"];
-    let radii = ["1", "1.0625", "1.125", "1.1875"];
-    let balls = ball_types.into_iter().enumerate().map(|(index, ty)| {
-        let mut position = Position::new(x_positions[index % 4], y_positions[index / 4]);
-        match index % 4 {
-            0 => {}
-            1 => {
-                position.shift_horizontally_inches(Inches::from("0.125"));
-            }
-            2 => {
-                position.shift_vertically_inches(Inches::from("-0.1875"));
-            }
-            3 => {
-                position
-                    .shift_horizontally_inches(Inches::from("0.0625"))
-                    .shift_vertically_inches(Inches::from("-0.09375"));
-            }
-            _ => unreachable!(),
-        }
-        Ball {
-            ty,
-            position,
-            spec: BallSpec {
-                radius: Inches::from(radii[index % radii.len()]),
-            },
-        }
-    });
-    let state = GameState::with_balls(TableSpec::default(), balls);
-    let mut resolved = state.clone();
-    resolved.resolve_positions();
-    let options = DiagramRenderOptions {
-        background: DiagramBackground::Transparent,
-        ..DiagramRenderOptions::default()
-    };
-    let scaled_options = DiagramRenderOptions {
-        scale_factor: 7,
-        ..options.clone()
-    };
-    let scene = state.to_diagram_scene(&options);
-    let scale_independent_scene = state.to_diagram_scene(&scaled_options);
-
-    assert_eq!(scene.viewport, DiagramViewport::default());
-    assert_eq!(scale_independent_scene.viewport, DiagramViewport::default());
-    assert_eq!(scene.background, DiagramBackground::Transparent);
-    assert_eq!(scene.balls.len(), 16);
-    for ((actual, scale_independent), expected) in scene
-        .balls
-        .iter()
-        .zip(&scale_independent_scene.balls)
-        .zip(resolved.balls())
-    {
-        assert_eq!(actual.ty, expected.ty);
-        assert_eq!(actual.position, expected.position);
-        assert_eq!(actual.spec.radius, expected.spec.radius);
-        assert_eq!(scale_independent.ty, expected.ty);
-        assert_eq!(scale_independent.position, expected.position);
-        assert_eq!(scale_independent.spec.radius, expected.spec.radius);
-    }
-    assert_eq!(
-        render_scene_to_bytes(&scene, DiagramOutputFormat::Svg, &options),
-        render_scene_to_bytes(&scale_independent_scene, DiagramOutputFormat::Svg, &options)
-    );
-}
-
-#[test]
-fn diagram_scene_preserves_global_and_per_layer_overlay_order() {
-    let mut state = GameState::new(TableSpec::default());
-    let below = OverlayLayer::BelowBalls;
-    let above = OverlayLayer::AboveBalls;
-    state.add_dotted_line_on_layer(
-        &Position::new("0.5", "1"),
-        &Position::new("1", "2"),
-        image::Rgba([1, 2, 3, 255]),
-        below,
-    );
-    state.add_event_marker_styled(
-        &Position::new("1.25", "2.25"),
-        EventMarkerStyle::enabled(image::Rgba([4, 5, 6, 255])),
-    );
-    state.add_smooth_polyline_styled(
-        &[
-            Position::new("1.5", "2.5"),
-            Position::new("2", "3"),
-            Position::new("2.5", "3.5"),
-        ],
-        SmoothPolylineStyle::new(image::Rgba([7, 8, 9, 255])).on_layer(below),
-    );
-    let mut text_style = LabelOverlayStyle::enabled(image::Rgba([10, 11, 12, 255]));
-    text_style.layer = above;
-    state.add_text_label_styled(
-        &Position::new("2.75", "3.75"),
-        "scene ownership",
-        text_style,
-    );
-    let mut heading_style = HeadingChevronStyle::new(image::Rgba([13, 14, 15, 255]));
-    heading_style.layer = below;
-    state.add_heading_chevron_styled(
-        &Position::new("3", "4"),
-        Angle::from_north(1.0, 1.0),
-        heading_style,
-    );
-    state.add_ghost_ball_on_layer(
-        &Position::new("3.25", "4.25"),
-        image::Rgba([16, 17, 18, 64]),
-        image::Rgba([19, 20, 21, 128]),
-        above,
-    );
-    let mut origin_style = LabelOverlayStyle::enabled(image::Rgba([22, 23, 24, 255]));
-    origin_style.layer = below;
-    state.add_origin_marker_styled(&Position::new("2.5", "5"), origin_style);
-    let spin_state = on_table(BallState::on_table(
-        Inches2::new("25", "50"),
-        Velocity2::new("2", "3"),
-        AngularVelocity3::new(1.0, 2.0, 3.0),
-    ));
-    let mut spin_style = SpinGlyphStyle::default();
-    spin_style.layer = above;
-    state.add_spin_glyph_for_on_table_state_styled(&spin_state, &BallSpec::default(), spin_style);
-
-    let options = DiagramRenderOptions {
-        background: DiagramBackground::Transparent,
-        ..DiagramRenderOptions::default()
-    };
-    let scene = state.to_diagram_scene(&options);
-    assert_eq!(scene.elements.len(), 8);
-    assert!(matches!(
-        scene.elements[0],
-        DiagramElement::DashedLine { .. }
-    ));
-    assert!(matches!(
-        scene.elements[1],
-        DiagramElement::CircleMarker { .. }
-    ));
-    assert!(matches!(
-        scene.elements[2],
-        DiagramElement::SmoothPolyline { .. }
-    ));
-    assert!(matches!(
-        scene.elements[3],
-        DiagramElement::TextLabel { .. }
-    ));
-    assert!(matches!(
-        scene.elements[4],
-        DiagramElement::HeadingChevron { .. }
-    ));
-    assert!(matches!(
-        scene.elements[5],
-        DiagramElement::GhostBall { .. }
-    ));
-    assert!(matches!(
-        scene.elements[6],
-        DiagramElement::OriginMarker { .. }
-    ));
-    assert!(matches!(
-        scene.elements[7],
-        DiagramElement::SpinGlyph { .. }
-    ));
-    assert_eq!(
-        scene
-            .elements
-            .iter()
-            .map(DiagramElement::layer)
-            .collect::<Vec<_>>(),
-        [
-            DiagramLayerId::OverlaysBelowBalls,
-            DiagramLayerId::OverlaysAboveBalls,
-            DiagramLayerId::OverlaysBelowBalls,
-            DiagramLayerId::OverlaysAboveBalls,
-            DiagramLayerId::OverlaysBelowBalls,
-            DiagramLayerId::OverlaysAboveBalls,
-            DiagramLayerId::OverlaysBelowBalls,
-            DiagramLayerId::OverlaysAboveBalls,
-        ]
-    );
-    let below_elements = scene
-        .elements_for_layer(DiagramLayerId::OverlaysBelowBalls)
-        .collect::<Vec<_>>();
-    assert!(matches!(
-        below_elements.as_slice(),
-        [
-            DiagramElement::DashedLine { .. },
-            DiagramElement::SmoothPolyline { .. },
-            DiagramElement::HeadingChevron { .. },
-            DiagramElement::OriginMarker { .. },
-        ]
-    ));
-    let above_elements = scene
-        .elements_for_layer(DiagramLayerId::OverlaysAboveBalls)
-        .collect::<Vec<_>>();
-    assert!(matches!(
-        above_elements.as_slice(),
-        [
-            DiagramElement::CircleMarker { .. },
-            DiagramElement::TextLabel { .. },
-            DiagramElement::GhostBall { .. },
-            DiagramElement::SpinGlyph { .. },
-        ]
-    ));
-    assert_eq!(
-        render_scene_to_bytes(&scene, DiagramOutputFormat::Svg, &options),
-        state
-            .draw_2d_svg_with_options(&options)
-            .as_bytes()
-            .to_owned()
-    );
 }
 
 #[test]

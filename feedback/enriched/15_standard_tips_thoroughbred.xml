@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/15_standard_tips_thoroughbred.txt</sourceRawFile>
+  <summary>Add clear product copy in the tips section explaining that standard tips are Thoroughbred brand tips, and make the same default visible in the order summary when no upgraded tip is selected.</summary>
+  <category>product-copy</category>
+  <customerImpact>Customers understand what they receive with the standard tip option before ordering, reducing uncertainty and follow-up questions about the default tip brand.</customerImpact>
+  <businessImpact>Improves perceived build transparency with a small copy-only change, may reduce pre-sale messages, and reinforces that the default option uses a named cue-tip brand rather than an unspecified generic tip.</businessImpact>
+  <confidence score="0.86">High confidence because the request is specific and external product research confirms Thoroughbred as the brand capitalization; confidence is not higher because this checkout appears to contain the billiards simulator source rather than the live ecommerce configurator, so exact component names are assumed.</confidence>
+  <researchFindings>
+    <finding>The raw feedback asks to note in the tips section that standard tips use the Thoroughbred brand.</finding>
+    <finding>The current checkout does not appear to include the website or configurator implementation surface; searches found feedback files and simulator code, but no ecommerce app, pages, components, or product-option UI.</finding>
+    <finding>The official Thoroughbred shop uses the page title "Thoroughbred Cue Tips" and lists soft, medium soft, medium, and medium hard products, supporting brand capitalization as "Thoroughbred" in sentence-style copy.</finding>
+    <finding>Cue Maker Supply lists the product as "Thoroughbred Tips" and identifies the brand as "Thoroughbred", further supporting title-case brand usage rather than lowercase "thoroughbred" or all-caps display styling.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Find the tip-selection field in the shaft or cue configurator, including any shared option metadata used by the product page, cart, checkout, and order-summary views.</step>
+    <step n="2">Update the standard/default tip option label or helper text to sentence-style copy: "Standard tips are Thoroughbred brand tips." Keep "Thoroughbred" capitalized exactly as the brand name.</step>
+    <step n="3">Place the note directly in the tips section, adjacent to the standard/default selection rather than in a general FAQ, so the customer sees it at the decision point.</step>
+    <step n="4">If the tips field has a collapsed/default state, show the note whenever the tips section is visible and the standard option is available, not only after the user changes the selection.</step>
+    <step n="5">Update order summary serialization so an unchanged standard-tip selection displays as "Tip: Standard Thoroughbred" or "Tip: Standard (Thoroughbred)" instead of omitting the tip line or showing only "Standard".</step>
+    <step n="6">Preserve any existing upgraded-tip behavior: paid or custom tip selections should continue to display their selected brand/model and should not be overwritten by the Thoroughbred default copy.</step>
+    <step n="7">Confirm capitalization is consistent across product page copy, cart line-item properties, checkout summary, confirmation email, and admin/order export if those surfaces consume separate templates.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>The tips section includes the exact brand capitalization "Thoroughbred" for standard tips.</criterion>
+    <criterion>The note is visible near the standard/default tip choice before add-to-cart or order submission.</criterion>
+    <criterion>Leaving the tip choice at its default produces an order summary line that communicates the default Thoroughbred tip.</criterion>
+    <criterion>Selecting a non-standard or upgraded tip continues to show the selected upgraded tip instead of the standard Thoroughbred message.</criterion>
+    <criterion>No all-caps "THOROUGHBRED" styling is used in normal sentence copy unless the existing design system intentionally uppercases all option labels.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>If the business later changes the default tip supplier, hard-coded copy could become inaccurate; prefer storing the default brand in option metadata used by both UI copy and order summary.</risk>
+    <risk>If "standard tips" includes multiple hardnesses, copy must avoid implying a single hardness and should identify only the brand unless hardness is separately selected.</risk>
+    <risk>If order summaries currently omit default-valued fields, adding this one field may require a small exception or a broader summary rule for important defaults.</risk>
+  </risks>
+  <openQuestions>
+    <question>Should the customer-facing order summary use "Standard Thoroughbred" or "Standard (Thoroughbred)" as the final display string?</question>
+    <question>Are standard Thoroughbred tips available in a fixed hardness or does hardness vary by build and need a separate displayed value?</question>
+    <question>Should confirmation emails and internal production notes also show the Thoroughbred default, or only the customer-facing page and checkout summary?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>small</effort>
+</feedbackActionPlan>

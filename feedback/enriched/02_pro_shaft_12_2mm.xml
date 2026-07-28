@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/02_pro_shaft_12_2mm.txt</sourceRawFile>
+  <summary>Add a selectable 12.2 mm diameter option for pro shafts and carry that choice through validation, pricing, order review, and shop-facing manufacturing notation.</summary>
+  <category>product-option</category>
+  <customerImpact>Customers who prefer a smaller pro shaft diameter can order 12.2 mm directly instead of using notes or contacting the shop, reducing order friction and misinterpretation risk.</customerImpact>
+  <businessImpact>The option can capture more custom pro shaft orders with low catalog complexity, but it must be represented consistently so pricing, order records, and build sheets stay accurate.</businessImpact>
+  <confidence score="0.78">The raw request is direct and unambiguous. Confidence is reduced because this checkout appears to contain a Rust billiards simulation rather than the website/configurator implementation, so file-level surfaces are inferred from standard ecommerce configurator patterns.</confidence>
+  <researchFindings>
+    <finding>The source feedback asks specifically for a 12.2 mm option for pro shafts, not for all shaft families or every diameter selector.</finding>
+    <finding>No website, storefront, product data, or order-form implementation was surfaced in this checkout under the expected application paths; the implementation plan assumes those artifacts exist in a separate website checkout.</finding>
+    <finding>Model the value as a numeric millimeter diameter, 12.2, and render it as 12.2 mm everywhere to avoid inconsistent strings such as 12.20, 12.2mm, or 12-2.</finding>
+    <finding>The change must propagate beyond the visible dropdown: validation, price calculation, cart/order summary, stored order payloads, admin review, and manufacturing/build-sheet notation all need the same canonical value.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Locate the canonical pro shaft product option source, such as a product-options data file, CMS entry, schema enum, or configurator constant that currently lists allowed pro shaft diameters.</step>
+    <step n="2">Add 12.2 as an allowed diameter only for pro shafts unless product leadership confirms it should apply to other shaft types.</step>
+    <step n="3">Use a single canonical representation for the option: internal value 12.2, unit mm, customer label 12.2 mm, and manufacturing label Pro shaft diameter: 12.2 mm.</step>
+    <step n="4">Update frontend option rendering so the 12.2 mm choice appears in the pro shaft diameter selector in the same order as adjacent diameters, preferably numeric ascending order.</step>
+    <step n="5">Update client-side and server-side validation to accept 12.2 for pro shaft diameter while continuing to reject unsupported diameters and invalid shaft-family combinations.</step>
+    <step n="6">Update pricing rules so 12.2 mm uses the default pro shaft diameter price unless the business explicitly assigns an upcharge; do not create a silent surcharge.</step>
+    <step n="7">Update cart, checkout, confirmation email, customer order summary, admin order view, and export payloads so the selected diameter displays as 12.2 mm.</step>
+    <step n="8">Update downstream manufacturing notation, build sheets, labels, and any CSV/print/export templates to show 12.2 mm as a required pro shaft diameter specification.</step>
+    <step n="9">Add focused coverage for option availability, validation acceptance, pricing default behavior, order summary display, and manufacturing/export notation for a pro shaft configured at 12.2 mm.</step>
+    <step n="10">If option values are cached or synced from a CMS, refresh the relevant cache/index and confirm the storefront and admin surfaces read from the same canonical source.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>A customer configuring a pro shaft can select 12.2 mm from the diameter options without using a free-text note.</criterion>
+    <criterion>The 12.2 mm option is not shown for unrelated shaft families unless intentionally enabled there.</criterion>
+    <criterion>Client-side and server-side validation both accept 12.2 mm for pro shafts and reject malformed values such as 12.2 without the expected unit metadata if the schema requires units.</criterion>
+    <criterion>Choosing 12.2 mm preserves the default pro shaft price unless a documented price rule says otherwise.</criterion>
+    <criterion>The cart, checkout review, confirmation email, customer order summary, and admin order detail all display 12.2 mm consistently.</criterion>
+    <criterion>The manufacturing/build-sheet output includes an explicit 12.2 mm pro shaft diameter notation that cannot be confused with tip size, joint diameter, or taper.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>If diameter options are duplicated across frontend, backend, and manufacturing templates, adding only the visible selector can create orders the shop cannot build from reliably.</risk>
+    <risk>If 12.2 mm requires a different taper, tooling limit, or warranty rule, using default pricing and default manufacturing instructions may be incomplete.</risk>
+    <risk>If the order schema stores diameter as a string, inconsistent formatting can break analytics, exports, or fulfillment filters.</risk>
+  </risks>
+  <openQuestions>
+    <question>Should 12.2 mm be available for every pro shaft material/construction variant, or only specific pro shaft SKUs?</question>
+    <question>Does 12.2 mm carry the same price and lead time as existing pro shaft diameters?</question>
+    <question>Should the manufacturing notation distinguish tip diameter from any separate joint diameter or taper measurement on the same order?</question>
+  </openQuestions>
+  <priority>high</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

@@ -1,0 +1,51 @@
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/01_deposit_percentage.txt</sourceRawFile>
+  <summary>Replace the fixed $50 checkout deposit with a deposit equal to 10% of the configured build total, so high-value shaft builds collect proportionally more while lower-value builds can collect less.</summary>
+  <category>checkout pricing and deposits</category>
+  <customerImpact>Customers see a deposit that matches the actual configured order value before payment, reducing surprise when selected options push the build total above $500 or $600.</customerImpact>
+  <businessImpact>A percentage deposit better protects cash flow and cancellation risk on expensive custom builds, but requires clean accounting for deposit collected, remaining balance due, refunds, and admin overrides.</businessImpact>
+  <confidence score="0.76">The raw feedback directly states the desired 10% behavior and the repository inspection did not reveal the website checkout code in this checkout, so the plan is implementation-ready at the product and UX level but assumes the final codebase has configurable build totals available at checkout.</confidence>
+  <researchFindings>
+    <finding>The current checkout source was not found in this repository; visible files are primarily billiards physics code, whitepapers, tests, and feedback artifacts. Assumption: the website checkout lives in another codebase or service.</finding>
+    <finding>The deposit should be calculated from the final configured build total after all product options and customizations are priced, because the feedback calls out shaft builds exceeding $600.</finding>
+    <finding>Use integer minor units for money and persist both totalCents and depositCents. Stripe documentation states payment amounts are submitted in the currency minor unit, such as 1099 for $10.99 USD.</finding>
+    <finding>Stripe documents a $0.50 USD minimum non-zero charge. If the business uses Stripe or a similar processor, a 10% deposit below the processor minimum must be blocked, rounded up to the minimum by explicit rule, or converted to pay-in-full/manual invoice flow.</finding>
+    <finding>Deposits should be represented in admin and accounting as partial payments against the order, with remainingBalanceCents equal to configuredTotalCents minus depositCents, not as a discount or price reduction.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Locate the checkout pricing source of truth for configured build totals, including base shaft price, selected options, discounts, and any manual adjustments. Do not calculate the deposit from display strings or duplicated front-end-only totals.</step>
+    <step n="2">Introduce a single deposit calculator: depositCents = roundHalfUp(configuredTotalCents * 10 / 100), remainingBalanceCents = configuredTotalCents - depositCents. Keep all calculations in integer cents or a money library to avoid floating-point drift.</step>
+    <step n="3">Define the taxable base with the business before implementation. Recommended default: calculate the deposit on product configured subtotal before shipping and tax, then apply tax rules consistently to the deposit payment according to the payment platform and accountant guidance.</step>
+    <step n="4">Remove the hard-coded $50 deposit from checkout summaries, payment creation, order records, email templates, admin views, and any analytics or accounting exports. Replace each occurrence with the calculator output.</step>
+    <step n="5">Update customer-facing checkout display to show configured build total, deposit due today as 10%, and remaining balance due before delivery or pickup. Include a short explanatory label such as "10% custom build deposit".</step>
+    <step n="6">Handle edge cases explicitly: zero or negative configured totals must not create a deposit payment; totals below the processor minimum must follow the selected minimum-payment rule; very large totals must remain within processor maximums; currency must use the configured store currency precision.</step>
+    <step n="7">Persist an audit snapshot on the order containing configuredTotalCents, depositRateBps = 1000, depositCents, remainingBalanceCents, currency, calculator version, and the option selections used to produce the total.</step>
+    <step n="8">Update admin order detail pages to show deposit paid, remaining balance, refund status, and any manual override reason. Admin users should not need to recompute 10% outside the system.</step>
+    <step n="9">Update accounting export or bookkeeping integration so deposits are recorded as customer deposits or deferred revenue until the custom build is completed or invoiced, and so the final payment clears the remaining balance without double-counting revenue.</step>
+    <step n="10">Add focused coverage in the website codebase for $400, $500, $600, and $600.01 configured totals; fractional-cent cases such as $199.99; zero or invalid totals; and any configured total that produces a deposit below the payment processor minimum.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>A configured build total of $600.00 shows and charges a $60.00 deposit, not $50.00.</criterion>
+    <criterion>A configured build total of $400.00 shows and charges a $40.00 deposit if no business minimum is configured.</criterion>
+    <criterion>The checkout displays total price, deposit due today, and remaining balance in the same currency and with two-decimal formatting for USD.</criterion>
+    <criterion>The payment request amount, saved order deposit amount, confirmation email, admin order page, and accounting export all use the same depositCents value from the shared calculator.</criterion>
+    <criterion>Remaining balance is always configuredTotalCents minus depositCents, so rounding never creates a one-cent mismatch.</criterion>
+    <criterion>Orders with zero, negative, below-gateway-minimum, or otherwise invalid deposit amounts cannot silently create an incorrect payment.</criterion>
+    <criterion>Refund and cancellation workflows can identify the deposit payment separately from the remaining balance payment.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Calculating 10% separately in front end, backend, payment provider, and admin code could create mismatched cents unless a shared calculator or backend authority is used.</risk>
+    <risk>Changing deposits from $50 to percentage-based may affect cash-flow expectations, cancellation policy language, and customer support scripts.</risk>
+    <risk>Tax treatment for deposits can vary by jurisdiction and platform configuration; accounting review is needed before deciding whether the deposit is on pre-tax subtotal or tax-inclusive total.</risk>
+    <risk>If a payment provider enforces a minimum charge, very low configured totals may fail unless the product team defines a minimum-deposit policy.</risk>
+  </risks>
+  <openQuestions>
+    <question>Should 10% be calculated before or after discounts, tax, shipping, and manual admin adjustments?</question>
+    <question>Should there be any business minimum deposit, or is the desired rule strictly 10% even when that is below $50?</question>
+    <question>Which payment provider and accounting system own the source records for partial payments and deferred revenue?</question>
+    <question>Can admins override the calculated deposit, and if so what approval note or audit trail is required?</question>
+    <question>When is the remaining balance collected: before production starts, before shipment, at pickup, or through a later invoice?</question>
+  </openQuestions>
+  <priority>high</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

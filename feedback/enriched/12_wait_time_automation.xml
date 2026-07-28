@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/12_wait_time_automation.txt</sourceRawFile>
+  <summary>Automate the website&apos;s quoted wait-time message from live order volume plus a manually controlled backlog adjustment, while making the quote conservative and clearly non-guaranteed so it does not overpromise delivery for custom shaft work.</summary>
+  <category>operations-automation</category>
+  <customerImpact>Customers get a clearer expectation before ordering, fewer surprised follow-up conversations, and a quote that can account for real shop capacity instead of a static estimate.</customerImpact>
+  <businessImpact>Reduces manual wait-time edits and expectation-management messages, but the estimate becomes customer-facing operational data and must be conservative, auditable, and easy to override when existing offsite work or previously built shafts change the true backlog.</businessImpact>
+  <confidence score="0.70">The raw feedback states the desired heuristic and the main uncertainty around already-built shafts. Repo inspection found no website/order-management implementation in this checkout, so the surface-level code locations are assumed rather than confirmed. Confidence is moderate because the product and UX approach is clear, but final data-source choices depend on the actual ecommerce stack and order records.</confidence>
+  <researchFindings>
+    <finding>The raw feedback proposes adding about one month to quoted wait time every 15 orders, but notes this simple rule would be inaccurate when shaft work has already been completed.</finding>
+    <finding>This checkout appears to be a billiards physics codebase, not the production website or ecommerce backend; searches found no checkout, cart, order, custom-cue, or wait-time implementation surface outside the raw feedback files.</finding>
+    <finding>FTC guidance for internet orders requires sellers to have a reasonable basis for stated shipping times; if shipment cannot happen by the promised time, sellers generally must notify buyers, provide a revised date, and offer cancellation/refund rights. The wait-time UI should therefore present a conservative estimate range, not a guaranteed ship date. Source: https://www.ftc.gov/business-guidance/resources/selling-internet-prompt-delivery-rules</finding>
+    <finding>The safest product design is to separate the calculated queue position from a manual shop adjustment, because offsite work, previously built shafts, rework, material delays, vacations, and rush exceptions are operational realities that raw order count cannot infer.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Inventory the current ecommerce data sources: paid orders, draft orders, cancelled/refunded orders, order statuses, order dates, SKU/build type, customer-visible order notes, and any existing admin setting for published wait time.</step>
+    <step n="2">Define which orders count toward production backlog. Exclude cancelled/refunded orders, already shipped/completed builds, stock items that do not consume shaft-building capacity, and orders for shafts that were already built before the customer placed the website order.</step>
+    <step n="3">Add an internal backlog model with explicit fields: active_custom_order_count, completed_not_shipped_count, prebuilt_or_offsite_credit_count, manual_backlog_month_adjustment, base_wait_weeks, orders_per_wait_increment, increment_weeks, min_quote_weeks, max_quote_weeks, last_reviewed_at, and admin_note.</step>
+    <step n="4">Start with an admin-only calculator that displays the computed wait range beside the current manual quote. Use the proposed rule as a configurable default: every 15 active production orders adds 4 weeks, then subtract credit for prebuilt/offsite shaft capacity and add or subtract the manual backlog adjustment.</step>
+    <step n="5">Keep the live website copy unchanged during the shadow phase. Compare the calculator output against the owner&apos;s real quoted wait time for several order cycles and tune the count rules, order threshold, and adjustment controls before exposing anything to customers.</step>
+    <step n="6">Add a required admin review control before publishing the estimate. If the calculation has not been reviewed recently, if required order data is unavailable, or if the manual adjustment is stale, fall back to a safe manually maintained wait-time message.</step>
+    <step n="7">Expose the customer-facing message as a range such as &quot;Current estimated build queue: approximately X-Y months before shipment&quot; with copy stating that custom build timing can change after order review and that the shop will confirm timing if the queue changes materially.</step>
+    <step n="8">Store the quoted wait range and calculation inputs on each submitted order so support can see what the customer saw at checkout and so later delay notifications can be tied to the original estimate.</step>
+    <step n="9">Add operational safeguards: cap month-to-month decreases, round up rather than down, require manual confirmation for unusually low estimates, and alert the owner when active orders cross the next 15-order threshold or when the published estimate changes.</step>
+    <step n="10">After the admin-only period is accurate, roll out to low-risk placements first: FAQ or order-intake page, then product page/configurator, then checkout confirmation. Avoid using the estimate as a guaranteed delivery date until legal/compliance wording is approved.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>Admin can configure the base wait, order threshold, increment size, min/max displayed range, and manual backlog adjustment without code changes.</criterion>
+    <criterion>Only active production orders count toward the automatic backlog; cancelled, completed, shipped, stock, and prebuilt/offsite shaft cases do not inflate the estimate.</criterion>
+    <criterion>The customer-facing website shows a conservative range or manually approved message, never an exact guaranteed delivery date.</criterion>
+    <criterion>Each order records the wait-time estimate and calculation inputs visible at submission time.</criterion>
+    <criterion>If order data, settings, or review freshness checks fail, the website falls back to the last approved manual wait-time message.</criterion>
+    <criterion>The owner receives a clear alert or dashboard warning when the calculated estimate changes enough to require review.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Simple order count can misrepresent workload because different shaft builds, repairs, offsite work, and already-built shafts consume different amounts of capacity.</risk>
+    <risk>Overly precise delivery language could create misleading customer expectations or compliance exposure if the shop misses the quoted timeframe.</risk>
+    <risk>Incorrect order-status mapping could double-count completed work or ignore real backlog, causing quotes to move in the wrong direction.</risk>
+    <risk>Fully automatic decreases are risky because a lower visible wait time may attract orders before the owner has confirmed actual shop capacity.</risk>
+  </risks>
+  <openQuestions>
+    <question>Which ecommerce platform and order-status fields power the production website?</question>
+    <question>What is the current baseline wait time before any order-volume increment is applied?</question>
+    <question>Should prebuilt/offsite shaft work be tracked per shaft, per order, or as a manual month/week credit?</question>
+    <question>How often does the owner want to review and approve the published wait-time estimate?</question>
+    <question>What customer-facing wording is acceptable for distinguishing estimated build queue timing from guaranteed shipment date?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

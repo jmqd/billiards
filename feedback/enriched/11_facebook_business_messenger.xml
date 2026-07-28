@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/11_facebook_business_messenger.txt</sourceRawFile>
+  <summary>Make Facebook Business Messenger the primary website contact path so inbound questions and leads land where the owner already responds fastest, while retaining Instagram and non-Meta fallbacks.</summary>
+  <category>messaging-integration</category>
+  <customerImpact>Customers get a clearer, faster way to ask pre-purchase questions from product pages, order/configurator pages, and contact CTAs. Customers who do not use Facebook still need visible fallback contact methods.</customerImpact>
+  <businessImpact>High-response-channel routing can reduce missed leads and improve close rate, especially for custom cue inquiries. The cheapest reliable path is a Messenger deep link; deeper API automation adds policy, privacy, and maintenance overhead.</businessImpact>
+  <confidence score="0.82">The raw request is explicit and Meta documentation confirms m.me links, Messenger discovery surfaces, and Business Suite inbox routing. Confidence is reduced because this checkout appears to be a Rust billiards simulation project, not the production website, so implementation surfaces are inferred rather than verified in website code.</confidence>
+  <researchFindings>
+    <finding>The assigned raw feedback asks: "Can we make messages go to my Facebook business messenger? I just use it way more than Instagram".</finding>
+    <finding>Repository inspection found README.md describing a billiards diagram and physics simulation project, not the customer-facing cue website; assume the website lives in another checkout or deployment.</finding>
+    <finding>Meta documents m.me as a URL service that redirects people to Messenger for a Facebook Page and can be used on websites, email, newsletters, and QR codes. Format: https://m.me/PAGE-NAME with optional text and ref parameters.</finding>
+    <finding>Meta documentation says an m.me ref parameter can provide conversation context and trigger webhook referral data, but referrals are not guaranteed for all Messenger for Android customers or georestricted Pages, so analytics must treat it as best-effort.</finding>
+    <finding>Meta lists website Messenger options such as Message Us, Checkbox, and Send to Messenger plugins, but these require Messenger Platform setup, app access, and webhooks; they are not necessary for the owner&apos;s immediate routing request.</finding>
+    <finding>Meta Business Suite Inbox can manage Messenger, Instagram, and WhatsApp conversations together, and Meta Help says Instagram professional accounts connected to a Facebook Page can have Instagram Direct messages managed from the Page inbox or Business Suite.</finding>
+    <finding>Messenger automation must respect Meta messaging policies, including standard customer-initiated conversation windows and explicit opt-in for recurring or marketing follow-ups. Do not silently subscribe website form submitters to Messenger messages.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Confirm operational prerequisites with the business owner: Facebook Page username or Page ID, Messenger enabled on the Page, correct Meta Business Suite access, desired default greeting, and preferred fallback contact methods such as phone, email, contact form, and Instagram.</step>
+    <step n="2">Add a single canonical contact-channel configuration in the website source of truth with primaryMessengerUrl set to https://m.me/PAGE-NAME?ref=website_contact and optional text prefill such as https://m.me/PAGE-NAME?ref=website_contact&amp;text=Hi%2C%20I%27m%20interested%20in%20a%20custom%20cue.</step>
+    <step n="3">Replace primary website message CTAs that currently point to Instagram with a clear Messenger CTA such as "Message us on Facebook" or "Message us in Messenger". Apply it consistently on header, footer, contact page, product/configurator pages, and post-submit lead confirmation screens.</step>
+    <step n="4">Keep Instagram as a secondary channel, not the primary lead route. Relabel it as "Instagram" or "Follow on Instagram" unless it opens a DM, and avoid implying Instagram is the fastest way to get an order response.</step>
+    <step n="5">Provide non-Meta fallbacks beside the Messenger CTA: phone or SMS if available, email or contact form, and a plain Facebook Page link. Use fallback copy like "Messenger not working? Email us at ..." so users without Facebook accounts are not blocked.</step>
+    <step n="6">If the site has a contact or quote form, prefer a post-submit confirmation that sends the customer to Messenger to continue the conversation, rather than attempting to inject the lead into Messenger as if it were customer-originated. Store the form lead through the existing backend or CRM path as the system of record.</step>
+    <step n="7">For stronger routing later, evaluate a Messenger Platform app or approved third-party inbox integration only if the owner needs automated replies, lead tagging, or CRM sync. Include Advanced Access, Page access token storage, webhook verification, and Meta app review in that separate scope.</step>
+    <step n="8">Connect the Instagram professional account to the Facebook Page in Meta settings and enable Instagram message access in Meta Business Suite so Instagram DMs can be handled from the same Facebook/Business Suite inbox while customers still see the Instagram account.</step>
+    <step n="9">Update website privacy and contact copy to disclose that clicking Messenger opens Meta/Facebook Messenger, that Meta may process the conversation, and that optional prefilled text/referral context may be passed to Meta. If collecting phone/email/form data, keep existing consent and retention language aligned.</step>
+    <step n="10">QA manually in the website environment on desktop and mobile: each primary CTA opens the correct Page conversation, fallback links remain reachable, Instagram secondary links still work, and no popup-only widget blocks users who are not logged into Facebook.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>Primary message CTAs across the website route to the business Facebook Page&apos;s Messenger conversation using the approved m.me URL.</criterion>
+    <criterion>Instagram remains available as a secondary social/contact path and, if connected to the Facebook Page, Instagram messages can be reviewed in Meta Business Suite or the Page inbox.</criterion>
+    <criterion>At least one non-Meta fallback contact method is visible wherever Messenger is presented as the primary path.</criterion>
+    <criterion>Contact and privacy copy clearly disclose the handoff to Meta/Facebook Messenger and do not imply customers are opting into marketing messages by clicking a contact link.</criterion>
+    <criterion>Any m.me ref or prefilled text parameters are URL-encoded and do not contain sensitive customer data.</criterion>
+    <criterion>Mobile and desktop manual checks confirm the Messenger link opens the correct business conversation and fallbacks remain usable.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>The production website code is not present in this checkout, so exact files/components cannot be identified here.</risk>
+    <risk>Some customers may avoid Facebook/Messenger; hiding email, phone, or form alternatives would reduce accessibility and lead capture.</risk>
+    <risk>m.me referral attribution is best-effort and may fail for some devices or Page restrictions, so it should not be the only source of lead attribution.</risk>
+    <risk>Messenger Platform API automation introduces app review, token security, webhook reliability, Meta policy compliance, and privacy obligations beyond a simple link change.</risk>
+    <risk>Changing copy from Instagram-first to Messenger-first may confuse repeat customers unless Instagram stays visible during the transition.</risk>
+  </risks>
+  <openQuestions>
+    <question>What is the exact Facebook Page username or Page ID to use in the m.me URL?</question>
+    <question>Should the primary CTA say "Facebook Messenger", "Messenger", or "Message us on Facebook" for brand clarity?</question>
+    <question>Which fallback contact methods are approved for public display: email, phone, SMS, existing form, or all of them?</question>
+    <question>Is the Instagram account already a professional account connected to the Facebook Page with message access enabled in Meta Business Suite?</question>
+    <question>Does the business need simple customer-initiated messaging now, or automated lead capture/CRM sync in a later phase?</question>
+  </openQuestions>
+  <priority>high</priority>
+  <effort>small</effort>
+</feedbackActionPlan>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/10_joint_collar_color.txt</sourceRawFile>
+  <summary>Add a Joint Collar Color selection to the custom cue ordering flow with included standard choices of black, white, and brown, plus an extra-cost custom color request path.</summary>
+  <category>custom-cue-options</category>
+  <customerImpact>Customers currently cannot specify the visible joint collar color during configuration, which can lead to mismatched cue aesthetics, follow-up support conversations, incorrect assumptions about defaults, and order revisions after purchase.</customerImpact>
+  <businessImpact>Adding the option reduces manual clarification, improves custom order accuracy, and creates a clear upsell path for non-standard collar colors that require additional material sourcing or labor.</businessImpact>
+  <confidence score="0.86">The raw feedback is explicit about the missing option and standard colors. Repository inspection did not surface a website or product customizer implementation in this checkout, so implementation surface details are framed as product and UX assumptions rather than file-specific changes.</confidence>
+  <researchFindings>
+    <finding>Raw feedback requests joint collar color options specifically for black, white, and brown, with additional colors treated as extra-cost custom requests.</finding>
+    <finding>External cue-building supply references list black and white joint collar components as common stock materials; brown or natural phenolic-style collars are also common in cue construction, supporting the proposed standard option set.</finding>
+    <finding>Custom cue and repair forms commonly treat collar, joint, matching, or non-standard material work as separately priced or quote-dependent, supporting an extra-cost custom-color path rather than unlimited free color choices.</finding>
+    <finding>Assumption: this checkout appears to contain a billiards physics/visualization project, not the customer-facing website, because searches for website package roots and collar-related product option code did not identify an implementation surface.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Locate the custom cue product configurator schema or option source of truth for visual cue-build attributes.</step>
+    <step n="2">Add a new option group labeled Joint Collar Color in the section where joint, collar, diameter, pin, or other cue-joint options are configured.</step>
+    <step n="3">Define included standard choices Black, White, and Brown with no price adjustment and stable internal values such as black, white, and brown.</step>
+    <step n="4">Add a Custom Color choice that clearly indicates extra cost applies and reveals a required free-text field for the requested color or material match.</step>
+    <step n="5">Route Custom Color selections into the cart, order summary, admin/order detail, and fulfillment payload with both the selected custom flag and customer-entered request text.</step>
+    <step n="6">Configure pricing so Custom Color applies the approved surcharge or quote-required state, while Black, White, and Brown remain included.</step>
+    <step n="7">Add helper copy explaining that custom collar colors or material matching may add cost and may require shop confirmation before production.</step>
+    <step n="8">Validate required-field behavior so the order cannot be submitted with Custom Color selected and an empty custom color request.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>The custom cue flow displays a Joint Collar Color option group.</criterion>
+    <criterion>Black, White, and Brown are selectable standard options with no added charge.</criterion>
+    <criterion>A Custom Color option is available and visibly marked as extra cost or quote-required before checkout.</criterion>
+    <criterion>Selecting Custom Color requires the customer to enter the desired color or material-matching request.</criterion>
+    <criterion>The selected collar color appears consistently in cart, checkout/order review, customer confirmation, and internal order/production views.</criterion>
+    <criterion>Custom Color pricing or quote handling is included in the order total or clearly blocks automatic pricing until staff review, according to the business pricing model.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>If production cannot source a requested custom color, customers may expect guaranteed fulfillment unless helper copy sets quote and confirmation expectations.</risk>
+    <risk>If the option is added only to the front end and not order fulfillment data, production may still miss the collar color selection.</risk>
+    <risk>Brown may mean different materials or shades, so product copy should confirm whether it means brown, natural phenolic, or another shop-standard material.</risk>
+    <risk>Custom Color surcharge behavior needs alignment with the existing pricing engine to avoid undercharging.</risk>
+  </risks>
+  <openQuestions>
+    <question>What exact surcharge or quote workflow should apply to Custom Color joint collars?</question>
+    <question>Should Brown be labeled Brown, Brown Phenolic, or Natural Brown to match shop terminology and available stock?</question>
+    <question>Are custom collar colors limited to a predefined palette, or should customers enter any requested color for staff review?</question>
+    <question>Should custom collar color selection affect production lead time messaging?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

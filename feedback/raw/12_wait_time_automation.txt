@@ -1,0 +1,3 @@
+I've always wondered if there was a way for example for the website to know like every 15th order for example to add 1 month to the wait time.
+
+But then that wouldn't account for the shafts I've built so I actually don't know how to have the wait time automated

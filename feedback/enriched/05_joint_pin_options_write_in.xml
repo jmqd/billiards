@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/05_joint_pin_options_write_in.txt</sourceRawFile>
+  <summary>Add a broader Joint Pin selection list to the custom cue configurator and provide an Other/write-in path so customers can specify uncommon or proprietary joint types without abandoning the order.</summary>
+  <category>Product configuration</category>
+  <customerImpact>Customers with common cue joints can choose the right compatibility option faster, while customers with uncommon or uncertain joint pins can still complete checkout and give enough detail for follow-up instead of guessing.</customerImpact>
+  <businessImpact>Reduces pre-sale support friction, prevents incompatible shaft or cue builds caused by missing joint options, and preserves conversion for custom orders that need manual review.</businessImpact>
+  <confidence score="0.84">High confidence in the product need and recommended option set based on common billiards joint references and ecommerce customization patterns. Confidence is reduced because this checkout appears to contain a billiards physics codebase rather than the live website source, so implementation surfaces are expressed as assumptions.</confidence>
+  <researchFindings>
+    <finding>Raw feedback asks for more choices on joint pin selection and an option for customers to write in the joint type they have.</finding>
+    <finding>Repository inspection found no website or ecommerce frontend files; assumption: the live site has a product configurator or ecommerce theme outside this checkout.</finding>
+    <finding>Common pool cue joint choices to offer include 5/16 x 14, 5/16 x 18, 3/8 x 10, 3/8 x 11, 3/8 x 14, Uni-Loc Quick Release, Uni-Loc Radial, Mezz Wavy, Viking Quick Release, and a manual Other option. Predator, CueSight, Uni-Loc, and billiards retailer guides list these or closely related joint types as common manufacturer or replacement-shaft compatibility categories.</finding>
+    <finding>Joint compatibility is exact: similar-looking pins such as 5/16 x 14 versus 5/16 x 18, 3/8 x 10 versus Radial, or Uni-Loc Quick Release versus standard threaded joints should not be treated as interchangeable.</finding>
+    <finding>Shopify-style ecommerce implementations can persist custom selections as line item properties on cart add; the selected joint pin and Other text should travel with the cart, checkout, order admin, confirmation email, and fulfillment paperwork.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Locate the source of truth for custom cue option definitions, especially the existing Joint Pin dropdown values, labels, pricing metadata, and order payload mapping.</step>
+    <step n="2">Replace the narrow Joint Pin list with a deterministic ordered list: 5/16 x 14, 5/16 x 18, 3/8 x 10, 3/8 x 11, 3/8 x 14, Uni-Loc Quick Release, Uni-Loc Radial, Mezz Wavy, Viking Quick Release, Not sure - contact me, and Other - write in.</step>
+    <step n="3">Add conditional UI that displays a required text input only when Other - write in is selected. Label it "Joint pin type" and helper text "Enter the exact joint type, cue brand/model, or measurements if known."</step>
+    <step n="4">Validate the write-in field client-side and server-side: trim whitespace, require 2 to 80 characters, allow letters, numbers, spaces, slash, hyphen, period, plus, parentheses, and apostrophe, reject URLs or markup, and show a clear inline error before add-to-cart.</step>
+    <step n="5">Normalize saved order data into two explicit fields: Joint Pin Selection for the chosen dropdown value and Joint Pin Write-In for the customer-entered text when applicable. Do not overwrite the dropdown value with free text.</step>
+    <step n="6">Add fulfillment notes generated from the selection: standard options should show the exact selected pin; Other and Not sure should flag "manual compatibility review required before production" and include the customer text.</step>
+    <step n="7">Ensure cart summary, checkout attributes or line item properties, order admin, customer confirmation, and production work order all display the joint pin information consistently.</step>
+    <step n="8">Add a small help affordance near the field explaining that joint pin thread and quick-release systems must match exactly and customers should not guess if unsure.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>The Joint Pin selector includes the expanded list of standard and proprietary options plus Not sure - contact me and Other - write in.</criterion>
+    <criterion>Selecting Other - write in reveals a required text field; selecting any other option hides and clears that field.</criterion>
+    <criterion>The order cannot be added to cart when Other - write in is selected and the write-in value is empty, too long, or contains markup or a URL.</criterion>
+    <criterion>Standard joint pin selections are stored and displayed in cart, checkout/order review, order admin, customer confirmation, and fulfillment output.</criterion>
+    <criterion>Other and Not sure orders are clearly marked for manual compatibility review before production or shipment.</criterion>
+    <criterion>Existing orders that use current joint pin values remain readable and map to the new labels without data loss.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Adding too many options can overwhelm customers; mitigate by grouping common standard threads first and proprietary/quick-release options afterward.</risk>
+    <risk>Free-text entries can be ambiguous or misspelled; mitigate with helper text, length limits, sanitized input, and a manual review flag.</risk>
+    <risk>Some manufacturers have variants within a nominal joint type, especially 3/8 x 10 and proprietary quick-release systems; do not automatically promise compatibility for write-ins.</risk>
+    <risk>If ecommerce order templates are not updated, the website may collect the value but fulfillment may not see it.</risk>
+  </risks>
+  <openQuestions>
+    <question>Which ecommerce platform or configurator owns the live Joint Pin field?</question>
+    <question>Should any new joint pin choices change price, lead time, or available shaft compatibility?</question>
+    <question>Does fulfillment want Other and Not sure orders held automatically, tagged in admin, or routed to customer service?</question>
+    <question>Are brand-specific aliases such as Predator Uni-Loc or Mezz Wavy already used internally and should they appear in labels?</question>
+  </openQuestions>
+  <priority>high</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

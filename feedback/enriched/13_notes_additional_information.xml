@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/13_notes_additional_information.txt</sourceRawFile>
+  <summary>Add an optional "Additional notes" field to the custom order flow so customers can provide special instructions that are reviewed by staff and included in order records and confirmations.</summary>
+  <category>order-flow-field-addition</category>
+  <customerImpact>Customers gain a clear place to communicate non-standard details, questions, delivery constraints, or clarifications without forcing them into unrelated option fields.</customerImpact>
+  <businessImpact>Reduces follow-up messages, captures context at order time, improves handoff to production and customer service, and lowers the risk of missed custom requirements.</businessImpact>
+  <confidence score="0.78">The repository checkout appears to contain a billiards physics project rather than the production website or order form, so the plan is based on product and UX implementation requirements rather than concrete code paths.</confidence>
+  <researchFindings>
+    <finding>No website, checkout, CMS, or order-management implementation surface was visible in this checkout; implementation targets are therefore described by functional area.</finding>
+    <finding>The raw feedback asks for a "notes or addition information" section; customer-facing copy should use the clearer label "Additional notes" or "Additional information".</finding>
+    <finding>The field should be optional, late in the custom-order configuration flow, and visible again on the review step before payment so customers can verify the note before submitting.</finding>
+    <finding>Because notes may contain special instructions but should not become an unbounded support inbox, a concise maximum length, live character counter, and helper text are needed.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Add an optional textarea labeled "Additional notes" near the end of the custom order form, after required product configuration fields and before the order review or checkout transition.</step>
+    <step n="2">Add helper text such as "Share special instructions or questions for this custom order. Do not include payment information."</step>
+    <step n="3">Use a maximum length of 1000 characters, display a remaining-character counter, trim leading and trailing whitespace on submit, and treat an empty trimmed value as no note.</step>
+    <step n="4">Allow plain text and line breaks only; escape rendered output everywhere, normalize line endings, reject or strip control characters, and do not interpret HTML, links, or markup.</step>
+    <step n="5">Persist the note as an order-level field attached to the custom order record, not as a product option that affects pricing or inventory.</step>
+    <step n="6">Show the note in the customer-facing review step before order submission with an edit path back to the textarea.</step>
+    <step n="7">Include the submitted note in the customer order confirmation page, confirmation email, and customer account order-detail view when a note is present.</step>
+    <step n="8">Expose the note prominently in admin order detail, production work order views, customer-service views, and internal notification emails; visually mark orders that contain notes so staff do not miss them.</step>
+    <step n="9">Add audit-safe display behavior for admin users: preserve line breaks, show the full text up to the stored maximum, and include the note in order exports or print views used by production.</step>
+    <step n="10">If the order flow has validation schemas, API contracts, email templates, or admin serializers, update each path so the note is accepted, stored, rendered, and omitted cleanly when blank.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>Customers can enter an optional additional-notes value during custom order configuration.</criterion>
+    <criterion>The textarea appears after required configuration fields and before final order review or checkout submission.</criterion>
+    <criterion>The submitted value is limited to 1000 characters, trimmed, stored as plain text, and safely escaped wherever rendered.</criterion>
+    <criterion>Blank or whitespace-only notes are not shown as empty sections in customer or admin views.</criterion>
+    <criterion>A non-empty note appears on the review step before purchase, the order confirmation page, the confirmation email, and the customer order-detail page.</criterion>
+    <criterion>A non-empty note appears in admin order detail and production/customer-service workflows used to fulfill the order.</criterion>
+    <criterion>Admin and production users can distinguish orders with notes without opening unrelated configuration fields.</criterion>
+    <criterion>The field does not change price, deposit calculation, SKU selection, inventory handling, or required-option validation.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Customers may use notes to request changes that should affect price or feasibility; helper text and staff review are needed so notes do not bypass structured option rules.</risk>
+    <risk>If notes are only stored on the customer-facing order and not surfaced in production/admin views, the feature could create false confidence while staff still miss special instructions.</risk>
+    <risk>Unescaped note rendering could introduce cross-site scripting or email-template injection issues.</risk>
+    <risk>Overly long notes could clutter confirmations and admin views if no maximum length or display treatment is enforced.</risk>
+  </risks>
+  <openQuestions>
+    <question>Which order-management surfaces are authoritative for production: admin order detail, exported work orders, printed build sheets, or third-party fulfillment tools?</question>
+    <question>Should staff be able to edit or annotate the customer note internally after order submission, or should it remain immutable customer-provided text?</question>
+    <question>Should confirmation emails include the full note or a shortened preview with a link to the order detail?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>small</effort>
+</feedbackActionPlan>

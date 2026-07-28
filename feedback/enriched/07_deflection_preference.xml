@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/07_deflection_preference.txt</sourceRawFile>
+  <summary>Keep or add a deflection preference field in the custom shaft order flow so customers can describe the playability they want before spec review, without promising an exact measured deflection result.</summary>
+  <category>custom-shaft-playability-options</category>
+  <customerImpact>Customers who care about cue-ball deflection when using side spin can communicate whether they want low-deflection, balanced, traditional, or builder-guided playability. This reduces ambiguity in custom shaft orders and gives unsure customers a safer path to ask for advice.</customerImpact>
+  <businessImpact>Capturing this preference earlier should reduce back-and-forth during quote/spec review, improve perceived expertise, and create a documented reason for build recommendations involving taper, tip diameter, ferrule/endmass choices, and shaft construction.</businessImpact>
+  <confidence score="0.82">The source feedback directly supports adding the field, and billiards physics references confirm deflection/squirt is a meaningful shaft playability attribute. Confidence is below 1.00 because this checkout appears to contain the billiards physics repo and feedback files rather than the production website/order-form implementation.</confidence>
+  <researchFindings>
+    <finding>The raw feedback says, "I like adding the deflection preference," which is a direct positive signal for including the field in the custom ordering experience.</finding>
+    <finding>Repository inspection found feedback files and billiards physics code, but no obvious website configurator surface; implementation surface is therefore assumed to be an external/custom order form not present in this checkout.</finding>
+    <finding>Dr. Dave Alciatore's "Squirt - Part V: low-squirt cues" defines squirt, also called deflection, as the angular change in initial cue-ball direction from an off-center hit, and explains that lower deflection reduces the amount of aim compensation required when using English.</finding>
+    <finding>That same reference notes low-squirt behavior is influenced by shaft-end mass, smaller shaft/tip diameter, ferrule weight, and hollowing or reducing mass near the tip, so the field should feed build/spec review rather than be treated as pure marketing copy.</finding>
+    <finding>Technical Proof B.1 relates squirt angle to tip offset and cue effective endmass, and Technical Proof B.19 emphasizes effective endmass as more important than shaft flex for cue-ball deflection, supporting review by a knowledgeable builder before final specs are confirmed.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Add or retain an optional order-form field labeled "Deflection preference" in the shaft playability/spec section, near shaft type, diameter, taper, tip, ferrule, and other playability choices.</step>
+    <step n="2">Use concise customer-facing helper copy: "How much cue-ball deflection/squirt do you prefer when using side spin? This guides the build review; we will confirm final specs with you."</step>
+    <step n="3">Offer deterministic options: "Low deflection - less aim adjustment with side spin", "Balanced / medium - familiar all-around response", "Traditional / more deflection - classic response and feedback", "Match my current shaft", and "Not sure - discuss during spec review".</step>
+    <step n="4">When "Match my current shaft" is selected, prompt for optional supporting notes such as current shaft brand/model, tip diameter, ferrule material, usual bridge length, and what the customer likes or dislikes about the current hit.</step>
+    <step n="5">Persist the selected value and any supporting note with the order summary, quote request, admin/order detail view, confirmation email, and internal build/spec review checklist.</step>
+    <step n="6">In the builder review checklist, map the preference to review prompts rather than automatic specs: confirm shaft construction, taper, tip diameter, ferrule/endmass choices, and whether the preference conflicts with other selected options.</step>
+    <step n="7">Display a short internal warning when a low-deflection preference is paired with specs that may increase endmass or traditional feel, so staff can discuss the tradeoff before accepting the build.</step>
+    <step n="8">Keep the field optional for checkout completion but visible in admin as "Needs discussion" when the customer selects "Not sure" or leaves a note indicating uncertainty.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>The custom shaft order flow includes a "Deflection preference" field with the five specified options and explanatory helper text.</criterion>
+    <criterion>The field does not claim a guaranteed deflection measurement, exact squirt angle, or objectively superior option.</criterion>
+    <criterion>The selected preference and optional notes appear in customer order review, confirmation records, and staff/admin build review.</criterion>
+    <criterion>Builder/spec review explicitly treats the field as a playability signal used to discuss taper, tip diameter, ferrule/endmass, construction, and tradeoffs.</criterion>
+    <criterion>Selecting "Not sure - discuss during spec review" creates a clear staff follow-up cue without blocking order submission.</criterion>
+    <criterion>Existing orders without a deflection preference remain valid and display the field as blank, not as a defaulted customer choice.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Customers may interpret "low deflection" as universally better; mitigate with neutral wording that presents balanced and traditional response as valid preferences.</risk>
+    <risk>Exact deflection depends on multiple specs and manufacturing details; avoid automated promises and route the value through human spec review.</risk>
+    <risk>Too many technical terms may overwhelm casual buyers; keep the visible field simple and move details to helper text or staff review.</risk>
+  </risks>
+  <openQuestions>
+    <question>Should the business offer this only on custom/pro shafts, or on every shaft product where construction can materially affect deflection?</question>
+    <question>Does the builder already classify shafts internally by deflection/playability, and if so what exact internal labels should the admin checklist use?</question>
+    <question>Should "Match my current shaft" require a current-shaft note before checkout, or remain optional to reduce ordering friction?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/08_vault_plate_ferrule_label.txt</sourceRawFile>
+  <summary>Rename the customer-facing vault plate color option to clarify that it refers to the ferrule-equivalent part under the tip, while keeping the shop term "vault plate" visible for internal consistency and experienced buyers.</summary>
+  <category>Terminology clarity</category>
+  <customerImpact>Customers who do not know cue-building terminology can understand which visible cue part they are choosing before placing an order, reducing hesitation, support questions, and incorrect selections.</customerImpact>
+  <businessImpact>Small copy and label changes can reduce repetitive pre-sale questions, improve configurator completion confidence, and preserve precise shop language without retraining staff or changing product data.</businessImpact>
+  <confidence score="0.88">High confidence because the raw feedback identifies repeated customer confusion, repository search did not expose a website implementation surface in this checkout, and external cue terminology research supports explaining vault plate as a ferrule-equivalent front-end part. Confidence is not 1.00 because the exact current UI component and available help-text patterns were not present in this repository.</confidence>
+  <researchFindings>
+    <finding>Raw feedback says customers frequently ask what the vault plate is and suggests including "vault plate/ferrule" or similar in the option label.</finding>
+    <finding>Repository inspection found feedback files but no website source paths such as app, pages, components, lib, or public; assumption: this checkout does not contain the live website/configurator implementation.</finding>
+    <finding>Pool cue ferrule terminology commonly describes the ferrule as the short front-end piece between the cue tip and shaft that supports or protects the shaft end.</finding>
+    <finding>Predator support describes the REVO Vault Plate as the equivalent of a wood-shaft ferrule, attached between the carbon tube and cue tip, but not identical to a conventional removable ferrule.</finding>
+    <finding>Predator product specifications use hybrid labeling such as "Vault Plate / Ferrule Color," which supports a customer-facing slash label that preserves the shop term while adding the more widely recognized ferrule term.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Locate the order form or cue configurator field currently labeled "Vault Plate Color" and any related review, cart, email, invoice, or admin summary labels that repeat the selected option.</step>
+    <step n="2">Change the primary customer-facing label to "Vault Plate / Ferrule Color" so the existing shop term remains first and searchable while the familiar cue-part term appears beside it.</step>
+    <step n="3">Add concise help text directly under the field or in the existing tooltip pattern: "The small piece directly under the tip. On carbon-style shafts we call this the vault plate; on traditional shafts many players know it as the ferrule."</step>
+    <step n="4">If space is constrained in summaries, use "Vault Plate / Ferrule" as the displayed option name and keep the selected color unchanged.</step>
+    <step n="5">Keep internal data keys, SKU mappings, and shop/admin terminology unchanged unless the current system already separates display labels from internal identifiers.</step>
+    <step n="6">Review nearby terminology for consistency so related options such as tip, shaft, collar, and joint still read as cue-part labels rather than mixed marketing copy.</step>
+    <step n="7">Have a non-expert reviewer identify the part from the label and help text without staff explanation; adjust only if they still cannot tell that it is the front-end piece under the tip.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>The configurator/order form no longer shows the ambiguous standalone label "Vault Plate Color" to customers.</criterion>
+    <criterion>The customer-facing label includes both terms in this order: "Vault Plate / Ferrule Color".</criterion>
+    <criterion>Help text explains the location of the part as directly under the tip and clarifies the terminology difference between vault plate and ferrule.</criterion>
+    <criterion>Order summaries, confirmations, and staff-facing fulfillment views remain understandable and do not rename internal product identifiers unexpectedly.</criterion>
+    <criterion>No pricing, option availability, or selected color behavior changes as part of this copy update.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Using only "ferrule" could blur the technical distinction for carbon-style shafts and conflict with shop language.</risk>
+    <risk>Using only "vault plate" preserves precision but does not solve the customer comprehension problem described in the feedback.</risk>
+    <risk>Adding too much technical explanation beside the option could clutter the form; keep the visible help text short and defer deeper details to an optional tooltip or FAQ if needed.</risk>
+  </risks>
+  <openQuestions>
+    <question>Does the live website already have a reusable tooltip/help-text component for product-option fields?</question>
+    <question>Are vault plate color choices available only for carbon-style shafts, or does the same UI field also apply to traditional ferrules?</question>
+    <question>Should staff-facing paperwork keep "vault plate" only, or should it mirror the customer label for support consistency?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>small</effort>
+</feedbackActionPlan>

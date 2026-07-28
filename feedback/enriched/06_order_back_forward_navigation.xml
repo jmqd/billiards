@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/06_order_back_forward_navigation.txt</sourceRawFile>
+  <summary>Add explicit step-aware Back and Forward controls to the order configurator so customers can recover from an accidental option click without restarting, while preserving all previous selections.</summary>
+  <category>Configurator navigation and state preservation</category>
+  <customerImpact>Customers currently risk losing progress when they mis-click an option such as a radial/radio selection and need to revisit the previous order step. This creates frustration, rework, and uncertainty about whether their custom cue configuration is still intact.</customerImpact>
+  <businessImpact>Reducing accidental restarts should lower configurator abandonment, reduce support messages asking how to recover an order, and increase confidence for customers selecting complex custom options.</businessImpact>
+  <confidence score="0.84">High confidence in the UX need because the feedback describes a concrete failure mode and external checkout UX research recommends safe backward navigation with preserved data. Implementation confidence is slightly reduced because this checkout does not appear to include website source files for the actual order configurator, so repository-specific components could not be mapped.</confidence>
+  <researchFindings>
+    <finding>Raw feedback requests Back/Forward controls during the order process and specifically notes that an accidental radial/radio click cannot be undone without restarting.</finding>
+    <finding>Repository inspection found feedback artifacts and billiards simulation code, but no visible website, order form, checkout, or configurator source surface; assume implementation will occur in a separate website codebase unless additional files are provided.</finding>
+    <finding>Baymard checkout UX guidance recommends supporting safe backward navigation and preserving entered form data so users do not need to re-enter information after navigating between checkout steps: https://baymard.com/learn/checkout-flow-ux-optimization</finding>
+    <finding>Baymard guidance for single-page or accordion checkout flows recommends making browser Back step-aware with the History API so Back returns to the previous checkout step rather than leaving checkout or restarting: https://baymard.com/blog/accordion-checkout-usability</finding>
+    <finding>For a product configurator, the most important adaptation is to treat option changes as recoverable state transitions: navigation should move between steps without clearing selections, and accidental option changes should be reversible before checkout submission.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Identify the current order configurator state model, including where selected shaft, joint, ferrule, tip, color, notes, pricing, and step index are stored.</step>
+    <step n="2">Refactor configurator state so selected values and the active step are owned by a durable parent-level order draft rather than being reset when a step component unmounts.</step>
+    <step n="3">Persist the order draft after every selection change and step transition using the existing cart/session mechanism when available; otherwise use scoped client storage for anonymous drafts and server-side draft persistence after customer identification.</step>
+    <step n="4">Add visible Back and Forward buttons in the configurator footer. Back should move to the previous logical step with all selections prefilled; Forward should return to the furthest valid step already reached without forcing users to re-answer unchanged steps.</step>
+    <step n="5">Disable Forward only when the destination step depends on missing required selections, and show a short inline explanation instead of silently restarting or blocking navigation.</step>
+    <step n="6">Wire browser Back and Forward to the same step transitions using URL query/hash state or History API entries so browser controls match the visible configurator controls.</step>
+    <step n="7">When a user changes an option that invalidates later dependent choices, preserve unrelated selections, mark only affected downstream fields as needing review, and explain which choices changed.</step>
+    <step n="8">Add an optional review/sidebar summary with Edit links for completed sections so customers can jump directly to a prior choice without stepping backward repeatedly.</step>
+    <step n="9">Protect against accidental restart by replacing any reset/start-over behavior with an explicit confirmation dialog that summarizes what will be cleared.</step>
+    <step n="10">Instrument navigation events, draft restoration, and abandoned restart confirmations to measure whether the change reduces order restarts and support contacts.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>A customer can select options on multiple configurator steps, press Back, and see every prior selection still populated.</criterion>
+    <criterion>After pressing Back, a customer can press Forward and return to the later step without losing selections that remain valid.</criterion>
+    <criterion>Browser Back and Forward move between configurator steps instead of exiting the order process or restarting the order draft.</criterion>
+    <criterion>Changing a radio/radial option by mistake can be corrected by navigating back or editing the relevant step without restarting the order.</criterion>
+    <criterion>If a changed option invalidates dependent later options, only those dependent options are flagged for review and unrelated choices remain intact.</criterion>
+    <criterion>Any control that clears the full order draft requires explicit confirmation before selections are deleted.</criterion>
+    <criterion>Reloading the page during the order process restores the active step and saved non-sensitive selections from the order draft.</criterion>
+    <criterion>Keyboard and screen-reader users can reach the Back, Forward, and Edit controls, and each control has a descriptive accessible name.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Persisting draft state incorrectly could restore stale pricing or incompatible option combinations; mitigate by recalculating price and validation rules from canonical product data on every restore.</risk>
+    <risk>Browser history integration can conflict with existing routing; mitigate by centralizing step changes through one navigation controller.</risk>
+    <risk>Some payment or personally sensitive fields may not be safe to persist; preserve only allowed non-sensitive data and clearly ask users to re-enter sensitive fields when required.</risk>
+    <risk>Forward navigation could let users bypass required selections; mitigate by computing per-step validity and allowing forward movement only to valid or previously reached review states.</risk>
+  </risks>
+  <openQuestions>
+    <question>Is the order configurator implemented as separate pages, a single-page wizard, or an accordion-style form?</question>
+    <question>Where should anonymous order drafts be persisted: server session, cart record, local storage, or an existing commerce platform draft order?</question>
+    <question>Which later options are dependent on a radial/radio selection and must be revalidated when that selection changes?</question>
+    <question>Should Forward return only one step ahead or jump to the furthest valid step the customer previously reached?</question>
+  </openQuestions>
+  <priority>high</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

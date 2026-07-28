@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/04_sound_selection_noise_copy.txt</sourceRawFile>
+  <summary>Add concise assurance copy to the cue sound-selection option explaining that both choices are tuned to avoid harsh ting, buzz, or unpleasant ringing, while avoiding an absolute zero-noise promise because final tone can vary by cue materials, tip, joint fit, and assembly.</summary>
+  <category>product-option microcopy</category>
+  <customerImpact>Customers who are sensitive to carbon-fiber ting or other distracting hit sounds get reassurance before ordering, reducing hesitation and post-purchase surprise.</customerImpact>
+  <businessImpact>Clearer sound expectations can improve configurator confidence and reduce support questions, but the copy must be qualified to avoid warranty-like promises about subjective acoustics.</businessImpact>
+  <confidence score="0.84">The raw request is specific and external product research supports positioning around dampened vibration, quiet sound, and reduced harsh ping. Confidence is not higher because the website/configurator source is not present in this checkout, so the exact implementation surface and current option labels are assumed.</confidence>
+  <researchFindings>
+    <finding>This checkout appears to be a Rust billiards simulation repository rather than the website/configurator codebase; the implementation plan therefore assumes the website has a product configurator field for cue sound selection.</finding>
+    <finding>Repository search found the sound-selection wording only in feedback/raw/04_sound_selection_noise_copy.txt, with no in-repo website copy or option component to update.</finding>
+    <finding>Official McDermott Defy product copy uses qualified acoustic language: SmacWrap is described as absorbing vibration and dampening noise, resulting in a soft feel and quiet sound. Source: https://www.mcdermottcue.com/defy-high-performance-carbon-shaft.php</finding>
+    <finding>Research indicates players describe some carbon-fiber shafts as having ping or ting; sound can be affected by shaft construction, tip hardness, joint fit, butt construction, weight bolt, bumper, and tip condition, so absolute claims such as zero ting should be avoided unless production QA can guarantee them.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Locate the sound-selection option in the website product configurator, likely near the cue build options where customers choose the sound or hit profile.</step>
+    <step n="2">Add helper text directly below the sound-selection label or option group: "Both options are tuned for a clean, solid hit with no intentional ting, buzz, or harsh ringing."</step>
+    <step n="3">Add a short qualifier in the same helper block or tooltip: "Final tone can vary slightly with shaft, tip, joint, and cue materials; choose the quieter profile or contact us if sound is a top priority."</step>
+    <step n="4">If space is tight on mobile, use the shorter inline variant: "Clean, solid hit by design; no intentional ting or harsh ringing. Tone may vary slightly by build."</step>
+    <step n="5">Avoid using "zero ting" as the primary customer-facing claim unless manufacturing can document that both options are acoustically tested across material combinations.</step>
+    <step n="6">If the configurator has per-option descriptions, add differentiated copy for each sound option while keeping the assurance shared: one option can be described as the quietest or most muted only if that is consistently true for the product line.</step>
+    <step n="7">Have product or shop staff approve the terms "ting", "buzz", and "harsh ringing" against real customer language and known production tolerances before publishing.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>The sound-selection section includes assurance copy that mentions avoiding ting, buzz, or harsh ringing without promising literal zero noise.</criterion>
+    <criterion>The copy is visible before checkout wherever the customer chooses the sound option.</criterion>
+    <criterion>The copy includes a material-variation qualifier referencing shaft, tip, joint, or cue materials.</criterion>
+    <criterion>No customer-facing copy states "zero ting", "guaranteed silent", or equivalent absolute acoustic claims unless approved by manufacturing QA.</criterion>
+    <criterion>The wording remains concise enough for desktop and mobile configurator layouts.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Overpromising acoustic performance could create refund or warranty expectations because hit sound is subjective and material-dependent.</risk>
+    <risk>Using too many negative words such as ting, buzz, and unpleasant may accidentally introduce concerns for customers who were not worried about sound.</risk>
+    <risk>If one option is not consistently quieter than the other, comparative labels could mislead customers.</risk>
+  </risks>
+  <openQuestions>
+    <question>What are the exact current sound-selection option labels and where do they appear in the order flow?</question>
+    <question>Does production QA have evidence that both options avoid ting or only that they are designed to reduce it?</question>
+    <question>Is there a preferred house term for the desired result: quiet hit, solid hit, muted hit, or clean hit?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>small</effort>
+</feedbackActionPlan>

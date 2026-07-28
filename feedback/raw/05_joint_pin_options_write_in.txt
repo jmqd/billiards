@@ -1,0 +1,1 @@
+On joint pin selection we need to add more options and/or an option for the customer to write in what joint type they have or something like that.

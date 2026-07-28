@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/14_joint_diameter_options.txt</sourceRawFile>
+  <summary>Add a joint diameter selection to custom cue shaft ordering with standard inch options .830, .835, .840, and .845, plus an exact custom write-in path for measured butt-joint collars.</summary>
+  <category>custom shaft configurator measurement options</category>
+  <customerImpact>Customers can communicate the butt joint outside diameter needed for a flush shaft-to-butt fit instead of relying on notes or follow-up messages. Clear inch-based labels and measurement help reduce wrong orders, visible lips at the joint, and post-order clarification.</customerImpact>
+  <businessImpact>Capturing joint diameter as structured order data lowers manual clarification time, improves manufacturing handoff accuracy, and reduces remake or adjustment risk for custom shaft builds.</businessImpact>
+  <confidence score="0.86">High confidence because the requested option values are explicit in the raw feedback and external cue-shaft ordering examples confirm joint diameter is commonly captured in thousandths of an inch. Confidence is not higher because this checkout appears to contain a billiards simulator rather than the website implementation, so implementation surfaces are inferred from product-configurator patterns.</confidence>
+  <researchFindings>
+    <finding>The raw feedback asks specifically for joint diameter options and suggests 830, 835, 840, and 845; these should be represented to customers as .830 in, .835 in, .840 in, and .845 in to avoid confusion with millimeters or pin thread size.</finding>
+    <finding>External shaft-ordering references use joint measurement in inches to the nearest 0.001 in for exact fit; this supports storing and displaying three-decimal inch values.</finding>
+    <finding>External examples show common shaft joint diameters near this range, including .835 in, .840 in, .841 in, and .847 in depending on joint type, so the proposed presets are plausible but should not replace exact measurement when the customer has calipers.</finding>
+    <finding>Joint diameter is distinct from joint pin type, ferrule or tip diameter, and collar color; the configurator should keep those fields separate but include them together in the manufacturing summary.</finding>
+    <finding>Repository inspection found no obvious website app, page, component, or product configurator files in this checkout; the plan assumes the website lives outside this repository or in a different branch.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Add a new required or conditionally required field named Joint Diameter to the custom cue shaft ordering form near Joint Pin and Joint Collar fields, because these measurements are all needed for shaft-to-butt fit.</step>
+    <step n="2">Render the primary control as a radio group or select with these preset labels in this exact order: .830 in, .835 in, .840 in, .845 in, and Custom exact measurement.</step>
+    <step n="3">Use helper copy under the field: Measure the outside diameter of your butt at the joint collar. Enter inches to the nearest thousandth if using Custom. This is not your joint pin size or tip diameter.</step>
+    <step n="4">Store preset values as canonical three-decimal inch strings: 0.830, 0.835, 0.840, and 0.845. Display them to customers as .830 in, .835 in, .840 in, and .845 in.</step>
+    <step n="5">When Custom exact measurement is selected, show a write-in input with placeholder .840 and suffix in. Accept formats such as .840 and 0.840, normalize to a three-decimal inch string, and reject non-numeric text.</step>
+    <step n="6">Validate custom values as inches with exactly three decimal places after normalization and a practical range such as 0.800 through 0.900 unless the manufacturer provides a tighter range. Show an inline error asking the customer to enter a measurement like .840 in.</step>
+    <step n="7">If the customer skips the field on a build where the website cannot require it without hurting conversion, allow Unknown or Need help measuring as an explicit option that flags the order for follow-up instead of silently omitting the measurement.</step>
+    <step n="8">Add the selected joint diameter to cart line-item properties, checkout metadata, order confirmation, admin order detail, and any customer-facing review screen using the label Joint Diameter and the normalized value in inches.</step>
+    <step n="9">Include the value in the manufacturing handoff payload, export, print sheet, or production queue as both a human-readable label and a machine-safe field, for example jointDiameterInches: 0.840 and jointDiameterSource: preset or custom.</step>
+    <step n="10">Ensure manufacturing notes group joint pin type, joint diameter, joint collar color, and any ringwork or collar notes together so the builder can verify compatibility before turning or finishing the shaft.</step>
+    <step n="11">Add analytics or admin tagging only if already standard for configurator fields: track preset versus custom versus unknown selection so the business can tune the option list later.</step>
+    <step n="12">Update any existing product-option schema, validation schema, server-side order normalization, and email templates that enumerate shaft customization fields so the new measurement does not exist only in the front end.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>Custom shaft order form displays a Joint Diameter field with preset options .830 in, .835 in, .840 in, and .845 in.</criterion>
+    <criterion>Customers can provide a custom exact joint diameter when none of the presets match, and the input accepts .840 or 0.840 while storing 0.840.</criterion>
+    <criterion>Validation rejects blank custom values, non-numeric values, values outside the agreed manufacturing range, and values with more precision than thousandths of an inch unless the business intentionally supports them.</criterion>
+    <criterion>The UI copy clearly states that the measurement is the outside butt joint collar diameter in inches and is different from joint pin type and tip diameter.</criterion>
+    <criterion>The selected or custom normalized value appears in cart, checkout review, order confirmation, admin order detail, and the manufacturing handoff.</criterion>
+    <criterion>Orders with Unknown or Need help measuring, if that option is enabled, are visibly flagged for follow-up before production.</criterion>
+    <criterion>Manufacturing receives joint pin type, joint diameter, and collar information together on the same build record or production sheet.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>Customers may confuse joint diameter with shaft tip diameter or pin size; mitigate with placement near joint fields and concise helper copy.</risk>
+    <risk>A preset can still create a small lip if the customer butt varies by a few thousandths; mitigate by encouraging exact caliper measurement and offering a custom input.</risk>
+    <risk>Using numeric floating point internally could drop trailing zeros or display .84 instead of .840; mitigate by storing normalized three-decimal strings for order data and handoff.</risk>
+    <risk>If the field is optional without an explicit Unknown state, manufacturing may receive incomplete specs without knowing follow-up is needed.</risk>
+  </risks>
+  <openQuestions>
+    <question>Should the field be required for every custom shaft order, or should Unknown or Need help measuring be allowed to preserve checkout completion?</question>
+    <question>What exact custom range should manufacturing allow: 0.800 through 0.900 in, a narrower range, or manual review outside the preset list?</question>
+    <question>Should .845 in be treated as a normal finished-size option or as an intentionally oversized value for final fitting?</question>
+    <question>Does the current production workflow consume Shopify line-item properties, a custom database field, an email template, or a separate production queue export?</question>
+  </openQuestions>
+  <priority>high</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

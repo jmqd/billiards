@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/16_future_technical_drawings.txt</sourceRawFile>
+  <summary>Plan a future technical visualization suite for shaft product pages that shows taper, balance, and internal construction through accurate schematic drawings, optional AI-assisted illustration, and shop-approved source data.</summary>
+  <category>future-enhancement</category>
+  <customerImpact>Customers would better understand how a shaft is shaped, weighted, and built before ordering, reducing uncertainty for technical buyers and making premium construction differences easier to compare.</customerImpact>
+  <businessImpact>High-quality technical drawings can strengthen product credibility, support higher-value shaft sales, reduce repetitive pre-sale questions, and create reusable visual assets for product pages, sales conversations, and support documentation.</businessImpact>
+  <confidence score="0.69">The feedback clearly identifies the desired asset types: taper, balance, and internal diagrams. Confidence is reduced because this checkout appears to contain a Rust billiards simulation and drawing utilities rather than the production website or shaft product data, so implementation surfaces and exact asset pipeline are inferred.</confidence>
+  <researchFindings>
+    <finding>The source feedback asks for this as an eventual enhancement, so it should be scoped as a phased roadmap item rather than a quick copy or configurator change.</finding>
+    <finding>Repository inspection surfaced drawing and visualization modules for billiards diagrams, but no website, storefront, CMS, shaft product catalog, or existing cue technical drawing asset pipeline in this checkout.</finding>
+    <finding>The plan should treat AI as an illustration accelerator only; factual dimensions, taper curves, balance points, and internal construction details need to come from approved shop measurements, CAD files, supplier drawings, or product engineering notes.</finding>
+    <finding>Useful customer-facing drawings should include a longitudinal taper profile, diameter callouts at defined stations, balance point or center-of-mass marker, construction layer legend, and a clear distinction between measured specifications and simplified illustrative cutaways.</finding>
+    <finding>Because shaft construction may reveal proprietary layup, reinforcement, foam, core, ferrule, insert, or bonding details, every drawing needs a content approval step before publication.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Define the first release scope as a technical drawing suite for shaft pages, not the whole cue catalog. Include one representative hero schematic per shaft family and defer fully personalized drawings until source data and rendering rules are stable.</step>
+    <step n="2">Inventory available source material for each shaft family: total length, tip diameter, joint diameter, taper profile, balance point, weight range, construction type, ferrule or vault plate details, core or wall structure, and any supplier restrictions on showing internal details.</step>
+    <step n="3">Create a content requirements template for each drawing with required fields: product name, revision date, units, scale disclaimer, taper station measurements, balance point measurement method, internal construction legend, and approval owner.</step>
+    <step n="4">Choose the visualization levels for launch: simple product-page PNG or SVG, expandable technical modal, and downloadable specification sheet. Avoid interactive customization until static drawings prove useful and accurate.</step>
+    <step n="5">Design the visual language: side-profile shaft outline, enlarged diameter callouts, cross-section or cutaway inset, balance marker, consistent color legend for materials, and plain-language labels that do not require engineering knowledge.</step>
+    <step n="6">Prototype two asset-production paths: a manual vector template produced from measured data and an AI-assisted concept path where generated art is redrawn or corrected against the approved measurements before publication.</step>
+    <step n="7">Establish a review workflow where product, shop, and website owners approve each asset for dimensional accuracy, proprietary-information exposure, brand fit, accessibility text, and mobile readability.</step>
+    <step n="8">Integrate approved drawings into the future website surface near shaft selection or shaft detail content, with alt text, captions, a last-updated date, and links between the drawing and the relevant shaft options.</step>
+    <step n="9">Add structured product metadata so drawings can later be generated or updated from canonical measurements instead of being recreated manually for every product change.</step>
+    <step n="10">Plan a second phase for configurator-aware drawings that update diameter, taper, collar, ferrule, or construction labels based on selected options only after the static drawing content model is validated.</step>
+    <step n="11">Measure impact after release by tracking modal opens, product-page engagement, pre-sale questions about taper and balance, and conversion on shaft products with drawings versus comparable products without drawings.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>The roadmap identifies taper, balance, and internal construction as required drawing topics for the future shaft visualization suite.</criterion>
+    <criterion>Each planned drawing has a documented source-of-truth requirement for measurements and construction facts before publication.</criterion>
+    <criterion>The first implementation phase can ship static approved technical assets without depending on real-time AI generation or personalized rendering.</criterion>
+    <criterion>The plan includes content approval for dimensional accuracy, proprietary construction exposure, accessibility, mobile readability, and customer-facing clarity.</criterion>
+    <criterion>The drawing requirements distinguish measured specifications from simplified illustrative diagrams so customers are not misled about exact scale or hidden internal details.</criterion>
+    <criterion>The roadmap includes a later phase for dynamic or configurator-aware drawings once canonical product metadata exists.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>AI-generated drawings could hallucinate dimensions, construction layers, or material placement if not constrained by approved source data and human review.</risk>
+    <risk>Publishing internal construction diagrams may expose proprietary design details or create supplier confidentiality issues.</risk>
+    <risk>If drawings are not tied to canonical product data, they can become stale when shaft designs, diameters, or construction methods change.</risk>
+    <risk>Highly detailed technical visuals may overwhelm casual buyers unless paired with simple labels and progressive disclosure.</risk>
+    <risk>Mobile rendering, image weight, and small text could make the feature look premium on desktop but unusable on phones.</risk>
+  </risks>
+  <openQuestions>
+    <question>Which shaft families should be included in the first drawing release?</question>
+    <question>Do approved CAD files, measurement tables, balance data, or supplier drawings already exist for current shafts?</question>
+    <question>How much internal construction detail can be shown publicly without exposing proprietary or supplier-restricted information?</question>
+    <question>Should balance be shown as an exact measured point, a typical range, or a qualitative front-balanced versus rear-balanced indicator?</question>
+    <question>Should the assets be brand-illustrative, dimensionally scaled technical drawings, or both with separate customer-facing contexts?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>large</effort>
+</feedbackActionPlan>

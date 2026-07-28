@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/03_wound_carbon_copy.txt</sourceRawFile>
+  <summary>Revise carbon shaft construction copy so rolled and wound are presented as two valid feel preferences: rolled for slightly firmer response and efficient energy transfer, wound for smoother long-term feel and glove-free durability.</summary>
+  <category>product-copy</category>
+  <customerImpact>Customers comparing carbon construction options will get a clearer, less biased explanation of the tradeoff, reducing the chance that players who prefer a smoother low-maintenance feel overlook wound carbon.</customerImpact>
+  <businessImpact>Balanced positioning can protect conversion for both shaft types, reduce pre-sale clarification questions, and make the configurator feel more consultative instead of steering every buyer toward rolled carbon.</businessImpact>
+  <confidence score="0.78">The raw feedback gives specific product truths and desired positioning. This checkout does not appear to contain the production website or current product copy, so the implementation surface is assumed to be the website or CMS copy block that describes rolled versus wound carbon construction.</confidence>
+  <researchFindings>
+    <finding>The raw feedback says the current wording makes rolled carbon read as categorically better, even though many players may prefer wound carbon after trying both.</finding>
+    <finding>Rolled carbon should keep a specific advantage: it is a little stiffer and can transfer energy slightly more efficiently.</finding>
+    <finding>Wound carbon needs an equally concrete advantage: a smoother feel that stays smooth over time, especially for players who do not want to wear a glove.</finding>
+    <finding>The copy should frame the choice as feel and preference, not a quality hierarchy; avoid words such as better, best overall, superior, or upgrade when comparing the two constructions.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Locate the website or CMS field that currently describes rolled and wound carbon shaft construction in the shaft configurator or product detail page.</step>
+    <step n="2">Replace any hierarchy-based comparison with preference-based copy. Suggested headline: Choose the carbon feel you like best.</step>
+    <step n="3">Use paired copy that gives each option one clear strength. Suggested rolled copy: Rolled carbon has a slightly firmer hit, giving players a crisp response and efficient energy transfer through the cue ball.</step>
+    <step n="4">Use paired wound copy that presents the pro clearly. Suggested wound copy: Wound carbon has a smoother feel that stays comfortable over time, making it a strong choice if you prefer to play without a glove.</step>
+    <step n="5">Add a neutral chooser sentence near the option controls: Pick rolled if you want the firmest, most direct response; pick wound if you want the smoothest low-maintenance feel. Both are performance carbon options.</step>
+    <step n="6">Review adjacent labels, help text, comparison tables, and option descriptions to remove any remaining implication that rolled is the default premium choice unless that hierarchy is intentional and separately supported.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>The rolled carbon description mentions slightly firmer response and efficient energy transfer without saying it is categorically better.</criterion>
+    <criterion>The wound carbon description mentions smoother feel, durable smoothness, and suitability for glove-free play.</criterion>
+    <criterion>The comparison uses parallel structure and similar detail depth for both construction types.</criterion>
+    <criterion>No customer-facing copy labels wound carbon as lesser, basic, compromise, or inferior.</criterion>
+    <criterion>The final copy makes the decision feel like a player preference between response and smoothness.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>If the copy overstates wound carbon as the best choice for all glove-free players, it could recreate the same imbalance in the opposite direction.</risk>
+    <risk>If stiffness or energy-transfer claims are not aligned with internal product testing, the rolled carbon language may need softer phrasing such as slightly firmer-feeling response.</risk>
+    <risk>If the website has multiple carbon shaft copy locations, updating only one location could leave contradictory messaging elsewhere.</risk>
+  </risks>
+  <openQuestions>
+    <question>Is wound carbon's smoother feel caused by the construction itself, the finish, or both?</question>
+    <question>Should the site use the terms rolled and wound exactly, or should customer-facing labels be more descriptive?</question>
+    <question>Are there measurable differences in stiffness or energy transfer that can be quantified, or should the copy stay qualitative?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>small</effort>
+</feedbackActionPlan>

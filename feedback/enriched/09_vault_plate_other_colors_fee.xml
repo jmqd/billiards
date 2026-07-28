@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedbackActionPlan>
+  <sourceRawFile>feedback/raw/09_vault_plate_other_colors_fee.txt</sourceRawFile>
+  <summary>Add an Other write-in option to the vault plate/ferrule color selector, charge a configurable custom color surcharge, flag the order for color availability review, and show clear line-item language in cart, checkout, admin, and confirmation summaries.</summary>
+  <category>product-customization-pricing</category>
+  <customerImpact>Customers who want a vault plate/ferrule color outside the standard palette can request it without abandoning the order or using ambiguous notes, while seeing the additional fee before checkout.</customerImpact>
+  <businessImpact>Captures paid custom color work, reduces manual quote follow-up, makes production review explicit, and prevents custom-color requests from being missed in free-form order notes.</businessImpact>
+  <confidence score="0.83">The raw feedback directly asks for write-in colors with an additional fee, and related feedback clarifies that the customer-facing label should say vault plate/ferrule. This checkout appears to be a billiards simulation repository rather than the website codebase, so implementation surfaces are inferred from a typical product configurator, cart, checkout, order admin, and order email flow.</confidence>
+  <researchFindings>
+    <finding>The assigned raw feedback requests a section for other vault plate colors with an additional fee.</finding>
+    <finding>Related raw feedback says the option should be labeled vault plate/ferrule because customers may not understand vault plate alone.</finding>
+    <finding>The repository README describes a billiards diagram and physics simulation tool; no website configurator implementation surface was identified in this checkout.</finding>
+    <finding>Because custom colors can require material availability checks, the website should collect the request and surcharge up front while still marking the order for staff review before production.</finding>
+  </researchFindings>
+  <implementationPlan>
+    <step n="1">Find the existing vault plate color option definition in the product configurator source of the website, and rename the customer-facing group label to Vault plate/ferrule color if that terminology is not already used.</step>
+    <step n="2">Add Other / custom color as the final option in the vault plate/ferrule color choices, visually separated from standard colors if the UI supports grouping.</step>
+    <step n="3">When Other is selected, reveal a required text input labeled Requested vault plate/ferrule color with helper text such as Enter the color or material look you want; custom colors include an additional fee and are reviewed for availability.</step>
+    <step n="4">Validate the write-in value on the client and server: trim whitespace, require a non-empty value only when Other is selected, set a reasonable length limit, reject markup, and preserve the exact customer wording in the order record.</step>
+    <step n="5">Add a configurable custom vault plate/ferrule color surcharge in the pricing model rather than hard-coding the amount in UI text.</step>
+    <step n="6">Update price calculation so selecting Other adds one surcharge line item exactly once, removes it when the customer returns to a standard color, and includes it in cart, checkout, tax/shipping calculations as applicable, payment authorization, and order totals.</step>
+    <step n="7">Persist structured order data with separate fields for selected color option, custom color text, surcharge amount charged, and a boolean review flag such as requiresCustomColorReview.</step>
+    <step n="8">Add an internal review workflow signal in admin order views and production exports: display Needs review: custom vault plate/ferrule color, the requested color text, and the fee already collected.</step>
+    <step n="9">Update cart, checkout, order confirmation, customer email, and admin summary language to read Vault plate/ferrule color: Other - customer text, with a separate Custom vault plate/ferrule color fee: $X line item.</step>
+    <step n="10">If staff may reject unavailable colors, define the operational path: contact customer with alternatives, keep the surcharge if a custom alternative is accepted, or refund/remove the surcharge if the customer chooses a standard color.</step>
+  </implementationPlan>
+  <acceptanceCriteria>
+    <criterion>Vault plate/ferrule color offers standard choices plus an Other / custom color option.</criterion>
+    <criterion>Selecting Other reveals a required write-in field; selecting a standard color hides the field and clears or ignores custom text.</criterion>
+    <criterion>The custom color surcharge is configurable and appears as a distinct line item in cart, checkout, payment total, order confirmation, and admin order detail.</criterion>
+    <criterion>Order summaries use customer-readable language: Vault plate/ferrule color: Other - requested color, plus Custom vault plate/ferrule color fee: $X.</criterion>
+    <criterion>Orders with Other selected are flagged for staff review and expose the requested color and charged surcharge in the production/admin workflow.</criterion>
+    <criterion>Server-side validation prevents submitting Other without a requested color and prevents charging the surcharge for standard colors.</criterion>
+    <criterion>Changing between Other and standard colors updates totals deterministically without duplicate surcharge lines.</criterion>
+  </acceptanceCriteria>
+  <risks>
+    <risk>If the surcharge amount is hard-coded in multiple places, future price changes can create checkout and admin mismatches.</risk>
+    <risk>Customers may assume any color is guaranteed unless the UI says custom colors are reviewed for availability.</risk>
+    <risk>Free-form color text can be too vague for production unless staff review is required and visible.</risk>
+    <risk>If payment capture happens before review, unavailable color requests need a clear refund or substitution process.</risk>
+  </risks>
+  <openQuestions>
+    <question>What exact surcharge amount should be charged for Other vault plate/ferrule colors?</question>
+    <question>Which standard vault plate/ferrule colors should remain no-fee options?</question>
+    <question>Should the surcharge be refundable if staff cannot source the requested color?</question>
+    <question>Should custom color requests affect estimated production lead time shown to the customer?</question>
+  </openQuestions>
+  <priority>medium</priority>
+  <effort>medium</effort>
+</feedbackActionPlan>

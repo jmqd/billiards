@@ -1,0 +1,170 @@
+name: Wasm Apple Silicon
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - src/**
+      - xtask/**
+      - web/**
+      - .github/workflows/wasm-apple-silicon.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - src/**
+      - xtask/**
+      - web/**
+      - .github/workflows/wasm-apple-silicon.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wasm-apple-silicon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chrome-arm64:
+    name: chrome-arm64
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: billiards
+
+    steps:
+      - name: Check out billiards
+        uses: actions/checkout@v4
+        with:
+          path: billiards
+
+      - name: Check out simul dependency
+        uses: actions/checkout@v4
+        with:
+          repository: jmqd/simul
+          ref: 2f1d2bab1763535bb6ff407c6a6f923d7515d118
+          path: simul
+
+      - name: Verify native Apple Silicon runner and browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          runner_architecture="$(uname -m)"
+          echo "Runner architecture: $runner_architecture"
+          test "$runner_architecture" = "arm64"
+
+          chrome_bin="/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+          chromedriver_bin="/usr/local/bin/chromedriver"
+          test -x "$chrome_bin"
+          test -x "$chromedriver_bin"
+
+          chrome_description="$(file -L "$chrome_bin")"
+          chromedriver_description="$(file -L "$chromedriver_bin")"
+          echo "Chrome binary: $chrome_description"
+          echo "ChromeDriver binary: $chromedriver_description"
+          [[ "$chrome_description" == *arm64* ]]
+          [[ "$chromedriver_description" == *arm64* ]]
+          "$chrome_bin" --version
+          "$chromedriver_bin" --version
+
+      - name: Install repository Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.93.0 \
+            --profile default \
+            --component rust-analyzer \
+            --component llvm-tools-preview \
+            --target wasm32-unknown-unknown
+          active_toolchain="$(rustup show active-toolchain)"
+          echo "Active Rust toolchain: $active_toolchain"
+          [[ "$active_toolchain" == 1.93.0-* ]]
+          [[ "$(rustc --version)" == "rustc 1.93.0 "* ]]
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install native wasm-bindgen CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/wasm-bindgen-0.2.108-aarch64-apple-darwin.tar.gz"
+          directory="$RUNNER_TEMP/wasm-bindgen-0.2.108-aarch64-apple-darwin"
+          curl --fail --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.108/wasm-bindgen-0.2.108-aarch64-apple-darwin.tar.gz"
+          echo "3903c81dc8943592dfd9d98c8c21c9a05f8265aa6b0014f641a8457cec4925dd  $archive" \
+            | shasum --algorithm 256 --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          test -x "$directory/wasm-bindgen"
+          wasm_bindgen_description="$(file -L "$directory/wasm-bindgen")"
+          echo "wasm-bindgen binary: $wasm_bindgen_description"
+          [[ "$wasm_bindgen_description" == *arm64* ]]
+          echo "$directory" >> "$GITHUB_PATH"
+          "$directory/wasm-bindgen" --version
+
+      - name: Build and smoke-test the Wasm preview
+        shell: bash
+        env:
+          CHROMEDRIVER_BIN: /usr/local/bin/chromedriver
+          CHROME_BIN: /Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          server_log="$PWD/target/wasm-preview-server.log"
+          set -m
+          cargo xtask wasm-preview --serve --host 127.0.0.1 --port 8000 \
+            >"$server_log" 2>&1 &
+          server_pid=$!
+          set +m
+          cleanup_server() {
+            if kill -0 -- "-$server_pid" 2>/dev/null; then
+              kill -TERM -- "-$server_pid" 2>/dev/null || true
+              for _ in {1..50}; do
+                if ! kill -0 -- "-$server_pid" 2>/dev/null; then
+                  break
+                fi
+                sleep 0.1
+              done
+              kill -KILL -- "-$server_pid" 2>/dev/null || true
+            fi
+            wait "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup_server EXIT
+
+          ready=false
+          for _ in {1..900}; do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8000/index.html; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "Wasm preview exited before becoming ready"
+              cat "$server_log"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            echo "Wasm preview did not become ready within 15 minutes"
+            cat "$server_log"
+            exit 1
+          fi
+
+          cp web/render-worker.test.html web/app.test.html target/wasm-preview/
+          node web/wasm-browser-smoke.mjs http://127.0.0.1:8000
+
+      - name: Upload Apple Silicon diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-apple-silicon-diagnostics
+          path: |
+            billiards/target/wasm-preview-server.log
+            billiards/target/wasm-browser-smoke/
+          if-no-files-found: warn

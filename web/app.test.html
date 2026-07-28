@@ -153,6 +153,19 @@
       events: [],
       playback: null,
     });
+    const workerError = (phase, name, message) => ({
+      phase,
+      name,
+      message,
+      stack: `${name}: ${message}\n    at controlled worker`,
+      runtime: {
+        userAgent: 'app protocol probe',
+        platform: 'test platform',
+        architecture: 'arm',
+        bitness: '64',
+        hardwareConcurrency: 8,
+      },
+    });
 
     const run = async () => {
       await loadApplicationMarkup();
@@ -377,15 +390,98 @@
           6,
         );
         const robustSearchForm = document.querySelector('#robust-search-form');
+        const robustIterationsInput = document.querySelector('#robust-iterations');
+        const robustPlayerLevelSelect = document.querySelector('#robust-player-level');
+        const robustSearchButton = document.querySelector('#robust-search-button');
+        const robustSearchStatus = document.querySelector('#robust-search-status');
         robustSearchForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
         await withTimeout(
           worker.whenMessageCount(3),
           'submitting robust search must delegate the experiment to the worker',
         );
-        const robustRequest = worker.messages[2];
+        const malformedRobustRequest = worker.messages[2];
         assert(
-          robustRequest.action === 'robust-shot-search',
+          malformedRobustRequest.action === 'robust-shot-search',
           'robust search must use the dedicated worker action',
+        );
+        worker.respond({
+          id: malformedRobustRequest.id,
+          action: malformedRobustRequest.action,
+          error: { unexpectedBigInt: 1n },
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const invalidErrorResponse = 'The background renderer returned an invalid error response.';
+        assert(
+          robustSearchStatus.dataset.kind === 'error'
+            && robustSearchStatus.textContent === invalidErrorResponse,
+          'an unserializable malformed worker error must show the invalid-response status',
+        );
+        assert(
+          robustSearchForm.getAttribute('aria-busy') === 'false'
+            && !robustIterationsInput.disabled
+            && !robustPlayerLevelSelect.disabled
+            && !robustSearchButton.disabled,
+          'a malformed worker error must re-enable the search form',
+        );
+        assert(
+          !worker.terminated && worker.terminationCalls === 0,
+          'a malformed worker error must not terminate the worker',
+        );
+
+        robustSearchForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        await withTimeout(
+          worker.whenMessageCount(4),
+          'a search after a malformed error must reuse the worker',
+        );
+        const failedRobustRequest = worker.messages[3];
+        assert(
+          failedRobustRequest.action === malformedRobustRequest.action
+            && failedRobustRequest.source === malformedRobustRequest.source
+            && failedRobustRequest.iterations === malformedRobustRequest.iterations
+            && failedRobustRequest.playerLevel === malformedRobustRequest.playerLevel,
+          'the search after a malformed error must retry the unchanged request',
+        );
+        const robustFailureMessage = 'injected robust search failure';
+        worker.respond({
+          id: failedRobustRequest.id,
+          action: failedRobustRequest.action,
+          error: workerError('robust-shot-search', 'RangeError', robustFailureMessage),
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        const expectedRobustFailure = `robust-shot-search failed (RangeError): ${robustFailureMessage}`;
+        assert(
+          robustSearchStatus.dataset.kind === 'error'
+            && robustSearchStatus.textContent === expectedRobustFailure,
+          'robust search failure must show the exact structured worker error',
+        );
+        assert(
+          robustSearchForm.getAttribute('aria-busy') === 'false'
+            && !robustIterationsInput.disabled
+            && !robustPlayerLevelSelect.disabled
+            && !robustSearchButton.disabled
+            && robustSearchButton.textContent === 'Find robust shot',
+          'robust search failure must re-enable the search form',
+        );
+        assert(
+          !worker.terminated && worker.terminationCalls === 0,
+          'robust search failure must not terminate the worker',
+        );
+
+        robustSearchForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        await withTimeout(
+          worker.whenMessageCount(5),
+          'a following robust search must reuse the worker',
+        );
+        const robustRequest = worker.messages[4];
+        assert(
+          robustRequest.action === failedRobustRequest.action
+            && robustRequest.source === failedRobustRequest.source
+            && robustRequest.iterations === failedRobustRequest.iterations
+            && robustRequest.playerLevel === failedRobustRequest.playerLevel,
+          'the following search must retry the unchanged request',
         );
         worker.respond({
           id: robustRequest.id,
@@ -443,10 +539,10 @@
         );
         controlledTimers.flush();
         await withTimeout(
-          worker.whenMessageCount(4),
+          worker.whenMessageCount(6),
           'applying candidate #2 must queue its updated DSL for rendering',
         );
-        const secondCandidateRender = worker.messages[3];
+        const secondCandidateRender = worker.messages[5];
         assert(
           secondCandidateRender.source === dslInput.value,
           'candidate #2 render must use the exact DSL produced by the Wasm update',
@@ -475,10 +571,10 @@
         );
         controlledTimers.flush();
         await withTimeout(
-          worker.whenMessageCount(5),
+          worker.whenMessageCount(7),
           'switching candidates must queue the newly selected DSL for rendering',
         );
-        const appliedCandidateRender = worker.messages[4];
+        const appliedCandidateRender = worker.messages[6];
         assert(
           appliedCandidateRender.source === dslInput.value,
           'switched candidate render must use the exact selected DSL',
@@ -498,7 +594,8 @@
         );
 
         const messagesBeforeFatal = worker.messages.length;
-        const fatalError = 'synthetic Wasm initialization failure';
+        const fatalMessage = 'synthetic Wasm initialization failure';
+        const fatalError = workerError('initialization', 'Error', fatalMessage);
         worker.respond({ fatal: true, error: fatalError });
 
         assert(
@@ -531,9 +628,15 @@
           downloadButton.disabled && preview.querySelector('#inline-download-button')?.disabled,
           'fatal initialization must disable downloads of the stale preview',
         );
+        const expectedFatalStatus = `initialization failed (Error): ${fatalMessage}`;
         assert(
-          status.classList.contains('error') && status.textContent.includes(fatalError),
-          'fatal initialization status must identify the Wasm initialization failure',
+          status.classList.contains('error') && status.textContent === expectedFatalStatus,
+          'fatal status must show the initialization phase, name, and message',
+        );
+        assert(
+          robustSearchStatus.dataset.kind === 'error'
+            && robustSearchStatus.textContent === expectedFatalStatus,
+          'fatal robust-search status must show the initialization phase, name, and message',
         );
 
         controlledTimers.flush();

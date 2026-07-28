@@ -30,6 +30,12 @@ const TEXTAREA_RENDER_DELAY_MS = 250;
 const CONTROL_RENDER_DELAY_MS = 75;
 const TIP_PAD_VIEW_RADIUS = 1.12;
 const IPS_TO_KMH = 0.09144;
+const WORKER_ERROR_PHASES = new Set([
+  "initialization",
+  "dispatch",
+  "render",
+  "robust-shot-search",
+]);
 
 const input = document.querySelector("#dsl-input");
 const status = document.querySelector("#status");
@@ -101,6 +107,41 @@ let robustSearchResult = null;
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatWorkerError(error) {
+  const runtime = error?.runtime;
+  const valid = error !== null
+    && typeof error === "object"
+    && !Array.isArray(error)
+    && WORKER_ERROR_PHASES.has(error.phase)
+    && typeof error.name === "string"
+    && typeof error.message === "string"
+    && (error.stack === null || typeof error.stack === "string")
+    && runtime !== null
+    && typeof runtime === "object"
+    && !Array.isArray(runtime)
+    && typeof runtime.userAgent === "string"
+    && typeof runtime.platform === "string"
+    && (runtime.architecture === null || typeof runtime.architecture === "string")
+    && (runtime.bitness === null || typeof runtime.bitness === "string")
+    && (
+      runtime.hardwareConcurrency === null
+      || (typeof runtime.hardwareConcurrency === "number"
+        && Number.isFinite(runtime.hardwareConcurrency))
+    );
+  if (!valid) return "The background renderer returned an invalid error response.";
+  return `${error.phase} failed (${error.name}): ${error.message}`;
+}
+
+function reportWorkerError(error) {
+  try {
+    console.error("Wasm worker failure", JSON.stringify(error));
+  } catch (serializationError) {
+    console.error("Wasm worker failure", JSON.stringify({
+      serializationError: errorMessage(serializationError),
+    }));
+  }
 }
 
 function parseWasmJson(value) {
@@ -676,10 +717,8 @@ function failRenderWorker(message) {
 function handleRenderWorkerMessage(event) {
   const response = event.data ?? {};
   if (response.fatal === true) {
-    const detail = typeof response.error === "string" && response.error
-      ? `The background renderer failed to initialize: ${response.error}`
-      : "The background renderer failed to initialize. Reload to retry.";
-    failRenderWorker(detail);
+    reportWorkerError(response.error);
+    failRenderWorker(formatWorkerError(response.error));
     return;
   }
 
@@ -687,8 +726,9 @@ function handleRenderWorkerMessage(event) {
     const request = robustSearchRequests.get(response.id);
     if (!request) return;
     robustSearchRequests.delete(response.id);
-    if (typeof response.error === "string") {
-      request.reject(new Error(response.error));
+    if (Object.prototype.hasOwnProperty.call(response, "error")) {
+      reportWorkerError(response.error);
+      request.reject(new Error(formatWorkerError(response.error)));
     } else {
       request.resolve({ search: response.search, elapsedMs: response.elapsedMs });
     }
@@ -698,16 +738,19 @@ function handleRenderWorkerMessage(event) {
   const request = inFlightRender;
   if (!request || response.id !== request.id) return;
   inFlightRender = null;
+  const failed = Object.prototype.hasOwnProperty.call(response, "error");
+  const failureMessage = failed ? formatWorkerError(response.error) : null;
+  if (failed) reportWorkerError(response.error);
 
   if (request.source !== configuredSource) {
     requestConfiguredRender();
     return;
   }
 
-  if (typeof response.error === "string") {
+  if (failed) {
     if (!lastSvg) setPreviewMessage("The renderer rejected this scenario. See the exact error below the editor.");
     markPreviewStale(true);
-    setStatus(response.error, "error");
+    setStatus(failureMessage, "error");
     return;
   }
 

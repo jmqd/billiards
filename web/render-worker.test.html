@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Render worker fatal initialization behavior probe</title>
+  <title>Render worker error protocol probe</title>
 </head>
 <body>
   <output id="result">RUNNING</output>
@@ -24,12 +24,116 @@
       window.setTimeout(resolve, milliseconds);
     });
 
-    const run = async () => {
-      const initializationError = 'injected Wasm initialization rejection';
+    const assertWorkerError = (error, { phase, name, message }) => {
+      assert(error && typeof error === 'object' && !Array.isArray(error), 'worker error must be an object');
+      assert(
+        Object.keys(error).sort().join(',') === 'message,name,phase,runtime,stack',
+        'worker error must contain exactly the protocol fields',
+      );
+      assert(error.phase === phase, `worker error phase must be ${phase}`);
+      assert(error.name === name, `worker error name must be ${name}`);
+      assert(error.message === message, `worker error message must be ${message}`);
+      assert(
+        typeof error.stack === 'string' && error.stack.length > 0 && error.stack.includes(message),
+        'worker error stack must preserve the thrown error',
+      );
+
+      const runtime = error.runtime;
+      assert(runtime && typeof runtime === 'object' && !Array.isArray(runtime), 'runtime metadata must be an object');
+      assert(
+        Object.keys(runtime).sort().join(',')
+          === 'architecture,bitness,hardwareConcurrency,platform,userAgent',
+        'runtime metadata must contain exactly the protocol fields',
+      );
+      assert(typeof runtime.userAgent === 'string', 'runtime user agent must be a string');
+      assert(typeof runtime.platform === 'string', 'runtime platform must be a string');
+      assert(
+        runtime.architecture === null || typeof runtime.architecture === 'string',
+        'runtime architecture must be a string or null',
+      );
+      assert(
+        runtime.bitness === null || typeof runtime.bitness === 'string',
+        'runtime bitness must be a string or null',
+      );
+      assert(
+        runtime.hardwareConcurrency === null
+          || (typeof runtime.hardwareConcurrency === 'number'
+            && Number.isFinite(runtime.hardwareConcurrency)),
+        'runtime hardware concurrency must be a finite number or null',
+      );
+    };
+
+    const observeWorker = (worker) => {
+      const messages = [];
+      const waiters = [];
+      let workerFailure = null;
+      worker.addEventListener('message', (event) => {
+        messages.push(event.data);
+        for (let index = waiters.length - 1; index >= 0; index -= 1) {
+          if (messages.length < waiters[index].count) continue;
+          waiters.splice(index, 1)[0].resolve();
+        }
+      });
+      worker.addEventListener('error', (event) => {
+        workerFailure = new Error(event.message || 'worker emitted an error event');
+        while (waiters.length > 0) waiters.pop().reject(workerFailure);
+      });
+      return {
+        messages,
+        whenMessageCount(count) {
+          if (workerFailure) return Promise.reject(workerFailure);
+          if (messages.length >= count) return Promise.resolve();
+          return new Promise((resolve, reject) => waiters.push({ count, resolve, reject }));
+        },
+      };
+    };
+
+    const createWorker = (workerSource, wasmModuleSource) => {
+      const wasmModuleUrl = URL.createObjectURL(new Blob(
+        [wasmModuleSource],
+        { type: 'text/javascript' },
+      ));
+      const expectedImport = 'from "./pkg/billiards.js";';
+      const replacementImport = `from ${JSON.stringify(wasmModuleUrl)};`;
+      const importOccurrences = workerSource.split(expectedImport).length - 1;
+      assert(
+        importOccurrences === 1,
+        `expected exactly one replaceable Wasm import, found ${importOccurrences}`,
+      );
+      const rewrittenWorkerSource = workerSource.replace(expectedImport, replacementImport);
+      assert(
+        rewrittenWorkerSource !== workerSource && !rewrittenWorkerSource.includes(expectedImport),
+        'render worker Wasm import replacement did not occur',
+      );
+      const workerModuleUrl = URL.createObjectURL(new Blob(
+        [rewrittenWorkerSource],
+        { type: 'text/javascript' },
+      ));
+
+      try {
+        const worker = new Worker(workerModuleUrl, { type: 'module' });
+        return {
+          worker,
+          cleanup() {
+            worker.terminate();
+            URL.revokeObjectURL(workerModuleUrl);
+            URL.revokeObjectURL(wasmModuleUrl);
+          },
+        };
+      } catch (error) {
+        URL.revokeObjectURL(workerModuleUrl);
+        URL.revokeObjectURL(wasmModuleUrl);
+        throw error;
+      }
+    };
+
+    const runInitializationFailureCase = async (workerSource) => {
+      const initializationMessage = 'injected Wasm initialization rejection';
       const renderCalledMessage = 'test-only-render-export-called';
+      const robustCalledMessage = 'test-only-robust-export-called';
       const wasmModuleSource = `
         export default async function init() {
-          throw new Error(${JSON.stringify(initializationError)});
+          throw new Error(${JSON.stringify(initializationMessage)});
         }
 
         export function render_svg_report_from_dsl() {
@@ -38,84 +142,124 @@
         }
 
         export function robust_three_cushion_shot_from_dsl() {
-          globalThis.postMessage({ testOnly: ${JSON.stringify(renderCalledMessage)} });
+          globalThis.postMessage({ testOnly: ${JSON.stringify(robustCalledMessage)} });
           throw new Error('robust-search export invoked after failed Wasm initialization');
         }
       `;
-      const wasmModuleUrl = URL.createObjectURL(new Blob(
-        [wasmModuleSource],
-        { type: 'text/javascript' },
-      ));
-      let workerModuleUrl;
-      let worker;
+      const fixture = createWorker(workerSource, wasmModuleSource);
+      const observed = observeWorker(fixture.worker);
 
       try {
-        const response = await fetch('./render-worker.js');
-        assert(response.ok, `render worker source request failed with HTTP ${response.status}`);
-        const workerSource = await response.text();
-        const expectedImport = 'from "./pkg/billiards.js";';
-        const replacementImport = `from ${JSON.stringify(wasmModuleUrl)};`;
-        const importOccurrences = workerSource.split(expectedImport).length - 1;
-        assert(
-          importOccurrences === 1,
-          `expected exactly one replaceable Wasm import, found ${importOccurrences}`,
-        );
-        const rewrittenWorkerSource = workerSource.replace(expectedImport, replacementImport);
-        assert(
-          rewrittenWorkerSource !== workerSource && !rewrittenWorkerSource.includes(expectedImport),
-          'render worker Wasm import replacement did not occur',
-        );
-
-        workerModuleUrl = URL.createObjectURL(new Blob(
-          [rewrittenWorkerSource],
-          { type: 'text/javascript' },
-        ));
-        worker = new Worker(workerModuleUrl, { type: 'module' });
-
-        const messages = [];
-        let resolveFirstMessage;
-        const firstMessage = new Promise((resolve) => { resolveFirstMessage = resolve; });
-        worker.addEventListener('message', (event) => {
-          messages.push(event.data);
-          if (messages.length === 1) resolveFirstMessage(event.data);
-        });
-
-        worker.postMessage({ id: 41, source: 'table carom\nshot cue 1 0' });
-        const fatalResponse = await withTimeout(
-          firstMessage,
+        fixture.worker.postMessage({ id: 41, source: 'table carom\nshot cue 1 0' });
+        await withTimeout(
+          observed.whenMessageCount(1),
           'render worker did not report rejected Wasm initialization',
         );
+        const [fatalResponse] = observed.messages;
 
         assert(fatalResponse?.fatal === true, 'initialization rejection must be marked fatal');
-        assert(
-          typeof fatalResponse.error === 'string'
-            && fatalResponse.error.includes(initializationError),
-          'fatal response must include the Wasm initialization error',
-        );
+        assertWorkerError(fatalResponse.error, {
+          phase: 'initialization',
+          name: 'Error',
+          message: initializationMessage,
+        });
         assert(
           !Object.hasOwn(fatalResponse, 'id'),
           'fatal initialization response must not be associated with a scenario id',
         );
         assert(
-          !messages.some((message) => message?.testOnly === renderCalledMessage),
-          'render export must not run after Wasm initialization rejects',
+          !observed.messages.some((message) => (
+            message?.testOnly === renderCalledMessage || message?.testOnly === robustCalledMessage
+          )),
+          'neither export may run after Wasm initialization rejects',
         );
 
-        worker.postMessage({ id: 42, source: 'table carom\nshot cue 1 0' });
+        fixture.worker.postMessage({
+          id: 42,
+          action: 'robust-shot-search',
+          source: 'table carom\nshot cue 1 0',
+        });
         await delay(200);
         assert(
-          messages.length === 1,
+          observed.messages.length === 1,
           'fatal initialization must produce one response and close without retrying',
         );
+      } finally {
+        fixture.cleanup();
+      }
+    };
+
+    const runRecoverableSearchFailureCase = async (workerSource) => {
+      const robustMessage = 'injected robust search failure';
+      const wasmModuleSource = `
+        export default async function init() {}
+
+        export function render_svg_report_from_dsl(source) {
+          return JSON.stringify({
+            svg: '<svg aria-label="recovery render"></svg>',
+            events: [],
+            playback: null,
+            source,
+          });
+        }
+
+        export function robust_three_cushion_shot_from_dsl() {
+          throw new RangeError(${JSON.stringify(robustMessage)});
+        }
+      `;
+      const fixture = createWorker(workerSource, wasmModuleSource);
+      const observed = observeWorker(fixture.worker);
+
+      try {
+        fixture.worker.postMessage({
+          id: 51,
+          action: 'robust-shot-search',
+          source: 'table carom\nshot cue 1 0',
+          iterations: 256,
+          playerLevel: 'a-player',
+        });
+        await withTimeout(
+          observed.whenMessageCount(1),
+          'render worker did not report the robust search failure',
+        );
+        const [failureResponse] = observed.messages;
+        assert(failureResponse?.fatal !== true, 'robust search failure must remain nonfatal');
+        assert(failureResponse.id === 51, 'robust search failure must retain its request id');
         assert(
-          !messages.some((message) => message?.testOnly === renderCalledMessage),
-          'render export must remain unused after a request posted following the fatal response',
+          failureResponse.action === 'robust-shot-search',
+          'robust search failure must retain its action',
+        );
+        assertWorkerError(failureResponse.error, {
+          phase: 'robust-shot-search',
+          name: 'RangeError',
+          message: robustMessage,
+        });
+
+        const recoverySource = 'table carom\nshot cue recovery';
+        fixture.worker.postMessage({ id: 52, source: recoverySource });
+        await withTimeout(
+          observed.whenMessageCount(2),
+          'worker did not render after the recoverable robust search failure',
+        );
+        const recoveryResponse = observed.messages[1];
+        assert(recoveryResponse.id === 52, 'recovery render must retain its request id');
+        assert(recoveryResponse.action === 'render', 'recovery response must be a render');
+        assert(
+          !Object.hasOwn(recoveryResponse, 'error')
+            && recoveryResponse.report?.source === recoverySource,
+          'the same worker must complete a render after robust search failure',
         );
       } finally {
-        worker?.terminate();
-        if (workerModuleUrl) URL.revokeObjectURL(workerModuleUrl);
-        URL.revokeObjectURL(wasmModuleUrl);
+        fixture.cleanup();
       }
+    };
+
+    const run = async () => {
+      const response = await fetch('./render-worker.js');
+      assert(response.ok, `render worker source request failed with HTTP ${response.status}`);
+      const workerSource = await response.text();
+      await runInitializationFailureCase(workerSource);
+      await runRecoverableSearchFailureCase(workerSource);
     };
 
     try {

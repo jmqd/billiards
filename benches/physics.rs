@@ -4,25 +4,29 @@ use std::time::Duration;
 use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario, DslScenario};
 use billiards::{
     advance_to_next_n_ball_event_on_table,
-    advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table, classify_motion_phase,
-    collide_ball_ball_detailed_on_table, collide_ball_rail_on_table_with_radius_and_profile,
+    advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
+    canonical_three_cushion_cue_config, classify_motion_phase, collide_ball_ball_detailed_on_table,
+    collide_ball_rail_on_table_with_radius_and_profile,
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
     compute_next_ball_rail_impact_on_table,
     compute_next_n_ball_system_event_with_rails_and_pockets_on_table,
     compute_next_transition_on_table, compute_next_two_ball_event_with_rails_on_table,
+    run_player_robust_search,
     simulate_n_ball_system_with_physics_and_pockets_on_table_until_event_limit,
     simulate_n_balls_with_rails_and_pockets_on_table_until_rest, simulate_two_on_table_balls,
     strike_resting_ball_on_table, trace_ball_path_with_rails_on_table, Angle, AngularVelocity3,
     Ball, BallBallCollisionConfig, BallPathStop, BallSetPhysicsSpec, BallSpec, BallState, BallType,
     CollisionModel, CueStrikeConfig, CueTipContact, Diamond, GameState, Inches, Inches2,
     InchesPerSecond, InchesPerSecondSq, MotionPhase, MotionPhaseConfig, MotionTransitionConfig,
-    NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, Position, RadiansPerSecondSq,
-    Rail, RailAngleReference, RailCollisionProfile, RailModel, RailTangentDirection,
-    RestingOnTableBallState, RollingResistanceModel, Seconds, SlidingFrictionModel, SpinDecayModel,
-    TableSpec, Velocity2, CENTER_SPOT, TYPICAL_BALL_RADIUS,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, PhysicsProfile,
+    PlayerRobustSearchRequest, Pocket, Position, RadiansPerSecondSq, Rail, RailAngleReference,
+    RailCollisionProfile, RailModel, RailTangentDirection, RestingOnTableBallState,
+    RobustShotControls, RollingResistanceModel, Seconds, ShotLayout, SlidingFrictionModel,
+    SpinDecayModel, TableSpec, ThreeCushionPlayerLevel, ThreeCushionShooter, Velocity2,
+    CENTER_SPOT, TYPICAL_BALL_RADIUS,
 };
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
 
 const LAYOUT_DSL: &str = "ball cue at center\nball nine at (3, 7)\nball eight frozen left (6)\n";
 const SINGLE_BALL_SHOT_DSL: &str = "ball cue at center\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(30deg).speed(16ips).tip(side: 0.0R, height: 0.4R).using(default)\n";
@@ -1362,9 +1366,53 @@ fn bench_end_to_end(c: &mut Criterion) {
     group.finish();
 }
 
+fn production_robust_search_request() -> PlayerRobustSearchRequest {
+    PlayerRobustSearchRequest {
+        physics: PhysicsProfile::three_cushion_default(),
+        layout: ShotLayout::three_cushion_from_diamonds(
+            (3.354, 3.309),
+            (2.491, 5.838),
+            (2.762, 3.888),
+        )
+        .expect("benchmark three-cushion layout should validate"),
+        cue: canonical_three_cushion_cue_config(),
+        shooter: ThreeCushionShooter::Cue,
+        current_controls: RobustShotControls {
+            heading: 341.141,
+            speed: 108.0,
+            tip_side: 0.39,
+            tip_height: 0.11,
+            elevation: 0.0,
+        },
+        requested_evaluations: 256,
+        player_level: ThreeCushionPlayerLevel::A,
+        max_events: 24,
+    }
+}
+
+fn bench_player_robust_search(c: &mut Criterion) {
+    let request = production_robust_search_request();
+    let mut group = c.benchmark_group("player_robust_search");
+    group.measurement_time(Duration::from_secs(10));
+    group.sample_size(10);
+    group.sampling_mode(SamplingMode::Flat);
+    group.throughput(Throughput::Elements(request.requested_evaluations.into()));
+
+    group.bench_function("production_256_evaluation_a_player", |b| {
+        b.iter(|| {
+            black_box(
+                run_player_robust_search(black_box(&request))
+                    .expect("benchmark robust search should succeed"),
+            )
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_shared_contact_resolution, bench_rail_resolution, bench_pocket_cache_rebuild, bench_end_to_end
+    targets = bench_setup, bench_core_functions, bench_pocket_predictors, bench_motion_phase_classification, bench_collision_predictor_paths, bench_shared_contact_resolution, bench_rail_resolution, bench_pocket_cache_rebuild, bench_end_to_end, bench_player_robust_search
 );
 criterion_main!(benches);

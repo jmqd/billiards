@@ -1,23 +1,26 @@
 use std::hint::black_box;
 use std::time::Duration;
 
-use billiards::diagram::{render_scene_to_bytes, DiagramOutputFormat};
+use billiards::diagram::{
+    render_scene_to_bytes, DiagramElement, DiagramLayerId, DiagramOutputFormat,
+};
 use billiards::dsl::{
     parse_dsl_to_game_state, parse_dsl_to_scenario, DslScenario, ScenarioShotTrace,
     ScenarioTraceRenderOptions,
 };
 use billiards::svg_generator::serialize_prepared_svg_report;
-use billiards::visualization::{BallPathRenderOptions, PathColorMode};
+use billiards::visualization::{BallPathRenderOptions, LabelOverlayStyle, PathColorMode};
 use billiards::{
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_transition_on_table, human_tuned_preview_motion_config,
     simulate_two_on_table_balls, strike_resting_ball_on_table, trace_ball_path_with_rails_on_table,
-    Angle, AngularVelocity3, BallBallCollisionConfig, BallPathStop, BallSetPhysicsSpec, BallState,
-    CollisionModel, CueStrikeConfig, CueTipContact, DiagramBackground, DiagramRenderOptions,
-    Diamond, GameState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
-    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, Position, RadiansPerSecondSq,
-    RailCollisionProfile, RailModel, RestingOnTableBallState, RollingResistanceModel, Scale,
-    Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    Angle, AngularVelocity3, Ball, BallBallCollisionConfig, BallPathStop, BallSetPhysicsSpec,
+    BallSpec, BallState, BallType, CollisionModel, CueStrikeConfig, CueTipContact,
+    DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2, InchesPerSecond,
+    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
+    OnTableMotionConfig, Position, RadiansPerSecondSq, RailCollisionProfile, RailModel,
+    RestingOnTableBallState, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
+    SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use image::Rgba;
@@ -557,6 +560,91 @@ fn bench_playback_streaming(c: &mut Criterion) {
     report_group.finish();
 }
 
+fn static_16_balls_shifted_state() -> GameState {
+    let ball_types = [
+        BallType::Cue,
+        BallType::One,
+        BallType::Two,
+        BallType::Three,
+        BallType::Four,
+        BallType::Five,
+        BallType::Six,
+        BallType::Seven,
+        BallType::Eight,
+        BallType::Nine,
+        BallType::YellowCue,
+        BallType::Red,
+        BallType::Cue,
+        BallType::One,
+        BallType::Two,
+        BallType::Three,
+    ];
+    let x_positions = ["0.5", "1.5", "2.5", "3.5"];
+    let y_positions = ["0.75", "2.75", "4.75", "6.75"];
+    let radii = ["1.0", "1.0625", "1.125", "1.1875"];
+    let balls = ball_types.into_iter().enumerate().map(|(index, ty)| {
+        let mut position = Position::new(x_positions[index % 4], y_positions[(index / 4) % 4]);
+        match index % 4 {
+            0 => {}
+            1 => {
+                position.shift_horizontally_inches(Inches::from("0.125"));
+            }
+            2 => {
+                position.shift_vertically_inches(Inches::from("-0.1875"));
+            }
+            3 => {
+                position
+                    .shift_horizontally_inches(Inches::from("0.0625"))
+                    .shift_vertically_inches(Inches::from("-0.09375"));
+            }
+            _ => unreachable!(),
+        }
+        Ball {
+            ty,
+            position,
+            spec: BallSpec {
+                radius: Inches::from(radii[index % 4]),
+            },
+        }
+    });
+    GameState::with_balls(TableSpec::default(), balls)
+}
+
+fn rendering_long_polyline_points() -> Vec<Position> {
+    (0..1_000)
+        .map(|index| {
+            let t = index as f64 / 999.0;
+            let x = 0.1 + 3.8 * t;
+            let y = 4.0 + 3.0 * (t * std::f64::consts::TAU * 8.0).sin();
+            Position::new(
+                Diamond::from(x.to_string().as_str()),
+                Diamond::from(y.to_string().as_str()),
+            )
+        })
+        .collect()
+}
+
+fn overlays_only_1000_points_state(points: &[Position]) -> GameState {
+    let mut state = GameState::new(TableSpec::default());
+    state.add_smooth_polyline(points, Rgba([0x09, 0x6b, 0xd8, 0xff]));
+    let label_style = LabelOverlayStyle::enabled(Rgba([0x20, 0x20, 0x20, 0xff]));
+    state.add_text_label_styled(
+        &Position::new("0.5", "0.75"),
+        "(benchmark event)",
+        label_style.clone(),
+    );
+    state.add_text_label_styled(
+        &Position::new("3.5", "7.25"),
+        "t=1.000 benchmark event title",
+        label_style,
+    );
+    state
+}
+
+fn empty_rendering_state() -> GameState {
+    GameState::new(TableSpec::default())
+}
+
 fn bench_rendering_throughput(c: &mut Criterion) {
     let ball_set = BallSetPhysicsSpec::default();
     let motion = motion_config();
@@ -607,20 +695,89 @@ fn bench_rendering_throughput(c: &mut Criterion) {
         background: DiagramBackground::Transparent,
     };
     let transparent_scene = rendered.to_diagram_scene(&transparent_options);
-    let long_polyline_points = (0..1_000)
-        .map(|index| {
-            let t = index as f64 / 999.0;
-            let x = 0.1 + 3.8 * t;
-            let y = 4.0 + 3.0 * (t * std::f64::consts::TAU * 8.0).sin();
-            Position::new(
-                Diamond::from(x.to_string().as_str()),
-                Diamond::from(y.to_string().as_str()),
-            )
-        })
-        .collect::<Vec<_>>();
+    let long_polyline_points = rendering_long_polyline_points();
     let mut long_polyline_state = GameState::new(TableSpec::default());
     long_polyline_state.add_smooth_polyline(&long_polyline_points, Rgba([0x09, 0x6b, 0xd8, 0xff]));
     let long_polyline_scene = long_polyline_state.to_diagram_scene(&transparent_options);
+    let static_state = static_16_balls_shifted_state();
+    let static_scene = static_state.to_diagram_scene(&render_options);
+    assert_eq!(static_state.balls().len(), 16);
+    assert_eq!(static_scene.balls.len(), 16);
+    assert!(static_scene.pocketed_balls.is_empty() && static_scene.elements.is_empty());
+    let resolved_shift_axes = static_state
+        .balls()
+        .iter()
+        .zip(&static_scene.balls)
+        .map(|(source, built)| {
+            (
+                source.position.x != built.position.x,
+                source.position.y != built.position.y,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        resolved_shift_axes,
+        [
+            (false, false),
+            (true, false),
+            (false, true),
+            (true, true),
+            (false, false),
+            (true, false),
+            (false, true),
+            (true, true),
+            (false, false),
+            (true, false),
+            (false, true),
+            (true, true),
+            (false, false),
+            (true, false),
+            (false, true),
+            (true, true),
+        ]
+    );
+    let overlays_only_state = overlays_only_1000_points_state(&long_polyline_points);
+    let overlays_only_scene = overlays_only_state.to_diagram_scene(&transparent_options);
+    assert!(overlays_only_scene.balls.is_empty() && overlays_only_scene.pocketed_balls.is_empty());
+    assert_eq!(overlays_only_scene.elements.len(), 3);
+    assert_eq!(
+        overlays_only_scene
+            .elements_for_layer(DiagramLayerId::OverlaysBelowBalls)
+            .count(),
+        1
+    );
+    assert_eq!(
+        overlays_only_scene
+            .elements_for_layer(DiagramLayerId::OverlaysAboveBalls)
+            .count(),
+        2
+    );
+    let overlay_smooth_polylines = overlays_only_scene
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            DiagramElement::SmoothPolyline { points, .. } => Some(points.len()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(overlay_smooth_polylines, [1_000]);
+    let overlay_text_labels = overlays_only_scene
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            DiagramElement::TextLabel { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(overlay_text_labels.len(), 2);
+    assert!(overlay_text_labels.iter().all(|text| !text.is_empty()));
+    let empty_state = empty_rendering_state();
+    let empty_scene = empty_state.to_diagram_scene(&render_options);
+    assert!(
+        empty_scene.balls.is_empty()
+            && empty_scene.pocketed_balls.is_empty()
+            && empty_scene.elements.is_empty()
+    );
     let svg_control = render_scene_to_bytes(&scene, DiagramOutputFormat::Svg, &render_options);
     let png_control = render_scene_to_bytes(&scene, DiagramOutputFormat::Png, &render_options);
     let transparent_png_control = render_scene_to_bytes(
@@ -637,13 +794,88 @@ fn bench_rendering_throughput(c: &mut Criterion) {
         &transparent_options,
     );
     assert!(!long_polyline_svg_control.is_empty());
+    let below_elements = scene
+        .elements_for_layer(DiagramLayerId::OverlaysBelowBalls)
+        .count();
+    let above_elements = scene
+        .elements_for_layer(DiagramLayerId::OverlaysAboveBalls)
+        .count();
+    let event_markers = scene
+        .elements
+        .iter()
+        .filter(|element| matches!(element, DiagramElement::CircleMarker { .. }))
+        .count();
+    let event_labels = scene
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            DiagramElement::CircleMarker { event_label, .. } => event_label.as_ref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let event_titles = scene
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            DiagramElement::CircleMarker { event_title, .. } => event_title.as_ref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let spin_glyphs = scene
+        .elements
+        .iter()
+        .filter(|element| matches!(element, DiagramElement::SpinGlyph { .. }))
+        .count();
+    let smooth_polylines = scene
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            DiagramElement::SmoothPolyline { points, .. } => Some(points.len()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        (
+            scene.balls.len(),
+            scene.pocketed_balls.len(),
+            scene.elements.len(),
+            below_elements,
+            above_elements,
+            event_markers,
+            event_labels.len(),
+            event_titles.len(),
+            spin_glyphs,
+            smooth_polylines.len(),
+            smooth_polylines.iter().sum::<usize>(),
+        ),
+        (2, 0, 560, 555, 5, 2, 2, 2, 2, 534, 1_247)
+    );
+    assert!(event_labels.iter().all(|label| !label.is_empty()));
+    assert!(event_titles.iter().all(|title| !title.is_empty()));
 
     let mut stage_group = c.benchmark_group("render_stages");
     stage_group.measurement_time(Duration::from_secs(8));
     stage_group.sample_size(10);
     stage_group.bench_function("scene_build/rich_trace", |b| {
         b.iter(|| {
-            black_box(rendered.to_diagram_scene(black_box(&render_options)));
+            black_box(black_box(&rendered).to_diagram_scene(black_box(&render_options)));
+        })
+    });
+    stage_group.bench_function("scene_build/static_16_balls_shifted", |b| {
+        b.iter(|| {
+            black_box(black_box(&static_state).to_diagram_scene(black_box(&render_options)));
+        })
+    });
+    stage_group.bench_function("scene_build/overlays_only_1000_points", |b| {
+        b.iter(|| {
+            black_box(
+                black_box(&overlays_only_state).to_diagram_scene(black_box(&transparent_options)),
+            );
+        })
+    });
+    stage_group.bench_function("scene_build/empty", |b| {
+        b.iter(|| {
+            black_box(black_box(&empty_state).to_diagram_scene(black_box(&render_options)));
         })
     });
     stage_group.bench_function("backend/svg_rich_trace", |b| {

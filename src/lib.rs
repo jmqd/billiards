@@ -19630,6 +19630,382 @@ impl GameState {
     }
 }
 
+#[cfg(test)]
+mod diagram_scene_builder_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn clone_based_scene(state: &GameState, options: &DiagramRenderOptions) -> DiagramScene {
+        let mut resolved = state.clone();
+        resolved.resolve_positions();
+
+        let balls = resolved
+            .ball_positions
+            .iter()
+            .map(|ball| DiagramBall {
+                ty: ball.ty.clone(),
+                position: ball.position.clone(),
+                spec: ball.spec.clone(),
+            })
+            .collect();
+        let pocketed_balls = resolved
+            .pocketed_balls_to_draw
+            .iter()
+            .map(|ball| DiagramPocketedBall {
+                ty: ball.ty.clone(),
+                spec: ball.spec.clone(),
+                pocket: ball.pocket,
+                captured_at_seconds: ball.captured_at_seconds,
+            })
+            .collect();
+        let elements = resolved
+            .lines_to_draw
+            .iter()
+            .map(|overlay| match overlay {
+                Overlay::DashedLine { start, end, style } => DiagramElement::DashedLine {
+                    start: start.clone(),
+                    end: end.clone(),
+                    style: style.clone(),
+                },
+                Overlay::SmoothPolyline { points, style } => DiagramElement::SmoothPolyline {
+                    points: points.clone(),
+                    style: style.clone(),
+                },
+                Overlay::HeadingChevron {
+                    tip,
+                    heading,
+                    style,
+                } => DiagramElement::HeadingChevron {
+                    tip: tip.clone(),
+                    heading: *heading,
+                    style: style.clone(),
+                },
+                Overlay::JawReboundDirection {
+                    origin,
+                    heading,
+                    ball,
+                    pocket,
+                    jaw,
+                    style,
+                } => DiagramElement::JawReboundDirection {
+                    origin: origin.clone(),
+                    heading: *heading,
+                    ball: ball.clone(),
+                    pocket: *pocket,
+                    jaw: *jaw,
+                    style: style.clone(),
+                },
+                Overlay::GhostBall { center, style } => DiagramElement::GhostBall {
+                    center: center.clone(),
+                    style: style.clone(),
+                },
+                Overlay::OriginMarker { center, style } => DiagramElement::OriginMarker {
+                    center: center.clone(),
+                    style: style.clone(),
+                },
+                Overlay::CircleMarker {
+                    center,
+                    style,
+                    event_label,
+                    event_title,
+                } => DiagramElement::CircleMarker {
+                    center: center.clone(),
+                    style: style.clone(),
+                    event_label: event_label.clone(),
+                    event_title: event_title.clone(),
+                },
+                Overlay::TextLabel {
+                    anchor,
+                    text,
+                    style,
+                } => DiagramElement::TextLabel {
+                    anchor: anchor.clone(),
+                    text: text.clone(),
+                    style: style.clone(),
+                },
+                Overlay::SpinGlyph {
+                    center,
+                    angular_velocity,
+                    linear_velocity,
+                    ball_radius,
+                    style,
+                } => DiagramElement::SpinGlyph {
+                    center: center.clone(),
+                    angular_velocity: angular_velocity.clone(),
+                    linear_velocity: linear_velocity.clone(),
+                    ball_radius: ball_radius.clone(),
+                    style: style.clone(),
+                },
+            })
+            .collect();
+
+        DiagramScene {
+            table_spec: resolved.table_spec,
+            viewport: DiagramViewport::default(),
+            background: options.background,
+            balls,
+            pocketed_balls,
+            elements,
+        }
+    }
+
+    fn rich_private_scene_fixture() -> (GameState, Position, Position) {
+        let mut state = GameState::new(TableSpec::default());
+        let mut ball_position = Position::new("1.125", "3.875");
+        ball_position
+            .shift_horizontally_inches(Inches::from("0.375"))
+            .shift_vertically_inches(Inches::from("-0.625"));
+        state.add_ball(Ball {
+            ty: BallType::Cue,
+            position: ball_position.clone(),
+            spec: BallSpec {
+                radius: Inches::from("1.03125"),
+            },
+        });
+        state.add_pocketed_ball_marker(
+            &Ball {
+                ty: BallType::Nine,
+                position: Position::new("2", "2"),
+                spec: BallSpec {
+                    radius: Inches::from("1.09375"),
+                },
+            },
+            Pocket::TopRight,
+            Seconds::new(1.25),
+        );
+
+        let mut pending_overlay_position = Position::new("2.25", "4.5");
+        pending_overlay_position
+            .shift_horizontally_inches(Inches::from("0.2"))
+            .shift_vertically_inches(Inches::from("-0.3"));
+        let below = OverlayLayer::BelowBalls;
+        let above = OverlayLayer::AboveBalls;
+        let mut heading_below = HeadingChevronStyle::new(Rgba([12, 34, 56, 255]));
+        heading_below.layer = below;
+        let mut heading_above = HeadingChevronStyle::new(Rgba([21, 43, 65, 255]));
+        heading_above.layer = above;
+        let mut label_below = LabelOverlayStyle::enabled(Rgba([70, 80, 90, 255]));
+        label_below.layer = below;
+        let mut label_above = LabelOverlayStyle::enabled(Rgba([90, 80, 70, 255]));
+        label_above.layer = above;
+        let mut event_style = EventMarkerStyle::enabled(Rgba([120, 130, 140, 255]));
+        event_style.layer = above;
+        let mut spin_style = SpinGlyphStyle::default();
+        spin_style.layer = below;
+
+        state.lines_to_draw = vec![
+            Overlay::DashedLine {
+                start: pending_overlay_position.clone(),
+                end: Position::new("3.1", "4.7"),
+                style: DashedLineStyle::new(Rgba([1, 2, 3, 255])).on_layer(above),
+            },
+            Overlay::SmoothPolyline {
+                points: vec![
+                    Position::new("0.5", "1.5"),
+                    Position::new("1.5", "2.5"),
+                    Position::new("2.5", "3.5"),
+                ],
+                style: SmoothPolylineStyle::new(Rgba([4, 5, 6, 255])).on_layer(below),
+            },
+            Overlay::HeadingChevron {
+                tip: Position::new("1.3", "2.7"),
+                heading: Angle::from_north(1.0, 2.0),
+                style: heading_below,
+            },
+            Overlay::JawReboundDirection {
+                origin: Position::new("3.4", "7.1"),
+                heading: Angle::from_north(-1.0, -1.0),
+                ball: BallType::Nine,
+                pocket: Pocket::TopRight,
+                jaw: PocketJaw::First,
+                style: heading_above,
+            },
+            Overlay::GhostBall {
+                center: Position::new("1.7", "5.2"),
+                style: GhostBallStyle::default().on_layer(below),
+            },
+            Overlay::OriginMarker {
+                center: Position::new("0.9", "6.3"),
+                style: label_above.clone(),
+            },
+            Overlay::CircleMarker {
+                center: Position::new("2.8", "2.2"),
+                style: event_style,
+                event_label: Some("C2".to_owned()),
+                event_title: Some("collision at t=1.25".to_owned()),
+            },
+            Overlay::TextLabel {
+                anchor: Position::new("3.3", "1.4"),
+                text: "owned scene".to_owned(),
+                style: label_below,
+            },
+            Overlay::SpinGlyph {
+                center: Position::new("2", "4"),
+                angular_velocity: AngularVelocity3::new(1.0, -2.0, 3.0),
+                linear_velocity: Velocity2::new("4", "-5"),
+                ball_radius: Inches::from("1.03125"),
+                style: spin_style,
+            },
+        ];
+
+        (state, ball_position, pending_overlay_position)
+    }
+
+    fn compact_render(
+        scene: &DiagramScene,
+        format: DiagramOutputFormat,
+        options: &DiagramRenderOptions,
+    ) -> Vec<u8> {
+        let mut scene = scene.clone();
+        let viewport = DiagramViewport::default();
+        let width_px = 180.0;
+        let height_px = 320.0;
+        let x_scale = width_px / viewport.width_px;
+        let y_scale = height_px / viewport.height_px;
+        scene.viewport = DiagramViewport {
+            width_px,
+            height_px,
+            playfield_left_px: viewport.playfield_left_px * x_scale,
+            playfield_right_px: viewport.playfield_right_px * x_scale,
+            playfield_top_px: viewport.playfield_top_px * y_scale,
+            playfield_bottom_px: viewport.playfield_bottom_px * y_scale,
+        };
+        render_scene_to_bytes(&scene, format, options)
+    }
+
+    fn assert_scene_matches_reference(
+        state: &GameState,
+        options: &DiagramRenderOptions,
+    ) -> DiagramScene {
+        let expected = clone_based_scene(state, options);
+        let actual = state.to_diagram_scene(options);
+
+        assert_eq!(actual.viewport, expected.viewport);
+        assert_eq!(actual.background, expected.background);
+        assert_eq!(actual.table_spec.kind, expected.table_spec.kind);
+        assert_eq!(
+            actual.table_spec.diamond_length,
+            expected.table_spec.diamond_length
+        );
+        assert_eq!(actual.balls.len(), expected.balls.len());
+        for (actual, expected) in actual.balls.iter().zip(&expected.balls) {
+            assert_eq!(actual.ty, expected.ty);
+            assert_eq!(actual.position, expected.position);
+            assert_eq!(actual.spec.radius, expected.spec.radius);
+        }
+        assert_eq!(actual.pocketed_balls.len(), expected.pocketed_balls.len());
+        for (actual, expected) in actual.pocketed_balls.iter().zip(&expected.pocketed_balls) {
+            assert_eq!(actual.ty, expected.ty);
+            assert_eq!(actual.spec.radius, expected.spec.radius);
+            assert_eq!(actual.pocket, expected.pocket);
+            assert_eq!(actual.captured_at_seconds, expected.captured_at_seconds);
+        }
+        assert_eq!(actual.elements.len(), expected.elements.len());
+        for (actual, expected) in actual.elements.iter().zip(&expected.elements) {
+            assert_eq!(
+                std::mem::discriminant(actual),
+                std::mem::discriminant(expected)
+            );
+            assert_eq!(actual.layer(), expected.layer());
+        }
+        for format in [DiagramOutputFormat::Svg, DiagramOutputFormat::Png] {
+            assert_eq!(
+                compact_render(&actual, format, options),
+                compact_render(&expected, format, options)
+            );
+        }
+
+        actual
+    }
+
+    #[test]
+    fn direct_scene_builder_preserves_private_overlays_pocketed_balls_and_ownership() {
+        let (mut state, source_ball_position, pending_overlay_position) =
+            rich_private_scene_fixture();
+        let options = DiagramRenderOptions {
+            scale_factor: 2,
+            background: DiagramBackground::Transparent,
+        };
+
+        let scene = assert_scene_matches_reference(&state, &options);
+        assert_eq!(state.ball_positions[0].position, source_ball_position);
+        let DiagramElement::DashedLine { start, .. } = &scene.elements[0] else {
+            panic!("the first private fixture overlay should remain a dashed line");
+        };
+        assert_eq!(start, &pending_overlay_position);
+        assert_eq!(scene.pocketed_balls[0].ty, BallType::Nine);
+        assert_eq!(scene.pocketed_balls[0].pocket, Pocket::TopRight);
+
+        let svg_before = compact_render(&scene, DiagramOutputFormat::Svg, &options);
+        let png_before = compact_render(&scene, DiagramOutputFormat::Png, &options);
+        state.resolve_positions();
+        state.ball_positions.clear();
+        state.lines_to_draw.clear();
+        state.pocketed_balls_to_draw.clear();
+        state.table_spec = TableSpec::three_cushion_carom_10ft();
+        drop(state);
+        assert_eq!(
+            compact_render(&scene, DiagramOutputFormat::Svg, &options),
+            svg_before
+        );
+        assert_eq!(
+            compact_render(&scene, DiagramOutputFormat::Png, &options),
+            png_before
+        );
+    }
+
+    #[test]
+    fn scene_builder_matches_the_clone_oracle_for_carom_and_concurrent_calls() {
+        for background in [DiagramBackground::Table, DiagramBackground::Transparent] {
+            let empty = GameState::new(TableSpec::default());
+            let options = DiagramRenderOptions {
+                scale_factor: 1,
+                background,
+            };
+            let scene = assert_scene_matches_reference(&empty, &options);
+            assert!(scene.balls.is_empty());
+            assert!(scene.pocketed_balls.is_empty());
+            assert!(scene.elements.is_empty());
+        }
+
+        let mut carom = GameState::new(TableSpec::three_cushion_carom_10ft());
+        let mut position = Position::new("1.75", "5.25");
+        position.shift_horizontally_inches(Inches::from("0.333"));
+        carom.add_ball(Ball {
+            ty: BallType::Red,
+            position,
+            spec: BallSpec::three_cushion_carom(),
+        });
+        assert_scene_matches_reference(&carom, &DiagramRenderOptions::default());
+
+        let (state, _, _) = rich_private_scene_fixture();
+        let state = Arc::new(state);
+        let options = DiagramRenderOptions::default();
+        let expected_scene = state.to_diagram_scene(&options);
+        let expected_svg = compact_render(&expected_scene, DiagramOutputFormat::Svg, &options);
+        let expected_png = compact_render(&expected_scene, DiagramOutputFormat::Png, &options);
+        let workers = (0..8)
+            .map(|_| {
+                let state = Arc::clone(&state);
+                std::thread::spawn(move || {
+                    let options = DiagramRenderOptions::default();
+                    let scene = state.to_diagram_scene(&options);
+                    (
+                        compact_render(&scene, DiagramOutputFormat::Svg, &options),
+                        compact_render(&scene, DiagramOutputFormat::Png, &options),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for worker in workers {
+            let (svg, png) = worker.join().expect("scene worker should not panic");
+            assert_eq!(svg.as_slice(), expected_svg.as_slice());
+            assert_eq!(png.as_slice(), expected_png.as_slice());
+        }
+    }
+}
+
 // TODO: Return result, swap unwraps to ?.
 pub fn write_png_to_file(png_bytes: &[u8], path: Option<&Path>) {
     let out_path = path.unwrap_or_else(|| Path::new("output.png"));

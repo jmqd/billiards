@@ -52,6 +52,22 @@ fn center_distance(a: &OnTableBallState, b: &OnTableBallState) -> f64 {
     dx.hypot(dy)
 }
 
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+fn on_table_state_bits(state: &OnTableBallState) -> [u64; 9] {
+    let state = state.as_ball_state();
+    [
+        state.position.x().as_f64().to_bits(),
+        state.position.y().as_f64().to_bits(),
+        state.height.as_f64().to_bits(),
+        state.velocity.x().as_f64().to_bits(),
+        state.velocity.y().as_f64().to_bits(),
+        state.vertical_velocity.as_f64().to_bits(),
+        state.angular_velocity.x().as_f64().to_bits(),
+        state.angular_velocity.y().as_f64().to_bits(),
+        state.angular_velocity.z().as_f64().to_bits(),
+    ]
+}
+
 fn impact_heading(from: &OnTableBallState, to: &OnTableBallState) -> Angle {
     let from = from.as_ball_state();
     let to = to.as_ball_state();
@@ -295,6 +311,28 @@ fn the_phase_aware_predictor_uses_the_current_rolling_model_before_contact() {
         &motion_config(),
     )
     .expect("the rolling ball should still reach contact before it stops");
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    {
+        assert_eq!(
+            predicted.time_until_impact.as_f64().to_bits(),
+            4_607_182_418_800_017_408
+        );
+        assert_eq!(
+            on_table_state_bits(&predicted.a_at_impact),
+            [
+                0,
+                13_835_621_005_235_585_024,
+                0,
+                0,
+                4_617_315_517_961_601_024,
+                0,
+                13_840_062_054_868_130_930,
+                0,
+                0,
+            ]
+        );
+        assert_eq!(on_table_state_bits(&predicted.b_at_impact), [0; 9]);
+    }
 
     assert_close(predicted.time_until_impact.as_f64(), 1.0);
     assert_close(
@@ -334,6 +372,41 @@ fn the_phase_aware_predictor_finds_a_grazing_collision_between_fixed_scan_sample
         &motion_config(),
     )
     .expect("a near-tangent contact should be found even when it falls between coarse samples");
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    {
+        assert_eq!(
+            predicted.time_until_impact.as_f64().to_bits(),
+            4_602_725_108_745_690_360
+        );
+        assert_eq!(
+            on_table_state_bits(&predicted.a_at_impact),
+            [
+                4_633_638_081_151_019_901,
+                0,
+                0,
+                4_637_966_936_191_298_398,
+                0,
+                0,
+                9_223_372_036_854_775_808,
+                4_637_048_434_051_917_452,
+                0,
+            ]
+        );
+        assert_eq!(
+            on_table_state_bits(&predicted.b_at_impact),
+            [
+                4_633_641_066_610_819_072,
+                4_612_248_743_200_827_847,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ]
+        );
+    }
 
     assert_close(predicted.time_until_impact.as_f64(), expected_time);
     assert_close(
@@ -367,6 +440,41 @@ fn curved_rolling_ball_ball_entry_uses_the_canonical_turning_path() {
         &motion_config(),
     )
     .expect("the canonical rightward curve enters the object ball before one second");
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    {
+        assert_eq!(
+            predicted.time_until_impact.as_f64().to_bits(),
+            4_607_068_619_481_055_232
+        );
+        assert_eq!(
+            on_table_state_bits(&predicted.a_at_impact),
+            [
+                4_621_821_707_325_652_037,
+                4_628_415_885_471_164_720,
+                0,
+                4_575_784_193_505_036_896,
+                4_617_386_635_361_691_233,
+                0,
+                13_840_125_270_334_877_782,
+                4_574_882_149_662_986_866,
+                4_582_940_377_822_003_200,
+            ]
+        );
+        assert_eq!(
+            on_table_state_bits(&predicted.b_at_impact),
+            [
+                4_623_087_839_068_652_618,
+                4_628_433_778_917_634_351,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ]
+        );
+    }
 
     let impact_time = predicted.time_until_impact.as_f64();
     assert!(impact_time > 0.0 && impact_time < 1.0);

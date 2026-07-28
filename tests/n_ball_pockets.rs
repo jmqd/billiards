@@ -57,6 +57,22 @@ fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
 }
 
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+fn on_table_state_bits(state: &OnTableBallState) -> [u64; 9] {
+    let state = state.as_ball_state();
+    [
+        state.position.x().as_f64().to_bits(),
+        state.position.y().as_f64().to_bits(),
+        state.height.as_f64().to_bits(),
+        state.velocity.x().as_f64().to_bits(),
+        state.velocity.y().as_f64().to_bits(),
+        state.vertical_velocity.as_f64().to_bits(),
+        state.angular_velocity.x().as_f64().to_bits(),
+        state.angular_velocity.y().as_f64().to_bits(),
+        state.angular_velocity.z().as_f64().to_bits(),
+    ]
+}
+
 #[test]
 fn system_zero_friction_nonideal_shared_contact_matches_coupled_normal_limit() {
     let radius = TYPICAL_BALL_RADIUS.as_f64();
@@ -120,6 +136,27 @@ fn curved_rolling_ball_reaches_the_center_right_first_jaw() {
         &motion_config(),
     )
     .expect("the canonical rightward curve enters the first center-right jaw before one second");
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    {
+        assert_eq!(
+            impact.time_until_impact.as_f64().to_bits(),
+            4_607_247_905_935_396_864
+        );
+        assert_eq!(
+            on_table_state_bits(&impact.state_at_impact),
+            [
+                4_632_057_927_017_301_893,
+                4_632_595_693_405_055_188,
+                0,
+                4_575_743_055_504_650_378,
+                4_617_233_651_800_681_331,
+                0,
+                13_839_989_284_947_313_425,
+                4_574_809_015_440_077_500,
+                0,
+            ]
+        );
+    }
     let direct_time = impact.time_until_impact.as_f64();
 
     assert_eq!(impact.pocket, Pocket::CenterRight);

@@ -38,6 +38,22 @@ fn inches2(x: f64, y: f64) -> Inches2 {
     Inches2::new(Inches::from_f64(x), Inches::from_f64(y))
 }
 
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+fn on_table_state_bits(state: &OnTableBallState) -> [u64; 9] {
+    let state = state.as_ball_state();
+    [
+        state.position.x().as_f64().to_bits(),
+        state.position.y().as_f64().to_bits(),
+        state.height.as_f64().to_bits(),
+        state.velocity.x().as_f64().to_bits(),
+        state.velocity.y().as_f64().to_bits(),
+        state.vertical_velocity.as_f64().to_bits(),
+        state.angular_velocity.x().as_f64().to_bits(),
+        state.angular_velocity.y().as_f64().to_bits(),
+        state.angular_velocity.z().as_f64().to_bits(),
+    ]
+}
+
 #[test]
 fn a_rolling_ball_predicts_a_top_rail_impact_before_it_stops() {
     let table = TableSpec::default();
@@ -210,6 +226,27 @@ fn curved_rolling_ball_reaches_the_right_rail_before_its_transition() {
         &motion_config(),
     )
     .expect("the canonical rightward curve reaches the rail before one second");
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    {
+        assert_eq!(
+            impact.time_until_impact.as_f64().to_bits(),
+            4_606_382_454_841_163_776
+        );
+        assert_eq!(
+            on_table_state_bits(&impact.state_at_impact),
+            [
+                4_632_075_362_052_866_048,
+                4_628_303_234_083_889_926,
+                0,
+                4_575_546_620_839_147_161,
+                4_617_815_489_278_519_670,
+                0,
+                13_840_506_473_816_503_060,
+                4_574_558_109_874_095_581,
+                4_595_567_731_961_364_480,
+            ]
+        );
+    }
 
     assert_eq!(impact.rail, Rail::Right);
     assert!(impact.time_until_impact.as_f64() > 0.0 && impact.time_until_impact.as_f64() < 1.0);

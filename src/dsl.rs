@@ -4,7 +4,10 @@
     clippy::result_large_err
 )]
 
-use std::collections::HashMap;
+use std::{
+    cmp::{Ordering, Reverse},
+    collections::{BinaryHeap, HashMap},
+};
 
 use crate::{
     advance_airborne_ball, advance_motion_on_table,
@@ -1054,6 +1057,15 @@ const SCENARIO_TRACE_TIME_DISPLAY_DECIMALS: usize = 6;
 const SCENARIO_TRACE_SIMULTANEOUS_EVENT_EPSILON_SECONDS: f64 = 1e-9;
 const SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS: f64 = 1e-9;
 
+fn validated_playback_time_step(max_time_step: Seconds) -> f64 {
+    let max_time_step = max_time_step.as_f64();
+    assert!(
+        max_time_step.is_finite() && max_time_step > 0.0,
+        "playback max_time_step must be positive and finite"
+    );
+    max_time_step
+}
+
 impl ScenarioShotTrace {
     pub fn event_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
@@ -1084,53 +1096,18 @@ impl ScenarioShotTrace {
         lines
     }
 
+    pub fn playback_frames_iter(&self, max_time_step: Seconds) -> ScenarioPlaybackFrames<'_> {
+        let max_time_step = validated_playback_time_step(max_time_step);
+        ScenarioPlaybackFrames::new(self, max_time_step)
+    }
+
     pub fn playback_frames(&self, max_time_step: Seconds) -> Vec<ScenarioPlaybackFrame> {
-        let max_time_step = max_time_step.as_f64();
-        assert!(
-            max_time_step.is_finite() && max_time_step > 0.0,
-            "playback max_time_step must be positive and finite"
-        );
+        self.playback_frames_iter(max_time_step).collect()
+    }
 
-        let mut times = vec![0.0, self.simulation.elapsed.as_f64()];
-        times.extend(self.event_log.iter().map(|event| event.time.as_f64()));
-        times.extend(
-            self.shot_executions
-                .iter()
-                .map(|execution| execution.start_time.as_f64()),
-        );
-        for ball_trace in &self.ball_traces {
-            for segment in &ball_trace.timeline_segments {
-                let start = segment.start_time.as_f64();
-                let duration = segment.duration.as_f64();
-                times.push(start);
-                for sample in TimelineSubdivision::new(duration, Some(max_time_step)) {
-                    times.push(start + sample.elapsed.as_f64());
-                }
-            }
-        }
-
-        times.retain(|time| time.is_finite() && *time >= 0.0);
-        times.sort_by(f64::total_cmp);
-        times.dedup_by(|a, b| (*a - *b).abs() <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS);
-
-        times
-            .into_iter()
-            .map(|time| ScenarioPlaybackFrame {
-                time: Seconds::new(time),
-                balls: self
-                    .ball_traces
-                    .iter()
-                    .filter_map(|ball_trace| {
-                        ball_trace
-                            .state_at_elapsed(Seconds::new(time), &self.ball_set, &self.motion)
-                            .map(|state| ScenarioPlaybackBall {
-                                ball: ball_trace.ball.clone(),
-                                state,
-                            })
-                    })
-                    .collect(),
-            })
-            .collect()
+    pub(crate) fn playback_last_frame_time(&self, max_time_step: Seconds) -> Option<f64> {
+        let max_time_step = validated_playback_time_step(max_time_step);
+        PlaybackTimeSchedule::new(self, max_time_step).last()
     }
 
     pub fn rendered_final_layout_with_traces(
@@ -1510,6 +1487,405 @@ impl Iterator for TimelineSubdivision {
         Some(TimelineSubdivisionSample {
             elapsed: Seconds::new(self.duration * sample_index as f64 / self.sample_count as f64),
             is_endpoint,
+        })
+    }
+}
+
+#[derive(Clone)]
+struct PlaybackSegmentTimes<'a> {
+    segments: &'a [ScenarioBallTimelineSegment],
+    segment_index: usize,
+    sample_index: usize,
+    sample_count: usize,
+    max_time_step: f64,
+}
+
+impl<'a> PlaybackSegmentTimes<'a> {
+    fn new(segments: &'a [ScenarioBallTimelineSegment], max_time_step: f64) -> Self {
+        Self {
+            segments,
+            segment_index: 0,
+            sample_index: 0,
+            sample_count: 0,
+            max_time_step,
+        }
+    }
+
+    fn is_monotonic(&self) -> bool {
+        let mut previous_endpoint = None;
+        for segment in self.segments {
+            let start = segment.start_time.as_f64();
+            let duration = segment.duration.as_f64();
+            if !start.is_finite() || start < 0.0 || !duration.is_finite() || duration < 0.0 {
+                return playback_times_are_monotonic(self.clone());
+            }
+
+            if previous_endpoint
+                .is_some_and(|previous: f64| previous.total_cmp(&start) == Ordering::Greater)
+            {
+                return false;
+            }
+
+            let sample_count = ((duration / self.max_time_step).ceil() as usize).max(1);
+            let endpoint = start + duration * sample_count as f64 / sample_count as f64;
+            if !endpoint.is_finite() {
+                return playback_times_are_monotonic(self.clone());
+            }
+            previous_endpoint = Some(endpoint);
+        }
+        true
+    }
+}
+
+impl Iterator for PlaybackSegmentTimes<'_> {
+    type Item = f64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let segment = self.segments.get(self.segment_index)?;
+        let start_time = segment.start_time.as_f64();
+        let duration = segment.duration.as_f64();
+
+        if self.sample_index == 0 {
+            self.sample_count = ((duration / self.max_time_step).ceil() as usize).max(1);
+            self.sample_index = 1;
+            return Some(start_time);
+        }
+
+        let sample_index = self.sample_index;
+        let time = start_time + duration * sample_index as f64 / self.sample_count as f64;
+        if sample_index == self.sample_count {
+            self.segment_index += 1;
+            self.sample_index = 0;
+        } else {
+            self.sample_index += 1;
+        }
+        Some(time)
+    }
+}
+
+fn playback_times_are_monotonic(times: impl Iterator<Item = f64>) -> bool {
+    let mut previous = None;
+    for time in times.filter(|time| time.is_finite() && *time >= 0.0) {
+        if previous.is_some_and(|previous: f64| previous.total_cmp(&time) == Ordering::Greater) {
+            return false;
+        }
+        previous = Some(time);
+    }
+    true
+}
+
+#[derive(Clone)]
+enum PlaybackTimeSource<'a> {
+    Segments(PlaybackSegmentTimes<'a>),
+    Events {
+        events: &'a [ScenarioShotTraceEvent],
+        index: usize,
+    },
+    Executions {
+        executions: &'a [ScenarioShotExecution],
+        index: usize,
+    },
+    Endpoints {
+        times: [f64; 2],
+        index: usize,
+    },
+}
+
+impl PlaybackTimeSource<'_> {
+    fn next_candidate(&mut self) -> Option<f64> {
+        match self {
+            Self::Segments(times) => times.next(),
+            Self::Events { events, index } => {
+                let time = events.get(*index)?.time.as_f64();
+                *index += 1;
+                Some(time)
+            }
+            Self::Executions { executions, index } => {
+                let time = executions.get(*index)?.start_time.as_f64();
+                *index += 1;
+                Some(time)
+            }
+            Self::Endpoints { times, index } => {
+                let time = *times.get(*index)?;
+                *index += 1;
+                Some(time)
+            }
+        }
+    }
+
+    fn next_valid(&mut self) -> Option<f64> {
+        self.find(|time| time.is_finite() && *time >= 0.0)
+    }
+
+    fn is_monotonic(&self) -> bool {
+        match self {
+            Self::Segments(times) => times.is_monotonic(),
+            Self::Events { events, .. } => {
+                playback_times_are_monotonic(events.iter().map(|event| event.time.as_f64()))
+            }
+            Self::Executions { executions, .. } => playback_times_are_monotonic(
+                executions
+                    .iter()
+                    .map(|execution| execution.start_time.as_f64()),
+            ),
+            Self::Endpoints { times, .. } => playback_times_are_monotonic(times.iter().copied()),
+        }
+    }
+}
+
+impl Iterator for PlaybackTimeSource<'_> {
+    type Item = f64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_candidate()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PlaybackTimeHead {
+    time: f64,
+    source_index: usize,
+}
+
+impl PartialEq for PlaybackTimeHead {
+    fn eq(&self, other: &Self) -> bool {
+        self.time.total_cmp(&other.time) == Ordering::Equal
+            && self.source_index == other.source_index
+    }
+}
+
+impl Eq for PlaybackTimeHead {}
+
+impl PartialOrd for PlaybackTimeHead {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PlaybackTimeHead {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.time
+            .total_cmp(&other.time)
+            .then_with(|| self.source_index.cmp(&other.source_index))
+    }
+}
+
+enum PlaybackTimeScheduleState<'a> {
+    Merged {
+        sources: Vec<PlaybackTimeSource<'a>>,
+        heap: BinaryHeap<Reverse<PlaybackTimeHead>>,
+    },
+    Materialized(std::vec::IntoIter<f64>),
+}
+
+struct PlaybackTimeSchedule<'a> {
+    state: PlaybackTimeScheduleState<'a>,
+    last_emitted: Option<f64>,
+}
+
+fn playback_segment_times_match(
+    left: &[ScenarioBallTimelineSegment],
+    right: &[ScenarioBallTimelineSegment],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.start_time.as_f64().to_bits() == right.start_time.as_f64().to_bits()
+                && left.duration.as_f64().to_bits() == right.duration.as_f64().to_bits()
+        })
+}
+
+impl<'a> PlaybackTimeSchedule<'a> {
+    fn new(trace: &'a ScenarioShotTrace, max_time_step: f64) -> Self {
+        let mut sources = Vec::with_capacity(trace.ball_traces.len() + 3);
+        sources.push(PlaybackTimeSource::Endpoints {
+            times: [0.0, trace.simulation.elapsed.as_f64()],
+            index: 0,
+        });
+        sources.push(PlaybackTimeSource::Events {
+            events: &trace.event_log,
+            index: 0,
+        });
+        sources.push(PlaybackTimeSource::Executions {
+            executions: &trace.shot_executions,
+            index: 0,
+        });
+        for (ball_index, ball_trace) in trace.ball_traces.iter().enumerate() {
+            let duplicate_source = trace.ball_traces[..ball_index].iter().any(|prior| {
+                playback_segment_times_match(
+                    &prior.timeline_segments,
+                    &ball_trace.timeline_segments,
+                )
+            });
+            if !duplicate_source {
+                sources.push(PlaybackTimeSource::Segments(PlaybackSegmentTimes::new(
+                    &ball_trace.timeline_segments,
+                    max_time_step,
+                )));
+            }
+        }
+
+        let state = if sources.iter().all(PlaybackTimeSource::is_monotonic) {
+            let mut heap = BinaryHeap::with_capacity(sources.len());
+            for (source_index, source) in sources.iter_mut().enumerate() {
+                if let Some(time) = source.next_valid() {
+                    heap.push(Reverse(PlaybackTimeHead { time, source_index }));
+                }
+            }
+            PlaybackTimeScheduleState::Merged { sources, heap }
+        } else {
+            let mut times = Vec::new();
+            for source in &mut sources {
+                while let Some(time) = source.next_valid() {
+                    times.push(time);
+                }
+            }
+            times.sort_by(f64::total_cmp);
+            times.dedup_by(|time, previous| {
+                (*time - *previous).abs() <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS
+            });
+            PlaybackTimeScheduleState::Materialized(times.into_iter())
+        };
+
+        Self {
+            state,
+            last_emitted: None,
+        }
+    }
+}
+
+impl Iterator for PlaybackTimeSchedule<'_> {
+    type Item = f64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let time = match &mut self.state {
+                PlaybackTimeScheduleState::Merged { sources, heap } => {
+                    let Reverse(head) = heap.pop()?;
+                    if let Some(time) = sources[head.source_index].next_valid() {
+                        heap.push(Reverse(PlaybackTimeHead {
+                            time,
+                            source_index: head.source_index,
+                        }));
+                    }
+                    head.time
+                }
+                PlaybackTimeScheduleState::Materialized(times) => times.next()?,
+            };
+
+            if self.last_emitted.is_some_and(|previous| {
+                (time - previous).abs() <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS
+            }) {
+                continue;
+            }
+            self.last_emitted = Some(time);
+            return Some(time);
+        }
+    }
+}
+
+struct PlaybackBallCursor<'a> {
+    trace: &'a ScenarioBallTrace,
+    segment_index: usize,
+}
+
+impl<'a> PlaybackBallCursor<'a> {
+    fn new(trace: &'a ScenarioBallTrace) -> Self {
+        Self {
+            trace,
+            segment_index: 0,
+        }
+    }
+
+    fn state_at_monotonic(
+        &mut self,
+        target_time: f64,
+        ball: &BallSetPhysicsSpec,
+        motion: &OnTableMotionConfig,
+    ) -> Option<BallState> {
+        while let Some(segment) = self.trace.timeline_segments.get(self.segment_index) {
+            let start_time = segment.start_time.as_f64();
+            let duration = segment.duration.as_f64();
+            let end_time = start_time + duration;
+            if target_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS < start_time {
+                return Some(segment.start.clone());
+            }
+            if target_time < end_time {
+                let segment_elapsed = (target_time - start_time).clamp(0.0, duration);
+                if segment_elapsed <= SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+                    return Some(segment.start.clone());
+                }
+                return Some(advance_timeline_ball_state(
+                    &segment.start,
+                    Seconds::new(segment_elapsed),
+                    ball,
+                    motion,
+                ));
+            }
+            if target_time <= end_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS {
+                if self
+                    .trace
+                    .timeline_segments
+                    .get(self.segment_index + 1)
+                    .is_some_and(|next| {
+                        next.start_time.as_f64()
+                            <= end_time + SCENARIO_PLAYBACK_TIME_EPSILON_SECONDS
+                    })
+                {
+                    self.segment_index += 1;
+                    continue;
+                }
+                if self.segment_index + 1 == self.trace.timeline_segments.len() {
+                    return self.trace.resolved_final_playback_state();
+                }
+                return Some(segment.end.clone());
+            }
+            self.segment_index += 1;
+        }
+
+        self.trace.resolved_final_playback_state()
+    }
+}
+
+pub struct ScenarioPlaybackFrames<'a> {
+    trace: &'a ScenarioShotTrace,
+    times: PlaybackTimeSchedule<'a>,
+    balls: Vec<PlaybackBallCursor<'a>>,
+}
+
+impl<'a> ScenarioPlaybackFrames<'a> {
+    fn new(trace: &'a ScenarioShotTrace, max_time_step: f64) -> Self {
+        Self {
+            trace,
+            times: PlaybackTimeSchedule::new(trace, max_time_step),
+            balls: trace
+                .ball_traces
+                .iter()
+                .map(PlaybackBallCursor::new)
+                .collect(),
+        }
+    }
+}
+
+impl Iterator for ScenarioPlaybackFrames<'_> {
+    type Item = ScenarioPlaybackFrame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let time = self.times.next()?;
+        let target_time = time.max(0.0);
+        let mut balls = Vec::with_capacity(self.balls.len());
+        for cursor in &mut self.balls {
+            if let Some(state) =
+                cursor.state_at_monotonic(target_time, &self.trace.ball_set, &self.trace.motion)
+            {
+                balls.push(ScenarioPlaybackBall {
+                    ball: cursor.trace.ball.clone(),
+                    state,
+                });
+            }
+        }
+        Some(ScenarioPlaybackFrame {
+            time: Seconds::new(time),
+            balls,
         })
     }
 }
@@ -5408,5 +5784,37 @@ mod tests {
         let doc = parse_dsl(dsl).expect("parse");
         let err = build_game_state(&doc).expect_err("build");
         assert!(matches!(err, DslBuildError::UnknownAlias(_)));
+    }
+    #[test]
+    fn playback_last_frame_time_uses_the_last_epsilon_retained_candidate() {
+        let base = 100.0;
+        let event = |time| ScenarioShotTraceEvent {
+            time: Seconds::new(time),
+            kind: ScenarioShotTraceEventKind::BallTableBounce {
+                ball: BallType::Cue,
+            },
+        };
+        let trace = ScenarioShotTrace {
+            simulation: NBallSystemSimulation {
+                states: Vec::new(),
+                elapsed: Seconds::zero(),
+                events: Vec::new(),
+            },
+            shot_executions: Vec::new(),
+            event_log: vec![
+                event(base + 2.0e-9),
+                event(base),
+                event(base + 1.5e-9),
+                event(base + 0.5e-9),
+            ],
+            ball_traces: Vec::new(),
+            ball_set: BallSetPhysicsSpec::default(),
+            motion: crate::human_tuned_preview_motion_config(),
+        };
+
+        assert_eq!(
+            trace.playback_last_frame_time(Seconds::new(0.5)),
+            Some(base + 1.5e-9)
+        );
     }
 }

@@ -1,8 +1,14 @@
 use billiards::diagram::BallStyle;
+use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace};
 use billiards::svg_generator::{
-    render_svg_report_from_dsl, serialize_scenario_playback_report, ScenarioPlaybackBallReport,
-    ScenarioPlaybackBallVisual, ScenarioPlaybackEventReport, ScenarioPlaybackFrameReport,
-    ScenarioPlaybackReport,
+    build_scenario_playback_report, render_svg_report_from_dsl,
+    render_svg_report_from_dsl_with_options, serialize_scenario_playback_report,
+    ScenarioPlaybackBallReport, ScenarioPlaybackBallVisual, ScenarioPlaybackEventReport,
+    ScenarioPlaybackFrameReport, ScenarioPlaybackReport,
+};
+use billiards::{
+    human_tuned_preview_motion_config, CollisionModel, RailModel, Seconds, SvgGeneratorOptions,
+    TableSpec,
 };
 use serde_json::Value;
 
@@ -239,5 +245,85 @@ fn svg_report_playback_preserves_plain_solid_and_stripe_artwork_metadata() {
             Some(gradient),
             "playback {id} gradient identity changed"
         );
+    }
+}
+
+fn prepared_report_trace(source: &str, event_limit: usize) -> (ScenarioShotTrace, TableSpec) {
+    let mut scenario = parse_dsl_to_scenario(source).expect("report fixture should parse");
+    scenario.game_state.resolve_positions();
+    let table_spec = scenario.game_state.table_spec.clone();
+    let ball_set = scenario.ball_set_physics_spec();
+    let motion = human_tuned_preview_motion_config();
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+            event_limit,
+        )
+        .expect("report fixture should simulate")
+        .expect("report fixture should contain a shot");
+    (trace, table_spec)
+}
+
+#[test]
+fn streamed_svg_playback_matches_the_owned_canonical_serializer_byte_for_byte() {
+    const TWO_BALL: &str = "\
+table brunswick_gc4_9ft
+ball cue at (2.0, 6.0)
+ball one at (2.0, 3.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.1)
+shot(cue).heading(180deg).speed(64ips).tip(side: 0.0R, height: 0.0R).using(default)
+";
+    let fixtures = [
+        ("two_ball", TWO_BALL, 8),
+        (
+            "pocket_capture",
+            include_str!("../examples/scenarios/straight_in_side_pocket.billiards"),
+            32,
+        ),
+        (
+            "airborne",
+            include_str!("../examples/scenarios/jump_over_full_ball_showcase.billiards"),
+            32,
+        ),
+        (
+            "nine_ball_break",
+            include_str!("../examples/scenarios/nine_ball_break_head_rail.billiards"),
+            32,
+        ),
+    ];
+
+    for (name, source, event_limit) in fixtures {
+        let options = SvgGeneratorOptions {
+            trace_sample_step_seconds: 0.02,
+            trace_max_events: Some(event_limit),
+            ..SvgGeneratorOptions::default()
+        };
+        let report = render_svg_report_from_dsl_with_options(source, &options)
+            .unwrap_or_else(|error| panic!("{name} report should render: {error}"));
+        let playback_marker = ",\"playback\":";
+        let playback_start = report
+            .rfind(playback_marker)
+            .unwrap_or_else(|| panic!("{name} report should contain playback"))
+            + playback_marker.len();
+        let streamed = report[playback_start..]
+            .strip_suffix('}')
+            .expect("top-level report should end after playback");
+
+        let (trace, table_spec) = prepared_report_trace(source, event_limit);
+        let owned = build_scenario_playback_report(
+            &trace,
+            &table_spec,
+            Seconds::new(options.trace_sample_step_seconds),
+        );
+        let mut expected = String::new();
+        serialize_scenario_playback_report(&mut expected, &owned);
+
+        assert_eq!(streamed, expected, "{name} streamed playback changed bytes");
+        let parsed: Value =
+            serde_json::from_str(streamed).expect("streamed playback should remain valid JSON");
+        assert_playback_tuple_schema(&parsed);
     }
 }

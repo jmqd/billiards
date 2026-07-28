@@ -1,7 +1,10 @@
 use std::fmt::Write as _;
 
 use crate::diagram::{ball_visual, BallStyle, DiagramViewport};
-use crate::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
+use crate::dsl::{
+    parse_dsl_to_scenario, ScenarioBallTrace, ScenarioPlaybackBall, ScenarioPlaybackFrame,
+    ScenarioShotTrace, ScenarioShotTraceEvent, ScenarioTraceRenderOptions,
+};
 use crate::visualization::{PathColorMode, DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS};
 use crate::{
     human_tuned_preview_motion_config, CollisionModel, DiagramBackground, DiagramRenderOptions,
@@ -110,38 +113,49 @@ pub fn render_svg_report_from_dsl_with_options(
 ) -> Result<String, String> {
     let rendered = rendered_svg_scenario(source, options)?;
     let mut json = String::new();
+    serialize_prepared_svg_report(
+        &mut json,
+        &rendered.svg,
+        rendered.trace.as_ref(),
+        &rendered.table_spec,
+        Seconds::new(options.trace_sample_step_seconds),
+    );
+    Ok(json)
+}
+
+pub fn serialize_prepared_svg_report(
+    json: &mut String,
+    svg: &str,
+    trace: Option<&ScenarioShotTrace>,
+    table_spec: &TableSpec,
+    max_time_step: Seconds,
+) {
     json.push_str("{\"svg\":");
-    push_json_string(&mut json, &rendered.svg);
+    push_json_string(json, svg);
     json.push_str(",\"events\":[");
-    if let Some(trace) = &rendered.trace {
+    if let Some(trace) = trace {
         for (index, event) in trace.event_log.iter().enumerate() {
             if index > 0 {
                 json.push(',');
             }
             let label = format!("({})", index + 1);
             json.push('[');
-            push_json_string(&mut json, &label);
-            write!(&mut json, ",{:.6},", event.time.as_f64())
+            push_json_string(json, &label);
+            write!(json, ",{:.6},", event.time.as_f64())
                 .expect("writing JSON to string should not fail");
-            push_json_string(&mut json, &event.kind.format_human());
+            push_json_string(json, &event.kind.format_human());
             json.push(',');
-            push_json_string(&mut json, &event.format_human());
+            push_json_string(json, &event.format_human());
             json.push(']');
         }
     }
     json.push_str("],\"playback\":");
-    if let Some(trace) = &rendered.trace {
-        let playback = build_scenario_playback_report(
-            trace,
-            &rendered.table_spec,
-            Seconds::new(options.trace_sample_step_seconds),
-        );
-        serialize_scenario_playback_report(&mut json, &playback);
+    if let Some(trace) = trace {
+        serialize_scenario_playback_trace(json, trace, table_spec, max_time_step);
     } else {
         json.push_str("null");
     }
     json.push('}');
-    Ok(json)
 }
 
 fn rendered_svg_scenario(
@@ -217,10 +231,15 @@ pub fn build_scenario_playback_report(
     let viewport = DiagramViewport::default();
     let ball_spec = table_spec.default_ball_spec();
     let ball_radius = viewport.ball_radius_px(table_spec, &ball_spec);
-    let frames = trace.playback_frames(max_time_step);
+    let ball_radius_inches = ball_spec.radius.as_f64();
+    let pool_artwork = table_spec.kind == TableKind::Pool;
+    let frames = trace
+        .playback_frames_iter(max_time_step)
+        .map(|frame| scenario_playback_frame_report(frame, &viewport, table_spec))
+        .collect::<Vec<_>>();
     let duration = frames
         .last()
-        .map_or(0.0, |frame| frame.time.as_f64())
+        .map_or(0.0, |frame| frame.time)
         .max(trace.simulation.elapsed.as_f64());
 
     ScenarioPlaybackReport {
@@ -229,63 +248,231 @@ pub fn build_scenario_playback_report(
             .event_log
             .iter()
             .enumerate()
-            .map(|(index, event)| ScenarioPlaybackEventReport {
-                label: format!("({})", index + 1),
-                time: event.time.as_f64(),
-                summary: event.kind.format_human(),
-            })
+            .map(|(index, event)| scenario_playback_event_report(index, event))
             .collect(),
         balls: trace
             .ball_traces
             .iter()
             .map(|ball_trace| {
-                let visual = ball_visual(&ball_trace.ball);
-                let pool_artwork = table_spec.kind == TableKind::Pool;
-                ScenarioPlaybackBallVisual {
-                    id: visual.id,
-                    fill: visual.fill,
-                    label: visual.label,
-                    radius: ball_radius,
-                    radius_inches: ball_spec.radius.as_f64(),
-                    style: if pool_artwork {
-                        visual.style
-                    } else {
-                        BallStyle::Plain
-                    },
-                    paint: pool_artwork.then_some(visual.paint),
-                    gradient: pool_artwork.then_some(visual.gradient),
-                }
+                scenario_playback_ball_visual(
+                    ball_trace,
+                    ball_radius,
+                    ball_radius_inches,
+                    pool_artwork,
+                )
             })
             .collect(),
-        frames: frames
-            .into_iter()
-            .map(|frame| ScenarioPlaybackFrameReport {
-                time: frame.time.as_f64(),
-                balls: frame
-                    .balls
-                    .into_iter()
-                    .map(|ball| {
-                        let state = &ball.state;
-                        let visual = ball_visual(&ball.ball);
-                        let center =
-                            viewport.position_to_scene_point(&state.projected_position(table_spec));
-                        ScenarioPlaybackBallReport {
-                            id: visual.id,
-                            x: center.x,
-                            y: center.y,
-                            height_inches: state.height.as_f64(),
-                            vx_ips: state.velocity.x().as_f64(),
-                            vy_ips: state.velocity.y().as_f64(),
-                            vz_ips: state.vertical_velocity.as_f64(),
-                            wx_rps: state.angular_velocity.x().as_f64(),
-                            wy_rps: state.angular_velocity.y().as_f64(),
-                            wz_rps: state.angular_velocity.z().as_f64(),
-                        }
-                    })
-                    .collect(),
-            })
+        frames,
+    }
+}
+
+fn scenario_playback_event_report(
+    index: usize,
+    event: &ScenarioShotTraceEvent,
+) -> ScenarioPlaybackEventReport {
+    ScenarioPlaybackEventReport {
+        label: format!("({})", index + 1),
+        time: event.time.as_f64(),
+        summary: event.kind.format_human(),
+    }
+}
+
+fn scenario_playback_ball_visual(
+    ball_trace: &ScenarioBallTrace,
+    ball_radius: f32,
+    ball_radius_inches: f64,
+    pool_artwork: bool,
+) -> ScenarioPlaybackBallVisual {
+    let visual = ball_visual(&ball_trace.ball);
+    ScenarioPlaybackBallVisual {
+        id: visual.id,
+        fill: visual.fill,
+        label: visual.label,
+        radius: ball_radius,
+        radius_inches: ball_radius_inches,
+        style: if pool_artwork {
+            visual.style
+        } else {
+            BallStyle::Plain
+        },
+        paint: pool_artwork.then_some(visual.paint),
+        gradient: pool_artwork.then_some(visual.gradient),
+    }
+}
+
+fn scenario_playback_ball_report(
+    ball: &ScenarioPlaybackBall,
+    viewport: &DiagramViewport,
+    table_spec: &TableSpec,
+) -> ScenarioPlaybackBallReport {
+    let state = &ball.state;
+    let visual = ball_visual(&ball.ball);
+    let center = viewport.position_to_scene_point(&state.projected_position(table_spec));
+    ScenarioPlaybackBallReport {
+        id: visual.id,
+        x: center.x,
+        y: center.y,
+        height_inches: state.height.as_f64(),
+        vx_ips: state.velocity.x().as_f64(),
+        vy_ips: state.velocity.y().as_f64(),
+        vz_ips: state.vertical_velocity.as_f64(),
+        wx_rps: state.angular_velocity.x().as_f64(),
+        wy_rps: state.angular_velocity.y().as_f64(),
+        wz_rps: state.angular_velocity.z().as_f64(),
+    }
+}
+
+fn scenario_playback_frame_report(
+    frame: ScenarioPlaybackFrame,
+    viewport: &DiagramViewport,
+    table_spec: &TableSpec,
+) -> ScenarioPlaybackFrameReport {
+    ScenarioPlaybackFrameReport {
+        time: frame.time.as_f64(),
+        balls: frame
+            .balls
+            .iter()
+            .map(|ball| scenario_playback_ball_report(ball, viewport, table_spec))
             .collect(),
     }
+}
+
+fn push_playback_event_report(json: &mut String, event: &ScenarioPlaybackEventReport) {
+    json.push('[');
+    push_json_string(json, &event.label);
+    write!(json, ",{:.6},", event.time).expect("writing JSON to string should not fail");
+    push_json_string(json, &event.summary);
+    json.push(']');
+}
+
+fn push_playback_ball_visual(json: &mut String, ball: &ScenarioPlaybackBallVisual) {
+    json.push('[');
+    push_json_string(json, ball.id);
+    json.push(',');
+    push_json_string(json, ball.fill);
+    json.push(',');
+    if let Some(label) = ball.label {
+        push_json_string(json, label);
+    } else {
+        json.push_str("null");
+    }
+    write!(json, ",{:.3},{:.6},", ball.radius, ball.radius_inches)
+        .expect("writing JSON to string should not fail");
+    push_json_string(json, ball.style.as_str());
+    json.push(',');
+    if let Some(paint) = ball.paint {
+        push_json_string(json, paint);
+    } else {
+        json.push_str("null");
+    }
+    json.push(',');
+    if let Some(gradient) = ball.gradient {
+        push_json_string(json, gradient);
+    } else {
+        json.push_str("null");
+    }
+    json.push(']');
+}
+
+fn push_playback_ball_report(json: &mut String, ball: &ScenarioPlaybackBallReport) {
+    json.push('[');
+    push_json_string(json, ball.id);
+    write!(
+        json,
+        ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}]",
+        ball.x,
+        ball.y,
+        ball.height_inches,
+        ball.vx_ips,
+        ball.vy_ips,
+        ball.vz_ips,
+        ball.wx_rps,
+        ball.wy_rps,
+        ball.wz_rps
+    )
+    .expect("writing JSON to string should not fail");
+}
+
+fn push_playback_frame_report(json: &mut String, frame: &ScenarioPlaybackFrameReport) {
+    write!(json, "[{:.6},[", frame.time).expect("writing JSON to string should not fail");
+    for (ball_index, ball) in frame.balls.iter().enumerate() {
+        if ball_index > 0 {
+            json.push(',');
+        }
+        push_playback_ball_report(json, ball);
+    }
+    json.push_str("]]");
+}
+
+fn push_scenario_playback_frame(
+    json: &mut String,
+    frame: &ScenarioPlaybackFrame,
+    viewport: &DiagramViewport,
+    table_spec: &TableSpec,
+) {
+    write!(json, "[{:.6},[", frame.time.as_f64()).expect("writing JSON to string should not fail");
+    for (ball_index, ball) in frame.balls.iter().enumerate() {
+        if ball_index > 0 {
+            json.push(',');
+        }
+        let report = scenario_playback_ball_report(ball, viewport, table_spec);
+        push_playback_ball_report(json, &report);
+    }
+    json.push_str("]]");
+}
+
+pub fn serialize_scenario_playback_trace(
+    json: &mut String,
+    trace: &ScenarioShotTrace,
+    table_spec: &TableSpec,
+    max_time_step: Seconds,
+) {
+    let max_time_step = max_time_step.as_f64();
+    let duration = trace
+        .playback_last_frame_time(Seconds::new(max_time_step))
+        .unwrap_or(0.0)
+        .max(trace.simulation.elapsed.as_f64());
+    write!(json, "{{\"duration\":{duration:.6},\"events\":[")
+        .expect("writing JSON to string should not fail");
+
+    for (index, event) in trace.event_log.iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        let report = scenario_playback_event_report(index, event);
+        push_playback_event_report(json, &report);
+    }
+
+    let viewport = DiagramViewport::default();
+    let ball_spec = table_spec.default_ball_spec();
+    let ball_radius = viewport.ball_radius_px(table_spec, &ball_spec);
+    let ball_radius_inches = ball_spec.radius.as_f64();
+    let pool_artwork = table_spec.kind == TableKind::Pool;
+    json.push_str("],\"balls\":[");
+    for (index, ball_trace) in trace.ball_traces.iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        let visual = scenario_playback_ball_visual(
+            ball_trace,
+            ball_radius,
+            ball_radius_inches,
+            pool_artwork,
+        );
+        push_playback_ball_visual(json, &visual);
+    }
+
+    json.push_str("],\"frames\":[");
+    for (frame_index, frame) in trace
+        .playback_frames_iter(Seconds::new(max_time_step))
+        .enumerate()
+    {
+        if frame_index > 0 {
+            json.push(',');
+        }
+        push_scenario_playback_frame(json, &frame, &viewport, table_spec);
+    }
+    json.push_str("]}");
 }
 
 pub fn serialize_scenario_playback_report(json: &mut String, playback: &ScenarioPlaybackReport) {
@@ -296,11 +483,7 @@ pub fn serialize_scenario_playback_report(json: &mut String, playback: &Scenario
         if index > 0 {
             json.push(',');
         }
-        json.push('[');
-        push_json_string(json, &event.label);
-        write!(json, ",{:.6},", event.time).expect("writing JSON to string should not fail");
-        push_json_string(json, &event.summary);
-        json.push(']');
+        push_playback_event_report(json, event);
     }
 
     json.push_str("],\"balls\":[");
@@ -308,32 +491,7 @@ pub fn serialize_scenario_playback_report(json: &mut String, playback: &Scenario
         if index > 0 {
             json.push(',');
         }
-        json.push('[');
-        push_json_string(json, ball.id);
-        json.push(',');
-        push_json_string(json, ball.fill);
-        json.push(',');
-        if let Some(label) = ball.label {
-            push_json_string(json, label);
-        } else {
-            json.push_str("null");
-        }
-        write!(json, ",{:.3},{:.6},", ball.radius, ball.radius_inches)
-            .expect("writing JSON to string should not fail");
-        push_json_string(json, ball.style.as_str());
-        json.push(',');
-        if let Some(paint) = ball.paint {
-            push_json_string(json, paint);
-        } else {
-            json.push_str("null");
-        }
-        json.push(',');
-        if let Some(gradient) = ball.gradient {
-            push_json_string(json, gradient);
-        } else {
-            json.push_str("null");
-        }
-        json.push(']');
+        push_playback_ball_visual(json, ball);
     }
 
     json.push_str("],\"frames\":[");
@@ -341,29 +499,7 @@ pub fn serialize_scenario_playback_report(json: &mut String, playback: &Scenario
         if frame_index > 0 {
             json.push(',');
         }
-        write!(json, "[{:.6},[", frame.time).expect("writing JSON to string should not fail");
-        for (ball_index, ball) in frame.balls.iter().enumerate() {
-            if ball_index > 0 {
-                json.push(',');
-            }
-            json.push('[');
-            push_json_string(json, ball.id);
-            write!(
-                json,
-                ",{:.3},{:.3},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}]",
-                ball.x,
-                ball.y,
-                ball.height_inches,
-                ball.vx_ips,
-                ball.vy_ips,
-                ball.vz_ips,
-                ball.wx_rps,
-                ball.wy_rps,
-                ball.wz_rps
-            )
-            .expect("writing JSON to string should not fail");
-        }
-        json.push_str("]]");
+        push_playback_frame_report(json, frame);
     }
 
     json.push_str("]}");

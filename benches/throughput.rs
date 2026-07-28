@@ -2,18 +2,22 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use billiards::diagram::{render_scene_to_bytes, DiagramOutputFormat};
-use billiards::dsl::{parse_dsl_to_game_state, parse_dsl_to_scenario, ScenarioTraceRenderOptions};
+use billiards::dsl::{
+    parse_dsl_to_game_state, parse_dsl_to_scenario, DslScenario, ScenarioShotTrace,
+    ScenarioTraceRenderOptions,
+};
+use billiards::svg_generator::serialize_prepared_svg_report;
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
     compute_next_ball_ball_collision_during_current_phases_on_table,
-    compute_next_transition_on_table, simulate_two_on_table_balls, strike_resting_ball_on_table,
-    trace_ball_path_with_rails_on_table, Angle, AngularVelocity3, BallBallCollisionConfig,
-    BallPathStop, BallSetPhysicsSpec, BallState, CollisionModel, CueStrikeConfig, CueTipContact,
-    DiagramBackground, DiagramRenderOptions, Diamond, GameState, Inches, Inches2, InchesPerSecond,
-    InchesPerSecondSq, MotionPhaseConfig, MotionTransitionConfig, OnTableBallState,
-    OnTableMotionConfig, Position, RadiansPerSecondSq, RailCollisionProfile, RailModel,
-    RestingOnTableBallState, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel,
-    SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
+    compute_next_transition_on_table, human_tuned_preview_motion_config,
+    simulate_two_on_table_balls, strike_resting_ball_on_table, trace_ball_path_with_rails_on_table,
+    Angle, AngularVelocity3, BallBallCollisionConfig, BallPathStop, BallSetPhysicsSpec, BallState,
+    CollisionModel, CueStrikeConfig, CueTipContact, DiagramBackground, DiagramRenderOptions,
+    Diamond, GameState, Inches, Inches2, InchesPerSecond, InchesPerSecondSq, MotionPhaseConfig,
+    MotionTransitionConfig, OnTableBallState, OnTableMotionConfig, Position, RadiansPerSecondSq,
+    RailCollisionProfile, RailModel, RestingOnTableBallState, RollingResistanceModel, Scale,
+    Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, TYPICAL_BALL_RADIUS,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use image::Rgba;
@@ -21,6 +25,10 @@ use image::Rgba;
 const SINGLE_BALL_SHOT_DSL: &str = "ball cue at center\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(30deg).speed(16ips).tip(side: 0.0R, height: 0.4R).using(default)\n";
 const TWO_BALL_LAYOUT_DSL: &str = "ball cue at center\nball nine at (2, 4.75)\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(0deg).speed(16ips).tip(side: 0.0R, height: 0.0R).using(default)\n";
 const THREE_BALL_PINBALL_DSL: &str = "ball cue at (1.0, 4.0)\nball one at (2.0, 4.2)\nball two at (3.0, 4.9)\ncue_strike(default).mass_ratio(1.0).energy_loss(0.1)\nshot(cue).heading(80deg).speed(120ips).tip(side: 0.0R, height: 0.0R).using(default)\n";
+const NINE_BALL_BREAK_DSL: &str =
+    include_str!("../examples/scenarios/nine_ball_break_head_rail.billiards");
+const POCKET_CAPTURE_DSL: &str =
+    include_str!("../examples/scenarios/straight_in_side_pocket.billiards");
 
 fn motion_config() -> OnTableMotionConfig {
     MotionTransitionConfig {
@@ -315,6 +323,237 @@ fn bench_end_to_end_throughput(c: &mut Criterion) {
     group.finish();
 }
 
+struct PreparedPlaybackFixture {
+    name: &'static str,
+    source: &'static str,
+    trace: ScenarioShotTrace,
+    table_spec: TableSpec,
+    scenario: DslScenario,
+}
+
+fn prepare_playback_fixture(
+    name: &'static str,
+    source: &'static str,
+    event_limit: usize,
+) -> PreparedPlaybackFixture {
+    let mut scenario = parse_dsl_to_scenario(source).expect("playback fixture should parse");
+    scenario.game_state.resolve_positions();
+    let table_spec = scenario.game_state.table_spec.clone();
+    let ball_set = scenario.ball_set_physics_spec();
+    let motion = human_tuned_preview_motion_config();
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_event_limit(
+            &ball_set,
+            &motion,
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+            event_limit,
+        )
+        .expect("playback fixture should simulate")
+        .expect("playback fixture should contain a shot");
+    PreparedPlaybackFixture {
+        name,
+        source,
+        trace,
+        table_spec,
+        scenario,
+    }
+}
+
+fn mix_playback_checksum(checksum: &mut u64, value: u64) {
+    *checksum = checksum.rotate_left(9) ^ value.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+}
+
+fn ball_type_checksum(ball: &billiards::BallType) -> u64 {
+    match ball {
+        billiards::BallType::Cue => 0,
+        billiards::BallType::One => 1,
+        billiards::BallType::Two => 2,
+        billiards::BallType::Three => 3,
+        billiards::BallType::Four => 4,
+        billiards::BallType::Five => 5,
+        billiards::BallType::Six => 6,
+        billiards::BallType::Seven => 7,
+        billiards::BallType::Eight => 8,
+        billiards::BallType::Nine => 9,
+        billiards::BallType::YellowCue => 10,
+        billiards::BallType::Red => 11,
+    }
+}
+
+fn playback_stream_checksum(trace: &ScenarioShotTrace, step: Seconds) -> (u64, u64, u64) {
+    let mut frame_count = 0_u64;
+    let mut ball_count = 0_u64;
+    let mut checksum = 0xcbf2_9ce4_8422_2325_u64;
+    for frame in trace.playback_frames_iter(step) {
+        frame_count += 1;
+        mix_playback_checksum(&mut checksum, frame.time.as_f64().to_bits());
+        for ball in frame.balls {
+            ball_count += 1;
+            mix_playback_checksum(&mut checksum, ball_type_checksum(&ball.ball));
+            let state = ball.state;
+            for scalar in [
+                state.position.x().as_f64(),
+                state.position.y().as_f64(),
+                state.height.as_f64(),
+                state.velocity.x().as_f64(),
+                state.velocity.y().as_f64(),
+                state.vertical_velocity.as_f64(),
+                state.angular_velocity.x().as_f64(),
+                state.angular_velocity.y().as_f64(),
+                state.angular_velocity.z().as_f64(),
+            ] {
+                mix_playback_checksum(&mut checksum, scalar.to_bits());
+            }
+        }
+    }
+    mix_playback_checksum(&mut checksum, frame_count);
+    mix_playback_checksum(&mut checksum, ball_count);
+    (frame_count, ball_count, checksum)
+}
+
+fn playback_benchmark_fixtures() -> Vec<PreparedPlaybackFixture> {
+    vec![
+        prepare_playback_fixture("two_ball_event_limit_64", TWO_BALL_LAYOUT_DSL, 64),
+        prepare_playback_fixture("three_ball_event_limit_1", THREE_BALL_PINBALL_DSL, 1),
+        prepare_playback_fixture("three_ball_event_limit_4", THREE_BALL_PINBALL_DSL, 4),
+        prepare_playback_fixture("three_ball_event_limit_8", THREE_BALL_PINBALL_DSL, 8),
+        prepare_playback_fixture("ten_ball_event_limit_1", NINE_BALL_BREAK_DSL, 1),
+        prepare_playback_fixture("ten_ball_event_limit_8", NINE_BALL_BREAK_DSL, 8),
+        prepare_playback_fixture("ten_ball_event_limit_32", NINE_BALL_BREAK_DSL, 32),
+        prepare_playback_fixture("pocket_capture_event_limit_32", POCKET_CAPTURE_DSL, 32),
+    ]
+}
+
+fn bench_playback_streaming(c: &mut Criterion) {
+    let fixtures = playback_benchmark_fixtures();
+    let steps = [
+        ("20ms", 0.020_f64),
+        ("5ms", 0.005_f64),
+        ("2_5ms", 0.0025_f64),
+    ];
+
+    let mut owned_group = c.benchmark_group("playback_owned");
+    owned_group.warm_up_time(Duration::from_secs(2));
+    owned_group.measurement_time(Duration::from_secs(15));
+    owned_group.sample_size(30);
+    for fixture in &fixtures {
+        for (step_name, step_seconds) in steps {
+            let step = Seconds::new(step_seconds);
+            let control = fixture.trace.playback_frames(step);
+            let emitted_ball_states = control
+                .iter()
+                .map(|frame| frame.balls.len() as u64)
+                .sum::<u64>();
+            let timeline_segments = fixture
+                .trace
+                .ball_traces
+                .iter()
+                .map(|ball_trace| ball_trace.timeline_segments.len())
+                .sum::<usize>();
+            eprintln!(
+                "playback fixture={} source_bytes={} balls={} events={} segments={} step={} frames={} emitted_ball_states={}",
+                fixture.name,
+                fixture.source.len(),
+                fixture.trace.ball_traces.len(),
+                fixture.trace.event_log.len(),
+                timeline_segments,
+                step_name,
+                control.len(),
+                emitted_ball_states,
+            );
+            owned_group.throughput(Throughput::Elements(emitted_ball_states));
+            owned_group.bench_function(format!("{}/{}", fixture.name, step_name), |b| {
+                b.iter(|| {
+                    black_box(
+                        fixture
+                            .trace
+                            .playback_frames(black_box(Seconds::new(step_seconds))),
+                    )
+                })
+            });
+        }
+    }
+    owned_group.finish();
+
+    let mut stream_group = c.benchmark_group("playback_stream_fold");
+    stream_group.warm_up_time(Duration::from_secs(2));
+    stream_group.measurement_time(Duration::from_secs(15));
+    stream_group.sample_size(30);
+    for fixture in &fixtures {
+        for (step_name, step_seconds) in steps {
+            let (_, emitted_ball_states, checksum) =
+                playback_stream_checksum(&fixture.trace, Seconds::new(step_seconds));
+            assert_ne!(checksum, 0);
+            stream_group.throughput(Throughput::Elements(emitted_ball_states));
+            stream_group.bench_function(format!("{}/{}", fixture.name, step_name), |b| {
+                b.iter(|| {
+                    black_box(playback_stream_checksum(
+                        black_box(&fixture.trace),
+                        black_box(Seconds::new(step_seconds)),
+                    ))
+                })
+            });
+        }
+    }
+    stream_group.finish();
+
+    let mut report_group = c.benchmark_group("playback_svg_report");
+    report_group.warm_up_time(Duration::from_secs(2));
+    report_group.measurement_time(Duration::from_secs(15));
+    report_group.sample_size(30);
+    for fixture in &fixtures {
+        for (step_name, step_seconds) in steps {
+            let trace_options = ScenarioTraceRenderOptions {
+                path_render: BallPathRenderOptions {
+                    max_time_step: Seconds::new(step_seconds),
+                    ..ScenarioTraceRenderOptions::default().path_render
+                },
+                start_ghost_balls: true,
+                event_markers: true,
+                labels: false,
+                spin_glyphs: true,
+                path_color_mode: PathColorMode::Solid,
+            };
+            let render_options = DiagramRenderOptions::default();
+            let rendered = fixture
+                .trace
+                .rendered_final_layout_with_trace_options(&fixture.scenario, &trace_options);
+            let svg = rendered.draw_2d_svg_with_options(&render_options);
+            let mut control = String::new();
+            serialize_prepared_svg_report(
+                &mut control,
+                &svg,
+                Some(&fixture.trace),
+                &fixture.table_spec,
+                Seconds::new(step_seconds),
+            );
+            eprintln!(
+                "playback report fixture={} events={} step={} bytes={}",
+                fixture.name,
+                fixture.trace.event_log.len(),
+                step_name,
+                control.len(),
+            );
+            report_group.throughput(Throughput::Bytes(control.len() as u64));
+            report_group.bench_function(format!("{}/{}", fixture.name, step_name), |b| {
+                b.iter(|| {
+                    let mut report = String::new();
+                    serialize_prepared_svg_report(
+                        &mut report,
+                        black_box(&svg),
+                        Some(black_box(&fixture.trace)),
+                        black_box(&fixture.table_spec),
+                        black_box(Seconds::new(step_seconds)),
+                    );
+                    black_box(report)
+                })
+            });
+        }
+    }
+    report_group.finish();
+}
+
 fn bench_rendering_throughput(c: &mut Criterion) {
     let ball_set = BallSetPhysicsSpec::default();
     let motion = motion_config();
@@ -487,6 +726,6 @@ fn bench_rendering_throughput(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_parse_throughput, bench_function_throughput, bench_end_to_end_throughput, bench_rendering_throughput
+    targets = bench_parse_throughput, bench_function_throughput, bench_end_to_end_throughput, bench_rendering_throughput, bench_playback_streaming
 );
 criterion_main!(benches);

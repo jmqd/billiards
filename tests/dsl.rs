@@ -3,8 +3,9 @@ use billiards::dsl::{
     apply_shot_candidate_to_dsl, parse_dsl, parse_dsl_to_game_state, parse_dsl_to_scenario,
     shot_controls_from_dsl, update_shot_control_in_dsl, update_shot_tip_in_dsl, BallRef,
     CoordinateAxis, DslBuildError, DslError, DslParseError, PhysicsConfigKind, RailSide,
-    ScenarioBallTimelineSegment, ScenarioBallTrace, ScenarioShotTrace, ScenarioTraceRenderOptions,
-    ShotControl, ShotControlError, ShotControls, SimulationPhysicsPreset, SimulationPhysicsSource,
+    ScenarioBallTimelineSegment, ScenarioBallTrace, ScenarioPlaybackBall, ScenarioShotTrace,
+    ScenarioShotTraceEvent, ScenarioShotTraceEventKind, ScenarioTraceRenderOptions, ShotControl,
+    ShotControlError, ShotControls, SimulationPhysicsPreset, SimulationPhysicsSource,
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
@@ -1894,8 +1895,277 @@ fn timeline_playback_rejects_non_positive_steps() {
     let trace = timeline_subdivision_shot_trace();
 
     for step in [Seconds::zero(), Seconds::new(-0.3)] {
-        let result = std::panic::catch_unwind(|| trace.playback_frames(step));
-        assert!(result.is_err(), "playback should reject step {step:?}");
+        let panic = std::panic::catch_unwind(|| trace.playback_frames(step))
+            .expect_err("invalid playback steps should panic");
+        let message = panic
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| panic.downcast_ref::<String>().map(String::as_str));
+        assert_eq!(
+            message,
+            Some("playback max_time_step must be positive and finite"),
+            "playback should reject step {step:?} with the stable contract message"
+        );
+    }
+}
+
+#[test]
+fn playback_iterator_yields_owned_frames_and_matches_the_collected_api() {
+    let trace = timeline_subdivision_shot_trace();
+    let expected = trace.playback_frames(Seconds::new(0.3));
+    let mut frames = trace.playback_frames_iter(Seconds::new(0.3));
+
+    let first = frames.next().expect("initial frame");
+    let second = frames.next().expect("second frame");
+    drop(frames);
+
+    assert_eq!([first, second].as_slice(), &expected[..2]);
+    assert_eq!(
+        trace
+            .playback_frames_iter(Seconds::new(0.3))
+            .collect::<Vec<_>>(),
+        expected
+    );
+}
+
+#[test]
+fn playback_empty_timeline_uses_the_final_on_table_state() {
+    let initial = BallState::resting_at(Inches2::new("10", "24"));
+    let final_ball = BallState::resting_at(Inches2::new("20", "24"));
+    let final_state = OnTableBallState::try_from(final_ball.clone())
+        .expect("final playback state should be on-table");
+    let trace = ScenarioShotTrace {
+        simulation: NBallSystemSimulation {
+            states: vec![NBallSystemState::OnTable(final_state.clone())],
+            elapsed: Seconds::new(1.0),
+            events: Vec::new(),
+        },
+        shot_executions: Vec::new(),
+        event_log: Vec::new(),
+        ball_traces: vec![ScenarioBallTrace {
+            ball: BallType::Cue,
+            initial_state: initial,
+            final_state: NBallSystemState::OnTable(final_state),
+            segments: Vec::new(),
+            timeline_segments: Vec::new(),
+        }],
+        ball_set: BallSetPhysicsSpec::default(),
+        motion: motion_config(),
+    };
+
+    let frames = trace.playback_frames(Seconds::new(0.5));
+    assert_eq!(
+        frames
+            .iter()
+            .map(|frame| frame.time.as_f64())
+            .collect::<Vec<_>>(),
+        vec![0.0, 1.0]
+    );
+    assert!(frames
+        .iter()
+        .all(|frame| frame.balls[0].state == final_ball));
+}
+
+fn airborne_playback_state(x: &str, velocity_x: &str) -> BallState {
+    BallState::airborne(
+        Inches2::new(x, "24"),
+        "1000",
+        Velocity2::new(velocity_x, "0"),
+        "0",
+        AngularVelocity3::zero(),
+    )
+}
+
+#[test]
+fn playback_cursors_preserve_divergent_timeline_gaps_and_ball_order() {
+    let cue_start = airborne_playback_state("10", "8");
+    let cue_mid = airborne_playback_state("14", "8");
+    let cue_final = airborne_playback_state("18", "0");
+    let one_start = airborne_playback_state("30", "-4");
+    let one_mid = airborne_playback_state("28", "-4");
+    let one_final = airborne_playback_state("26", "0");
+    let ball_traces = vec![
+        ScenarioBallTrace {
+            ball: BallType::Cue,
+            initial_state: cue_start.clone(),
+            final_state: NBallSystemState::Airborne(cue_final.clone()),
+            segments: Vec::new(),
+            timeline_segments: vec![
+                ScenarioBallTimelineSegment {
+                    start_time: Seconds::zero(),
+                    start: cue_start,
+                    end: cue_mid.clone(),
+                    duration: Seconds::new(1.0),
+                },
+                ScenarioBallTimelineSegment {
+                    start_time: Seconds::new(1.0),
+                    start: cue_mid,
+                    end: cue_final.clone(),
+                    duration: Seconds::zero(),
+                },
+            ],
+        },
+        ScenarioBallTrace {
+            ball: BallType::One,
+            initial_state: one_start.clone(),
+            final_state: NBallSystemState::Airborne(one_final.clone()),
+            segments: Vec::new(),
+            timeline_segments: vec![
+                ScenarioBallTimelineSegment {
+                    start_time: Seconds::new(0.25),
+                    start: one_start,
+                    end: one_mid,
+                    duration: Seconds::new(0.5),
+                },
+                ScenarioBallTimelineSegment {
+                    start_time: Seconds::new(2.0),
+                    start: one_final.clone(),
+                    end: one_final,
+                    duration: Seconds::new(0.5),
+                },
+            ],
+        },
+    ];
+    let trace = ScenarioShotTrace {
+        simulation: NBallSystemSimulation {
+            states: ball_traces
+                .iter()
+                .map(|ball_trace| ball_trace.final_state.clone())
+                .collect(),
+            elapsed: Seconds::new(3.0),
+            events: Vec::new(),
+        },
+        shot_executions: Vec::new(),
+        event_log: vec![ScenarioShotTraceEvent {
+            time: Seconds::new(0.125),
+            kind: ScenarioShotTraceEventKind::BallTableBounce {
+                ball: BallType::Cue,
+            },
+        }],
+        ball_traces,
+        ball_set: BallSetPhysicsSpec::default(),
+        motion: motion_config(),
+    };
+
+    let frames = trace.playback_frames(Seconds::new(0.5));
+    assert_eq!(
+        frames
+            .iter()
+            .map(|frame| frame.time.as_f64())
+            .collect::<Vec<_>>(),
+        vec![0.0, 0.125, 0.25, 0.5, 0.75, 1.0, 2.0, 2.5, 3.0]
+    );
+    for frame in &frames {
+        let expected_balls = trace
+            .ball_traces
+            .iter()
+            .filter_map(|ball_trace| {
+                ball_trace
+                    .state_at_elapsed(frame.time, &trace.ball_set, &trace.motion)
+                    .map(|state| ScenarioPlaybackBall {
+                        ball: ball_trace.ball.clone(),
+                        state,
+                    })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(frame.balls, expected_balls);
+    }
+}
+
+#[test]
+fn playback_falls_back_for_unsorted_sources_and_deduplicates_against_last_retained_time() {
+    let base = 100.0;
+    let event = |time| ScenarioShotTraceEvent {
+        time: Seconds::new(time),
+        kind: ScenarioShotTraceEventKind::BallTableBounce {
+            ball: BallType::Cue,
+        },
+    };
+    let trace = ScenarioShotTrace {
+        simulation: NBallSystemSimulation {
+            states: Vec::new(),
+            elapsed: Seconds::zero(),
+            events: Vec::new(),
+        },
+        shot_executions: Vec::new(),
+        event_log: vec![
+            event(base + 2.0e-9),
+            event(base),
+            event(base + 1.5e-9),
+            event(base + 0.5e-9),
+            event(0.0),
+            event(0.0),
+        ],
+        ball_traces: Vec::new(),
+        ball_set: BallSetPhysicsSpec::default(),
+        motion: motion_config(),
+    };
+
+    let frames = trace.playback_frames(Seconds::new(0.5));
+    assert_eq!(
+        frames
+            .iter()
+            .map(|frame| frame.time.as_f64())
+            .collect::<Vec<_>>(),
+        vec![0.0, base, base + 1.5e-9]
+    );
+    assert!(frames
+        .windows(2)
+        .all(|frames| { frames[1].time.as_f64() - frames[0].time.as_f64() > 1e-9 }));
+}
+
+#[test]
+fn playback_falls_back_for_out_of_order_timeline_segments_without_changing_cursor_states() {
+    let late_start = airborne_playback_state("40", "-4");
+    let late_end = airborne_playback_state("38", "-4");
+    let early_start = airborne_playback_state("20", "4");
+    let early_end = airborne_playback_state("22", "0");
+    let ball_trace = ScenarioBallTrace {
+        ball: BallType::Cue,
+        initial_state: early_start.clone(),
+        final_state: NBallSystemState::Airborne(early_end.clone()),
+        segments: Vec::new(),
+        timeline_segments: vec![
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::new(2.0),
+                start: late_start,
+                end: late_end,
+                duration: Seconds::new(0.5),
+            },
+            ScenarioBallTimelineSegment {
+                start_time: Seconds::new(0.25),
+                start: early_start,
+                end: early_end,
+                duration: Seconds::new(0.5),
+            },
+        ],
+    };
+    let trace = ScenarioShotTrace {
+        simulation: NBallSystemSimulation {
+            states: vec![ball_trace.final_state.clone()],
+            elapsed: Seconds::new(3.0),
+            events: Vec::new(),
+        },
+        shot_executions: Vec::new(),
+        event_log: Vec::new(),
+        ball_traces: vec![ball_trace],
+        ball_set: BallSetPhysicsSpec::default(),
+        motion: motion_config(),
+    };
+
+    let frames = trace.playback_frames(Seconds::new(0.5));
+    assert_eq!(
+        frames
+            .iter()
+            .map(|frame| frame.time.as_f64())
+            .collect::<Vec<_>>(),
+        vec![0.0, 0.25, 0.75, 2.0, 2.5, 3.0]
+    );
+    for frame in frames {
+        let expected = trace.ball_traces[0]
+            .state_at_elapsed(frame.time, &trace.ball_set, &trace.motion)
+            .expect("manual airborne ball remains visible");
+        assert_eq!(frame.balls[0].state, expected);
     }
 }
 

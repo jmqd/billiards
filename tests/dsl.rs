@@ -4,7 +4,7 @@ use billiards::dsl::{
     shot_controls_from_dsl, update_shot_control_in_dsl, update_shot_tip_in_dsl, BallRef,
     CoordinateAxis, DslBuildError, DslError, DslParseError, PhysicsConfigKind, RailSide,
     ScenarioBallTimelineSegment, ScenarioBallTrace, ScenarioShotTrace, ScenarioTraceRenderOptions,
-    ShotControl, ShotControlError, ShotControls,
+    ShotControl, ShotControlError, ShotControls, SimulationPhysicsPreset, SimulationPhysicsSource,
 };
 use billiards::{
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
@@ -13,10 +13,10 @@ use billiards::{
     Angle, AngularVelocity3, BallPathStop, BallSetPhysicsSpec, BallState, BallType, CollisionModel,
     Diamond, GameType, HumanShotSpeedBand, Inches2, InchesPerSecondSq, MotionPhase,
     MotionPhaseConfig, MotionTransitionConfig, NBallSystemEvent, NBallSystemSimulation,
-    NBallSystemState, OnTableBallState, OnTableMotionConfig, PlayingConditions, Pocket,
-    RadiansPerSecondSq, RailCollisionProfile, RailModel, RollingResistanceModel, Seconds,
-    ShotError, ShotSpeedPreset, SlidingFrictionModel, SpinDecayModel, TableKind, Velocity2,
-    CAROM_BALL_RADIUS, TYPICAL_BALL_RADIUS,
+    NBallSystemState, OnTableBallState, OnTableMotionConfig, PhysicsProfile,
+    PlayingConditionsPreset, Pocket, RadiansPerSecondSq, RailCollisionProfile, RailModel,
+    RollingResistanceModel, Seconds, ShotError, ShotSpeedPreset, SlidingFrictionModel,
+    SpinDecayModel, TableKind, Velocity2, CAROM_BALL_RADIUS, TYPICAL_BALL_RADIUS,
 };
 use image::{load_from_memory, Rgba};
 
@@ -1192,8 +1192,11 @@ fn shot_scenarios_can_use_named_simulations_defined_in_dsl() {
     let preset = scenario
         .simulation_named("human_table")
         .expect("named simulation");
-    assert_eq!(preset.ball_ball_name, "human");
-    assert_eq!(preset.conditions, PlayingConditions::neutral());
+    assert!(matches!(
+        &preset.physics,
+        SimulationPhysicsSource::Custom { ball_ball_name, .. } if ball_ball_name == "human"
+    ));
+    assert_eq!(preset.conditions_preset, PlayingConditionsPreset::Neutral);
 
     let ideal_object_y = match &ideal.states[1] {
         NBallSystemState::OnTable(state) => state.as_ball_state().position.y().as_f64(),
@@ -1244,8 +1247,8 @@ fn shot_scenarios_can_apply_named_playing_conditions_from_simulation_presets() {
         scenario
             .simulation_named("humid_table")
             .expect("named simulation")
-            .conditions,
-        PlayingConditions::humid_dirty()
+            .conditions_preset,
+        PlayingConditionsPreset::HumidDirty
     );
 
     let neutral_cue_y = match &neutral.states[0] {
@@ -1261,6 +1264,106 @@ fn shot_scenarios_can_apply_named_playing_conditions_from_simulation_presets() {
         humid_cue_y < neutral_cue_y - 0.5,
         "humid conditions should shorten cue-ball travel before any rail contact; got neutral y {neutral_cue_y} vs humid y {humid_cue_y}"
     );
+}
+
+#[test]
+fn three_cushion_simulation_preset_matches_the_production_physics_profile() {
+    let scenario = parse_dsl_to_scenario(
+        "table three_cushion_carom_10ft\n\
+         game three_cushion\n\
+         simulation(default).preset(three_cushion)\n",
+    )
+    .expect("canonical three-cushion preset should build");
+    let simulation = scenario
+        .simulation_named("default")
+        .expect("default simulation");
+    assert_eq!(
+        simulation.physics_preset(),
+        Some(SimulationPhysicsPreset::ThreeCushion)
+    );
+    assert_eq!(
+        simulation.conditions_preset,
+        PlayingConditionsPreset::HeatedCarom
+    );
+
+    let effective = scenario
+        .effective_simulation_physics(&motion_config(), "default")
+        .expect("canonical physics should resolve");
+    let production = PhysicsProfile::three_cushion_default();
+    assert_eq!(&effective.motion, production.motion());
+    assert_eq!(effective.collision_model, production.collision_model());
+    assert_eq!(&effective.collision_config, production.collision());
+    assert_eq!(effective.rail_model, production.rail_model());
+    assert_eq!(&effective.rail_profile, production.rails());
+}
+
+#[test]
+fn three_cushion_simulation_preset_allows_named_condition_changes() {
+    let scenario = parse_dsl_to_scenario(
+        "table three_cushion_carom_10ft\n\
+         game three_cushion\n\
+         simulation(default).preset(three_cushion).conditions(neutral)\n",
+    )
+    .expect("explicit neutral conditions should build");
+    let effective = scenario
+        .effective_simulation_physics(&motion_config(), "default")
+        .expect("neutral canonical physics should resolve");
+    let neutral = PhysicsProfile::three_cushion_with_conditions(PlayingConditionsPreset::Neutral);
+
+    assert_eq!(&effective.motion, neutral.motion());
+    assert_eq!(&effective.collision_config, neutral.collision());
+    assert_eq!(&effective.rail_profile, neutral.rails());
+}
+
+#[test]
+fn simulation_presets_reject_custom_component_selection() {
+    let error = parse_dsl_to_scenario(
+        "table three_cushion_carom_10ft\n\
+         simulation(default).preset(three_cushion).rail_model(spin_aware)\n",
+    )
+    .expect_err("preset and custom physics methods must be mutually exclusive");
+
+    assert!(matches!(
+        error,
+        DslError::Build(DslBuildError::ConflictingSimulationPhysics {
+            preset: SimulationPhysicsPreset::ThreeCushion,
+            method,
+            ..
+        }) if method == "rail_model"
+    ));
+}
+
+#[test]
+fn simulation_presets_reject_raw_physics_declarations_in_the_same_document() {
+    let error = parse_dsl_to_scenario(
+        "table three_cushion_carom_10ft\n\
+         ball_ball(custom).normal_restitution(0.98).tangential_friction(0.05)\n\
+         simulation(default).preset(three_cushion)\n",
+    )
+    .expect_err("preset documents must not carry drifting raw coefficients");
+
+    assert!(matches!(
+        error,
+        DslError::Build(DslBuildError::SimulationPresetWithRawPhysicsDefinitions {
+            preset: SimulationPhysicsPreset::ThreeCushion,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn three_cushion_simulation_preset_rejects_pool_tables() {
+    let error = parse_dsl_to_scenario("simulation(default).preset(three_cushion)\n")
+        .expect_err("three-cushion physics must require a carom table");
+
+    assert!(matches!(
+        error,
+        DslError::Build(DslBuildError::SimulationPresetTableMismatch {
+            preset: SimulationPhysicsPreset::ThreeCushion,
+            table: TableKind::Pool,
+            ..
+        })
+    ));
 }
 
 #[test]

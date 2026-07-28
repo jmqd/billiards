@@ -21,9 +21,9 @@ use crate::{
     Diamond, GameState, GameType, HumanShotSpeedValidation, Inches, InchesPerSecond, MotionPhase,
     MotionPhaseThresholds, NBallGeometryError, NBallSystemEvent, NBallSystemSimulation,
     NBallSystemState, OnTableBallState, OnTableMotionConfig, OnTableStateError, OverlayLayer,
-    PlayingConditions, PlayingConditionsPreset, Pocket, PocketJaw, Position, Rail,
+    PhysicsProfile, PlayingConditionsPreset, Pocket, PocketJaw, Position, Rail,
     RailCollisionConfig, RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds,
-    SharedBallBallContactResolution, Shot, ShotError, ShotSpeedPreset, TableSpec,
+    SharedBallBallContactResolution, Shot, ShotError, ShotSpeedPreset, TableKind, TableSpec,
     BOTTOM_LEFT_DIAMOND, BOTTOM_RIGHT_DIAMOND, CENTER_LEFT_DIAMOND, CENTER_RIGHT_DIAMOND,
     CENTER_SPOT, RACK_SPOT, TOP_LEFT_DIAMOND, TOP_RIGHT_DIAMOND,
 };
@@ -150,6 +150,12 @@ impl DslScenario {
         }
     }
 
+    pub fn preferred_simulation_physics_preset(&self) -> Option<SimulationPhysicsPreset> {
+        self.preferred_simulation_name()
+            .and_then(|name| self.simulation_named(name).ok())
+            .and_then(SimulationPreset::physics_preset)
+    }
+
     pub fn preferred_simulation_physics(
         &self,
         motion: &OnTableMotionConfig,
@@ -169,26 +175,46 @@ impl DslScenario {
         }
     }
 
-    fn effective_simulation_physics(
+    pub fn effective_simulation_physics(
         &self,
         motion: &OnTableMotionConfig,
         simulation_name: &str,
     ) -> Result<EffectiveSimulationPhysics, DslBuildError> {
         let simulation = self.simulation_named(simulation_name)?;
-        let conditions = &simulation.conditions;
-
-        Ok(EffectiveSimulationPhysics {
-            motion: motion.applying_conditions(conditions),
-            collision_model: simulation.collision_model,
-            collision_config: self
-                .ball_ball_config_named(&simulation.ball_ball_name)?
-                .applying_conditions(conditions),
-            rail_model: simulation.rail_model,
-            rail_profile: self
-                .rail_profile_named(&simulation.rails_name)?
-                .applying_conditions(conditions),
-            max_events: simulation.max_events,
-        })
+        match &simulation.physics {
+            SimulationPhysicsSource::Preset(SimulationPhysicsPreset::ThreeCushion) => {
+                let profile =
+                    PhysicsProfile::three_cushion_with_conditions(simulation.conditions_preset);
+                Ok(EffectiveSimulationPhysics {
+                    motion: profile.motion().clone(),
+                    collision_model: profile.collision_model(),
+                    collision_config: profile.collision().clone(),
+                    rail_model: profile.rail_model(),
+                    rail_profile: profile.rails().clone(),
+                    max_events: simulation.max_events,
+                })
+            }
+            SimulationPhysicsSource::Custom {
+                collision_model,
+                ball_ball_name,
+                rail_model,
+                rails_name,
+            } => {
+                let conditions = simulation.conditions_preset.conditions();
+                Ok(EffectiveSimulationPhysics {
+                    motion: motion.applying_conditions(&conditions),
+                    collision_model: *collision_model,
+                    collision_config: self
+                        .ball_ball_config_named(ball_ball_name)?
+                        .applying_conditions(&conditions),
+                    rail_model: *rail_model,
+                    rail_profile: self
+                        .rail_profile_named(rails_name)?
+                        .applying_conditions(&conditions),
+                    max_events: simulation.max_events,
+                })
+            }
+        }
     }
 
     pub fn simulate_shot_system_with_simulation_on_table_until_rest(
@@ -2091,6 +2117,7 @@ pub struct SimulationDef {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SimulationMethodExpr {
+    Preset(String),
     CollisionModel(CollisionModel),
     BallBall(String),
     RailModel(RailModel),
@@ -2099,14 +2126,64 @@ pub enum SimulationMethodExpr {
     MaxEvents(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SimulationPhysicsPreset {
+    ThreeCushion,
+}
+
+impl SimulationPhysicsPreset {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "three_cushion" | "three-cushion" => Some(Self::ThreeCushion),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ThreeCushion => "three_cushion",
+        }
+    }
+
+    pub fn default_conditions(self) -> PlayingConditionsPreset {
+        match self {
+            Self::ThreeCushion => PlayingConditionsPreset::HeatedCarom,
+        }
+    }
+
+    fn supports_table(self, table: TableKind) -> bool {
+        matches!(
+            (self, table),
+            (Self::ThreeCushion, TableKind::ThreeCushionCarom)
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SimulationPhysicsSource {
+    Preset(SimulationPhysicsPreset),
+    Custom {
+        collision_model: CollisionModel,
+        ball_ball_name: String,
+        rail_model: RailModel,
+        rails_name: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SimulationPreset {
-    pub collision_model: CollisionModel,
-    pub ball_ball_name: String,
-    pub rail_model: RailModel,
-    pub rails_name: String,
-    pub conditions: PlayingConditions,
+    pub physics: SimulationPhysicsSource,
+    pub conditions_preset: PlayingConditionsPreset,
     pub max_events: Option<usize>,
+}
+
+impl SimulationPreset {
+    pub fn physics_preset(&self) -> Option<SimulationPhysicsPreset> {
+        match &self.physics {
+            SimulationPhysicsSource::Preset(preset) => Some(*preset),
+            SimulationPhysicsSource::Custom { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2366,6 +2443,20 @@ pub enum DslBuildError {
         name: String,
         method: String,
     },
+    ConflictingSimulationPhysics {
+        name: String,
+        preset: SimulationPhysicsPreset,
+        method: String,
+    },
+    SimulationPresetWithRawPhysicsDefinitions {
+        name: String,
+        preset: SimulationPhysicsPreset,
+    },
+    SimulationPresetTableMismatch {
+        name: String,
+        preset: SimulationPhysicsPreset,
+        table: TableKind,
+    },
     InvalidPhysicsConfigValue {
         kind: PhysicsConfigKind,
         name: String,
@@ -2395,6 +2486,7 @@ pub enum DslBuildError {
     UnknownRailProfile(String),
     UnknownSimulation(String),
     UnknownPlayingConditionsPreset(String),
+    UnknownSimulationPhysicsPreset(String),
     ShotTargetMustBeCueBall(BallRef),
     ShotTargetBallNotPlaced(BallRef),
     ShotTargetBallNotAtRest(BallRef),
@@ -2499,6 +2591,29 @@ impl std::fmt::Display for DslBuildError {
             Self::MissingSimulationMethod { name, method } => {
                 write!(f, "simulation '{name}' is missing .{method}(...)")
             }
+            Self::ConflictingSimulationPhysics {
+                name,
+                preset,
+                method,
+            } => write!(
+                f,
+                "simulation '{name}' uses .preset({}) and cannot also specify .{method}(...)",
+                preset.name()
+            ),
+            Self::SimulationPresetWithRawPhysicsDefinitions { name, preset } => write!(
+                f,
+                "simulation '{name}' uses .preset({}), so the document cannot declare ball_ball(...), rail_response(...), or rails(...) physics",
+                preset.name()
+            ),
+            Self::SimulationPresetTableMismatch {
+                name,
+                preset,
+                table,
+            } => write!(
+                f,
+                "simulation '{name}' uses .preset({}), which is incompatible with table kind {table:?}",
+                preset.name()
+            ),
             Self::InvalidPhysicsConfigValue {
                 kind,
                 name,
@@ -2540,6 +2655,9 @@ impl std::fmt::Display for DslBuildError {
             Self::UnknownSimulation(name) => write!(f, "unknown simulation '{name}'"),
             Self::UnknownPlayingConditionsPreset(name) => {
                 write!(f, "unknown playing conditions preset '{name}'")
+            }
+            Self::UnknownSimulationPhysicsPreset(name) => {
+                write!(f, "unknown simulation physics preset '{name}'")
             }
             Self::ShotTargetMustBeCueBall(ball) => write!(
                 f,
@@ -3149,7 +3267,23 @@ pub fn build_scenario(doc: &DslDoc) -> Result<DslScenario, DslBuildError> {
     let ball_ball_configs = build_ball_ball_configs(&ball_ball_defs)?;
     let rail_responses = build_rail_responses(&rail_response_defs)?;
     let rail_profiles = build_rail_profiles(&rails_defs, &rail_responses)?;
-    let simulations = build_simulations(&simulation_defs, &ball_ball_configs, &rail_profiles)?;
+    let simulations = build_simulations(
+        &simulation_defs,
+        &ball_ball_configs,
+        &rail_profiles,
+        game_state.table_spec.kind,
+    )?;
+    if !ball_ball_defs.is_empty() || !rail_response_defs.is_empty() || !rails_defs.is_empty() {
+        if let Some((name, preset)) = simulations
+            .iter()
+            .find_map(|(name, simulation)| simulation.physics_preset().map(|preset| (name, preset)))
+        {
+            return Err(DslBuildError::SimulationPresetWithRawPhysicsDefinitions {
+                name: name.clone(),
+                preset,
+            });
+        }
+    }
     let shots = shots
         .iter()
         .map(|shot| build_shot(shot, &cue_strikes, &game_state))
@@ -3507,12 +3641,13 @@ fn build_simulations(
     defs: &[SimulationDef],
     ball_ball_configs: &HashMap<String, BallBallCollisionConfig>,
     rail_profiles: &HashMap<String, RailCollisionProfile>,
+    table_kind: TableKind,
 ) -> Result<HashMap<String, SimulationPreset>, DslBuildError> {
     let mut simulations = HashMap::new();
 
     for def in defs {
         let name = def.name.clone();
-        let simulation = build_simulation(def, ball_ball_configs, rail_profiles)?;
+        let simulation = build_simulation(def, ball_ball_configs, rail_profiles, table_kind)?;
         if simulations.insert(name.clone(), simulation).is_some() {
             return Err(DslBuildError::DuplicateSimulation(name));
         }
@@ -3525,7 +3660,9 @@ fn build_simulation(
     def: &SimulationDef,
     ball_ball_configs: &HashMap<String, BallBallCollisionConfig>,
     rail_profiles: &HashMap<String, RailCollisionProfile>,
+    table_kind: TableKind,
 ) -> Result<SimulationPreset, DslBuildError> {
+    let mut preset_name = None;
     let mut collision_model = None;
     let mut ball_ball_name = None;
     let mut rail_model = None;
@@ -3535,6 +3672,14 @@ fn build_simulation(
 
     for method in &def.methods {
         match method {
+            SimulationMethodExpr::Preset(name) => {
+                set_once(&mut preset_name, name.clone(), || {
+                    DslBuildError::DuplicateSimulationMethod {
+                        name: def.name.clone(),
+                        method: "preset".to_string(),
+                    }
+                })?;
+            }
             SimulationMethodExpr::CollisionModel(model) => {
                 set_once(&mut collision_model, *model, || {
                     DslBuildError::DuplicateSimulationMethod {
@@ -3586,46 +3731,87 @@ fn build_simulation(
         }
     }
 
-    let collision_model =
-        collision_model.ok_or_else(|| DslBuildError::MissingSimulationMethod {
-            name: def.name.clone(),
-            method: "collision_model".to_string(),
-        })?;
-    let ball_ball_name = ball_ball_name.ok_or_else(|| DslBuildError::MissingSimulationMethod {
-        name: def.name.clone(),
-        method: "ball_ball".to_string(),
-    })?;
-    let rail_model = rail_model.ok_or_else(|| DslBuildError::MissingSimulationMethod {
-        name: def.name.clone(),
-        method: "rail_model".to_string(),
-    })?;
-    let rails_name = rails_name.ok_or_else(|| DslBuildError::MissingSimulationMethod {
-        name: def.name.clone(),
-        method: "rails".to_string(),
-    })?;
-    let conditions = conditions_name
+    let preset = preset_name
+        .as_deref()
+        .map(|name| {
+            SimulationPhysicsPreset::from_name(name)
+                .ok_or_else(|| DslBuildError::UnknownSimulationPhysicsPreset(name.to_string()))
+        })
+        .transpose()?;
+    let conditions_preset = conditions_name
         .as_deref()
         .map(|name| {
             PlayingConditionsPreset::from_name(name)
-                .map(PlayingConditions::from)
                 .ok_or_else(|| DslBuildError::UnknownPlayingConditionsPreset(name.to_string()))
         })
         .transpose()?
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            preset.map_or(PlayingConditionsPreset::Neutral, |preset| {
+                preset.default_conditions()
+            })
+        });
 
-    if !ball_ball_configs.contains_key(&ball_ball_name) {
-        return Err(DslBuildError::UnknownBallBallConfig(ball_ball_name));
-    }
-    if !rail_profiles.contains_key(&rails_name) {
-        return Err(DslBuildError::UnknownRailProfile(rails_name));
-    }
+    let physics = if let Some(preset) = preset {
+        for (method, specified) in [
+            ("collision_model", collision_model.is_some()),
+            ("ball_ball", ball_ball_name.is_some()),
+            ("rail_model", rail_model.is_some()),
+            ("rails", rails_name.is_some()),
+        ] {
+            if specified {
+                return Err(DslBuildError::ConflictingSimulationPhysics {
+                    name: def.name.clone(),
+                    preset,
+                    method: method.to_string(),
+                });
+            }
+        }
+        if !preset.supports_table(table_kind) {
+            return Err(DslBuildError::SimulationPresetTableMismatch {
+                name: def.name.clone(),
+                preset,
+                table: table_kind,
+            });
+        }
+        SimulationPhysicsSource::Preset(preset)
+    } else {
+        let collision_model =
+            collision_model.ok_or_else(|| DslBuildError::MissingSimulationMethod {
+                name: def.name.clone(),
+                method: "collision_model".to_string(),
+            })?;
+        let ball_ball_name =
+            ball_ball_name.ok_or_else(|| DslBuildError::MissingSimulationMethod {
+                name: def.name.clone(),
+                method: "ball_ball".to_string(),
+            })?;
+        let rail_model = rail_model.ok_or_else(|| DslBuildError::MissingSimulationMethod {
+            name: def.name.clone(),
+            method: "rail_model".to_string(),
+        })?;
+        let rails_name = rails_name.ok_or_else(|| DslBuildError::MissingSimulationMethod {
+            name: def.name.clone(),
+            method: "rails".to_string(),
+        })?;
+
+        if !ball_ball_configs.contains_key(&ball_ball_name) {
+            return Err(DslBuildError::UnknownBallBallConfig(ball_ball_name));
+        }
+        if !rail_profiles.contains_key(&rails_name) {
+            return Err(DslBuildError::UnknownRailProfile(rails_name));
+        }
+
+        SimulationPhysicsSource::Custom {
+            collision_model,
+            ball_ball_name,
+            rail_model,
+            rails_name,
+        }
+    };
 
     Ok(SimulationPreset {
-        collision_model,
-        ball_ball_name,
-        rail_model,
-        rails_name,
-        conditions,
+        physics,
+        conditions_preset,
         max_events,
     })
 }
@@ -4440,6 +4626,7 @@ fn simulation_method_segment<'a>(input: &mut Stream<'a>) -> ParseResult<'a, Simu
 
 fn simulation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, SimulationMethodExpr> {
     alt((
+        preceded(peek("preset"), cut_err(simulation_preset_method)),
         preceded(
             peek("collision_model"),
             cut_err(simulation_collision_model_method),
@@ -4451,6 +4638,12 @@ fn simulation_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, SimulationMe
         preceded(peek("max_events"), cut_err(simulation_max_events_method)),
     ))
     .parse_next(input)
+}
+
+fn simulation_preset_method<'a>(input: &mut Stream<'a>) -> ParseResult<'a, SimulationMethodExpr> {
+    let _ = "preset".parse_next(input)?;
+    let name = delimited('(', delimited(hws0, identifier, hws0), ')').parse_next(input)?;
+    Ok(SimulationMethodExpr::Preset(name.to_string()))
 }
 
 fn simulation_collision_model_method<'a>(
@@ -5157,7 +5350,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_simulation_preset() {
+    fn parse_custom_simulation_physics() {
         let scenario = parse_dsl_to_scenario(
             "ball_ball(ideal).normal_restitution(1.0).tangential_friction(0.06)\n\
              rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)\n\
@@ -5166,14 +5359,22 @@ mod tests {
         )
         .expect("build scenario");
 
-        let preset = scenario
+        let simulation = scenario
             .simulation_named("match")
             .expect("named simulation");
-        assert_eq!(preset.collision_model, CollisionModel::ThrowAware);
-        assert_eq!(preset.ball_ball_name, "ideal");
-        assert_eq!(preset.rails_name, "table");
-        assert_eq!(preset.rail_model, RailModel::SpinAware);
-        assert_eq!(preset.conditions, PlayingConditions::neutral());
+        assert_eq!(
+            simulation.physics,
+            SimulationPhysicsSource::Custom {
+                collision_model: CollisionModel::ThrowAware,
+                ball_ball_name: "ideal".to_string(),
+                rail_model: RailModel::SpinAware,
+                rails_name: "table".to_string(),
+            }
+        );
+        assert_eq!(
+            simulation.conditions_preset,
+            PlayingConditionsPreset::Neutral
+        );
     }
 
     #[test]

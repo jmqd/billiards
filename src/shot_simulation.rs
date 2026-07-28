@@ -9,7 +9,7 @@ use crate::{
     validate_and_recover_n_ball_system_states, Angle, BallBallCollisionConfig, BallSetPhysicsSpec,
     BallState, CollisionModel, CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond,
     MotionPhase, NBallGeometryError, NBallSystemAppliedEffect, NBallSystemState,
-    OnTableMotionConfig, PlayingConditions, Pocket, PocketAwareEventCache, PocketJaw, Rail,
+    OnTableMotionConfig, PlayingConditionsPreset, Pocket, PocketAwareEventCache, PocketJaw, Rail,
     RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError,
     TableSpec, MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS, SHARED_BALL_BALL_CONTACT_STATE_EPSILON,
     SIMULTANEOUS_EVENT_TOLERANCE_SECONDS, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
@@ -390,9 +390,9 @@ impl PhysicsProfile {
         })
     }
 
-    pub fn three_cushion_default() -> Self {
+    pub fn three_cushion_with_conditions(conditions: PlayingConditionsPreset) -> Self {
         let table = TableSpec::three_cushion_carom_10ft();
-        let conditions = PlayingConditions::heated_carom();
+        let conditions = conditions.conditions();
         Self::new(
             table.clone(),
             table.default_ball_set_physics_spec(),
@@ -403,6 +403,10 @@ impl PhysicsProfile {
             RailCollisionProfile::human_tuned().applying_conditions(&conditions),
         )
         .expect("canonical three-cushion physics profile must be valid")
+    }
+
+    pub fn three_cushion_default() -> Self {
+        Self::three_cushion_with_conditions(PlayingConditionsPreset::HeatedCarom)
     }
 
     pub fn table(&self) -> &TableSpec {

@@ -14126,8 +14126,32 @@ pub(crate) fn resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_t
     rail_profile: &RailCollisionProfile,
 ) -> Result<NBallSystemResolvedStep, NBallGeometryError> {
     let states = validate_and_recover_n_ball_system_states(states, ball)?;
+    resolve_validated_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+        &states,
+        event,
+        ball,
+        table,
+        motion,
+        collision_model,
+        collision_config,
+        rail_model,
+        rail_profile,
+    )
+}
+
+pub(crate) fn resolve_validated_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+    states: &[NBallSystemState],
+    event: &NBallSystemEvent,
+    ball: &BallSetPhysicsSpec,
+    table: &TableSpec,
+    motion: &OnTableMotionConfig,
+    collision_model: CollisionModel,
+    collision_config: &BallBallCollisionConfig,
+    rail_model: RailModel,
+    rail_profile: &RailCollisionProfile,
+) -> Result<NBallSystemResolvedStep, NBallGeometryError> {
     let event_time = event.time();
-    let mut states_after = advance_n_ball_system_without_event(&states, event_time, ball, motion);
+    let mut states_after = advance_n_ball_system_without_event(states, event_time, ball, motion);
     let mut effects = Vec::new();
     match event {
         NBallSystemEvent::AirborneBallBallCollision {

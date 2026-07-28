@@ -2,13 +2,15 @@ mod robust;
 
 pub use robust::*;
 
+#[cfg(test)]
+use crate::resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table;
 use crate::{
     advance_airborne_ball, advance_motion_on_table, classify_motion_phase,
     human_tuned_preview_motion_config, n_ball_system_collision_delta,
-    resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table, strike_resting_ball,
-    validate_and_recover_n_ball_system_states, Angle, BallBallCollisionConfig, BallSetPhysicsSpec,
-    BallState, CollisionModel, CueStrikeConfig, CueTipContact, Inches, Inches2, InchesPerSecond,
-    MotionPhase, NBallGeometryError, NBallSystemAppliedEffect, NBallSystemState,
+    resolve_validated_n_ball_system_event_detailed_with_physics_and_pockets_on_table,
+    strike_resting_ball, validate_and_recover_n_ball_system_states, Angle, BallBallCollisionConfig,
+    BallSetPhysicsSpec, BallState, CollisionModel, CueStrikeConfig, CueTipContact, Inches, Inches2,
+    InchesPerSecond, MotionPhase, NBallGeometryError, NBallSystemAppliedEffect, NBallSystemState,
     OnTableMotionConfig, PlayingConditionsPreset, Pocket, PocketAwareEventCache, PocketJaw, Rail,
     RailCollisionProfile, RailModel, RestingOnTableBallState, Scale, Seconds, Shot, ShotError,
     TableSpec, MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS, SHARED_BALL_BALL_CONTACT_STATE_EPSILON,
@@ -1450,18 +1452,20 @@ fn execute_core(
             &physics.ball,
             &physics.motion,
         );
-        let states_before = states.clone();
-        let detailed = resolve_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
-            &states,
-            &event,
-            &physics.ball,
-            &physics.table,
-            &physics.motion,
-            physics.collision_model,
-            &physics.collision,
-            physics.rail_model,
-            &physics.rails,
-        );
+        let states_before =
+            (step_elapsed <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS).then(|| states.clone());
+        let detailed =
+            resolve_validated_n_ball_system_event_detailed_with_physics_and_pockets_on_table(
+                &states,
+                &event,
+                &physics.ball,
+                &physics.table,
+                &physics.motion,
+                physics.collision_model,
+                &physics.collision,
+                physics.rail_model,
+                &physics.rails,
+            );
         let detailed = detailed.map_err(ShotSimulationError::Geometry)?;
         states = detailed.states;
         let mut effects = map_applied_effects(detailed.effects, layout);
@@ -1488,7 +1492,7 @@ fn execute_core(
 
         cache =
             PocketAwareEventCache::build(&states, &physics.ball, &physics.table, &physics.motion);
-        if step_elapsed <= SIMULTANEOUS_EVENT_TOLERANCE_SECONDS {
+        if let Some(states_before) = states_before {
             consecutive_zero_time_events += 1;
             if consecutive_zero_time_events >= MAX_CONSECUTIVE_ZERO_TIME_N_BALL_EVENTS {
                 break ShotTermination::ZeroTimeCycle {

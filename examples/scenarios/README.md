@@ -61,8 +61,11 @@ Expected flavor:
 ### Three-cushion / carom examples
 
 These scenarios use `table three_cushion_carom_10ft`, `game three_cushion`, the carom ball names
-`cue`, `yellow`, and `red`, and the `heated_carom` condition preset for lower cloth drag and
-livelier rails.
+`cue`, `yellow`, and `red`, and `simulation(default).preset(three_cushion)`. The typed preset resolves
+the production `PhysicsProfile::three_cushion_default()` baseline and defaults to `heated_carom`.
+Three-cushion validation files may vary layouts, shots, event limits, and cue-strike transfer, but
+must not embed independent ball-collision or rail coefficients. `cargo xtask validation-suite`
+rejects any such drift before rendering.
 
 ### `three_cushion_opening_break.billiards`
 Expected flavor:

@@ -10,8 +10,8 @@ This slice supports:
 - named ball-ball collision configs
 - named per-rail response configs
 - named rail profiles built from those responses
-- named simulation presets that bundle the physics knobs
-- optional built-in playing-conditions presets on simulation presets
+- named custom simulations that bundle explicit physics components
+- built-in physics profiles selected as a unit by simulation presets
 - one optional declarative cue shot per document, including explicit `.elevation(...)` and
   `.jump(...)` cue-elevation methods
 - lowering to validated physics-domain types and scenario helpers
@@ -72,6 +72,13 @@ rail_response(clean).normal_restitution(0.8).tangential_friction(1.0)
 rails(pinball).default(clean).top(dead).right(dead)
 simulation(human_pinball).collision_model(throw_aware).ball_ball(human).rail_model(spin_aware).rails(pinball).conditions(humid_dirty)
 shot(cue).heading(90deg).speed(128ips).tip(side: 0.0R, height: 0.0R).using(default)
+```
+
+The canonical three-cushion profile is selected without copying its coefficients into the DSL:
+
+```text
+table three_cushion_carom_10ft
+simulation(default).preset(three_cushion)
 ```
 
 ## Statements
@@ -141,26 +148,38 @@ Semantics:
 
 ### `simulation(name)`
 
-Defines a named physics preset for scenario execution.
+Defines a named physics configuration for scenario execution. A simulation must choose exactly one
+of these forms:
 
-Required methods, each exactly once:
+1. A custom configuration with all four component methods, each exactly once:
+   - `.collision_model(model)`
+   - `.ball_ball(config_name)`
+   - `.rail_model(model)`
+   - `.rails(profile_name)`
+2. A built-in configuration with `.preset(preset_name)` exactly once.
 
-- `.collision_model(model)`
-- `.ball_ball(config_name)`
-- `.rail_model(model)`
-- `.rails(profile_name)`
+`.conditions(preset_name)` is optional in either form and may appear at most once. Custom
+configurations default to `neutral`. The `three_cushion` built-in defaults to `heated_carom` and
+resolves through `PhysicsProfile::three_cushion_with_conditions(...)`; the DSL does not own a second
+copy of its coefficients.
 
-Optional methods, each at most once:
+Supported built-in physics preset literals:
 
-- `.conditions(preset_name)`
+- `three_cushion`
 
-Supported collision-model literals:
+The `three_cushion` preset requires `table three_cushion_carom_10ft`. It cannot be combined with
+custom component methods. A document using it also cannot declare `ball_ball(...)`,
+`rail_response(...)`, or `rails(...)` blocks: those declarations would create an unused, drifting
+physics baseline. `cue_strike(...)` remains independent because the preset describes post-strike
+table physics.
+
+Supported collision-model literals for custom configurations:
 
 - `ideal`
 - `throw_aware`
 - `spin_friction`
 
-Supported rail-model literals:
+Supported rail-model literals for custom configurations:
 
 - `mirror`
 - `restitution_only`
@@ -168,9 +187,10 @@ Supported rail-model literals:
 
 Supported built-in playing-conditions preset literals:
 
-- `neutral` (default when `.conditions(...)` is omitted)
+- `neutral` (default for a custom configuration)
 - `humid_dirty`
 - `fast_clean`
+- `heated_carom` (default for `three_cushion`)
 
 ### `shot(cue)`
 
@@ -262,9 +282,9 @@ The DSL lowers to a scenario-level value:
 
 - `DslScenario { game_state, shots, trace_max_events, ball_ball_configs, rail_responses, rail_profiles, simulations }`
 
-Each `SimulationPreset` carries its resolved built-in `PlayingConditions`, defaulting to neutral when omitted.
-
-where the named config maps already contain validated domain-level physics configs and `shots`
+Each `SimulationPreset` carries either a typed built-in physics preset or a complete set of custom
+component references, plus its selected `PlayingConditionsPreset`.
+The named config maps contain validated domain-level physics configs, while `shots`
 contains validated shots in source order. Derived aim helpers are resolved again against the
 settled layout immediately before each strike.
 

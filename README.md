@@ -30,7 +30,7 @@ ball eight frozen left (6.0)
 
 ## Physics-aware shot DSL
 
-DSL also supports declarative shot setup and named physics presets.
+The DSL supports declarative shot setup, custom named simulations, and typed built-in physics presets.
 
 ```text
 ball cue at (1.0, 4.0)
@@ -46,6 +46,13 @@ simulation(human_pinball).collision_model(throw_aware).ball_ball(human).rail_mod
 shot(cue).heading(90deg).speed(medium).tip(side: 0.0R, height: 0.0R).using(default)
 ```
 
+Use the canonical production profile for carom validation without repeating its coefficients:
+
+```text
+table three_cushion_carom_10ft
+simulation(default).preset(three_cushion)
+```
+
 `.speed(...)` is the cue ball's immediate post-strike launch speed, before cloth drag, roll-transition
 losses, cushion losses, or collisions. It accepts explicit units (`128ips`, `10mph`, `16.09344kph`) or
 Dr. Dave-style aliases: `touch`, `slow`, `medium-soft`, `medium`, `medium-fast`, `fast`, `power`, plus
@@ -57,13 +64,14 @@ Main knobs:
 - `ball_ball(name)` → ball-ball restitution + tangential friction
 - `rail_response(name)` → single-rail rebound config
 - `rails(name)` → per-rail profile built from named rail responses
-- `simulation(name)` → reusable preset bundling collision model, ball-ball config, rail model, rail profile, and optional built-in playing conditions
+- `simulation(name)` → either a custom component bundle or one typed `.preset(...)`, plus optional built-in playing conditions
 - `shot(cue)` → one declarative shot in document
 
 For more:
 
 - full syntax: [DSL_SHOT_MINI_SPEC.md](./DSL_SHOT_MINI_SPEC.md)
-- built-in `simulation(...).conditions(...)` presets: `neutral` (default), `humid_dirty`, `fast_clean`
+- built-in physics preset: `simulation(...).preset(three_cushion)` (defaults to `heated_carom`)
+- built-in `simulation(...).conditions(...)` presets: `neutral`, `humid_dirty`, `fast_clean`, `heated_carom`
 - ready examples: [examples/scenarios/](./examples/scenarios/)
 - named-preset example: [examples/scenarios/named_physics_pinball.billiards](./examples/scenarios/named_physics_pinball.billiards)
 

@@ -1524,6 +1524,57 @@ pub struct PredictedAirborneBallBallCollision {
     pub second_at_contact: BallState,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RawTrajectoryState {
+    position: [f64; 3],
+    velocity: [f64; 3],
+}
+
+fn raw_trajectory_state_at(
+    state: &NBallSystemState,
+    time: f64,
+    ball: &BallSetPhysicsSpec,
+    motion: &OnTableMotionConfig,
+) -> RawTrajectoryState {
+    debug_assert!(time >= 0.0);
+    match state {
+        NBallSystemState::OnTable(state) => {
+            let state_ref = state.as_ball_state();
+            let phase = classify_motion_phase(state_ref, ball, &motion.phase);
+            let advanced = raw_advance_motion_on_table(
+                RawOnTableBallState::from_on_table(state),
+                phase,
+                time,
+                ball.radius.as_f64(),
+                motion,
+            )
+            .0;
+            RawTrajectoryState {
+                position: [advanced.x, advanced.y, 0.0],
+                velocity: [advanced.vx, advanced.vy, 0.0],
+            }
+        }
+        NBallSystemState::Airborne(state) => RawTrajectoryState {
+            position: [
+                state.position.x().as_f64() + state.velocity.x().as_f64() * time,
+                state.position.y().as_f64() + state.velocity.y().as_f64() * time,
+                (state.height.as_f64() + state.vertical_velocity.as_f64() * time
+                    - 0.5 * STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * time * time)
+                    .max(0.0),
+            ],
+            velocity: [
+                state.velocity.x().as_f64(),
+                state.velocity.y().as_f64(),
+                state.vertical_velocity.as_f64()
+                    - STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * time,
+            ],
+        },
+        NBallSystemState::Pocketed { .. } => {
+            unreachable!("pocketed balls have no active trajectory")
+        }
+    }
+}
+
 fn vector_norm_3d(vector: [f64; 3]) -> f64 {
     vector[0].hypot(vector[1]).hypot(vector[2])
 }
@@ -1738,39 +1789,34 @@ fn predict_airborne_ball_ball_collision(
             .filter(|time| *time <= horizon)
     } else {
         let states_at = |time| {
-            advance_n_ball_system_without_event(
-                &[first.clone(), second.clone()],
-                Seconds::new(time),
-                ball,
-                motion,
+            (
+                raw_trajectory_state_at(first, time, ball, motion),
+                raw_trajectory_state_at(second, time, ball, motion),
             )
         };
         let gap_at = |time| {
-            let states = states_at(time);
-            let first = states[0].as_ball_state();
-            let second = states[1].as_ball_state();
-            let dx = second.position.x().as_f64() - first.position.x().as_f64();
-            let dy = second.position.y().as_f64() - first.position.y().as_f64();
-            let dz = second.height.as_f64() - first.height.as_f64();
-            vector_norm_3d([dx, dy, dz]) - contact_distance
+            let (first, second) = states_at(time);
+            vector_norm_3d([
+                second.position[0] - first.position[0],
+                second.position[1] - first.position[1],
+                second.position[2] - first.position[2],
+            ]) - contact_distance
         };
         let derivative_at = |time| {
-            let states = states_at(time);
-            let first = states[0].as_ball_state();
-            let second = states[1].as_ball_state();
+            let (first, second) = states_at(time);
             let offset = [
-                second.position.x().as_f64() - first.position.x().as_f64(),
-                second.position.y().as_f64() - first.position.y().as_f64(),
-                second.height.as_f64() - first.height.as_f64(),
+                second.position[0] - first.position[0],
+                second.position[1] - first.position[1],
+                second.position[2] - first.position[2],
             ];
             let distance = vector_norm_3d(offset);
             if distance == 0.0 {
                 0.0
             } else {
                 let velocity = [
-                    second.velocity.x().as_f64() - first.velocity.x().as_f64(),
-                    second.velocity.y().as_f64() - first.velocity.y().as_f64(),
-                    second.vertical_velocity.as_f64() - first.vertical_velocity.as_f64(),
+                    second.velocity[0] - first.velocity[0],
+                    second.velocity[1] - first.velocity[1],
+                    second.velocity[2] - first.velocity[2],
                 ];
                 dot_product_3d(offset, velocity) / distance
             }
@@ -5191,6 +5237,64 @@ impl RawOnTableBallState {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct RawNextTransition {
+    phase_before: MotionPhase,
+    phase_after: MotionPhase,
+    time_until_transition: f64,
+}
+
+impl RawNextTransition {
+    fn into_next_transition(self) -> NextTransition {
+        NextTransition {
+            phase_before: self.phase_before,
+            phase_after: self.phase_after,
+            time_until_transition: Seconds::new(self.time_until_transition),
+        }
+    }
+}
+
+fn raw_advance_motion_on_table(
+    mut state: RawOnTableBallState,
+    mut phase: MotionPhase,
+    dt_seconds: f64,
+    radius: f64,
+    config: &OnTableMotionConfig,
+) -> (RawOnTableBallState, Option<RawNextTransition>) {
+    debug_assert!(dt_seconds >= 0.0);
+    let mut remaining = dt_seconds;
+    let mut first_transition = None;
+
+    loop {
+        if remaining == 0.0 {
+            return (state, first_transition);
+        }
+        let Some(transition) =
+            compute_raw_next_transition_on_table(state, phase.clone(), radius, config)
+        else {
+            state = raw_advance_within_phase_on_table(state, phase, remaining, radius, config);
+            return (state, first_transition);
+        };
+        if remaining < transition.time_until_transition {
+            state = raw_advance_within_phase_on_table(state, phase, remaining, radius, config);
+            return (state, first_transition);
+        }
+
+        state = raw_advance_within_phase_on_table(
+            state,
+            phase,
+            transition.time_until_transition,
+            radius,
+            config,
+        );
+        remaining -= transition.time_until_transition;
+        phase = transition.phase_after.clone();
+        if first_transition.is_none() {
+            first_transition = Some(transition);
+        }
+    }
+}
+
 fn advance_vertical_axis_spin_f64(
     initial_spin: f64,
     dt_seconds: f64,
@@ -5427,23 +5531,21 @@ fn raw_advance_within_phase_on_table(
     }
 }
 
-fn raw_compute_next_transition_on_table(
+fn compute_raw_next_transition_on_table(
     state: RawOnTableBallState,
     phase: MotionPhase,
     radius: f64,
     config: &OnTableMotionConfig,
-) -> Option<NextTransition> {
+) -> Option<RawNextTransition> {
     match phase {
         MotionPhase::Rest => None,
         MotionPhase::Sliding => {
-            let time_until_transition = Seconds::new(
-                (2.0 / 7.0) * state.cloth_contact_speed(radius)
-                    / sliding_friction_acceleration(config),
-            );
+            let time_until_transition = (2.0 / 7.0) * state.cloth_contact_speed(radius)
+                / sliding_friction_acceleration(config);
             let endpoint = raw_advance_within_phase_on_table(
                 state,
                 MotionPhase::Sliding,
-                time_until_transition.as_f64(),
+                time_until_transition,
                 radius,
                 config,
             );
@@ -5470,18 +5572,16 @@ fn raw_compute_next_transition_on_table(
                 MotionPhase::Rolling
             };
 
-            Some(NextTransition {
+            Some(RawNextTransition {
                 phase_before: MotionPhase::Sliding,
                 phase_after,
                 time_until_transition,
             })
         }
         MotionPhase::Rolling => {
-            let time_until_transition =
-                Seconds::new(state.speed() / rolling_linear_deceleration(config));
+            let time_until_transition = state.speed() / rolling_linear_deceleration(config);
             let phase_after =
-                if advance_vertical_axis_spin_f64(state.wz, time_until_transition.as_f64(), config)
-                    .abs()
+                if advance_vertical_axis_spin_f64(state.wz, time_until_transition, config).abs()
                     > config.phase.thresholds.rest_angular_speed.as_f64()
                 {
                     MotionPhase::Spinning
@@ -5489,7 +5589,7 @@ fn raw_compute_next_transition_on_table(
                     MotionPhase::Rest
                 };
 
-            Some(NextTransition {
+            Some(RawNextTransition {
                 phase_before: MotionPhase::Rolling,
                 phase_after,
                 time_until_transition,
@@ -5497,10 +5597,10 @@ fn raw_compute_next_transition_on_table(
         }
         MotionPhase::Spinning => {
             time_until_vertical_axis_spin_stops_f64(state.wz, config).map(|time_until_transition| {
-                NextTransition {
+                RawNextTransition {
                     phase_before: MotionPhase::Spinning,
                     phase_after: MotionPhase::Rest,
-                    time_until_transition: Seconds::new(time_until_transition),
+                    time_until_transition,
                 }
             })
         }
@@ -5508,6 +5608,16 @@ fn raw_compute_next_transition_on_table(
             unreachable!("on-table motion helpers cannot predict airborne transitions")
         }
     }
+}
+
+fn raw_compute_next_transition_on_table(
+    state: RawOnTableBallState,
+    phase: MotionPhase,
+    radius: f64,
+    config: &OnTableMotionConfig,
+) -> Option<NextTransition> {
+    compute_raw_next_transition_on_table(state, phase, radius, config)
+        .map(RawNextTransition::into_next_transition)
 }
 
 /// Compute the cloth-contact slip velocity for an on-table ball.
@@ -5774,11 +5884,11 @@ pub fn advance_motion_on_table(
     ball: &BallSetPhysicsSpec,
     config: &OnTableMotionConfig,
 ) -> MotionAdvance {
-    assert!(dt.as_f64() >= 0.0, "advance duration must be non-negative");
+    let dt_seconds = dt.as_f64();
+    assert!(dt_seconds >= 0.0, "advance duration must be non-negative");
 
     let state_ref = state.as_ball_state();
-
-    if dt.as_f64() == 0.0 {
+    if dt_seconds == 0.0 {
         return MotionAdvance {
             state: state_ref.clone(),
             elapsed: dt,
@@ -5787,39 +5897,17 @@ pub fn advance_motion_on_table(
     }
 
     let phase = classify_motion_phase(state_ref, ball, &config.phase);
-    let next_transition = compute_next_transition_on_table(state, ball, config);
-
-    match next_transition {
-        None => MotionAdvance {
-            state: advance_within_phase_on_table(state, phase, dt, ball, config).into_ball_state(),
-            elapsed: dt,
-            transition: None,
-        },
-        Some(transition) if dt.as_f64() < transition.time_until_transition.as_f64() => {
-            MotionAdvance {
-                state: advance_within_phase_on_table(state, phase, dt, ball, config)
-                    .into_ball_state(),
-                elapsed: dt,
-                transition: None,
-            }
-        }
-        Some(transition) => {
-            let at_transition = advance_within_phase_on_table(
-                state,
-                phase,
-                transition.time_until_transition,
-                ball,
-                config,
-            );
-            let remainder = Seconds::new(dt.as_f64() - transition.time_until_transition.as_f64());
-            let advanced = advance_motion_on_table(&at_transition, remainder, ball, config);
-
-            MotionAdvance {
-                state: advanced.state,
-                elapsed: dt,
-                transition: Some(transition),
-            }
-        }
+    let (advanced, transition) = raw_advance_motion_on_table(
+        RawOnTableBallState::from_on_table(state),
+        phase,
+        dt_seconds,
+        ball.radius.as_f64(),
+        config,
+    );
+    MotionAdvance {
+        state: advanced.into_on_table_state().into_ball_state(),
+        elapsed: dt,
+        transition: transition.map(RawNextTransition::into_next_transition),
     }
 }
 

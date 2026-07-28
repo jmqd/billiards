@@ -14,7 +14,9 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions};
+use billiards::dsl::{
+    parse_dsl_to_scenario, ScenarioShotTrace, ScenarioTraceRenderOptions, SimulationPhysicsPreset,
+};
 use billiards::svg_generator::{
     build_scenario_playback_report, serialize_scenario_playback_report, ScenarioPlaybackReport,
 };
@@ -29,7 +31,7 @@ use billiards::visualization::{
 use billiards::{
     diagram::DiagramOutputFormat, human_tuned_preview_motion_config, CollisionModel,
     DiagramBackground, DiagramRenderOptions, GameState, HumanShotSpeedBand, NBallSystemState,
-    RailModel, Seconds, ShotSpeedPreset,
+    RailModel, Seconds, ShotSpeedPreset, TableKind,
 };
 
 fn workspace_root() -> &'static Path {
@@ -946,6 +948,15 @@ fn render_scenario(
         .map_err(|error| format!("failed to read {}: {error}", scenario_path.display()))?;
     let mut scenario = parse_dsl_to_scenario(&source)
         .map_err(|error| format!("failed to parse {}: {error}", scenario_path.display()))?;
+    if scenario.game_state.table_spec.kind == TableKind::ThreeCushionCarom
+        && scenario.preferred_simulation_physics_preset()
+            != Some(SimulationPhysicsPreset::ThreeCushion)
+    {
+        return Err(format!(
+            "{}: three-cushion validation scenarios must use simulation(...).preset(three_cushion)",
+            scenario_path.display()
+        ));
+    }
     scenario.game_state.resolve_positions();
 
     let ball_set = scenario.ball_set_physics_spec();

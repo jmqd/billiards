@@ -3,7 +3,7 @@ use std::fs;
 use billiards::diagram::DiagramOutputFormat;
 use billiards::dsl::{
     parse_dsl_to_scenario, DslScenario, ScenarioShotTrace, ScenarioShotTraceEventKind,
-    ScenarioTraceRenderOptions,
+    ScenarioTraceRenderOptions, SimulationPhysicsPreset,
 };
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
 use billiards::{
@@ -1208,6 +1208,11 @@ fn three_cushion_scenarios_use_pocketless_carom_physics_and_render_svg() {
             scenario.game_state.table_spec.kind,
             TableKind::ThreeCushionCarom
         );
+        assert_eq!(
+            scenario.preferred_simulation_physics_preset(),
+            Some(SimulationPhysicsPreset::ThreeCushion),
+            "{scenario_path}: validation scenarios must use canonical three-cushion physics"
+        );
         assert!(!trace.event_log.iter().any(|event| {
             matches!(
                 &event.kind,
@@ -1238,26 +1243,17 @@ fn three_cushion_physics_profile(scenario: &DslScenario) -> Result<PhysicsProfil
         .preferred_simulation_name()
         .ok_or_else(|| "scenario has no unambiguous preferred simulation".to_string())?;
     let simulation = scenario
-        .simulation_named(simulation_name)
+        .effective_simulation_physics(&human_tuned_preview_motion_config(), simulation_name)
         .map_err(|error| format!("preferred simulation is invalid: {error}"))?;
-    let conditions = &simulation.conditions;
-    let collision = scenario
-        .ball_ball_config_named(&simulation.ball_ball_name)
-        .map_err(|error| format!("preferred ball-ball configuration is invalid: {error}"))?
-        .applying_conditions(conditions);
-    let rails = scenario
-        .rail_profile_named(&simulation.rails_name)
-        .map_err(|error| format!("preferred rail configuration is invalid: {error}"))?
-        .applying_conditions(conditions);
 
     PhysicsProfile::new(
         scenario.game_state.table_spec.clone(),
         scenario.ball_set_physics_spec(),
-        human_tuned_preview_motion_config().applying_conditions(conditions),
+        simulation.motion,
         simulation.collision_model,
-        collision,
+        simulation.collision_config,
         simulation.rail_model,
-        rails,
+        simulation.rail_profile,
     )
     .map_err(|error| format!("typed physics profile is invalid: {error}"))
 }

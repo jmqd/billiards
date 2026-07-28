@@ -1392,6 +1392,20 @@ fn production_robust_search_request() -> PlayerRobustSearchRequest {
 
 fn bench_player_robust_search(c: &mut Criterion) {
     let request = production_robust_search_request();
+    let preflight = run_player_robust_search(&request)
+        .expect("benchmark robust search preflight should succeed");
+    assert_eq!(preflight.budget.planned_evaluations, 256);
+    assert_eq!(preflight.actual_evaluations(), 256);
+    let winner = preflight
+        .winner()
+        .expect("benchmark robust search preflight should find a winner");
+    assert!(
+        winner
+            .validation
+            .as_ref()
+            .is_some_and(|summary| summary.scored > 0),
+        "benchmark robust search winner should have a scored validation trial",
+    );
     let mut group = c.benchmark_group("player_robust_search");
     group.measurement_time(Duration::from_secs(10));
     group.sample_size(10);

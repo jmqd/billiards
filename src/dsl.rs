@@ -2069,22 +2069,22 @@ impl ScenarioBallTrace {
         let mut polylines = Vec::new();
         for segment in &self.timeline_segments {
             let airborne = OnTableBallState::try_from(segment.start.clone()).is_err();
+            let projected_start = segment.start.projected_position(table_spec);
             if polylines
                 .last()
-                .is_none_or(|polyline: &ScenarioTracePolyline| polyline.airborne != airborne)
+                .is_none_or(|polyline: &ScenarioTracePolyline| {
+                    polyline.airborne != airborne
+                        || polyline.points.last() != Some(&projected_start)
+                })
             {
                 polylines.push(ScenarioTracePolyline {
-                    points: vec![segment.start.projected_position(table_spec)],
+                    points: vec![projected_start],
                     airborne,
                 });
             }
             let Some(polyline) = polylines.last_mut() else {
                 continue;
             };
-            let projected_start = segment.start.projected_position(table_spec);
-            if polyline.points.last() != Some(&projected_start) {
-                polyline.points.push(projected_start);
-            }
             for sample in
                 TimelineSubdivision::new(segment.duration.as_f64().max(0.0), subdivision_step)
             {
@@ -5785,6 +5785,147 @@ mod tests {
         let err = build_game_state(&doc).expect_err("build");
         assert!(matches!(err, DslBuildError::UnknownAlias(_)));
     }
+    #[test]
+    fn sampled_render_polylines_split_same_class_timeline_discontinuities() {
+        let source = r#"
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (0.5, 7)
+ball yellow at (0.15, 4.2)
+ball red at (3.6, 7.6)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(188)
+shot(cue).heading(67.74808019037444deg).speed(191.90645354233922ips).tip(side: 0.1674794242630157R, height: 0.22335348970036512R).elevation(11.937593204932343deg).using(default)
+"#;
+        let scenario = parse_dsl_to_scenario(source).expect("regression scenario should parse");
+        let ball_set = scenario.ball_set_physics_spec();
+        let trace = scenario
+            .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+                &ball_set,
+                &crate::human_tuned_preview_motion_config(),
+                CollisionModel::ThrowAware,
+                RailModel::SpinAware,
+            )
+            .expect("regression scenario should simulate")
+            .expect("regression scenario should contain a shot");
+
+        let cue_object_contacts = trace
+            .event_log
+            .iter()
+            .filter_map(|event| {
+                let (ScenarioShotTraceEventKind::BallBallCollision {
+                    first_ball,
+                    second_ball,
+                }
+                | ScenarioShotTraceEventKind::AirborneBallBallCollision {
+                    first_ball,
+                    second_ball,
+                }) = &event.kind
+                else {
+                    return None;
+                };
+                if first_ball == &BallType::Cue {
+                    Some(second_ball.clone())
+                } else if second_ball == &BallType::Cue {
+                    Some(first_ball.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            cue_object_contacts.first(),
+            Some(&BallType::Red),
+            "the supplied shot's early red motion is simulated contact, not a trace connector"
+        );
+        assert!(
+            cue_object_contacts
+                .iter()
+                .skip(1)
+                .any(|ball| ball == &BallType::YellowCue),
+            "the supplied shot should later contact yellow"
+        );
+
+        let cue_trace = trace
+            .ball_traces
+            .iter()
+            .find(|ball_trace| ball_trace.ball == BallType::Cue)
+            .expect("trace should contain the cue ball");
+        assert!(
+            cue_trace.as_ball_path().is_none(),
+            "fixture must exercise the mixed-state SVG polyline branch"
+        );
+        let table_spec = &scenario.game_state.table_spec;
+        let same_class_discontinuities = cue_trace
+            .timeline_segments
+            .windows(2)
+            .filter_map(|segments| {
+                let previous_airborne =
+                    OnTableBallState::try_from(segments[0].start.clone()).is_err();
+                let next_airborne = OnTableBallState::try_from(segments[1].start.clone()).is_err();
+                let previous_end = segments[0].end.projected_position(table_spec);
+                let next_start = segments[1].start.projected_position(table_spec);
+                (previous_airborne == next_airborne && previous_end != next_start)
+                    .then_some((previous_end, next_start))
+            })
+            .collect::<Vec<_>>();
+        let gap_inches = |from: &Position, to: &Position| {
+            let from_x = table_spec.diamond_to_inches(from.x.clone()).as_f64();
+            let from_y = table_spec.diamond_to_inches(from.y.clone()).as_f64();
+            let to_x = table_spec.diamond_to_inches(to.x.clone()).as_f64();
+            let to_y = table_spec.diamond_to_inches(to.y.clone()).as_f64();
+            (to_x - from_x).hypot(to_y - from_y)
+        };
+        let largest_gap_inches = same_class_discontinuities
+            .iter()
+            .map(|(from, to)| gap_inches(from, to))
+            .fold(0.0, f64::max);
+        assert!(
+            largest_gap_inches > 4.0,
+            "fixture must retain its material same-class timeline discontinuity; largest gap was \
+             {largest_gap_inches:.6} in"
+        );
+
+        let polylines = cue_trace.sampled_render_polylines(
+            Seconds::new(1.0 / 120.0),
+            &trace.ball_set,
+            &trace.motion,
+            table_spec,
+        );
+        for (previous_end, next_start) in &same_class_discontinuities {
+            assert!(
+                polylines
+                    .iter()
+                    .any(|polyline| polyline.points.last() == Some(previous_end)),
+                "the polyline before a timeline discontinuity must end at the prior state"
+            );
+            assert!(
+                polylines
+                    .iter()
+                    .any(|polyline| polyline.points.first() == Some(next_start)),
+                "the polyline after a timeline discontinuity must start at the recovered state"
+            );
+            assert!(
+                !polylines.iter().any(|polyline| {
+                    polyline
+                        .points
+                        .windows(2)
+                        .any(|points| points[0] == *previous_end && points[1] == *next_start)
+                }),
+                "state-recovery discontinuities must never become rendered connectors"
+            );
+        }
+    }
+
     #[test]
     fn playback_last_frame_time_uses_the_last_epsilon_retained_candidate() {
         let base = 100.0;

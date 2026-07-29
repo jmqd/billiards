@@ -270,11 +270,21 @@ impl RobustThreeCushionExperimentReport {
     }
 }
 
+const PRO_PLAYER_SHOT_INACCURACY: RobustNoiseSigmas = RobustNoiseSigmas {
+    heading: 0.25,
+    speed: 1.5,
+    tip_side: 0.008,
+    tip_height: 0.008,
+    elevation: 0.15,
+};
+const WORLD_CLASS_PRO_SIGMA_FACTOR: f64 = 0.7;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ThreeCushionPlayerLevel {
     B,
     A,
     Pro,
+    WorldClassPro,
 }
 
 impl ThreeCushionPlayerLevel {
@@ -283,6 +293,7 @@ impl ThreeCushionPlayerLevel {
             Self::B => "b",
             Self::A => "a",
             Self::Pro => "pro",
+            Self::WorldClassPro => "world-class-pro",
         }
     }
 
@@ -291,6 +302,7 @@ impl ThreeCushionPlayerLevel {
             Self::B => "B player",
             Self::A => "A player",
             Self::Pro => "Pro player",
+            Self::WorldClassPro => "World Class Pro",
         }
     }
 
@@ -310,12 +322,13 @@ impl ThreeCushionPlayerLevel {
                 tip_height: 0.018,
                 elevation: 0.35,
             },
-            Self::Pro => RobustNoiseSigmas {
-                heading: 0.25,
-                speed: 1.5,
-                tip_side: 0.008,
-                tip_height: 0.008,
-                elevation: 0.15,
+            Self::Pro => PRO_PLAYER_SHOT_INACCURACY,
+            Self::WorldClassPro => RobustNoiseSigmas {
+                heading: PRO_PLAYER_SHOT_INACCURACY.heading * WORLD_CLASS_PRO_SIGMA_FACTOR,
+                speed: PRO_PLAYER_SHOT_INACCURACY.speed * WORLD_CLASS_PRO_SIGMA_FACTOR,
+                tip_side: PRO_PLAYER_SHOT_INACCURACY.tip_side * WORLD_CLASS_PRO_SIGMA_FACTOR,
+                tip_height: PRO_PLAYER_SHOT_INACCURACY.tip_height * WORLD_CLASS_PRO_SIGMA_FACTOR,
+                elevation: PRO_PLAYER_SHOT_INACCURACY.elevation * WORLD_CLASS_PRO_SIGMA_FACTOR,
             },
         }
     }
@@ -334,7 +347,7 @@ impl fmt::Display for ParsePlayerLevelError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "unknown player level '{}'; expected b, a, or pro",
+            "unknown player level '{}'; expected b, a, pro, or world-class-pro",
             self.0
         )
     }
@@ -350,6 +363,7 @@ impl FromStr for ThreeCushionPlayerLevel {
             "b" | "b-player" | "b player" => Ok(Self::B),
             "a" | "a-player" | "a player" => Ok(Self::A),
             "pro" | "pro-player" | "pro player" => Ok(Self::Pro),
+            "world-class-pro" | "world class pro" => Ok(Self::WorldClassPro),
             _ => Err(ParsePlayerLevelError(value.to_string())),
         }
     }
@@ -2148,14 +2162,45 @@ mod tests {
         let b = ThreeCushionPlayerLevel::B.shot_inaccuracy().as_array();
         let a = ThreeCushionPlayerLevel::A.shot_inaccuracy().as_array();
         let pro = ThreeCushionPlayerLevel::Pro.shot_inaccuracy().as_array();
+        let world_class_pro = ThreeCushionPlayerLevel::WorldClassPro
+            .shot_inaccuracy()
+            .as_array();
         for index in 0..5 {
             assert!(b[index] > a[index]);
             assert!(a[index] > pro[index]);
+            assert!(pro[index] > world_class_pro[index]);
+            assert_eq!(
+                world_class_pro[index],
+                pro[index] * WORLD_CLASS_PRO_SIGMA_FACTOR,
+                "world-class sigma {index} must be exactly 70% of Pro",
+            );
         }
         assert_eq!("B player".parse(), Ok(ThreeCushionPlayerLevel::B));
         assert_eq!("a".parse(), Ok(ThreeCushionPlayerLevel::A));
         assert_eq!("pro-player".parse(), Ok(ThreeCushionPlayerLevel::Pro));
-        assert!("novice".parse::<ThreeCushionPlayerLevel>().is_err());
+        assert_eq!(
+            ThreeCushionPlayerLevel::WorldClassPro.key(),
+            "world-class-pro",
+        );
+        assert_eq!(
+            ThreeCushionPlayerLevel::WorldClassPro.label(),
+            "World Class Pro",
+        );
+        assert_eq!(
+            "world-class-pro".parse(),
+            Ok(ThreeCushionPlayerLevel::WorldClassPro),
+        );
+        assert_eq!(
+            "World Class Pro".parse(),
+            Ok(ThreeCushionPlayerLevel::WorldClassPro),
+        );
+        let Err(error) = "novice".parse::<ThreeCushionPlayerLevel>() else {
+            panic!("novice must not parse as a player level");
+        };
+        assert_eq!(
+            error.to_string(),
+            "unknown player level 'novice'; expected b, a, pro, or world-class-pro",
+        );
     }
 
     #[test]

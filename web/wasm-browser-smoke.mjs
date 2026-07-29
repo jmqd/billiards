@@ -13,6 +13,10 @@ const CHROME_ARGUMENTS = [
   "--disable-renderer-backgrounding",
 ];
 const EXPECTED_EVALUATION_COUNT = "256 actual · 256 planned · 256 maximum";
+const DEFAULT_PLAYER_LEVEL = "a";
+const WORLD_CLASS_PLAYER_LEVEL = "world-class-pro";
+const WORLD_CLASS_PLAYER_LABEL = "World Class Pro";
+const EXPECTED_WORLD_CLASS_NOISE_SUMMARY = "World Class Pro: σ 0.175° heading · 1.05 ips speed · 0.0056 R side · 0.0056 R height · 0.105° elevation";
 const DRIVER_START_TIMEOUT_MS = 30_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 const PROBE_TIMEOUT_MS = 30_000;
@@ -316,52 +320,87 @@ async function waitForProductionPage(client, baseUrl) {
   });
 }
 
-async function waitForSearchButton(client) {
+async function waitForSearchButton(client, expectedPlayerLevel) {
   const state = await waitForState({
     description: "robust search form recovery",
     timeoutMs: 5_000,
     read: () => client.execute(`
       const button = document.querySelector('#robust-search-button');
+      const select = document.querySelector('#robust-player-level');
       return {
         present: Boolean(button),
         disabled: button?.disabled ?? null,
         label: button?.textContent?.trim() ?? null,
         iterations: document.querySelector('#robust-iterations')?.value ?? null,
-        playerLevel: document.querySelector('#robust-player-level')?.value ?? null,
+        playerLevel: select?.value ?? null,
+        playerLevels: Array.from(select?.options ?? [], (option) => ({
+          value: option.value,
+          label: option.textContent?.trim() ?? null,
+        })),
       };
     `),
     ready: (value) => value?.present === true && value.disabled === false,
   });
-  if (state.iterations !== "256" || state.playerLevel !== "a") {
-    throw new Error(`Production search defaults changed: ${formatState(state)}`);
+  const worldClassOption = state.playerLevels.find(
+    (option) => option.value === WORLD_CLASS_PLAYER_LEVEL,
+  );
+  if (
+    state.iterations !== "256"
+    || state.playerLevel !== expectedPlayerLevel
+    || worldClassOption?.label !== WORLD_CLASS_PLAYER_LABEL
+  ) {
+    throw new Error(`Production search options changed: ${formatState(state)}`);
   }
   return state;
 }
 
-async function runRobustSearch(client) {
-  await waitForSearchButton(client);
+async function runRobustSearch(
+  client,
+  {
+    expectedInitialPlayerLevel,
+    playerLevel,
+    playerLevelLabel,
+    expectedNoiseSummary,
+  },
+) {
+  await waitForSearchButton(client, expectedInitialPlayerLevel);
   const click = await client.execute(`
     const button = document.querySelector('#robust-search-button');
+    const select = document.querySelector('#robust-player-level');
     const iterations = document.querySelector('#robust-iterations')?.value ?? null;
-    const playerLevel = document.querySelector('#robust-player-level')?.value ?? null;
-    if (!button || button.disabled || iterations !== '256' || playerLevel !== 'a') {
+    const targetPlayerLevel = ${JSON.stringify(playerLevel)};
+    const option = Array.from(select?.options ?? [])
+      .find((candidate) => candidate.value === targetPlayerLevel);
+    if (!button || button.disabled || !select || !option || iterations !== '256') {
       return {
         clicked: false,
         present: Boolean(button),
         disabled: button?.disabled ?? null,
         iterations,
-        playerLevel,
+        playerLevel: select?.value ?? null,
+        playerLevelLabel: option?.textContent?.trim() ?? null,
       };
     }
+    select.value = targetPlayerLevel;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
     button.click();
-    return { clicked: true, iterations, playerLevel };
+    return {
+      clicked: true,
+      iterations,
+      playerLevel: select.value,
+      playerLevelLabel: option.textContent?.trim() ?? null,
+    };
   `);
-  if (click?.clicked !== true) {
-    throw new Error(`Could not submit the robust search: ${formatState(click)}`);
+  if (
+    click?.clicked !== true
+    || click.playerLevel !== playerLevel
+    || click.playerLevelLabel !== playerLevelLabel
+  ) {
+    throw new Error(`Could not submit the ${playerLevelLabel} robust search: ${formatState(click)}`);
   }
 
   const state = await waitForState({
-    description: "default robust shot search",
+    description: `${playerLevelLabel} robust shot search`,
     timeoutMs: ROBUST_SEARCH_TIMEOUT_MS,
     read: () => client.execute(`
       const status = document.querySelector('#robust-search-status');
@@ -369,6 +408,7 @@ async function runRobustSearch(client) {
         kind: status?.dataset.kind ?? null,
         status: status?.textContent?.trim() ?? null,
         evaluations: document.querySelector('#robust-evaluation-count')?.textContent?.trim() ?? null,
+        noiseSummary: document.querySelector('#robust-noise-summary')?.textContent?.trim() ?? null,
         title: document.querySelector('#robust-search-result-title')?.textContent?.trim() ?? null,
       };
     `),
@@ -381,6 +421,9 @@ async function runRobustSearch(client) {
       `Robust search reported unexpected evaluation counts: ${formatState(state)}`,
     );
   }
+  if (state.noiseSummary !== expectedNoiseSummary) {
+    throw new Error(`Robust search used unexpected execution error: ${formatState(state)}`);
+  }
   const winnerMatch = /^Best validated shot · candidate (\d+)$/.exec(state.title ?? "");
   const winnerId = winnerMatch ? Number(winnerMatch[1]) : Number.NaN;
   if (!Number.isSafeInteger(winnerId) || winnerId < 0) {
@@ -390,6 +433,7 @@ async function runRobustSearch(client) {
   return {
     status: state.status,
     evaluations: state.evaluations,
+    noiseSummary: state.noiseSummary,
     title: state.title,
     winnerId,
   };
@@ -551,12 +595,23 @@ async function main() {
     state.step = "initialize production Wasm page";
     await waitForProductionPage(client, previewBaseUrl);
 
+    const worldClassProfile = {
+      playerLevel: WORLD_CLASS_PLAYER_LEVEL,
+      playerLevelLabel: WORLD_CLASS_PLAYER_LABEL,
+      expectedNoiseSummary: EXPECTED_WORLD_CLASS_NOISE_SUMMARY,
+    };
     state.step = "run first robust shot search";
-    const firstSearch = await runRobustSearch(client);
+    const firstSearch = await runRobustSearch(client, {
+      expectedInitialPlayerLevel: DEFAULT_PLAYER_LEVEL,
+      ...worldClassProfile,
+    });
     state.robustSearches.push(firstSearch);
 
     state.step = "run second robust shot search";
-    const secondSearch = await runRobustSearch(client);
+    const secondSearch = await runRobustSearch(client, {
+      expectedInitialPlayerLevel: WORLD_CLASS_PLAYER_LEVEL,
+      ...worldClassProfile,
+    });
     state.robustSearches.push(secondSearch);
     if (secondSearch.winnerId !== firstSearch.winnerId) {
       throw new Error(

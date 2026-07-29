@@ -1111,10 +1111,18 @@ fn cross_entropy_island(
 }
 
 /// Chooses structured centers, global immigrants, or an island distribution.
+///
+/// One immigrant is scheduled in every interval, alternating its island so both
+/// object-directed searches retain equal access to the full control domain.
 fn cross_entropy_proposal_kind(generated_index: usize) -> CrossEntropyProposalKind {
     if generated_index < CROSS_ENTROPY_ISLAND_COUNT {
-        CrossEntropyProposalKind::Center
-    } else if (generated_index + 1).is_multiple_of(CROSS_ENTROPY_GLOBAL_IMMIGRANT_INTERVAL) {
+        return CrossEntropyProposalKind::Center;
+    }
+
+    let interval = CROSS_ENTROPY_GLOBAL_IMMIGRANT_INTERVAL;
+    let interval_index = generated_index / interval;
+    let immigrant_offset = interval - 1 - interval_index % CROSS_ENTROPY_ISLAND_COUNT;
+    if generated_index % interval == immigrant_offset {
         CrossEntropyProposalKind::Global
     } else {
         CrossEntropyProposalKind::Distribution
@@ -2331,7 +2339,7 @@ mod tests {
     }
 
     #[test]
-    fn cross_entropy_schedule_and_normalized_mapping_preserve_domain_geometry() {
+    fn cross_entropy_schedule_balances_global_immigrants_between_islands() {
         assert_eq!(
             cross_entropy_proposal_kind(0),
             CrossEntropyProposalKind::Center
@@ -2349,14 +2357,25 @@ mod tests {
             CrossEntropyProposalKind::Global
         );
         assert_eq!(
-            cross_entropy_proposal_kind(6),
-            CrossEntropyProposalKind::Distribution
+            cross_entropy_proposal_kind(10),
+            CrossEntropyProposalKind::Global
         );
         assert_eq!(
             cross_entropy_proposal_kind(11),
-            CrossEntropyProposalKind::Global
+            CrossEntropyProposalKind::Distribution
         );
 
+        let mut globals_by_island = [0; CROSS_ENTROPY_ISLAND_COUNT];
+        for generated_index in 0..96 {
+            if cross_entropy_proposal_kind(generated_index) == CrossEntropyProposalKind::Global {
+                globals_by_island[generated_index % CROSS_ENTROPY_ISLAND_COUNT] += 1;
+            }
+        }
+        assert_eq!(globals_by_island, [8, 8]);
+    }
+
+    #[test]
+    fn normalized_mapping_preserves_domain_geometry() {
         let bounds = [
             RobustControlBounds::new(0.0, 360.0),
             RobustControlBounds::new(1.0, 300.0),

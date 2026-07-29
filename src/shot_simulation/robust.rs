@@ -1203,10 +1203,14 @@ fn sample_cross_entropy_point(
     }
 }
 
-/// Uses eligible soft progress for CEM fitting; validation still ranks legal-score probability.
+/// Fits CEM by legal scores first and soft progress only within a score-count tier.
+///
+/// Screening candidates in a generation have the same replication count. Search
+/// fitness is bounded to `[0, 1]`, so a weight of two makes one additional legal
+/// score dominate every possible progress difference.
 fn cross_entropy_score(summary: &RobustOutcomeSummary, search_fitness: f64) -> f64 {
     if summary.eligible {
-        search_fitness
+        f64::from(summary.scored).mul_add(2.0, search_fitness)
     } else {
         f64::NAN
     }
@@ -2256,40 +2260,35 @@ mod tests {
     }
 
     #[test]
-    fn cross_entropy_score_is_normalized_and_ignores_ineligible_trials() {
-        let one_replication = RobustOutcomeSummary {
-            requested: 1,
-            scored: 0,
-            missed: 1,
-            indeterminate: 0,
-            failed: 0,
-            success_rate: Some(0.0),
-            confidence_low: Some(0.0),
-            confidence_high: Some(1.0),
-            eligible: true,
-        };
-        let many_replications = RobustOutcomeSummary {
-            requested: 32,
-            scored: 17,
-            missed: 15,
-            indeterminate: 0,
-            failed: 0,
-            success_rate: Some(17.0 / 32.0),
-            confidence_low: Some(0.0),
-            confidence_high: Some(1.0),
-            eligible: true,
-        };
-        let fitness = 0.73;
+    fn cross_entropy_score_prioritizes_legal_scores_and_ignores_ineligible_trials() {
+        fn summary(scored: u32, missed: u32) -> RobustOutcomeSummary {
+            RobustOutcomeSummary {
+                requested: scored + missed,
+                scored,
+                missed,
+                indeterminate: 0,
+                failed: 0,
+                success_rate: None,
+                confidence_low: None,
+                confidence_high: None,
+                eligible: true,
+            }
+        }
+
+        let near_miss = summary(0, 2);
+        let one_score = summary(1, 1);
         assert!(
-            (cross_entropy_score(&one_replication, fitness)
-                - cross_entropy_score(&many_replications, fitness))
-            .abs()
-                <= f64::EPSILON
+            cross_entropy_score(&one_score, 0.5) > cross_entropy_score(&near_miss, 0.95),
+            "one legal score must beat any non-scoring progress"
+        );
+        assert!(
+            cross_entropy_score(&one_score, 0.7) > cross_entropy_score(&one_score, 0.5),
+            "soft progress must break ties within a score-count tier"
         );
 
-        let mut ineligible = many_replications;
+        let mut ineligible = one_score;
         ineligible.eligible = false;
-        assert!(cross_entropy_score(&ineligible, fitness).is_nan());
+        assert!(cross_entropy_score(&ineligible, 1.0).is_nan());
     }
 
     #[test]

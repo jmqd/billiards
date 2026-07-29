@@ -1207,12 +1207,13 @@ fn sample_cross_entropy_point(
 ///
 /// Screening candidates in a generation have the same replication count. Search
 /// fitness is bounded to `[0, 1]`, so a weight of two makes one additional legal
-/// score dominate every possible progress difference.
+/// score dominate every possible progress difference. Zero-progress misses are
+/// ignored so an uninformative generation leaves its island distribution unchanged.
 fn cross_entropy_score(summary: &RobustOutcomeSummary, search_fitness: f64) -> f64 {
-    if summary.eligible {
-        f64::from(summary.scored).mul_add(2.0, search_fitness)
-    } else {
+    if !summary.eligible || (summary.scored == 0 && search_fitness <= 0.0) {
         f64::NAN
+    } else {
+        f64::from(summary.scored).mul_add(2.0, search_fitness)
     }
 }
 
@@ -2289,6 +2290,33 @@ mod tests {
         let mut ineligible = one_score;
         ineligible.eligible = false;
         assert!(cross_entropy_score(&ineligible, 1.0).is_nan());
+    }
+
+    #[test]
+    fn zero_progress_screening_batch_preserves_cem_distribution() {
+        let summary = RobustOutcomeSummary {
+            requested: 2,
+            scored: 0,
+            missed: 2,
+            indeterminate: 0,
+            failed: 0,
+            success_rate: Some(0.0),
+            confidence_low: Some(0.0),
+            confidence_high: Some(1.0),
+            eligible: true,
+        };
+        let mut optimizer =
+            CrossEntropyOptimizer::new(CrossEntropyConfig::new([0.5], [0.25])).unwrap();
+        let mut samples = [
+            CrossEntropySample::new([0.1], cross_entropy_score(&summary, 0.0)),
+            CrossEntropySample::new([0.3], cross_entropy_score(&summary, 0.0)),
+            CrossEntropySample::new([0.7], cross_entropy_score(&summary, 0.0)),
+            CrossEntropySample::new([0.9], cross_entropy_score(&summary, 0.0)),
+        ];
+
+        assert!(optimizer.tell(&mut samples).unwrap().is_none());
+        assert_eq!(optimizer.mean(), &[0.5]);
+        assert_eq!(optimizer.standard_deviation(), &[0.25]);
     }
 
     #[test]

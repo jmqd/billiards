@@ -310,6 +310,7 @@ fn tagged_report_is_stage_aware_self_describing_and_csv_safe() {
             rank: None,
             candidate_id: 3,
             controls,
+            nominal_scored: None,
             screening,
             validation: None,
         }],
@@ -458,20 +459,23 @@ fn fixed_search_cli_is_stage_aware_and_reproducible() {
                 "0.000000000",
             ]
         );
-        assert_eq!(&fields[8..11], ["2", "2", "0"]);
-        assert_eq!(&fields[11..14], ["0", "0", "0"]);
-        assert_eq!(fields[17], "true");
-        assert_eq!(&fields[18..21], ["2", "2", "0"]);
-        assert_eq!(&fields[21..24], ["0", "0", "0"]);
-        assert_eq!(fields[27], "true");
+        assert_eq!(fields[8], "true");
+        assert_eq!(&fields[9..12], ["2", "2", "0"]);
+        assert_eq!(&fields[12..15], ["0", "0", "0"]);
+        assert_eq!(fields[18], "true");
+        assert_eq!(&fields[19..22], ["2", "2", "0"]);
+        assert_eq!(&fields[22..25], ["0", "0", "0"]);
+        assert_eq!(fields[28], "true");
     }
 
     let meta = lines
         .iter()
         .find(|line| line.starts_with("META,"))
         .expect("META row");
-    assert!(meta.contains("selection_policy=wilson95-lower-then-rate-then-object-first-then-id"));
-    assert!(meta.contains("winner_id=0"));
+    assert!(meta.contains(concat!(
+        "selection_policy=nominal-score-required-then-wilson95-lower-then-rate-",
+        "then-object-first-then-id"
+    )));
 
     assert_eq!(
         lines
@@ -484,7 +488,7 @@ fn fixed_search_cli_is_stage_aware_and_reproducible() {
         .iter()
         .filter(|line| line.starts_with("TRIAL,") && !line.starts_with("TRIAL,stage,"))
         .collect();
-    assert_eq!(trials.len(), 8);
+    assert_eq!(trials.len(), 10);
     assert_eq!(
         trials
             .iter()
@@ -498,6 +502,13 @@ fn fixed_search_cli_is_stage_aware_and_reproducible() {
             .filter(|row| row.starts_with("TRIAL,validation,"))
             .count(),
         4
+    );
+    assert_eq!(
+        trials
+            .iter()
+            .filter(|row| row.starts_with("TRIAL,nominal,"))
+            .count(),
+        2
     );
     for row in trials {
         let fields: Vec<_> = row.split(',').collect();
@@ -515,6 +526,7 @@ fn fixed_search_cli_is_stage_aware_and_reproducible() {
         match fields[1] {
             "screening" => assert!(fields[4].contains(":5345415243480002:")),
             "validation" => assert!(fields[4].contains(":5345415243480003:")),
+            "nominal" => assert!(fields[4].contains(":5345415243480004:")),
             stage => panic!("unexpected stage {stage}"),
         }
     }

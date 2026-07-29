@@ -118,16 +118,18 @@ of the object balls, periodically receives balanced global proposals, and refits
 distribution from each evaluated batch. Screening prioritizes legal scores, then bounded progress
 through object-first contact, cushions, and estimated 3D surface clearance to the remaining object.
 Held-out legal-score probability and Wilson bounds determine final ranks; equal-probability routes
-prefer scoring trials that contact an object before a cushion. A run that validates no legal score
-reports no winner.
+prefer scoring trials that contact an object before a cushion. The evaluation budget reserves one
+exact center check per finalist, and only candidates that score that nominal check can be applied.
+A run with no nominally scoring validated finalist reports no winner.
 Three-cushion adjudication treats cue-ball height strictly above 1 inch over the resting center plane
 at any time during the shot as a miss, so jump-assisted candidates cannot win.
 
 For bounded three-cushion optimization, the Wasm package also exports
 `robust_three_cushion_shot_from_dsl(source, iterations, playerLevel)`. `iterations` must be
 between 16 and 10,000; `playerLevel` is `b`, `a`, `pro`, or `world-class-pro`. The deterministic JSON report contains
-`sourceHasShot`, the mapped shot-inaccuracy sigmas, exact evaluation accounting, Wilson-ranked
-finalists, and the winning controls. `web/render-worker.js` exposes the same operation with
+`sourceHasShot`, the mapped shot-inaccuracy sigmas, exact evaluation accounting, nominal-score
+status, Wilson-ranked finalists, and the winning controls. `web/render-worker.js` exposes the same
+operation with
 `{ id, action: "robust-shot-search", source, iterations, playerLevel }`; `id` must be a safe integer.
 The page module exports `requestRobustThreeCushionSearch({ iterations, playerLevel, source? })`,
 which routes that request through the shared worker and resolves to `{ search, elapsedMs }`.

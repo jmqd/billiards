@@ -90,6 +90,18 @@ pub struct EffectiveSimulationPhysics {
     pub max_events: Option<usize>,
 }
 
+pub(crate) fn constrained_event_limit(
+    requested_max_events: Option<usize>,
+    configured_max_events: Option<usize>,
+) -> Option<usize> {
+    match (requested_max_events, configured_max_events) {
+        (Some(requested), Some(configured)) => Some(requested.min(configured)),
+        (Some(requested), None) => Some(requested),
+        (None, Some(configured)) => Some(configured),
+        (None, None) => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum ScenarioTraceStop {
     UntilRest,
@@ -98,16 +110,12 @@ enum ScenarioTraceStop {
 
 impl ScenarioTraceStop {
     fn constrained_by(self, max_events: Option<usize>) -> Self {
-        let Some(max_events) = max_events else {
-            return self;
+        let requested_max_events = match self {
+            Self::UntilRest => None,
+            Self::EventLimit(max_events) => Some(max_events),
         };
-
-        match self {
-            Self::UntilRest => Self::EventLimit(max_events),
-            Self::EventLimit(requested_max_events) => {
-                Self::EventLimit(requested_max_events.min(max_events))
-            }
-        }
+        constrained_event_limit(requested_max_events, max_events)
+            .map_or(Self::UntilRest, Self::EventLimit)
     }
 }
 
@@ -5629,6 +5637,15 @@ mod tests {
     use super::*;
     use crate::MotionPhase;
     use crate::TYPICAL_BALL_RADIUS;
+
+    #[test]
+    fn trace_and_simulation_event_limits_use_the_stricter_horizon() {
+        assert_eq!(constrained_event_limit(Some(24), Some(64)), Some(24));
+        assert_eq!(constrained_event_limit(Some(64), Some(24)), Some(24));
+        assert_eq!(constrained_event_limit(None, Some(64)), Some(64));
+        assert_eq!(constrained_event_limit(Some(24), None), Some(24));
+        assert_eq!(constrained_event_limit(None, None), None);
+    }
 
     #[test]
     fn parse_ball_at_coordinate() {

@@ -192,6 +192,7 @@ struct RobustCandidateDto {
     rank: Option<usize>,
     candidate_id: u64,
     controls: RobustControlsDto,
+    nominal_scored: Option<bool>,
     screening: RobustOutcomeSummaryDto,
     validation: Option<RobustOutcomeSummaryDto>,
 }
@@ -203,6 +204,7 @@ impl From<&crate::RobustCandidateReport> for RobustCandidateDto {
             candidate_id: candidate.candidate_id,
             controls: candidate.controls.into(),
             screening: (&candidate.screening).into(),
+            nominal_scored: candidate.nominal_scored,
             validation: candidate.validation.as_ref().map(Into::into),
         }
     }
@@ -314,7 +316,8 @@ pub fn robust_three_cushion_shot_from_dsl(
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     const DEFAULT_MAX_EVENTS: usize = 64;
     const MAX_EVENTS_CAP: usize = 256;
-    let configured_max_events = simulation.max_events;
+    let configured_max_events =
+        crate::dsl::constrained_event_limit(scenario.trace_max_events, simulation.max_events);
     if configured_max_events == Some(0) {
         return Err(JsValue::from_str(
             "robust shot search requires a positive max-events limit",
@@ -376,7 +379,8 @@ pub fn robust_three_cushion_shot_from_dsl(
             .count(),
         seed_protocol: crate::ROBUST_SEED_PROTOCOL,
         master_seed: search.master_seed.to_string(),
-        selection_policy: "wilson95-lower-then-rate-then-object-first-then-id",
+        selection_policy:
+            "nominal-score-required-then-wilson95-lower-then-rate-then-object-first-then-id",
         search_seed_controls: search.search_seed_controls.into(),
         winner: search.winner().map(Into::into),
         ranked_finalists,

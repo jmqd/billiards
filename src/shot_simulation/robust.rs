@@ -22,6 +22,7 @@ pub const ROBUST_SEED_PROTOCOL: &str = SEED_PROTOCOL;
 pub const ROBUST_SEARCH_PROPOSAL_DOMAIN: RandomDomain = RandomDomain::new(0x5345_4152_4348_0001);
 pub const ROBUST_SEARCH_SCREENING_DOMAIN: RandomDomain = RandomDomain::new(0x5345_4152_4348_0002);
 pub const ROBUST_SEARCH_VALIDATION_DOMAIN: RandomDomain = RandomDomain::new(0x5345_4152_4348_0003);
+pub const ROBUST_SEARCH_NOMINAL_DOMAIN: RandomDomain = RandomDomain::new(0x5345_4152_4348_0004);
 pub const ROBUST_SENSITIVITY_PROPOSAL_DOMAIN: RandomDomain =
     RandomDomain::new(0x5345_4e53_4954_0001);
 pub const ROBUST_SENSITIVITY_TRIAL_DOMAIN: RandomDomain = RandomDomain::new(0x5345_4e53_4954_0002);
@@ -204,6 +205,7 @@ impl RobustThreeCushionExperimentConfig {
 pub enum RobustTrialStage {
     Screening,
     Validation,
+    Nominal,
 }
 
 impl fmt::Display for RobustTrialStage {
@@ -211,6 +213,7 @@ impl fmt::Display for RobustTrialStage {
         formatter.write_str(match self {
             Self::Screening => "screening",
             Self::Validation => "validation",
+            Self::Nominal => "nominal",
         })
     }
 }
@@ -255,6 +258,8 @@ pub struct RobustCandidateReport {
     pub controls: RobustShotControls,
     pub screening: RobustOutcomeSummary,
     pub validation: Option<RobustOutcomeSummary>,
+    /// Whether the exact candidate center scored under the playback physics and event limit.
+    pub nominal_scored: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -379,6 +384,7 @@ pub struct RobustSearchBudget {
     pub screening_replications: u32,
     pub finalist_budget: usize,
     pub validation_replications: u32,
+    pub nominal_evaluations: u32,
     pub planned_evaluations: u32,
 }
 
@@ -753,7 +759,8 @@ pub fn allocate_robust_search_budget(
     }
 
     // Preserve the exact minimum-budget schedule. Larger searches reserve one quarter for
-    // held-out validation and use at least two CRN observations per screening proposal.
+    // held-out validation, including one exact nominal check per finalist, and use at least
+    // two CRN observations per screening proposal.
     let (screening_budget, minimum_screening_replications) = if requested_evaluations < 32 {
         (requested_evaluations.div_euclid(2), 1)
     } else {
@@ -790,12 +797,17 @@ pub fn allocate_robust_search_budget(
     let remaining = requested_evaluations
         .checked_sub(screening_cost)
         .ok_or_else(|| invalid_configuration("screening exceeded requested evaluations"))?;
-    let validation_replications = remaining.div_euclid(finalist_count).max(1);
+    let nominal_evaluations = finalist_count;
+    let validation_budget = remaining
+        .checked_sub(nominal_evaluations)
+        .ok_or_else(|| invalid_configuration("nominal checks exceeded requested evaluations"))?;
+    let validation_replications = validation_budget.div_euclid(finalist_count).max(1);
     let validation_cost = finalist_count
         .checked_mul(validation_replications)
         .ok_or_else(|| invalid_configuration("validation evaluation count overflowed"))?;
     let planned_evaluations = screening_cost
         .checked_add(validation_cost)
+        .and_then(|evaluations| evaluations.checked_add(nominal_evaluations))
         .ok_or_else(|| invalid_configuration("planned evaluation count overflowed"))?;
     if planned_evaluations > requested_evaluations {
         return Err(RobustExperimentError::InvalidConfiguration(
@@ -810,6 +822,7 @@ pub fn allocate_robust_search_budget(
         screening_replications,
         finalist_budget,
         validation_replications,
+        nominal_evaluations,
         planned_evaluations,
     })
 }
@@ -870,6 +883,7 @@ pub fn run_robust_three_cushion_experiment(
                 &candidates,
                 RobustTrialStage::Screening,
                 ROBUST_SENSITIVITY_TRIAL_DOMAIN,
+                config.shot_inaccuracy,
                 config.screening_replication_budget,
             )?;
             (candidates, screening)
@@ -887,6 +901,7 @@ pub fn run_robust_three_cushion_experiment(
             controls: candidate.value,
             screening: summary,
             validation: None,
+            nominal_scored: None,
         });
     }
 
@@ -904,9 +919,28 @@ pub fn run_robust_three_cushion_experiment(
                 &finalists,
                 RobustTrialStage::Validation,
                 ROBUST_SEARCH_VALIDATION_DOMAIN,
+                config.shot_inaccuracy,
                 config.validation_replication_budget,
             )?;
-            for (finalist, summary) in finalists.iter().zip(validation.summaries) {
+            let nominal = run_stage(
+                config,
+                &finalists,
+                RobustTrialStage::Nominal,
+                ROBUST_SEARCH_NOMINAL_DOMAIN,
+                RobustNoiseSigmas {
+                    heading: 0.0,
+                    speed: 0.0,
+                    tip_side: 0.0,
+                    tip_height: 0.0,
+                    elevation: 0.0,
+                },
+                1,
+            )?;
+            for ((finalist, summary), nominal_summary) in finalists
+                .iter()
+                .zip(validation.summaries)
+                .zip(nominal.summaries)
+            {
                 let index = candidate_reports
                     .binary_search_by_key(&finalist.id, |candidate| candidate.candidate_id)
                     .map_err(|_| {
@@ -916,11 +950,19 @@ pub fn run_robust_three_cushion_experiment(
                         ))
                     })?;
                 candidate_reports[index].validation = Some(summary);
+                candidate_reports[index].nominal_scored =
+                    Some(nominal_summary.eligible && nominal_summary.scored == 1);
             }
+            let additional_trials = validation
+                .trials
+                .len()
+                .checked_add(nominal.trials.len())
+                .ok_or_else(|| invalid_configuration("finalist trial count overflowed"))?;
             trials
-                .try_reserve(validation.trials.len())
-                .map_err(|error| resource_error("validation trial reports", error))?;
+                .try_reserve(additional_trials)
+                .map_err(|error| resource_error("finalist trial reports", error))?;
             trials.extend(validation.trials);
+            trials.extend(nominal.trials);
         }
         rank_validated_candidates(&mut candidate_reports)?;
         sort_candidate_rows(&mut candidate_reports);
@@ -997,6 +1039,7 @@ fn run_cross_entropy_search_screening(
         &candidates,
         RobustTrialStage::Screening,
         ROBUST_SEARCH_SCREENING_DOMAIN,
+        config.shot_inaccuracy,
         config.screening_replication_budget,
     )?;
     summaries.append(&mut configured_results.summaries);
@@ -1048,6 +1091,7 @@ fn run_cross_entropy_search_screening(
             &batch,
             RobustTrialStage::Screening,
             ROBUST_SEARCH_SCREENING_DOMAIN,
+            config.shot_inaccuracy,
             config.screening_replication_budget,
         )?;
         if result.summaries.len() != batch.len() || result.search_fitnesses.len() != batch.len() {
@@ -1292,6 +1336,7 @@ fn run_stage(
     candidates: &[Candidate<RobustShotControls>],
     stage: RobustTrialStage,
     random_domain: RandomDomain,
+    shot_inaccuracy: RobustNoiseSigmas,
     replications: u32,
 ) -> Result<StageResults, RobustExperimentError> {
     let replications = NonZeroU32::new(replications).ok_or_else(|| {
@@ -1314,7 +1359,7 @@ fn run_stage(
                 cue: config.cue.clone(),
             })
         },
-        |candidate, context| prepare_trial(*candidate, config.shot_inaccuracy, context),
+        |candidate, context| prepare_trial(*candidate, shot_inaccuracy, context),
         |evaluator, prepared| {
             evaluator
                 .evaluate(config.shooter, prepared.applied, config.max_events)
@@ -1752,11 +1797,12 @@ fn rank_validated_candidates(
         .try_reserve_exact(reports.len())
         .map_err(|error| resource_error("validation rank indices", error))?;
     eligible_indices.extend(reports.iter().enumerate().filter_map(|(index, report)| {
-        report
-            .validation
-            .as_ref()
-            .is_some_and(|summary| summary.eligible && summary.scored > 0)
-            .then_some(index)
+        (report.nominal_scored == Some(true)
+            && report
+                .validation
+                .as_ref()
+                .is_some_and(|summary| summary.eligible && summary.scored > 0))
+        .then_some(index)
     }));
     eligible_indices.sort_by(|left, right| {
         let left_report = &reports[*left];
@@ -2257,6 +2303,10 @@ mod tests {
             assert!(budget.candidate_budget >= budget.finalist_budget);
             assert!(budget.screening_replications > 0);
             assert!(budget.validation_replications > 0);
+            assert_eq!(
+                budget.nominal_evaluations,
+                u32::try_from(budget.finalist_budget).unwrap()
+            );
         }
         assert!(allocate_robust_search_budget(0).is_err());
         assert!(allocate_robust_search_budget(MIN_ROBUST_SEARCH_EVALUATIONS - 1).is_err());
@@ -2267,28 +2317,32 @@ mod tests {
         assert_eq!(exact.candidate_budget, 8);
         assert_eq!(exact.screening_replications, 1);
         assert_eq!(exact.finalist_budget, 4);
-        assert_eq!(exact.validation_replications, 2);
+        assert_eq!(exact.validation_replications, 1);
+        assert_eq!(exact.nominal_evaluations, 4);
         assert_eq!(exact.planned_evaluations, 16);
 
         let repeated = allocate_robust_search_budget(32)
             .unwrap_or_else(|error| panic!("32-evaluation budget failed: {error}"));
         assert_eq!(repeated.candidate_budget, 12);
         assert_eq!(repeated.screening_replications, 2);
-        assert_eq!(repeated.validation_replications, 2);
+        assert_eq!(repeated.validation_replications, 1);
+        assert_eq!(repeated.nominal_evaluations, 4);
         assert_eq!(repeated.planned_evaluations, 32);
 
         let default = allocate_robust_search_budget(256)
             .unwrap_or_else(|error| panic!("256-evaluation budget failed: {error}"));
         assert_eq!(default.candidate_budget, 96);
         assert_eq!(default.screening_replications, 2);
-        assert_eq!(default.validation_replications, 16);
+        assert_eq!(default.validation_replications, 15);
+        assert_eq!(default.nominal_evaluations, 4);
         assert_eq!(default.planned_evaluations, 256);
 
         let maximum = allocate_robust_search_budget(MAX_ROBUST_SEARCH_EVALUATIONS)
             .unwrap_or_else(|error| panic!("maximum budget failed: {error}"));
         assert_eq!(maximum.candidate_budget, MAX_PLAYER_SEARCH_CANDIDATES);
         assert_eq!(maximum.screening_replications, 14);
-        assert_eq!(maximum.validation_replications, 708);
+        assert_eq!(maximum.validation_replications, 707);
+        assert_eq!(maximum.nominal_evaluations, 4);
         assert_eq!(maximum.planned_evaluations, MAX_ROBUST_SEARCH_EVALUATIONS);
     }
 
@@ -2369,7 +2423,7 @@ mod tests {
         };
         let object_first = RobustOutcomeSummary {
             scored_object_first: 11,
-            ..cushion_first.clone()
+            ..cushion_first
         };
         assert_eq!(
             compare_summary_metrics(&object_first, &cushion_first),
@@ -2575,9 +2629,9 @@ mod tests {
             Err(error) => panic!("shotless fixture layout failed: {error}"),
         };
         let report = match run_player_robust_search(&PlayerRobustSearchRequest {
-            physics,
-            layout,
-            cue,
+            physics: physics.clone(),
+            layout: layout.clone(),
+            cue: cue.clone(),
             shooter: ThreeCushionShooter::Cue,
             current_controls: RobustShotControls {
                 heading: 0.0,
@@ -2599,8 +2653,49 @@ mod tests {
         let Some(validation) = &winner.validation else {
             panic!("shotless adaptive search winner was not validated");
         };
+        let winner_id = winner.candidate_id;
+        let winner_controls = winner.controls;
 
         assert_eq!(report.actual_evaluations(), 256);
         assert!(validation.scored > 0);
+        assert_eq!(winner.nominal_scored, Some(true));
+        assert!(report.experiment.trials.iter().any(|trial| {
+            trial.stage == RobustTrialStage::Nominal
+                && trial.candidate_id == winner_id
+                && trial.applied == Some(winner_controls)
+                && trial.disposition == RobustTrialDisposition::Scored
+        }));
+
+        let applied = crate::dsl::apply_shot_candidate_to_dsl(
+            source,
+            winner_controls.heading,
+            winner_controls.speed,
+            winner_controls.tip_side,
+            winner_controls.tip_height,
+            winner_controls.elevation,
+        )
+        .unwrap_or_else(|error| panic!("winner controls did not apply to DSL: {error}"));
+        let (_, applied_controls, _) =
+            crate::dsl::scenario_controls_and_preferred_cue_from_dsl(&applied.source)
+                .unwrap_or_else(|error| panic!("applied winner DSL did not parse: {error}"));
+        let applied_controls = applied_controls
+            .map(|controls| RobustShotControls {
+                heading: controls.heading_degrees,
+                speed: controls.speed_ips,
+                tip_side: controls.tip_side,
+                tip_height: controls.tip_height,
+                elevation: controls.cue_elevation_degrees,
+            })
+            .expect("applied winner DSL must contain a shot");
+        assert_eq!(applied_controls, winner_controls);
+
+        let (outcome, _, _) = Evaluator {
+            physics,
+            layout,
+            cue,
+        }
+        .evaluate(ThreeCushionShooter::Cue, applied_controls, 24)
+        .unwrap_or_else(|error| panic!("applied winner did not execute: {error}"));
+        assert!(matches!(outcome, EvaluatedOutcome::Scored));
     }
 }

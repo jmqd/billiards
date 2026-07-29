@@ -1307,10 +1307,11 @@ fn three_cushion_shot_limit(scenario: &DslScenario) -> Result<ShotLimit, String>
     let simulation = scenario
         .simulation_named(simulation_name)
         .map_err(|error| format!("preferred simulation is invalid: {error}"))?;
-    Ok(simulation
-        .max_events
-        .or(scenario.trace_max_events)
-        .map_or(ShotLimit::UntilSettled, ShotLimit::EventCount))
+    Ok(match (simulation.max_events, scenario.trace_max_events) {
+        (Some(simulation), Some(trace)) => ShotLimit::EventCount(simulation.min(trace)),
+        (Some(max_events), None) | (None, Some(max_events)) => ShotLimit::EventCount(max_events),
+        (None, None) => ShotLimit::UntilSettled,
+    })
 }
 
 fn three_cushion_event_evidence(result: &OwnedShotResult) -> String {

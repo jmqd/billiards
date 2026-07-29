@@ -397,6 +397,7 @@
         const outcomeSummary = (scored) => ({
           requested: 8,
           scored,
+          scoredObjectFirst: scored,
           missed: 8 - scored,
           indeterminate: 0,
           failed: 0,
@@ -409,6 +410,7 @@
           rank,
           candidateId,
           controls,
+          nominalScored: true,
           screening: outcomeSummary(scored),
           validation: outcomeSummary(scored),
         });

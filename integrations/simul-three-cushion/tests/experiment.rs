@@ -310,9 +310,10 @@ fn screening_and_validation_use_distinct_domains_with_common_random_groups() {
         "0.0001",
     ]);
     let report = run(&search).expect("two-stage noisy search should execute");
-    assert_eq!(report.trials.len(), 8);
+    assert_eq!(report.trials.len(), 10);
     let screening = &report.trials[..4];
-    let validation = &report.trials[4..];
+    let validation = &report.trials[4..8];
+    let nominal = &report.trials[8..];
     assert_eq!(screening[0].applied, screening[2].applied);
     assert_eq!(screening[1].applied, screening[3].applied);
     assert_eq!(validation[0].applied, validation[2].applied);
@@ -324,6 +325,10 @@ fn screening_and_validation_use_distinct_domains_with_common_random_groups() {
     assert!(validation
         .iter()
         .all(|trial| trial.replay_key.to_string().contains(":5345415243480003:")));
+    assert!(nominal.iter().all(|trial| {
+        trial.stage == TrialStage::Nominal
+            && trial.replay_key.to_string().contains(":5345415243480004:")
+    }));
 }
 
 #[test]
@@ -332,7 +337,7 @@ fn finalist_budget_is_capped_and_validation_ranking_is_deterministic() {
     arguments[19] = "1";
     arguments.extend(["--candidates", "3"]);
     let report = run(&config(&arguments)).expect("fixed search should execute");
-    assert_eq!(report.trials.len(), 8);
+    assert_eq!(report.trials.len(), 9);
     assert_eq!(
         report
             .trials
@@ -349,12 +354,23 @@ fn finalist_budget_is_capped_and_validation_ranking_is_deterministic() {
             .count(),
         2
     );
+    assert_eq!(
+        report
+            .trials
+            .iter()
+            .filter(|trial| trial.stage == TrialStage::Nominal)
+            .count(),
+        1
+    );
     assert_eq!(report.candidates[0].candidate_id, 0);
     assert_eq!(report.candidates[0].rank, Some(1));
     assert!(report.candidates[0].validation.is_some());
-    assert!(report.candidates[1..]
-        .iter()
-        .all(|candidate| candidate.rank.is_none() && candidate.validation.is_none()));
+    assert_eq!(report.candidates[0].nominal_scored, Some(true));
+    assert!(report.candidates[1..].iter().all(|candidate| {
+        candidate.rank.is_none()
+            && candidate.validation.is_none()
+            && candidate.nominal_scored.is_none()
+    }));
     assert_eq!(report.winner_id, Some(0));
     assert_eq!(
         report.winner().map(|candidate| candidate.candidate_id),
@@ -365,7 +381,7 @@ fn finalist_budget_is_capped_and_validation_ranking_is_deterministic() {
     capped_arguments.extend(["--candidates", "1"]);
     let capped =
         run(&config(&capped_arguments)).expect("finalist budget should cap to eligibility");
-    assert_eq!(capped.trials.len(), 4);
+    assert_eq!(capped.trials.len(), 5);
     assert_eq!(capped.winner_id, Some(0));
 }
 

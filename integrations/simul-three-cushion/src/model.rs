@@ -288,6 +288,7 @@ pub const fn known_carom_fixture() -> KnownFixture {
 pub enum TrialStage {
     Screening,
     Validation,
+    Nominal,
 }
 
 impl fmt::Display for TrialStage {
@@ -295,6 +296,7 @@ impl fmt::Display for TrialStage {
         formatter.write_str(match self {
             Self::Screening => "screening",
             Self::Validation => "validation",
+            Self::Nominal => "nominal",
         })
     }
 }
@@ -336,6 +338,7 @@ pub struct CandidateReport {
     pub rank: Option<usize>,
     pub candidate_id: u64,
     pub controls: Controls,
+    pub nominal_scored: Option<bool>,
     pub screening: OutcomeSummary,
     pub validation: Option<OutcomeSummary>,
 }
@@ -377,7 +380,7 @@ impl ExperimentReport {
     pub fn write_to(&self, mut output: impl io::Write) -> io::Result<()> {
         writeln!(
             output,
-            "META,mode={},shooter={},physics_profile={},master_seed={},seed_protocol={},search_proposal_domain=5345415243480001,search_screening_domain=5345415243480002,search_validation_domain=5345415243480003,sensitivity_proposal_domain=53454e5349540001,sensitivity_trial_domain=53454e5349540002,noise_model={},noise_parent_sigma_limit={:.9},selection_policy={},winner_id={},candidate_count={},trial_count={}",
+            "META,mode={},shooter={},physics_profile={},master_seed={},seed_protocol={},search_proposal_domain=5345415243480001,search_screening_domain=5345415243480002,search_validation_domain=5345415243480003,search_nominal_domain=5345415243480004,sensitivity_proposal_domain=53454e5349540001,sensitivity_trial_domain=53454e5349540002,noise_model={},noise_parent_sigma_limit={:.9},selection_policy={},winner_id={},candidate_count={},trial_count={}",
             self.mode,
             self.shooter,
             self.physics_profile,
@@ -427,12 +430,12 @@ impl ExperimentReport {
             self.max_events,
             MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE
         )?;
-        writeln!(output, "CANDIDATE,rank,id,heading_deg,speed_ips,tip_side_r,tip_height_r,elevation_deg,screening_requested,screening_scored,screening_scored_object_first,screening_missed,screening_indeterminate,screening_failed,screening_success_rate,screening_confidence_low,screening_confidence_high,screening_eligible,validation_requested,validation_scored,validation_scored_object_first,validation_missed,validation_indeterminate,validation_failed,validation_success_rate,validation_confidence_low,validation_confidence_high,validation_eligible")?;
+        writeln!(output, "CANDIDATE,rank,id,heading_deg,speed_ips,tip_side_r,tip_height_r,elevation_deg,nominal_scored,screening_requested,screening_scored,screening_scored_object_first,screening_missed,screening_indeterminate,screening_failed,screening_success_rate,screening_confidence_low,screening_confidence_high,screening_eligible,validation_requested,validation_scored,validation_scored_object_first,validation_missed,validation_indeterminate,validation_failed,validation_success_rate,validation_confidence_low,validation_confidence_high,validation_eligible")?;
         for candidate in &self.candidates {
             let validation = candidate.validation.as_ref();
             writeln!(
                 output,
-                "CANDIDATE,{},{},{:.9},{:.9},{:.9},{:.9},{:.9},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "CANDIDATE,{},{},{:.9},{:.9},{:.9},{:.9},{:.9},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 display_option_usize(candidate.rank),
                 candidate.candidate_id,
                 candidate.controls.heading,
@@ -440,6 +443,7 @@ impl ExperimentReport {
                 candidate.controls.tip_side,
                 candidate.controls.tip_height,
                 candidate.controls.elevation,
+                display_option_bool(candidate.nominal_scored),
                 candidate.screening.requested,
                 candidate.screening.scored,
                 candidate.screening.scored_object_first,

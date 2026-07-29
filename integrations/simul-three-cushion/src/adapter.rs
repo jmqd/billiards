@@ -14,7 +14,8 @@ mod physics;
 
 const PHYSICS_PROFILE: &str = "three-cushion-default";
 const NOISE_MODEL: &str = "independent-truncated-normal";
-const SEARCH_SELECTION_POLICY: &str = "wilson95-lower-then-rate-then-object-first-then-id";
+const SEARCH_SELECTION_POLICY: &str =
+    "nominal-score-required-then-wilson95-lower-then-rate-then-object-first-then-id";
 const NO_SELECTION_POLICY: &str = "none";
 
 pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
@@ -116,6 +117,7 @@ fn candidate_report(candidate: RobustCandidateReport) -> CandidateReport {
         rank: candidate.rank,
         candidate_id: candidate.candidate_id,
         controls: controls(candidate.controls),
+        nominal_scored: candidate.nominal_scored,
         screening: outcome_summary(candidate.screening),
         validation: candidate.validation.map(outcome_summary),
     }
@@ -126,6 +128,7 @@ fn trial_report(trial: RobustTrialReport) -> TrialReport {
         stage: match trial.stage {
             RobustTrialStage::Screening => TrialStage::Screening,
             RobustTrialStage::Validation => TrialStage::Validation,
+            RobustTrialStage::Nominal => TrialStage::Nominal,
         },
         candidate_id: trial.candidate_id,
         replication_id: trial.replication_id,

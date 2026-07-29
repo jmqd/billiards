@@ -167,9 +167,10 @@
             <button id="robust-search-button" type="submit" disabled>Find robust shot</button>
           </form>
           <p class="robust-search-help">
-            Adaptive screening follows cushion, object-contact, and closest-approach progress; held-out
-            score probability decides the final rank. The search varies heading, speed, side, draw/follow,
-            and cue elevation. Cue-ball height above 1 inch over the resting plane at any time is a miss.
+            Adaptive screening prioritizes legal scores and object-first progress; held-out score
+            probability ranks finalists, and an exact center check ensures every result can score when
+            applied. The search varies heading, speed, side, draw/follow, and cue elevation. Cue-ball
+            height above 1 inch over the resting plane at any time is a miss.
           </p>
           <div id="robust-search-status" class="robust-search-status" role="status" aria-live="polite">
             Load the Wasm renderer to start an experiment.

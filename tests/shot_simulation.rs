@@ -651,6 +651,83 @@ fn repeated_cushions_count_and_completion_instant_cushion_does_not() {
 }
 
 #[test]
+fn object_first_evidence_requires_a_strictly_earlier_event() {
+    let object_first = owned(
+        vec![
+            instant(1.0, vec![ball_contact(BallId::WHITE, BallId::YELLOW)]),
+            instant(
+                2.0,
+                vec![ResolvedEffect::BallRailContact {
+                    ball: BallId::WHITE,
+                    rail: Rail::Top,
+                }],
+            ),
+            instant(
+                3.0,
+                vec![ResolvedEffect::BallRailContact {
+                    ball: BallId::WHITE,
+                    rail: Rail::Right,
+                }],
+            ),
+            instant(
+                4.0,
+                vec![ResolvedEffect::BallRailContact {
+                    ball: BallId::WHITE,
+                    rail: Rail::Bottom,
+                }],
+            ),
+            instant(5.0, vec![ball_contact(BallId::WHITE, BallId::RED)]),
+        ],
+        ShotTermination::Settled,
+    );
+    let ThreeCushionAdjudication::Scored(object_first_facts) = project_three_cushion(&object_first)
+    else {
+        panic!("object-first fixture must score")
+    };
+    assert!(object_first_facts.first_contact_was_object());
+
+    let simultaneous = owned(
+        vec![
+            instant(
+                1.0,
+                vec![
+                    ball_contact(BallId::WHITE, BallId::YELLOW),
+                    ResolvedEffect::BallRailContact {
+                        ball: BallId::WHITE,
+                        rail: Rail::Top,
+                    },
+                ],
+            ),
+            instant(
+                2.0,
+                vec![ResolvedEffect::BallRailContact {
+                    ball: BallId::WHITE,
+                    rail: Rail::Right,
+                }],
+            ),
+            instant(
+                3.0,
+                vec![ResolvedEffect::BallRailContact {
+                    ball: BallId::WHITE,
+                    rail: Rail::Bottom,
+                }],
+            ),
+            instant(4.0, vec![ball_contact(BallId::WHITE, BallId::RED)]),
+        ],
+        ShotTermination::Settled,
+    );
+    let ThreeCushionAdjudication::Scored(simultaneous_facts) = project_three_cushion(&simultaneous)
+    else {
+        panic!("simultaneous-contact fixture must score")
+    };
+    assert!(!simultaneous_facts.first_contact_was_object());
+    assert_eq!(
+        simultaneous_facts.object_a_first_contact,
+        simultaneous_facts.first_cue_ball_cushion_contact
+    );
+}
+
+#[test]
 fn cue_ball_height_limit_is_strict_for_the_entire_shot() {
     let mut boundary = owned(completed_point_events(), ShotTermination::Settled);
     boundary.maximum_cue_ball_height = Inches::from_f64(THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES);

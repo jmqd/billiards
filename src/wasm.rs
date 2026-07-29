@@ -159,6 +159,7 @@ impl From<crate::RobustNoiseSigmas> for RobustSigmasDto {
 struct RobustOutcomeSummaryDto {
     requested: u32,
     scored: u32,
+    scored_object_first: u32,
     missed: u32,
     indeterminate: u32,
     failed: u32,
@@ -173,6 +174,7 @@ impl From<&crate::RobustOutcomeSummary> for RobustOutcomeSummaryDto {
         Self {
             requested: summary.requested,
             scored: summary.scored,
+            scored_object_first: summary.scored_object_first,
             missed: summary.missed,
             indeterminate: summary.indeterminate,
             failed: summary.failed,
@@ -374,7 +376,7 @@ pub fn robust_three_cushion_shot_from_dsl(
             .count(),
         seed_protocol: crate::ROBUST_SEED_PROTOCOL,
         master_seed: search.master_seed.to_string(),
-        selection_policy: "wilson95-lower-then-rate-then-id",
+        selection_policy: "wilson95-lower-then-rate-then-object-first-then-id",
         search_seed_controls: search.search_seed_controls.into(),
         winner: search.winner().map(Into::into),
         ranked_finalists,

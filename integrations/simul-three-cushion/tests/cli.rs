@@ -248,6 +248,7 @@ fn tagged_report_is_stage_aware_self_describing_and_csv_safe() {
     let screening = OutcomeSummary {
         requested: 2,
         scored: 0,
+        scored_object_first: 0,
         missed: 0,
         indeterminate: 1,
         failed: 1,
@@ -349,7 +350,7 @@ fn tagged_report_is_stage_aware_self_describing_and_csv_safe() {
     assert!(text.contains("selection_policy=none,winner_id=,candidate_count=1,trial_count=2\n"));
     assert!(text.contains("CONFIG,white_diamonds=0.700000000:1.000000000"));
     assert!(text.contains("CANDIDATE,,3,25.000000000,150.000000000"));
-    assert!(text.contains("false,,,,,,,,,\n"));
+    assert!(text.contains("false,,,,,,,,,,\n"));
     assert!(text.contains(concat!(
         "TRIAL,screening,3,0,simul-v1:42:53454e5349540002:3:0:0,",
         ",,,,,failed,\"sampling, \"\"exhausted\"\"\"\n"
@@ -457,17 +458,19 @@ fn fixed_search_cli_is_stage_aware_and_reproducible() {
                 "0.000000000",
             ]
         );
-        assert_eq!(&fields[8..13], ["2", "2", "0", "0", "0"]);
-        assert_eq!(fields[16], "true");
-        assert_eq!(&fields[17..22], ["2", "2", "0", "0", "0"]);
-        assert_eq!(fields[25], "true");
+        assert_eq!(&fields[8..11], ["2", "2", "0"]);
+        assert_eq!(&fields[11..14], ["0", "0", "0"]);
+        assert_eq!(fields[17], "true");
+        assert_eq!(&fields[18..21], ["2", "2", "0"]);
+        assert_eq!(&fields[21..24], ["0", "0", "0"]);
+        assert_eq!(fields[27], "true");
     }
 
     let meta = lines
         .iter()
         .find(|line| line.starts_with("META,"))
         .expect("META row");
-    assert!(meta.contains("selection_policy=wilson95-lower-then-rate-then-id"));
+    assert!(meta.contains("selection_policy=wilson95-lower-then-rate-then-object-first-then-id"));
     assert!(meta.contains("winner_id=0"));
 
     assert_eq!(

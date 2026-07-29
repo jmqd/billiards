@@ -14,7 +14,7 @@ mod physics;
 
 const PHYSICS_PROFILE: &str = "three-cushion-default";
 const NOISE_MODEL: &str = "independent-truncated-normal";
-const SEARCH_SELECTION_POLICY: &str = "wilson95-lower-then-rate-then-id";
+const SEARCH_SELECTION_POLICY: &str = "wilson95-lower-then-rate-then-object-first-then-id";
 const NO_SELECTION_POLICY: &str = "none";
 
 pub fn run(config: &ExperimentConfig) -> Result<ExperimentReport, String> {
@@ -100,6 +100,7 @@ fn outcome_summary(summary: RobustOutcomeSummary) -> OutcomeSummary {
     OutcomeSummary {
         requested: summary.requested,
         scored: summary.scored,
+        scored_object_first: summary.scored_object_first,
         missed: summary.missed,
         indeterminate: summary.indeterminate,
         failed: summary.failed,

@@ -113,11 +113,13 @@ the canonical cue when no unambiguous declaration exists. **Apply best shot** or
 candidate writes all five controls atomically and renders the result. Existing shots are updated;
 shotless sources receive a new shot plus the selected or canonical cue declaration. Applying,
 editing, or resetting the DSL invalidates the older search result.
-Search mode is deterministic simulated annealing: it starts with geometry-guided and global proposals,
-keeps periodic global proposals, and uses geometrically cooled, one-control-at-a-time local proposals
-around an accepted state. Screening is steered by bounded progress tiers—cushions, first object contact,
-then estimated 3D surface clearance to the remaining object—while held-out legal-score probability and
-Wilson bounds alone determine final ranks. A run that validates no legal score reports no winner.
+Search mode is deterministic two-island cross-entropy optimization: each island starts aimed at one
+of the object balls, periodically receives balanced global proposals, and refits a diagonal proposal
+distribution from each evaluated batch. Screening prioritizes legal scores, then bounded progress
+through object-first contact, cushions, and estimated 3D surface clearance to the remaining object.
+Held-out legal-score probability and Wilson bounds determine final ranks; equal-probability routes
+prefer scoring trials that contact an object before a cushion. A run that validates no legal score
+reports no winner.
 Three-cushion adjudication treats cue-ball height strictly above 1 inch over the resting center plane
 at any time during the shot as a miss, so jump-assisted candidates cannot win.
 

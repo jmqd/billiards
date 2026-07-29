@@ -311,6 +311,7 @@ pub enum TrialDisposition {
 pub struct OutcomeSummary {
     pub requested: u32,
     pub scored: u32,
+    pub scored_object_first: u32,
     pub missed: u32,
     pub indeterminate: u32,
     pub failed: u32,
@@ -426,12 +427,12 @@ impl ExperimentReport {
             self.max_events,
             MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE
         )?;
-        writeln!(output, "CANDIDATE,rank,id,heading_deg,speed_ips,tip_side_r,tip_height_r,elevation_deg,screening_requested,screening_scored,screening_missed,screening_indeterminate,screening_failed,screening_success_rate,screening_confidence_low,screening_confidence_high,screening_eligible,validation_requested,validation_scored,validation_missed,validation_indeterminate,validation_failed,validation_success_rate,validation_confidence_low,validation_confidence_high,validation_eligible")?;
+        writeln!(output, "CANDIDATE,rank,id,heading_deg,speed_ips,tip_side_r,tip_height_r,elevation_deg,screening_requested,screening_scored,screening_scored_object_first,screening_missed,screening_indeterminate,screening_failed,screening_success_rate,screening_confidence_low,screening_confidence_high,screening_eligible,validation_requested,validation_scored,validation_scored_object_first,validation_missed,validation_indeterminate,validation_failed,validation_success_rate,validation_confidence_low,validation_confidence_high,validation_eligible")?;
         for candidate in &self.candidates {
             let validation = candidate.validation.as_ref();
             writeln!(
                 output,
-                "CANDIDATE,{},{},{:.9},{:.9},{:.9},{:.9},{:.9},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "CANDIDATE,{},{},{:.9},{:.9},{:.9},{:.9},{:.9},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 display_option_usize(candidate.rank),
                 candidate.candidate_id,
                 candidate.controls.heading,
@@ -441,6 +442,7 @@ impl ExperimentReport {
                 candidate.controls.elevation,
                 candidate.screening.requested,
                 candidate.screening.scored,
+                candidate.screening.scored_object_first,
                 candidate.screening.missed,
                 candidate.screening.indeterminate,
                 candidate.screening.failed,
@@ -450,6 +452,7 @@ impl ExperimentReport {
                 candidate.screening.eligible,
                 display_option_u32(validation.map(|summary| summary.requested)),
                 display_option_u32(validation.map(|summary| summary.scored)),
+                display_option_u32(validation.map(|summary| summary.scored_object_first)),
                 display_option_u32(validation.map(|summary| summary.missed)),
                 display_option_u32(validation.map(|summary| summary.indeterminate)),
                 display_option_u32(validation.map(|summary| summary.failed)),

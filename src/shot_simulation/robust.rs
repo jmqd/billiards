@@ -227,6 +227,8 @@ pub enum RobustTrialDisposition {
 pub struct RobustOutcomeSummary {
     pub requested: u32,
     pub scored: u32,
+    /// Scoring trials whose first cue-ball contact was with an object, not a cushion.
+    pub scored_object_first: u32,
     pub missed: u32,
     pub indeterminate: u32,
     pub failed: u32,
@@ -455,6 +457,7 @@ struct PreparedTrial {
 struct EvaluatedTrial {
     applied: RobustShotControls,
     outcome: EvaluatedOutcome,
+    object_first: bool,
     search_fitness: f64,
 }
 
@@ -494,6 +497,7 @@ struct BernoulliStatistics {
 struct OutcomeAccumulator {
     requested: u32,
     scored: u32,
+    scored_object_first: u32,
     missed: u32,
     indeterminate: u32,
     failed: u32,
@@ -514,7 +518,7 @@ impl Evaluator {
         shooter: ThreeCushionShooter,
         controls: RobustShotControls,
         max_events: usize,
-    ) -> Result<(EvaluatedOutcome, f64), String> {
+    ) -> Result<(EvaluatedOutcome, bool, f64), String> {
         let controls = ShotControls::new(
             controls.heading,
             controls.speed,
@@ -535,6 +539,7 @@ impl Evaluator {
             &result.completion.summary,
             2.0 * self.physics.ball.radius.as_f64(),
         );
+        let object_first = result.completion.summary.facts().first_contact_was_object();
         let outcome = match result.completion.summary {
             ThreeCushionAdjudication::Scored(_) => EvaluatedOutcome::Scored,
             ThreeCushionAdjudication::Miss { reason, .. } => {
@@ -544,7 +549,7 @@ impl Evaluator {
                 EvaluatedOutcome::Indeterminate(format!("{reason:?}"))
             }
         };
-        Ok((outcome, search_fitness))
+        Ok((outcome, object_first, search_fitness))
     }
 }
 
@@ -570,7 +575,16 @@ fn three_cushion_search_fitness(
     let object_contacts = u8::from(facts.object_a_first_contact.is_some())
         + u8::from(facts.object_b_first_contact.is_some());
     let cushion_tier = 0.2 * f64::from(cushions);
-    let first_object_bonus = if object_contacts == 1 { 0.1 } else { 0.0 };
+    let first_object_bonus = if object_contacts == 1 {
+        if facts.first_contact_was_object() {
+            0.25
+        } else {
+            0.1
+        }
+    } else {
+        0.0
+    };
+    let progress_before_clearance = cushion_tier + first_object_bonus;
     let clearance_bonus = if cushions == 3 && object_contacts == 1 {
         facts
             .estimated_closest_second_object_clearance
@@ -578,12 +592,13 @@ fn three_cushion_search_fitness(
             .filter(|_| contact_distance.is_finite() && contact_distance > 0.0)
             .map_or(0.0, |clearance| {
                 let clearance = clearance.as_f64().max(0.0);
-                0.25 * contact_distance / (contact_distance + clearance)
+                let remaining_progress = (0.95 - progress_before_clearance).max(0.0);
+                remaining_progress * contact_distance / (contact_distance + clearance)
             })
     } else {
         0.0
     };
-    (cushion_tier + first_object_bonus + clearance_bonus).min(0.95)
+    (progress_before_clearance + clearance_bonus).min(0.95)
 }
 
 impl OutcomeAccumulator {
@@ -591,6 +606,7 @@ impl OutcomeAccumulator {
         Self {
             requested,
             scored: 0,
+            scored_object_first: 0,
             missed: 0,
             indeterminate: 0,
             failed: 0,
@@ -609,6 +625,7 @@ impl OutcomeAccumulator {
                 let EvaluatedTrial {
                     applied,
                     outcome,
+                    object_first,
                     search_fitness,
                 } = evaluated;
                 self.search_fitness_total += search_fitness;
@@ -616,6 +633,7 @@ impl OutcomeAccumulator {
                 match outcome {
                     EvaluatedOutcome::Scored => {
                         self.scored += 1;
+                        self.scored_object_first += u32::from(object_first);
                         self.reducer.observe(true);
                         (Some(applied), RobustTrialDisposition::Scored)
                     }
@@ -684,6 +702,7 @@ impl OutcomeAccumulator {
         Ok(RobustOutcomeSummary {
             requested: self.requested,
             scored: self.scored,
+            scored_object_first: self.scored_object_first,
             missed: self.missed,
             indeterminate: self.indeterminate,
             failed: self.failed,
@@ -1299,9 +1318,10 @@ fn run_stage(
         |evaluator, prepared| {
             evaluator
                 .evaluate(config.shooter, prepared.applied, config.max_events)
-                .map(|(outcome, search_fitness)| EvaluatedTrial {
+                .map(|(outcome, object_first, search_fitness)| EvaluatedTrial {
                     applied: prepared.applied,
                     outcome,
+                    object_first,
                     search_fitness,
                 })
                 .map_err(|detail| FailedTrial {
@@ -1769,6 +1789,7 @@ fn compare_summary(
 fn compare_summary_metrics(left: &RobustOutcomeSummary, right: &RobustOutcomeSummary) -> Ordering {
     compare_optional_descending(left.confidence_low, right.confidence_low)
         .then_with(|| compare_optional_descending(left.success_rate, right.success_rate))
+        .then_with(|| right.scored_object_first.cmp(&left.scored_object_first))
 }
 
 fn compare_optional_descending(left: Option<f64>, right: Option<f64>) -> Ordering {
@@ -2112,16 +2133,22 @@ mod tests {
         cushions: u16,
         object_contacts: u8,
         clearance: Option<f64>,
+        object_first: bool,
     ) -> ThreeCushionAdjudication {
-        let contact = ContactInstant {
-            event_index: 0,
-            at: Seconds::zero(),
+        let object_contact = ContactInstant {
+            event_index: usize::from(!object_first),
+            at: Seconds::new(f64::from(!object_first)),
         };
+        let first_cushion_contact = (cushions > 0).then_some(ContactInstant {
+            event_index: usize::from(object_first),
+            at: Seconds::new(f64::from(object_first)),
+        });
         ThreeCushionAdjudication::Miss {
             facts: ThreeCushionFacts {
-                object_a_first_contact: (object_contacts >= 1).then_some(contact),
-                object_b_first_contact: (object_contacts >= 2).then_some(contact),
-                completion: (object_contacts >= 2).then_some(contact),
+                object_a_first_contact: (object_contacts >= 1).then_some(object_contact),
+                object_b_first_contact: (object_contacts >= 2).then_some(object_contact),
+                completion: (object_contacts >= 2).then_some(object_contact),
+                first_cue_ball_cushion_contact: first_cushion_contact,
                 cushion_contacts_before_completion: cushions,
                 first_three_qualifying_cushions: [None; 3],
                 maximum_cue_ball_height: Inches::zero(),
@@ -2139,29 +2166,34 @@ mod tests {
     }
 
     #[test]
-    fn soft_fitness_prioritizes_cushions_and_continuous_second_object_clearance() {
+    fn soft_fitness_prefers_object_first_progress_and_continuous_clearance() {
         let contact_distance = 2.25;
         let no_object_three_cushions =
-            three_cushion_search_fitness(&progress_miss(3, 0, None), contact_distance);
-        let one_object_two_cushions =
-            three_cushion_search_fitness(&progress_miss(2, 1, None), contact_distance);
+            three_cushion_search_fitness(&progress_miss(3, 0, None, false), contact_distance);
+        let cushion_first_object_two_cushions =
+            three_cushion_search_fitness(&progress_miss(2, 1, None, false), contact_distance);
+        let object_first_two_cushions =
+            three_cushion_search_fitness(&progress_miss(2, 1, None, true), contact_distance);
         let early_second_object =
-            three_cushion_search_fitness(&progress_miss(2, 2, None), contact_distance);
-        assert!(no_object_three_cushions > one_object_two_cushions);
-        assert!(one_object_two_cushions > early_second_object);
+            three_cushion_search_fitness(&progress_miss(2, 2, None, true), contact_distance);
+        assert!(object_first_two_cushions > no_object_three_cushions);
+        assert!(no_object_three_cushions > cushion_first_object_two_cushions);
+        assert!(cushion_first_object_two_cushions > early_second_object);
 
         let no_clearance =
-            three_cushion_search_fitness(&progress_miss(3, 1, None), contact_distance);
-        let far = three_cushion_search_fitness(&progress_miss(3, 1, Some(9.0)), contact_distance);
-        let near = three_cushion_search_fitness(&progress_miss(3, 1, Some(0.5)), contact_distance);
+            three_cushion_search_fitness(&progress_miss(3, 1, None, true), contact_distance);
+        let far =
+            three_cushion_search_fitness(&progress_miss(3, 1, Some(9.0), true), contact_distance);
+        let near =
+            three_cushion_search_fitness(&progress_miss(3, 1, Some(0.5), true), contact_distance);
         let contact =
-            three_cushion_search_fitness(&progress_miss(3, 1, Some(0.0)), contact_distance);
+            three_cushion_search_fitness(&progress_miss(3, 1, Some(0.0), true), contact_distance);
         assert!(no_clearance < far);
         assert!(far < near);
         assert!(near < contact);
         assert!(contact < 1.0);
 
-        let mut jumping = progress_miss(3, 1, Some(0.0));
+        let mut jumping = progress_miss(3, 1, Some(0.0), true);
         let ThreeCushionAdjudication::Miss { facts, .. } = &mut jumping else {
             panic!("progress fixture must be a miss");
         };
@@ -2266,6 +2298,7 @@ mod tests {
             RobustOutcomeSummary {
                 requested: scored + missed,
                 scored,
+                scored_object_first: 0,
                 missed,
                 indeterminate: 0,
                 failed: 0,
@@ -2298,6 +2331,7 @@ mod tests {
             requested: 2,
             scored: 0,
             missed: 2,
+            scored_object_first: 0,
             indeterminate: 0,
             failed: 0,
             success_rate: Some(0.0),
@@ -2317,6 +2351,45 @@ mod tests {
         assert!(optimizer.tell(&mut samples).unwrap().is_none());
         assert_eq!(optimizer.mean(), &[0.5]);
         assert_eq!(optimizer.standard_deviation(), &[0.25]);
+    }
+
+    #[test]
+    fn equal_score_probability_prefers_object_first_routes() {
+        let cushion_first = RobustOutcomeSummary {
+            requested: 16,
+            scored: 13,
+            scored_object_first: 0,
+            missed: 3,
+            indeterminate: 0,
+            failed: 0,
+            success_rate: Some(13.0 / 16.0),
+            confidence_low: Some(0.57),
+            confidence_high: Some(0.93),
+            eligible: true,
+        };
+        let object_first = RobustOutcomeSummary {
+            scored_object_first: 11,
+            ..cushion_first.clone()
+        };
+        assert_eq!(
+            compare_summary_metrics(&object_first, &cushion_first),
+            Ordering::Less
+        );
+
+        let statistically_better = RobustOutcomeSummary {
+            scored: 14,
+            scored_object_first: 0,
+            missed: 2,
+            success_rate: Some(14.0 / 16.0),
+            confidence_low: Some(0.64),
+            confidence_high: Some(0.96),
+            ..cushion_first
+        };
+        assert_eq!(
+            compare_summary_metrics(&statistically_better, &object_first),
+            Ordering::Less,
+            "legal-score probability must remain the primary ranking objective"
+        );
     }
 
     #[test]

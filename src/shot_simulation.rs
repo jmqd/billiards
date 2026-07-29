@@ -746,6 +746,7 @@ pub struct ThreeCushionFacts {
     pub object_a_first_contact: Option<ContactInstant>,
     pub object_b_first_contact: Option<ContactInstant>,
     pub completion: Option<ContactInstant>,
+    pub first_cue_ball_cushion_contact: Option<ContactInstant>,
     pub cushion_contacts_before_completion: u16,
     pub first_three_qualifying_cushions: [Option<Rail>; 3],
     pub maximum_cue_ball_height: Inches,
@@ -763,6 +764,28 @@ impl ThreeCushionFacts {
     /// Whether object B was contacted by the cue ball.
     pub const fn object_b_touched(&self) -> bool {
         self.object_b_first_contact.is_some()
+    }
+
+    /// Whether an object contact occurred strictly before the first cue-ball cushion contact.
+    ///
+    /// Contacts in the same resolved event are simultaneous and do not invent an order.
+    pub fn first_contact_was_object(&self) -> bool {
+        let first_object_contact = match (self.object_a_first_contact, self.object_b_first_contact)
+        {
+            (Some(object_a), Some(object_b)) => {
+                Some(if object_a.event_index <= object_b.event_index {
+                    object_a
+                } else {
+                    object_b
+                })
+            }
+            (Some(contact), None) | (None, Some(contact)) => Some(contact),
+            (None, None) => None,
+        };
+        first_object_contact.is_some_and(|object| {
+            self.first_cue_ball_cushion_contact
+                .is_none_or(|cushion| object.event_index < cushion.event_index)
+        })
     }
 
     /// Whether at least three qualifying cue-ball cushion contacts occurred before completion.
@@ -935,6 +958,7 @@ struct ThreeCushionAccumulator {
     object_a_first_contact: Option<ContactInstant>,
     object_b_first_contact: Option<ContactInstant>,
     completion: Option<ContactInstant>,
+    first_cue_ball_cushion_contact: Option<ContactInstant>,
     first_unsupported_contact: Option<ContactInstant>,
     cushion_contacts_before_completion: u16,
     first_three_qualifying_cushions: [Option<Rail>; 3],
@@ -991,6 +1015,7 @@ impl ThreeCushionAccumulator {
                     if *ball != roles.cue {
                         continue;
                     }
+                    self.first_cue_ball_cushion_contact.get_or_insert(instant);
                     let count = self.cushion_contacts_before_completion;
                     if count < 3 {
                         self.first_three_qualifying_cushions[count as usize] = Some(*rail);
@@ -1031,6 +1056,7 @@ impl ThreeCushionAccumulator {
             object_a_first_contact: self.object_a_first_contact,
             object_b_first_contact: self.object_b_first_contact,
             completion: self.completion,
+            first_cue_ball_cushion_contact: self.first_cue_ball_cushion_contact,
             cushion_contacts_before_completion: self.cushion_contacts_before_completion,
             first_three_qualifying_cushions: self.first_three_qualifying_cushions,
             maximum_cue_ball_height: Inches::from_f64(self.maximum_cue_ball_height),

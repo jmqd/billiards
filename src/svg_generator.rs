@@ -7,8 +7,9 @@ use crate::dsl::{
 };
 use crate::visualization::{PathColorMode, DEFAULT_BALL_PATH_MAX_TIME_STEP_SECONDS};
 use crate::{
-    human_tuned_preview_motion_config, CollisionModel, DiagramBackground, DiagramRenderOptions,
-    RailModel, Seconds, TableKind, TableSpec,
+    human_tuned_preview_motion_config, Angle, BallState, CollisionModel, CutAngle,
+    DiagramBackground, DiagramRenderOptions, NBallSystemEvent, RailModel, Seconds, TableKind,
+    TableSpec,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,6 +87,19 @@ pub struct ScenarioPlaybackBallReport {
     pub wz_rps: f64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct FirstObjectContactReport {
+    pub time: f64,
+    pub cue_ball: ScenarioPlaybackBallVisual,
+    pub object_ball: ScenarioPlaybackBallVisual,
+    pub cut_angle_degrees: f64,
+    pub hit_fraction: f64,
+    pub lateral_offset_diameters: f64,
+    pub forward_offset_diameters: f64,
+    pub vertical_offset_diameters: f64,
+    pub airborne: bool,
+}
+
 struct RenderedSvgScenario {
     svg: String,
     trace: Option<ScenarioShotTrace>,
@@ -149,13 +163,223 @@ pub fn serialize_prepared_svg_report(
             json.push(']');
         }
     }
-    json.push_str("],\"playback\":");
+    json.push_str("],\"firstObjectContact\":");
+    if let Some(contact) =
+        trace.and_then(|trace| build_first_object_contact_report(trace, table_spec))
+    {
+        serialize_first_object_contact_report(json, &contact);
+    } else {
+        json.push_str("null");
+    }
+    json.push_str(",\"playback\":");
     if let Some(trace) = trace {
         serialize_scenario_playback_trace(json, trace, table_spec, max_time_step);
     } else {
         json.push_str("null");
     }
     json.push('}');
+}
+
+pub fn build_first_object_contact_report(
+    trace: &ScenarioShotTrace,
+    table_spec: &TableSpec,
+) -> Option<FirstObjectContactReport> {
+    let ball_spec = table_spec.default_ball_spec();
+    let ball_diameter_inches = 2.0 * ball_spec.radius.as_f64();
+    if ball_diameter_inches <= f64::EPSILON {
+        return None;
+    }
+
+    let viewport = DiagramViewport::default();
+    let ball_radius = viewport.ball_radius_px(table_spec, &ball_spec);
+    let pool_artwork = table_spec.kind == TableKind::Pool;
+    let mut event_offset = 0;
+
+    for execution in &trace.shot_executions {
+        let cue_ball_index = trace
+            .ball_traces
+            .iter()
+            .position(|ball_trace| ball_trace.ball == execution.shot.ball)?;
+        let mut event_time = execution.start_time.as_f64();
+
+        for (event_index, event) in execution.simulation.events.iter().enumerate() {
+            event_time += event.time().as_f64();
+            let Some((object_ball_index, cue_state, object_state, airborne)) =
+                first_object_contact_states(
+                    trace,
+                    event,
+                    event_offset + event_index,
+                    cue_ball_index,
+                )
+            else {
+                continue;
+            };
+            let cue_ball_trace = trace.ball_traces.get(cue_ball_index)?;
+            let object_ball_trace = trace.ball_traces.get(object_ball_index)?;
+            if object_ball_trace.ball == execution.shot.ball {
+                continue;
+            }
+
+            let cue_speed = cue_state.velocity.speed().as_f64();
+            if cue_speed <= f64::EPSILON {
+                return None;
+            }
+            let forward_x = cue_state.velocity.x().as_f64() / cue_speed;
+            let forward_y = cue_state.velocity.y().as_f64() / cue_speed;
+            let right_x = forward_y;
+            let right_y = -forward_x;
+            let delta_x = object_state.position.x().as_f64() - cue_state.position.x().as_f64();
+            let delta_y = object_state.position.y().as_f64() - cue_state.position.y().as_f64();
+            if delta_x.hypot(delta_y) <= f64::EPSILON {
+                return None;
+            }
+            let cue_heading = cue_state.velocity.angle_from_north()?;
+            let line_of_centers_heading = Angle::from_north(delta_x, delta_y);
+            let cut_angle = CutAngle::from_headings(cue_heading, line_of_centers_heading);
+            let hit_fraction = 1.0 - cut_angle.as_degrees().to_radians().sin();
+
+            return Some(FirstObjectContactReport {
+                time: event_time,
+                cue_ball: scenario_playback_ball_visual(
+                    cue_ball_trace,
+                    ball_radius,
+                    ball_spec.radius.as_f64(),
+                    pool_artwork,
+                ),
+                object_ball: scenario_playback_ball_visual(
+                    object_ball_trace,
+                    ball_radius,
+                    ball_spec.radius.as_f64(),
+                    pool_artwork,
+                ),
+                cut_angle_degrees: cut_angle.as_degrees(),
+                hit_fraction: hit_fraction.clamp(0.0, 1.0),
+                lateral_offset_diameters: (delta_x * right_x + delta_y * right_y)
+                    / ball_diameter_inches,
+                forward_offset_diameters: (delta_x * forward_x + delta_y * forward_y)
+                    / ball_diameter_inches,
+                vertical_offset_diameters: (object_state.height.as_f64()
+                    - cue_state.height.as_f64())
+                    / ball_diameter_inches,
+                airborne,
+            });
+        }
+
+        event_offset += execution.simulation.events.len();
+    }
+
+    None
+}
+
+fn first_object_contact_states<'a>(
+    trace: &'a ScenarioShotTrace,
+    event: &'a NBallSystemEvent,
+    event_index: usize,
+    cue_ball_index: usize,
+) -> Option<(usize, &'a BallState, &'a BallState, bool)> {
+    match event {
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } if *first_ball_index == cue_ball_index => Some((
+            *second_ball_index,
+            collision.a_at_impact.as_ball_state(),
+            collision.b_at_impact.as_ball_state(),
+            false,
+        )),
+        NBallSystemEvent::BallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            collision,
+        } if *second_ball_index == cue_ball_index => Some((
+            *first_ball_index,
+            collision.b_at_impact.as_ball_state(),
+            collision.a_at_impact.as_ball_state(),
+            false,
+        )),
+        NBallSystemEvent::AirborneBallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            contact,
+        } if *first_ball_index == cue_ball_index => Some((
+            *second_ball_index,
+            &contact.first_at_contact,
+            &contact.second_at_contact,
+            true,
+        )),
+        NBallSystemEvent::AirborneBallBallCollision {
+            first_ball_index,
+            second_ball_index,
+            contact,
+        } if *second_ball_index == cue_ball_index => Some((
+            *first_ball_index,
+            &contact.second_at_contact,
+            &contact.first_at_contact,
+            true,
+        )),
+        NBallSystemEvent::SharedBallBallContact {
+            ball_indices,
+            ball_ball_pairs,
+            ..
+        } if ball_indices.contains(&cue_ball_index) => {
+            let cue_ball = &trace.ball_traces.get(cue_ball_index)?.ball;
+            let object_ball_index = ball_ball_pairs
+                .iter()
+                .filter_map(|(first_ball_index, second_ball_index)| {
+                    if *first_ball_index == cue_ball_index {
+                        Some(*second_ball_index)
+                    } else if *second_ball_index == cue_ball_index {
+                        Some(*first_ball_index)
+                    } else {
+                        None
+                    }
+                })
+                .filter(|object_ball_index| {
+                    trace
+                        .ball_traces
+                        .get(*object_ball_index)
+                        .is_some_and(|ball_trace| &ball_trace.ball != cue_ball)
+                })
+                .min()?;
+            let cue_state = &trace
+                .ball_traces
+                .get(cue_ball_index)?
+                .timeline_segments
+                .get(event_index)?
+                .end;
+            let object_state = &trace
+                .ball_traces
+                .get(object_ball_index)?
+                .timeline_segments
+                .get(event_index)?
+                .end;
+            Some((object_ball_index, cue_state, object_state, false))
+        }
+        _ => None,
+    }
+}
+
+pub fn serialize_first_object_contact_report(
+    json: &mut String,
+    contact: &FirstObjectContactReport,
+) {
+    write!(json, "{{\"time\":{:.6},\"cueBall\":", contact.time)
+        .expect("writing JSON to string should not fail");
+    push_playback_ball_visual(json, &contact.cue_ball);
+    json.push_str(",\"objectBall\":");
+    push_playback_ball_visual(json, &contact.object_ball);
+    write!(
+        json,
+        ",\"cutAngleDegrees\":{:.6},\"hitFraction\":{:.6},\"lateralOffsetDiameters\":{:.6},\"forwardOffsetDiameters\":{:.6},\"verticalOffsetDiameters\":{:.6},\"airborne\":{}}}",
+        contact.cut_angle_degrees,
+        contact.hit_fraction,
+        contact.lateral_offset_diameters,
+        contact.forward_offset_diameters,
+        contact.vertical_offset_diameters,
+        contact.airborne,
+    )
+    .expect("writing JSON to string should not fail");
 }
 
 fn rendered_svg_scenario(

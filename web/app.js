@@ -210,6 +210,113 @@ function eventBucket(events) {
   return "multi";
 }
 
+function finiteContactNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeContactBall(source) {
+  const ball = Array.isArray(source)
+    ? { id: source[0], fill: source[1], label: source[2], style: source[5] }
+    : source ?? {};
+  const fill = String(ball.fill ?? "");
+  return {
+    id: String(ball.id ?? "ball"),
+    fill: /^#[0-9a-f]{6}$/i.test(fill) ? fill : "#f8f4e8",
+    label: ball.label == null ? "" : String(ball.label),
+    style: String(ball.style ?? "plain"),
+  };
+}
+
+function contactBallName(ball) {
+  if (ball.label) return `${ball.label}-ball`;
+  return `${ball.id.replaceAll("-", " ")} ball`;
+}
+
+function contactBallSvg(ball, centerX, centerY, radius, { ghost = false } = {}) {
+  const x = Number(centerX.toFixed(3));
+  const y = Number(centerY.toFixed(3));
+  const r = Number(radius.toFixed(3));
+  const shellFill = ball.style === "stripe" ? "#f8f4e8" : ball.fill;
+  const stripe = ball.style === "stripe"
+    ? `<line class="contact-ball-stripe" x1="${x - r * 0.86}" y1="${y}" x2="${x + r * 0.86}" y2="${y}" stroke="${escapeHtml(ball.fill)}" stroke-width="${r * 0.82}"/>`
+    : "";
+  const label = ball.label
+    ? `<circle class="contact-ball-number-disc" cx="${x}" cy="${y}" r="${r * 0.32}"/><text class="contact-ball-number" x="${x}" y="${y}">${escapeHtml(ball.label)}</text>`
+    : "";
+  return `<g class="contact-ball${ghost ? " contact-ball-ghost" : ""}">
+    <circle class="contact-ball-shell" cx="${x}" cy="${y}" r="${r}" fill="${escapeHtml(shellFill)}"/>
+    ${stripe}
+    ${label}
+  </g>`;
+}
+
+function firstObjectContactPresentation(contact) {
+  if (!contact || typeof contact !== "object") return null;
+
+  const cueBall = normalizeContactBall(contact.cueBall);
+  const objectBall = normalizeContactBall(contact.objectBall);
+  const cueBallName = contactBallName(cueBall);
+  const objectBallName = contactBallName(objectBall);
+  const cutAngle = clamp(finiteContactNumber(contact.cutAngleDegrees), 0, 90);
+  const hitFraction = clamp(finiteContactNumber(contact.hitFraction), 0, 1);
+  const lateralOffset = clamp(finiteContactNumber(contact.lateralOffsetDiameters), -1.05, 1.05);
+  const forwardOffset = clamp(finiteContactNumber(contact.forwardOffsetDiameters), -1.05, 1.05);
+  const verticalOffset = clamp(finiteContactNumber(contact.verticalOffsetDiameters), -1.05, 1.05);
+  const contactTime = Math.max(0, finiteContactNumber(contact.time));
+  const airborne = contact.airborne === true;
+  const fullnessText = `${Number((hitFraction * 100).toFixed(1))}%`;
+  const cutAngleText = `${Number(cutAngle.toFixed(1))}°`;
+
+  const elevatedCue = { x: 72, y: 78 };
+  const elevatedObject = {
+    x: 72 + lateralOffset * 44,
+    y: 72 - forwardOffset * 14 - verticalOffset * 44,
+  };
+  const topObject = { x: 98, y: 56 };
+  const topCue = {
+    x: topObject.x - forwardOffset * 40,
+    y: topObject.y - lateralOffset * 40,
+  };
+  const elevatedLabel = `${fullnessText} full, ${cutAngleText} cut between ${cueBallName} and ${objectBallName}, viewed down the shot line${airborne ? " with airborne contact" : ""}.`;
+  const topLabel = `Top-down ghost-ball view of the first contact between ${cueBallName} and ${objectBallName}.`;
+
+  const visualsHtml = `<div class="visual-stack contact-visual-stack" aria-label="First object contact visual aids">
+    <div class="visual-panel contact-visual-panel">
+      <svg class="contact-elevated-view" viewBox="0 0 144 112" role="img" aria-label="${escapeHtml(elevatedLabel)}">
+        <path class="contact-table-plane" d="M8 102 L136 102 L112 35 L32 35 Z"/>
+        <path class="contact-shot-guide" d="M72 104 L72 28"/>
+        <path class="contact-shot-arrow" d="M72 25 L67 34 L77 34 Z"/>
+        <ellipse class="contact-ball-shadow" cx="${elevatedObject.x}" cy="${elevatedObject.y + 20}" rx="19" ry="5"/>
+        ${contactBallSvg(objectBall, elevatedObject.x, elevatedObject.y, 22)}
+        <ellipse class="contact-ball-shadow" cx="${elevatedCue.x}" cy="${elevatedCue.y + 20}" rx="19" ry="5"/>
+        ${contactBallSvg(cueBall, elevatedCue.x, elevatedCue.y, 22)}
+        <text class="contact-view-label" x="72" y="108">DOWN SHOT LINE</text>
+      </svg>
+      <div class="visual-caption"><strong>Fullness</strong><span>${fullnessText} · ${cutAngleText} cut</span></div>
+    </div>
+    <div class="visual-panel contact-visual-panel">
+      <svg class="contact-top-view" viewBox="0 0 144 112" role="img" aria-label="${escapeHtml(topLabel)}">
+        <rect class="contact-table-plane" x="4" y="4" width="136" height="104" rx="4"/>
+        <path class="contact-shot-guide" d="M8 ${topCue.y} L${topCue.x - 22} ${topCue.y}"/>
+        <path class="contact-shot-arrow" d="M${topCue.x - 15} ${topCue.y} L${topCue.x - 24} ${topCue.y - 5} L${topCue.x - 24} ${topCue.y + 5} Z"/>
+        <path class="contact-line-of-centers" d="M${topCue.x} ${topCue.y} L${topObject.x} ${topObject.y}"/>
+        ${contactBallSvg(cueBall, topCue.x, topCue.y, 20, { ghost: true })}
+        ${contactBallSvg(objectBall, topObject.x, topObject.y, 20)}
+        <circle class="contact-point" cx="${(topCue.x + topObject.x) / 2}" cy="${(topCue.y + topObject.y) / 2}" r="2.4"/>
+        <text class="contact-view-label" x="72" y="108">BIRD'S-EYE VIEW</text>
+      </svg>
+      <div class="visual-caption"><strong>Ghost ball</strong><span>${airborne ? "projected · airborne" : "at contact"}</span></div>
+    </div>
+  </div>`;
+  const infoRowsHtml = `
+    <div class="info-row"><dt>First contact</dt><dd>${escapeHtml(cueBallName)} → ${escapeHtml(objectBallName)} at ${contactTime.toFixed(3)} s</dd></div>
+    <div class="info-row"><dt>Hit fullness</dt><dd>${fullnessText}</dd></div>
+    <div class="info-row"><dt>Cut angle</dt><dd>${cutAngleText}${airborne ? " · airborne" : ""}</dd></div>`;
+
+  return { visualsHtml, infoRowsHtml };
+}
+
 function reportHtml(report, elapsedMs, source) {
   const events = Array.isArray(report.events)
     ? report.events.map((event) => Array.isArray(event)
@@ -217,6 +324,7 @@ function reportHtml(report, elapsedMs, source) {
       : event)
     : [];
   const playback = report.playback ?? null;
+  const firstObjectContact = firstObjectContactPresentation(report.firstObjectContact);
   const svgSizeKiB = (new Blob([report.svg], { type: "image/svg+xml" }).size / 1024).toFixed(1);
   const duration = playback ? `${Number(playback.duration || 0).toFixed(3)} s` : "static layout";
   const frameCount = playback?.frames?.length ?? 0;
@@ -229,7 +337,8 @@ function reportHtml(report, elapsedMs, source) {
   previewCard.dataset.scenarioPlayback = playback ? "with-playback" : "no-playback";
   return `
     <div class="card-workspace">
-      <div class="card-overview card-overview-full">
+      <div class="card-overview${firstObjectContact ? "" : " card-overview-full"}">
+        ${firstObjectContact?.visualsHtml ?? ""}
         <div class="info-panel">
           <dl class="info-table">
             <div class="info-row"><dt>Renderer</dt><dd>Rust/Wasm SVG generator</dd></div>
@@ -238,6 +347,7 @@ function reportHtml(report, elapsedMs, source) {
             <div class="info-row"><dt>Duration</dt><dd>${duration}</dd></div>
             <div class="info-row"><dt>Frames</dt><dd>${frameCount}</dd></div>
             <div class="info-row"><dt>Events</dt><dd>${eventCount}</dd></div>
+            ${firstObjectContact?.infoRowsHtml ?? ""}
           </dl>
         </div>
       </div>

@@ -74,6 +74,23 @@ fn assert_playback_tuple_schema(playback: &Value) {
     }
 }
 
+fn contact_number(contact: &Value, field: &str) -> f64 {
+    contact[field]
+        .as_f64()
+        .unwrap_or_else(|| panic!("first-object contact `{field}` must be numeric"))
+}
+
+fn assert_contact_centers_are_tangent(contact: &Value) {
+    let lateral = contact_number(contact, "lateralOffsetDiameters");
+    let forward = contact_number(contact, "forwardOffsetDiameters");
+    let vertical = contact_number(contact, "verticalOffsetDiameters");
+    let normalized_distance_squared = lateral * lateral + forward * forward + vertical * vertical;
+    assert!(
+        (normalized_distance_squared - 1.0).abs() <= 1e-5,
+        "contact centers must be one ball diameter apart, got {normalized_distance_squared}"
+    );
+}
+
 #[test]
 fn canonical_playback_serializer_preserves_compact_schema_precision_and_escaping() {
     let report = ScenarioPlaybackReport {
@@ -165,11 +182,76 @@ fn svg_report_embeds_canonical_playback_tuple_schema() {
     .expect("SVG playback report should render");
     let report: Value = serde_json::from_str(&report).expect("SVG report must be valid JSON");
     let playback = &report["playback"];
+    assert!(
+        report["firstObjectContact"].is_null(),
+        "a shot without a ball-ball collision must not report object contact"
+    );
 
     assert_playback_tuple_schema(playback);
     assert!(!playback["events"].as_array().unwrap().is_empty());
     assert!(!playback["balls"].as_array().unwrap().is_empty());
     assert!(!playback["frames"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn svg_report_first_object_contact_uses_exact_on_table_impact_geometry() {
+    let report = render_svg_report_from_dsl(include_str!(
+        "../examples/scenarios/three_cushion_left_top_right_score.billiards"
+    ))
+    .expect("carom SVG report should render");
+    let report: Value = serde_json::from_str(&report).expect("SVG report must be valid JSON");
+    let contact = &report["firstObjectContact"];
+    let contact_object = contact
+        .as_object()
+        .expect("scoring shot must report its first object contact");
+
+    assert_eq!(
+        contact_object.len(),
+        9,
+        "first-object contact field count changed"
+    );
+    assert_eq!(contact["cueBall"][0].as_str(), Some("cue"));
+    assert_eq!(contact["objectBall"][0].as_str(), Some("yellow"));
+    assert_eq!(contact["airborne"].as_bool(), Some(false));
+    assert_eq!(contact_number(contact, "verticalOffsetDiameters"), 0.0);
+    assert_contact_centers_are_tangent(contact);
+
+    let cut_angle = contact_number(contact, "cutAngleDegrees");
+    let hit_fraction = contact_number(contact, "hitFraction");
+    assert!(
+        (30.0..31.0).contains(&cut_angle),
+        "canonical carom cut angle changed: {cut_angle}"
+    );
+    assert!(
+        (hit_fraction - (1.0 - cut_angle.to_radians().sin())).abs() <= 2e-6,
+        "hit fullness must follow TP A.23"
+    );
+}
+
+#[test]
+fn svg_report_first_object_contact_preserves_airborne_contact_height() {
+    let report = render_svg_report_from_dsl(include_str!(
+        "../examples/scenarios/jump_over_full_ball_showcase.billiards"
+    ))
+    .expect("jump SVG report should render");
+    let report: Value = serde_json::from_str(&report).expect("SVG report must be valid JSON");
+    let contact = &report["firstObjectContact"];
+
+    assert_eq!(contact["cueBall"][0].as_str(), Some("cue"));
+    assert_eq!(contact["objectBall"][0].as_str(), Some("two"));
+    assert_eq!(contact["airborne"].as_bool(), Some(true));
+    assert!(
+        contact_number(contact, "verticalOffsetDiameters").abs() > 0.01,
+        "airborne contact must retain visible vertical separation"
+    );
+    assert_contact_centers_are_tangent(contact);
+
+    let cut_angle = contact_number(contact, "cutAngleDegrees");
+    let hit_fraction = contact_number(contact, "hitFraction");
+    assert!(
+        (hit_fraction - (1.0 - cut_angle.to_radians().sin())).abs() <= 2e-6,
+        "airborne hit fullness must use the same cut-angle definition"
+    );
 }
 
 #[test]

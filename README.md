@@ -99,6 +99,12 @@ units. Edits in either representation re-render through the Wasm
 controls used by the validation gallery. Generated preview output lives in
 `target/wasm-preview/`.
 
+When the shot reaches an object ball, the report's `firstObjectContact` object records the exact
+pre-resolution impact time, ball artwork, cut angle, TP A.23 hit fullness
+`f = 1 - sin(phi)`, and shot-frame center offsets normalized by ball diameter. The preview renders
+those values as an elevated down-the-shot-line overlap view plus a bird's-eye ghost-ball view;
+airborne contacts retain their vertical offset. Reports without an object contact use `null`.
+
 The editor includes a **Robust three-cushion search** card below the DSL. Choose a physics-evaluation
 budget and player level, select **Find robust shot**, and inspect the score probability and ranked
 finalists. A configured shot supplies the search seed and cue. A shotless three-ball setup uses a

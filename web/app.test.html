@@ -148,9 +148,21 @@
       document.head.append(script);
     });
 
-    const report = (version) => ({
+    const firstObjectContact = {
+      time: 0.369,
+      cueBall: ['cue', '#f8f4e8', null, 10, 1.125, 'plain', null, null],
+      objectBall: ['yellow', '#f1c232', null, 10, 1.125, 'plain', null, null],
+      cutAngleDegrees: 30.2,
+      hitFraction: 0.497,
+      lateralOffsetDiameters: 0.503,
+      forwardOffsetDiameters: 0.864,
+      verticalOffsetDiameters: 0,
+      airborne: false,
+    };
+    const report = (version, contact = null) => ({
       svg: `<svg viewBox="0 0 1 1" data-render-version="${version}" aria-label="${version} render"><circle cx="0.5" cy="0.5" r="0.25"></circle></svg>`,
       events: [],
+      firstObjectContact: contact,
       playback: null,
     });
     const workerError = (phase, name, message) => ({
@@ -341,10 +353,45 @@
           'the queued newest source must preserve the exact quoted and backslashed comment line',
         );
 
-        worker.respond({ id: newestRequest.id, report: report('newest'), elapsedMs: 1 });
+        worker.respond({
+          id: newestRequest.id,
+          report: report('newest', firstObjectContact),
+          elapsedMs: 1,
+        });
         assert(
           preview.querySelector('[data-render-version="newest"]'),
           'the newest worker result must become the visible preview',
+        );
+        const contactOverview = preview.querySelector('.card-overview');
+        const elevatedContactView = preview.querySelector('.contact-elevated-view');
+        const topContactView = preview.querySelector('.contact-top-view');
+        const contactInfo = Object.fromEntries(
+          [...preview.querySelectorAll('.card-overview .info-row')].map((row) => [
+            row.querySelector('dt')?.textContent.trim(),
+            row.querySelector('dd')?.textContent.trim(),
+          ]),
+        );
+        assert(
+          contactOverview && !contactOverview.classList.contains('card-overview-full')
+            && preview.querySelectorAll('.contact-visual-panel').length === 2,
+          'a first object contact must add both visual aids beside the report metadata',
+        );
+        assert(
+          elevatedContactView?.getAttribute('role') === 'img'
+            && elevatedContactView.getAttribute('aria-label').includes('49.7% full, 30.2° cut'),
+          'the elevated fullness view must expose its percentage and cut angle accessibly',
+        );
+        assert(
+          topContactView?.getAttribute('role') === 'img'
+            && topContactView.getAttribute('aria-label').includes('Top-down ghost-ball view')
+            && topContactView.querySelector('.contact-ball-ghost'),
+          'the bird-eye view must identify and draw the cue ghost ball accessibly',
+        );
+        assert(
+          contactInfo['First contact'] === 'cue ball → yellow ball at 0.369 s'
+            && contactInfo['Hit fullness'] === '49.7%'
+            && contactInfo['Cut angle'] === '30.2°',
+          'first-contact metadata must agree with the visual aids',
         );
 
         const outcomeSummary = (scored) => ({
@@ -552,6 +599,11 @@
           report: report('second-candidate'),
           elapsedMs: 1,
         });
+        assert(
+          preview.querySelector('.card-overview')?.classList.contains('card-overview-full')
+            && !preview.querySelector('.contact-visual-stack'),
+          'a report without object contact must retain the full-width metadata layout',
+        );
 
         candidateButtons[0].click();
         assert(

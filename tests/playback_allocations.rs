@@ -8,7 +8,8 @@ use billiards::dsl::{
     parse_dsl_to_scenario, DslScenario, ScenarioShotTrace, ScenarioTraceRenderOptions,
 };
 use billiards::svg_generator::{
-    build_scenario_playback_report, serialize_prepared_svg_report,
+    build_first_object_contact_report, build_scenario_playback_report,
+    serialize_first_object_contact_report, serialize_prepared_svg_report,
     serialize_scenario_playback_report,
 };
 use billiards::visualization::{BallPathRenderOptions, PathColorMode};
@@ -239,7 +240,13 @@ fn serialize_owned_svg_report(
         push_json_string(out, &event.format_human());
         out.push(']');
     }
-    out.push_str("],\"playback\":");
+    out.push_str("],\"firstObjectContact\":");
+    if let Some(contact) = build_first_object_contact_report(trace, table_spec) {
+        serialize_first_object_contact_report(out, &contact);
+    } else {
+        out.push_str("null");
+    }
+    out.push_str(",\"playback\":");
     let playback = build_scenario_playback_report(trace, table_spec, step);
     serialize_scenario_playback_report(out, &playback);
     out.push('}');

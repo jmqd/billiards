@@ -50,6 +50,23 @@ main{width:min(100%,1600px);margin:0 auto;padding:1.25rem}
 .visual-panel svg{display:block;width:6.35rem;height:6.35rem;max-width:none;object-fit:contain;margin:0 auto}
 .visual-caption{display:flex;align-items:center;justify-content:center;gap:.3rem;margin:.3rem 0 0;font-size:.8rem;line-height:1.2;color:var(--muted)}
 .visual-caption strong{color:var(--ink);font-size:.82rem;font-variant:small-caps;font-weight:600;letter-spacing:.035em}
+.contact-visual-panel{overflow:hidden}
+.contact-visual-panel svg{border-radius:2px;background:#efe4c9}
+.contact-table-plane{fill:#d8c89f;stroke:#9a8557;stroke-width:1}
+.contact-shot-guide{fill:none;stroke:var(--accent-2);stroke-width:1.5;stroke-dasharray:4 4;opacity:.8}
+.contact-shot-arrow{fill:var(--accent-2);opacity:.85}
+.contact-line-of-centers{fill:none;stroke:var(--ink);stroke-width:1;stroke-dasharray:2.5 3;opacity:.58}
+.contact-ball-shadow{fill:#4b3c2b;opacity:.2}
+.contact-ball-shell{stroke:#29251f;stroke-width:1.4}
+.contact-ball-stripe{pointer-events:none}
+.contact-ball-number-disc{fill:#f8f4e8;stroke:#29251f;stroke-width:.55}
+.contact-ball-number{fill:#171512;font:700 8px/1 ui-sans-serif,system-ui,sans-serif;text-anchor:middle;dominant-baseline:central}
+.contact-ball-ghost{opacity:.58}
+.contact-ball-ghost .contact-ball-shell{fill-opacity:.3;stroke-width:1.8;stroke-dasharray:4 3}
+.contact-ball-ghost .contact-ball-stripe{opacity:.38}
+.contact-point{fill:var(--accent);stroke:#fff8e8;stroke-width:1}
+.contact-view-label{fill:var(--faint);font:700 6px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.11em;text-anchor:middle}
+.contact-visual-stack .visual-caption{flex-wrap:wrap;font-variant-numeric:tabular-nums}
 .tooltip{position:relative;display:inline-flex;align-items:center;justify-content:center;vertical-align:baseline;color:var(--accent);cursor:help;text-decoration:none;border-bottom:1px dotted currentColor;outline-offset:3px}
 .tooltip-mark{display:inline-flex;align-items:center;justify-content:center;min-width:1.15em;height:1.15em;border:1px solid var(--rule-strong);border-radius:50%;background:#fff7d7;color:var(--accent);font-family:ui-sans-serif,system-ui,sans-serif;font-size:.75em;font-weight:700;line-height:1}
 .tooltip::after{content:attr(data-tooltip);position:absolute;left:50%;bottom:calc(100% + .55rem);transform:translate(-50%,.25rem);z-index:20;width:min(24rem,80vw);padding:.65rem .75rem;background:#fffdf7;border:1px solid var(--rule-strong);box-shadow:0 8px 24px rgba(72,52,28,.18);color:var(--ink);font:400 .88rem/1.35 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;text-align:left;white-space:normal;opacity:0;pointer-events:none;transition:opacity .12s ease,transform .12s ease}

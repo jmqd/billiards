@@ -273,10 +273,11 @@ function firstObjectContactPresentation(contact) {
     x: 72 + lateralOffset * 44,
     y: 72 - forwardOffset * 14 - verticalOffset * 44,
   };
+  const topForwardDistance = Math.abs(forwardOffset);
   const topCue = { x: 72, y: 70 };
   const topObject = {
     x: topCue.x + lateralOffset * 40,
-    y: topCue.y - forwardOffset * 40,
+    y: topCue.y - topForwardDistance * 40,
   };
   const elevatedLabel = `${fullnessText} full, ${cutAngleText} cut between ${cueBallName} and ${objectBallName}, viewed down the shot line${airborne ? " with airborne contact" : ""}.`;
   const topLabel = `Top-down ghost-ball view of the first contact between ${cueBallName} and ${objectBallName}.`;

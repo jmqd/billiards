@@ -736,7 +736,7 @@
         const oppositeContact = {
           ...firstObjectContact,
           lateralOffsetDiameters: -1.05,
-          forwardOffsetDiameters: 1.05,
+          forwardOffsetDiameters: -1.05,
         };
         worker.respond({
           id: oppositeHeadingRender.id,
@@ -745,13 +745,20 @@
         });
         const oppositeTopContactView = preview.querySelector('.contact-top-view');
         const oppositeContactGeometry = topContactGeometry(oppositeTopContactView);
-        assertBottomUpContactGeometry(oppositeContactGeometry, 'negative lateral contact');
+        assertBottomUpContactGeometry(oppositeContactGeometry, 'negative forward/lateral contact');
         assert(
           oppositeContactGeometry.object.x < oppositeContactGeometry.ghost.x
             && firstContactGeometry.object.x > firstContactGeometry.ghost.x
             && oppositeContactGeometry.ghost.x === firstContactGeometry.ghost.x
-            && oppositeContactGeometry.ghost.y === firstContactGeometry.ghost.y,
-          'opposite cuts must move only the object-ball side while the ghost ball stays at the bottom',
+            && oppositeContactGeometry.ghost.y === firstContactGeometry.ghost.y
+            && Math.abs(
+              oppositeContactGeometry.object.y
+                - (
+                  oppositeContactGeometry.ghost.y
+                  - Math.abs(oppositeContact.forwardOffsetDiameters) * 40
+                )
+            ) < 1e-3,
+          'signed contact offsets must preserve the fixed bottom-up view for opposite cuts',
         );
 
 

@@ -784,6 +784,7 @@ fn final_state_label(state: &NBallSystemState) -> String {
             airborne.height.as_f64()
         ),
         NBallSystemState::Pocketed { pocket, .. } => format!("pocketed:{}", pocket_name(*pocket)),
+        NBallSystemState::OffTable { rail, .. } => format!("off-table:{}", rail_name(*rail)),
     }
 }
 

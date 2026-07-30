@@ -565,6 +565,9 @@ fn three_cushion_search_fitness(
     contact_distance: f64,
 ) -> f64 {
     let facts = adjudication.facts();
+    if facts.first_ball_off_table.is_some() {
+        return 0.0;
+    }
     if facts.maximum_cue_ball_height.as_f64() > THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES {
         return 0.0;
     }
@@ -2171,7 +2174,7 @@ fn resource_error(resource: &str, error: impl fmt::Display) -> RobustExperimentE
 
 #[cfg(test)]
 mod tests {
-    use super::super::{ContactInstant, ThreeCushionFacts, ThreeCushionMiss};
+    use super::super::{BallId, ContactInstant, ThreeCushionFacts, ThreeCushionMiss};
     use super::*;
     use crate::{Inches, Seconds};
 
@@ -2198,6 +2201,7 @@ mod tests {
                 cushion_contacts_before_completion: cushions,
                 first_three_qualifying_cushions: [None; 3],
                 maximum_cue_ball_height: Inches::zero(),
+                first_ball_off_table: None,
                 estimated_closest_second_object_clearance: clearance.map(Inches::from_f64),
             },
             reason: if object_contacts >= 2 {
@@ -2246,6 +2250,13 @@ mod tests {
         facts.maximum_cue_ball_height =
             Inches::from_f64(THREE_CUSHION_MAX_CUE_BALL_HEIGHT_INCHES + 0.001);
         assert!(three_cushion_search_fitness(&jumping, contact_distance).abs() <= f64::EPSILON);
+
+        let mut off_table = progress_miss(3, 1, Some(0.0), true);
+        let ThreeCushionAdjudication::Miss { facts, .. } = &mut off_table else {
+            panic!("progress fixture must be a miss");
+        };
+        facts.first_ball_off_table = Some(BallId::WHITE);
+        assert!(three_cushion_search_fitness(&off_table, contact_distance).abs() <= f64::EPSILON);
     }
 
     #[test]

@@ -459,7 +459,7 @@ impl DslScenario {
         thresholds: &crate::MotionPhaseThresholds,
     ) -> bool {
         states.iter().all(|state| match state {
-            NBallSystemState::Pocketed { .. } => true,
+            NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => true,
             NBallSystemState::OnTable(state) => RestingOnTableBallState::try_new_with_thresholds(
                 state.as_ball_state().clone(),
                 thresholds,
@@ -770,7 +770,10 @@ impl DslScenario {
             .iter()
             .zip(states)
             .filter_map(|(ball, state)| {
-                if matches!(state, NBallSystemState::Pocketed { .. }) {
+                if matches!(
+                    state,
+                    NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. }
+                ) {
                     return None;
                 }
                 Some(Ball {
@@ -840,7 +843,9 @@ impl DslScenario {
                         NBallSystemState::Airborne(airborne) => {
                             advance_airborne_ball(airborne, step_time)
                         }
-                        NBallSystemState::Pocketed { .. } => continue,
+                        NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => {
+                            continue
+                        }
                     };
                     trace.timeline_segments.push(ScenarioBallTimelineSegment {
                         start_time: elapsed,
@@ -1248,7 +1253,9 @@ impl ScenarioShotTrace {
                         );
                         (capture_point, capture_width_px)
                     }
-                    NBallSystemState::OnTable(_) | NBallSystemState::Airborne(_) => continue,
+                    NBallSystemState::OnTable(_)
+                    | NBallSystemState::Airborne(_)
+                    | NBallSystemState::OffTable { .. } => continue,
                 };
                 if capture_point != pocket_terminal {
                     game_state.add_smooth_polyline_with_width(
@@ -1348,6 +1355,10 @@ pub enum ScenarioShotTraceEventKind {
         ball: BallType,
         rail: Rail,
     },
+    BallOffTable {
+        ball: BallType,
+        rail: Rail,
+    },
     BallJawImpact {
         ball: BallType,
         pocket: Pocket,
@@ -1412,6 +1423,11 @@ impl ScenarioShotTraceEventKind {
             ScenarioShotTraceEventKind::BallRailImpact { ball, rail } => {
                 format!("{} rail impact: {}", ball_type_name(ball), rail_name(*rail))
             }
+            ScenarioShotTraceEventKind::BallOffTable { ball, rail } => format!(
+                "{} off table over {} rail",
+                ball_type_name(ball),
+                rail_name(*rail)
+            ),
             ScenarioShotTraceEventKind::BallJawImpact { ball, pocket, jaw } => format!(
                 "{} jaw impact: {} {}",
                 ball_type_name(ball),
@@ -1902,7 +1918,9 @@ impl ScenarioBallTrace {
     fn pocket_terminal_point(&self) -> Option<Position> {
         match &self.final_state {
             NBallSystemState::Pocketed { pocket, .. } => Some(pocket.aiming_center()),
-            NBallSystemState::OnTable(_) | NBallSystemState::Airborne(_) => None,
+            NBallSystemState::OnTable(_)
+            | NBallSystemState::Airborne(_)
+            | NBallSystemState::OffTable { .. } => None,
         }
     }
 
@@ -1970,7 +1988,7 @@ impl ScenarioBallTrace {
         match &self.final_state {
             NBallSystemState::OnTable(state) => Some(state.as_ball_state().clone()),
             NBallSystemState::Airborne(state) => Some(state.clone()),
-            NBallSystemState::Pocketed { .. } => None,
+            NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => None,
         }
     }
 
@@ -2000,7 +2018,7 @@ impl ScenarioBallTrace {
 
         let final_state = match &self.final_state {
             NBallSystemState::OnTable(state) => state.clone(),
-            NBallSystemState::Airborne(_) => return None,
+            NBallSystemState::Airborne(_) | NBallSystemState::OffTable { .. } => return None,
             NBallSystemState::Pocketed {
                 state_at_capture, ..
             } => state_at_capture.clone(),
@@ -2250,6 +2268,10 @@ fn scenario_event_involves_ball(event: &NBallSystemEvent, ball_index: usize) -> 
             ball_index: event_ball,
             ..
         }
+        | NBallSystemEvent::BallOffTable {
+            ball_index: event_ball,
+            ..
+        }
         | NBallSystemEvent::BallJawImpact {
             ball_index: event_ball,
             ..
@@ -2319,6 +2341,12 @@ fn scenario_event_kind_from_system_event(
             ScenarioShotTraceEventKind::BallRailImpact {
                 ball: balls[*ball_index].ty.clone(),
                 rail: impact.rail,
+            }
+        }
+        NBallSystemEvent::BallOffTable { ball_index, exit } => {
+            ScenarioShotTraceEventKind::BallOffTable {
+                ball: balls[*ball_index].ty.clone(),
+                rail: exit.rail,
             }
         }
         NBallSystemEvent::BallJawImpact { ball_index, impact } => {

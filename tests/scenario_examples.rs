@@ -647,7 +647,9 @@ fn final_pocket(trace: &ScenarioShotTrace, ball_type: BallType) -> Option<Pocket
         .find(|ball_trace| ball_trace.ball == ball_type)
         .and_then(|ball_trace| match &ball_trace.final_state {
             NBallSystemState::Pocketed { pocket, .. } => Some(*pocket),
-            NBallSystemState::OnTable(_) | NBallSystemState::Airborne(_) => None,
+            NBallSystemState::OnTable(_)
+            | NBallSystemState::Airborne(_)
+            | NBallSystemState::OffTable { .. } => None,
         })
 }
 

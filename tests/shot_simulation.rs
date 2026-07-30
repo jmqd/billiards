@@ -752,6 +752,31 @@ fn cue_ball_height_limit_is_strict_for_the_entire_shot() {
 }
 
 #[test]
+fn an_off_table_ball_invalidates_an_otherwise_completed_point() {
+    let mut events = completed_point_events();
+    events.push(instant(
+        3.0,
+        vec![ResolvedEffect::BallOffTable {
+            ball: BallId::WHITE,
+            rail: Rail::Top,
+        }],
+    ));
+
+    let ThreeCushionAdjudication::Miss { facts, reason } =
+        project_three_cushion(&owned(events, ShotTermination::Settled))
+    else {
+        panic!("a ball leaving the table must invalidate the point regardless of event order")
+    };
+    assert_eq!(facts.first_ball_off_table, Some(BallId::WHITE));
+    assert_eq!(
+        reason,
+        ThreeCushionMiss::BallOffTable {
+            ball: BallId::WHITE,
+        }
+    );
+}
+
+#[test]
 fn cue_ball_height_violation_precedes_insufficient_cushions() {
     let mut jump = owned(
         vec![

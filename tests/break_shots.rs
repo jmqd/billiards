@@ -16,6 +16,7 @@ fn position_xy(state: &NBallSystemState) -> (f64, f64) {
         NBallSystemState::Pocketed {
             state_at_capture, ..
         } => state_at_capture.as_ball_state(),
+        NBallSystemState::OffTable { state_at_exit, .. } => state_at_exit,
     };
 
     (state.position.x().as_f64(), state.position.y().as_f64())
@@ -400,7 +401,7 @@ fn nine_ball_break_nonideal_traces_reach_rest_and_spread_frozen_racks() {
                     classify_motion_phase(state.as_ball_state(), &ball_set, &motion.phase),
                     MotionPhase::Rest
                 ),
-                NBallSystemState::Pocketed { .. } => true,
+                NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => true,
                 NBallSystemState::Airborne(_) => false,
             }),
             "{scenario_path}: uncapped break trace must finish with every live ball at rest"
@@ -494,7 +495,7 @@ fn force_follow_first_hop_remains_airborne_and_trace_reaches_rest() {
                 classify_motion_phase(state.as_ball_state(), &ball_set, &motion.phase),
                 MotionPhase::Rest
             ),
-            NBallSystemState::Pocketed { .. } => true,
+            NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => true,
             NBallSystemState::Airborne(_) => false,
         }),
         "force-follow trace must reach natural rest"

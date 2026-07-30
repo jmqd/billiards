@@ -3100,7 +3100,7 @@ fn ordered_shots_execute_recursively_from_each_prior_settled_state() {
             previous.start_time.as_f64() + previous.simulation.elapsed.as_f64(),
         );
         assert!(previous.simulation.states.iter().all(|state| match state {
-            NBallSystemState::Pocketed { .. } => true,
+            NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => true,
             NBallSystemState::OnTable(state) => {
                 state
                     .as_ball_state()

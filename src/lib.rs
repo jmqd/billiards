@@ -54,6 +54,11 @@ lazy_static! {
     pub static ref GC4_SIDE_POCKET_WIDTH: Inches = Inches::from("5");
     pub static ref TYPICAL_BALL_RADIUS: Inches = Inches::from("1.125");
     pub static ref CAROM_BALL_RADIUS: Inches = Inches::from("1.21063");
+    /// Typical pool cushion nose height above the cloth: `1.4R` for a 2.25in ball.
+    pub static ref POOL_CUSHION_NOSE_HEIGHT: Inches = Inches::from("1.575");
+    /// UMB carom cushion nose height above the cloth: 37mm.
+    pub static ref CAROM_CUSHION_NOSE_HEIGHT: Inches =
+        Inches::from("1.4566929133858268");
     pub static ref CENTER_SPOT: Position = Position {
         x: Diamond::from("2"),
         y: Diamond::from("4"),
@@ -1569,8 +1574,8 @@ fn raw_trajectory_state_at(
                     - STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED * time,
             ],
         },
-        NBallSystemState::Pocketed { .. } => {
-            unreachable!("pocketed balls have no active trajectory")
+        NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => {
+            unreachable!("terminal balls have no active trajectory")
         }
     }
 }
@@ -1747,9 +1752,13 @@ fn predict_airborne_ball_ball_collision(
     if first.as_on_table().is_some() && second.as_on_table().is_some() {
         return None;
     }
-    if matches!(first, NBallSystemState::Pocketed { .. })
-        || matches!(second, NBallSystemState::Pocketed { .. })
-    {
+    if matches!(
+        first,
+        NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. }
+    ) || matches!(
+        second,
+        NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. }
+    ) {
         return None;
     }
 
@@ -1759,7 +1768,9 @@ fn predict_airborne_ball_ball_collision(
             NBallSystemState::Airborne(airborne) => {
                 time_until_airborne_ball_reaches_table(airborne).map(|time| time.as_f64())
             }
-            NBallSystemState::OnTable(_) | NBallSystemState::Pocketed { .. } => None,
+            NBallSystemState::OnTable(_)
+            | NBallSystemState::Pocketed { .. }
+            | NBallSystemState::OffTable { .. } => None,
         })
         .fold(f64::INFINITY, f64::min);
     if !horizon.is_finite() || horizon <= 0.0 {
@@ -1835,7 +1846,7 @@ fn predict_airborne_ball_ball_collision(
                     state.as_ball_state().velocity.speed().as_f64()
                         + sliding_friction_acceleration(motion) * horizon
                 }
-                NBallSystemState::Pocketed { .. } => 0.0,
+                NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => 0.0,
             })
             .sum();
         first_continuous_entry_time_adaptive(horizon, gap_at, speed_bound, derivative_at)
@@ -1880,6 +1891,30 @@ pub struct PredictedAirborneBallRailImpact {
     pub rail: Rail,
     pub time_until_impact: Seconds,
     pub state_at_impact: BallState,
+}
+
+/// A predicted terminal exit where an airborne ball clears a cushion nose.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PredictedBallOffTable {
+    pub rail: Rail,
+    pub time_until_exit: Seconds,
+    pub state_at_exit: BallState,
+}
+
+/// The result of an airborne ball reaching a continuous cushion contact plane.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PredictedAirborneBallRailCrossing {
+    CushionImpact(PredictedAirborneBallRailImpact),
+    OffTable(PredictedBallOffTable),
+}
+
+impl PredictedAirborneBallRailCrossing {
+    fn time(&self) -> Seconds {
+        match self {
+            Self::CushionImpact(impact) => impact.time_until_impact,
+            Self::OffTable(exit) => exit.time_until_exit,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2083,6 +2118,9 @@ enum NBallPocketAwareSystemEventSource {
     AirborneBallRailImpact {
         ball_index: usize,
     },
+    BallOffTable {
+        ball_index: usize,
+    },
     BallTableBounce {
         ball_index: usize,
     },
@@ -2118,6 +2156,10 @@ enum NBallPocketAwareSystemEventCandidateRef<'a> {
     AirborneBallRailImpact {
         ball_index: usize,
         impact: &'a PredictedAirborneBallRailImpact,
+    },
+    BallOffTable {
+        ball_index: usize,
+        exit: &'a PredictedBallOffTable,
     },
     BallTableBounce {
         ball_index: usize,
@@ -2160,6 +2202,9 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
             Self::AirborneBallRailImpact { ball_index, .. } => {
                 NBallPocketAwareSystemEventSource::AirborneBallRailImpact { ball_index }
             }
+            Self::BallOffTable { ball_index, .. } => {
+                NBallPocketAwareSystemEventSource::BallOffTable { ball_index }
+            }
             Self::BallTableBounce { ball_index, .. } => {
                 NBallPocketAwareSystemEventSource::BallTableBounce { ball_index }
             }
@@ -2177,6 +2222,7 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
             Self::BallPocketCapture { capture, .. } => capture.time_until_capture.as_f64(),
             Self::BallRailImpact { impact, .. } => impact.time_until_impact.as_f64(),
             Self::AirborneBallRailImpact { impact, .. } => impact.time_until_impact.as_f64(),
+            Self::BallOffTable { exit, .. } => exit.time_until_exit.as_f64(),
             Self::BallTableBounce { contact, .. } => contact.time_until_contact.as_f64(),
             Self::MotionTransition { transition, .. } => transition.time_until_transition.as_f64(),
         }
@@ -2223,6 +2269,10 @@ impl NBallPocketAwareSystemEventCandidateRef<'_> {
                     impact: impact.clone(),
                 }
             }
+            Self::BallOffTable { ball_index, exit } => NBallSystemEvent::BallOffTable {
+                ball_index,
+                exit: exit.clone(),
+            },
             Self::BallTableBounce {
                 ball_index,
                 contact,
@@ -2284,7 +2334,7 @@ fn pocket_event_order_never_promotes_a_later_jaw_over_capture() {
 struct PocketAwareEventCache {
     ball_ball: HashMap<(usize, usize), PredictedBallBallCollision>,
     airborne_ball_ball: HashMap<(usize, usize), PredictedAirborneBallBallCollision>,
-    airborne_rail_impacts: Vec<Option<PredictedAirborneBallRailImpact>>,
+    airborne_rail_crossings: Vec<Option<PredictedAirborneBallRailCrossing>>,
     jaw_impacts: Vec<Option<PredictedBallJawImpact>>,
     pocket_captures: Vec<Option<PredictedBallPocketCapture>>,
     rail_impacts: Vec<Option<PredictedBallRailImpact>>,
@@ -2303,7 +2353,7 @@ impl PocketAwareEventCache {
         let mut cache = Self {
             ball_ball: HashMap::with_capacity(pair_capacity),
             airborne_ball_ball: HashMap::with_capacity(pair_capacity),
-            airborne_rail_impacts: vec![None; states.len()],
+            airborne_rail_crossings: vec![None; states.len()],
             jaw_impacts: vec![None; states.len()],
             pocket_captures: vec![None; states.len()],
             rail_impacts: vec![None; states.len()],
@@ -2329,13 +2379,13 @@ impl PocketAwareEventCache {
         let state = match &states[ball_index] {
             NBallSystemState::OnTable(state) => {
                 self.table_bounces[ball_index] = None;
-                self.airborne_rail_impacts[ball_index] = None;
+                self.airborne_rail_crossings[ball_index] = None;
                 state
             }
             NBallSystemState::Airborne(state) => {
                 self.transitions[ball_index] = None;
-                self.airborne_rail_impacts[ball_index] =
-                    compute_next_airborne_ball_rail_impact(state, ball, table);
+                self.airborne_rail_crossings[ball_index] =
+                    compute_next_airborne_ball_rail_crossing(state, ball, table);
 
                 self.table_bounces[ball_index] =
                     settle_airborne_ball_on_next_table_contact(state, ball);
@@ -2354,12 +2404,12 @@ impl PocketAwareEventCache {
                 self.rail_impacts[ball_index] = None;
                 return;
             }
-            NBallSystemState::Pocketed { .. } => {
+            NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => {
                 self.jaw_impacts[ball_index] = None;
                 self.pocket_captures[ball_index] = None;
                 self.rail_impacts[ball_index] = None;
                 self.table_bounces[ball_index] = None;
-                self.airborne_rail_impacts[ball_index] = None;
+                self.airborne_rail_crossings[ball_index] = None;
                 self.transitions[ball_index] = None;
                 return;
             }
@@ -2501,13 +2551,20 @@ impl PocketAwareEventCache {
             }
         }
 
-        for (ball_index, impact) in self.airborne_rail_impacts.iter().enumerate() {
-            let Some(impact) = impact else {
+        for (ball_index, crossing) in self.airborne_rail_crossings.iter().enumerate() {
+            let Some(crossing) = crossing else {
                 continue;
             };
-            let candidate = NBallPocketAwareSystemEventCandidateRef::AirborneBallRailImpact {
-                ball_index,
-                impact,
+            let candidate = match crossing {
+                PredictedAirborneBallRailCrossing::CushionImpact(impact) => {
+                    NBallPocketAwareSystemEventCandidateRef::AirborneBallRailImpact {
+                        ball_index,
+                        impact,
+                    }
+                }
+                PredictedAirborneBallRailCrossing::OffTable(exit) => {
+                    NBallPocketAwareSystemEventCandidateRef::BallOffTable { ball_index, exit }
+                }
             };
             earliest_time = earliest_time.min(candidate.time_seconds());
             if best.is_none_or(|current| {
@@ -2624,9 +2681,9 @@ pub struct NBallOnTableSimulation {
 
 /// A ball state inside the richer indexed N-ball system simulation.
 ///
-/// The system can mix on-table balls, ballistic airborne balls, and terminal pocketed balls.
-/// Airborne balls are advanced between ball, table, and continuous carom-cushion contacts; table
-/// contacts either produce another hop or normalize the ball back into the on-table solver.
+/// The system can mix on-table balls, ballistic airborne balls, and terminal pocketed or off-table
+/// balls. Airborne balls are advanced between ball, table, and continuous carom-cushion contacts;
+/// table contacts either produce another hop or normalize the ball back into the on-table solver.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NBallSystemState {
     OnTable(OnTableBallState),
@@ -2634,6 +2691,10 @@ pub enum NBallSystemState {
     Pocketed {
         pocket: Pocket,
         state_at_capture: OnTableBallState,
+    },
+    OffTable {
+        rail: Rail,
+        state_at_exit: BallState,
     },
 }
 
@@ -2659,7 +2720,9 @@ impl NBallSystemState {
     pub fn as_on_table(&self) -> Option<&OnTableBallState> {
         match self {
             NBallSystemState::OnTable(state) => Some(state),
-            NBallSystemState::Airborne(_) | NBallSystemState::Pocketed { .. } => None,
+            NBallSystemState::Airborne(_)
+            | NBallSystemState::Pocketed { .. }
+            | NBallSystemState::OffTable { .. } => None,
         }
     }
 
@@ -2670,6 +2733,7 @@ impl NBallSystemState {
             NBallSystemState::Pocketed {
                 state_at_capture, ..
             } => state_at_capture.as_ball_state(),
+            NBallSystemState::OffTable { state_at_exit, .. } => state_at_exit,
         }
     }
 }
@@ -2709,6 +2773,10 @@ pub enum NBallSystemEvent {
         ball_index: usize,
         impact: PredictedAirborneBallRailImpact,
     },
+    BallOffTable {
+        ball_index: usize,
+        exit: PredictedBallOffTable,
+    },
     BallTableBounce {
         ball_index: usize,
         contact: AirborneTableContact,
@@ -2733,6 +2801,7 @@ impl NBallSystemEvent {
             NBallSystemEvent::BallPocketCapture { capture, .. } => capture.time_until_capture,
             NBallSystemEvent::BallRailImpact { impact, .. } => impact.time_until_impact,
             NBallSystemEvent::AirborneBallRailImpact { impact, .. } => impact.time_until_impact,
+            NBallSystemEvent::BallOffTable { exit, .. } => exit.time_until_exit,
             NBallSystemEvent::BallTableBounce { contact, .. } => contact.time_until_contact,
             NBallSystemEvent::MotionTransition { transition, .. } => {
                 transition.time_until_transition
@@ -2749,6 +2818,7 @@ impl NBallSystemEvent {
             | NBallSystemEvent::BallPocketCapture { ball_index, .. }
             | NBallSystemEvent::BallRailImpact { ball_index, .. }
             | NBallSystemEvent::AirborneBallRailImpact { ball_index, .. }
+            | NBallSystemEvent::BallOffTable { ball_index, .. }
             | NBallSystemEvent::BallTableBounce { ball_index, .. }
             | NBallSystemEvent::MotionTransition { ball_index, .. } => Some(*ball_index),
         }
@@ -6889,46 +6959,57 @@ fn time_until_airborne_ball_rail_impact(
     (time.is_finite() && time > tolerance).then(|| Seconds::new(time))
 }
 
-/// Predict the next cushion-face impact for an airborne ball on a pocketless carom table.
+/// Predict the next continuous cushion-plane crossing for an airborne ball on a pocketless table.
 ///
-/// Airborne rail contacts on pocketed tables remain unsupported because a projected crossing can
-/// enter a pocket mouth instead of a continuous cushion face.
-pub fn compute_next_airborne_ball_rail_impact(
+/// A ball below the cushion-clearance threshold produces a cushion impact. A ball whose bottom
+/// reaches or exceeds the cushion nose produces a terminal off-table exit. Airborne crossings on
+/// pocketed tables remain unsupported because a projected crossing can enter a pocket mouth.
+pub fn compute_next_airborne_ball_rail_crossing(
     state: &BallState,
     ball: &BallSetPhysicsSpec,
     table: &TableSpec,
-) -> Option<PredictedAirborneBallRailImpact> {
+) -> Option<PredictedAirborneBallRailCrossing> {
     if table.has_pockets() {
         return None;
     }
 
     let radius = ball.radius.as_f64();
-    let mut best: Option<PredictedAirborneBallRailImpact> = None;
+    let mut best: Option<PredictedAirborneBallRailCrossing> = None;
     for rail in [Rail::Top, Rail::Right, Rail::Bottom, Rail::Left] {
         let boundary = RailBoundary::new(rail, radius, table);
-        let Some(time_until_impact) = time_until_airborne_ball_rail_impact(state, boundary) else {
+        let Some(time_until_crossing) = time_until_airborne_ball_rail_impact(state, boundary)
+        else {
             continue;
         };
-        let mut state_at_impact = advance_airborne_ball(state, time_until_impact);
-        state_at_impact.position = match boundary.axis {
+        let mut state_at_crossing = advance_airborne_ball(state, time_until_crossing);
+        state_at_crossing.position = match boundary.axis {
             PlanarAxis::X => Inches2::new(
                 Inches::from_f64(boundary.contact_coordinate),
-                state_at_impact.position.y().clone(),
+                state_at_crossing.position.y().clone(),
             ),
             PlanarAxis::Y => Inches2::new(
-                state_at_impact.position.x().clone(),
+                state_at_crossing.position.x().clone(),
                 Inches::from_f64(boundary.contact_coordinate),
             ),
         };
-        let impact = PredictedAirborneBallRailImpact {
-            rail,
-            time_until_impact,
-            state_at_impact,
+        let crossing = if state_at_crossing.height.as_f64() >= table.cushion_nose_height.as_f64() {
+            PredictedAirborneBallRailCrossing::OffTable(PredictedBallOffTable {
+                rail,
+                time_until_exit: time_until_crossing,
+                state_at_exit: state_at_crossing,
+            })
+        } else {
+            PredictedAirborneBallRailCrossing::CushionImpact(PredictedAirborneBallRailImpact {
+                rail,
+                time_until_impact: time_until_crossing,
+                state_at_impact: state_at_crossing,
+            })
         };
-        if best.as_ref().is_none_or(|current| {
-            impact.time_until_impact.as_f64() < current.time_until_impact.as_f64()
-        }) {
-            best = Some(impact);
+        if best
+            .as_ref()
+            .is_none_or(|current| crossing.time().as_f64() < current.time().as_f64())
+        {
+            best = Some(crossing);
         }
     }
     best
@@ -11819,7 +11900,9 @@ fn resolution_ball_state_snapshot(states: &[NBallSystemState]) -> ResolutionBall
             {
                 Some(state.clone())
             }
-            NBallSystemState::Airborne(_) | NBallSystemState::Pocketed { .. } => None,
+            NBallSystemState::Airborne(_)
+            | NBallSystemState::Pocketed { .. }
+            | NBallSystemState::OffTable { .. } => None,
         })
         .collect()
 }
@@ -14149,6 +14232,13 @@ fn advance_n_ball_system_without_event(
                 pocket: *pocket,
                 state_at_capture: state_at_capture.clone(),
             },
+            NBallSystemState::OffTable {
+                rail,
+                state_at_exit,
+            } => NBallSystemState::OffTable {
+                rail: *rail,
+                state_at_exit: state_at_exit.clone(),
+            },
         })
         .collect()
 }
@@ -14157,8 +14247,8 @@ fn advance_n_ball_system_without_event(
 /// considering rail impacts, pocket captures, and ballistic table-contact events against the
 /// current table geometry.
 ///
-/// Pocketed balls are inert and excluded from future prediction. Airborne balls do not collide
-/// with balls, rails, jaws, or pockets until their next table contact re-enters the on-table solver.
+/// Pocketed and off-table balls are inert and excluded from future prediction. Airborne balls can
+/// collide with balls and continuous carom cushions before their next table contact.
 pub fn compute_next_n_ball_system_event_with_rails_and_pockets_on_table(
     states: &[NBallSystemState],
     ball: &BallSetPhysicsSpec,
@@ -14189,6 +14279,10 @@ pub(crate) enum NBallSystemAppliedEffect {
         pocket: Pocket,
     },
     BallRailContact {
+        ball_index: usize,
+        rail: Rail,
+    },
+    BallOffTable {
         ball_index: usize,
         rail: Rail,
     },
@@ -14635,6 +14729,16 @@ pub(crate) fn resolve_validated_n_ball_system_event_detailed_with_physics_and_po
             effects.push(NBallSystemAppliedEffect::BallRailContact {
                 ball_index: *ball_index,
                 rail: impact.rail,
+            });
+        }
+        NBallSystemEvent::BallOffTable { ball_index, exit } => {
+            states_after[*ball_index] = NBallSystemState::OffTable {
+                rail: exit.rail,
+                state_at_exit: exit.state_at_exit.clone(),
+            };
+            effects.push(NBallSystemAppliedEffect::BallOffTable {
+                ball_index: *ball_index,
+                rail: exit.rail,
             });
         }
         NBallSystemEvent::BallRailImpact { ball_index, impact } => {
@@ -18172,6 +18276,7 @@ pub struct TableSpec {
     pub pockets: [PocketSpec; 6],
     pub cushion_diamond_buffer: Diamond,
     pub diamond_length: Inches,
+    pub cushion_nose_height: Inches,
 }
 
 impl Default for TableSpec {
@@ -18213,6 +18318,7 @@ impl TableSpec {
         Self {
             kind: TableKind::Pool,
             diamond_length: diamond_length.clone(),
+            cushion_nose_height: POOL_CUSHION_NOSE_HEIGHT.clone(),
             cushion_diamond_buffer: Diamond {
                 magnitude: DIAMOND_SIGHT_NOSE_OFFSET.as_big_decimal().clone()
                     / diamond_length.as_big_decimal().clone(),
@@ -18234,6 +18340,7 @@ impl TableSpec {
         Self {
             kind: TableKind::ThreeCushionCarom,
             diamond_length: diamond_length.clone(),
+            cushion_nose_height: CAROM_CUSHION_NOSE_HEIGHT.clone(),
             cushion_diamond_buffer: Diamond {
                 magnitude: DIAMOND_SIGHT_NOSE_OFFSET.as_big_decimal().clone()
                     / diamond_length.as_big_decimal().clone(),

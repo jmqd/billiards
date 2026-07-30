@@ -672,6 +672,10 @@ pub enum ResolvedEffect {
         ball: BallId,
         rail: Rail,
     },
+    BallOffTable {
+        ball: BallId,
+        rail: Rail,
+    },
     BallJawContact {
         ball: BallId,
         pocket: Pocket,
@@ -750,6 +754,7 @@ pub struct ThreeCushionFacts {
     pub cushion_contacts_before_completion: u16,
     pub first_three_qualifying_cushions: [Option<Rail>; 3],
     pub maximum_cue_ball_height: Inches,
+    pub first_ball_off_table: Option<BallId>,
     /// Estimated minimum 3D surface clearance to the remaining object after three cushions and
     /// exactly one object-ball contact.
     pub estimated_closest_second_object_clearance: Option<Inches>,
@@ -799,6 +804,7 @@ pub enum ThreeCushionMiss {
     MissingObjectContact,
     InsufficientCushions { required: u16, observed: u16 },
     CueBallHeightExceeded { limit: Inches, observed: Inches },
+    BallOffTable { ball: BallId },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -961,6 +967,7 @@ struct ThreeCushionAccumulator {
     first_cue_ball_cushion_contact: Option<ContactInstant>,
     first_unsupported_contact: Option<ContactInstant>,
     cushion_contacts_before_completion: u16,
+    first_ball_off_table: Option<BallId>,
     first_three_qualifying_cushions: [Option<Rail>; 3],
     maximum_cue_ball_height: f64,
     estimated_closest_second_object_clearance: Option<f64>,
@@ -978,6 +985,11 @@ impl ThreeCushionAccumulator {
             .any(|effect| matches!(effect, ResolvedEffect::UnsupportedContact { .. }))
         {
             self.first_unsupported_contact.get_or_insert(instant);
+        }
+        for effect in &event.effects {
+            if let ResolvedEffect::BallOffTable { ball, .. } = effect {
+                self.first_ball_off_table.get_or_insert(*ball);
+            }
         }
         for effect in &event.effects {
             let ResolvedEffect::BallBallContact {
@@ -1059,6 +1071,7 @@ impl ThreeCushionAccumulator {
             first_cue_ball_cushion_contact: self.first_cue_ball_cushion_contact,
             cushion_contacts_before_completion: self.cushion_contacts_before_completion,
             first_three_qualifying_cushions: self.first_three_qualifying_cushions,
+            first_ball_off_table: self.first_ball_off_table,
             maximum_cue_ball_height: Inches::from_f64(self.maximum_cue_ball_height),
             estimated_closest_second_object_clearance: self
                 .estimated_closest_second_object_clearance
@@ -1068,6 +1081,12 @@ impl ThreeCushionAccumulator {
 
     fn adjudicate(&self, termination: &ShotTermination) -> ThreeCushionAdjudication {
         let facts = self.facts();
+        if let Some(ball) = facts.first_ball_off_table {
+            return ThreeCushionAdjudication::Miss {
+                facts,
+                reason: ThreeCushionMiss::BallOffTable { ball },
+            };
+        }
         let completion_is_final = facts.completion.is_some_and(|completion| {
             self.first_unsupported_contact
                 .is_none_or(|unsupported| completion.event_index < unsupported.event_index)
@@ -1227,6 +1246,12 @@ fn map_applied_effects(
                     rail,
                 });
             }
+            NBallSystemAppliedEffect::BallOffTable { ball_index, rail } => {
+                resolved.push(ResolvedEffect::BallOffTable {
+                    ball: layout.balls[ball_index].id,
+                    rail,
+                });
+            }
             NBallSystemAppliedEffect::BallTableContact { ball_index } => {
                 resolved.push(ResolvedEffect::BallTableContact {
                     ball: layout.balls[ball_index].id,
@@ -1297,7 +1322,7 @@ fn advance_state_for_clearance(
             Some(advance_motion_on_table(state, elapsed, ball, motion).state)
         }
         NBallSystemState::Airborne(state) => Some(advance_airborne_ball(state, elapsed)),
-        NBallSystemState::Pocketed { .. } => None,
+        NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => None,
     }
 }
 
@@ -1440,7 +1465,7 @@ fn execute_core(
                         &physics.motion.phase,
                     ) == MotionPhase::Rest
                 }
-                NBallSystemState::Pocketed { .. } => true,
+                NBallSystemState::Pocketed { .. } | NBallSystemState::OffTable { .. } => true,
                 NBallSystemState::Airborne(_) => false,
             });
             break if settled {

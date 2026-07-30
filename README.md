@@ -123,6 +123,8 @@ exact center check per finalist, and only candidates that score that nominal che
 A run with no nominally scoring validated finalist reports no winner.
 Three-cushion adjudication treats cue-ball height strictly above 1 inch over the resting center plane
 at any time during the shot as a miss, so jump-assisted candidates cannot win.
+On pocketless tables, an airborne ball crossing a rail plane at or above the cushion-nose height
+becomes a terminal off-table foul; lower crossings rebound and remain within the playable trace.
 
 For bounded three-cushion optimization, the Wasm package also exports
 `robust_three_cushion_shot_from_dsl(source, iterations, playerLevel)`. `iterations` must be

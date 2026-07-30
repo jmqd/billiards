@@ -2,6 +2,7 @@ use billiards::{
     advance_to_next_n_ball_event_on_table, advance_to_next_n_ball_event_with_rails_on_table,
     advance_to_next_n_ball_system_event_with_physics_and_pockets_on_table,
     advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table,
+    compute_next_airborne_ball_rail_crossing,
     compute_next_ball_ball_collision_during_current_phases_on_table,
     compute_next_ball_jaw_impact_on_table, compute_next_ball_pocket_capture_on_table,
     compute_next_ball_rail_impact_on_table, compute_next_n_ball_event_on_table,
@@ -12,10 +13,10 @@ use billiards::{
     BallSetPhysicsSpec, BallState, CollisionModel, Diamond, Inches, Inches2, InchesPerSecondSq,
     MotionPhase, MotionPhaseConfig, MotionTransitionConfig, NBallGeometryError, NBallOnTableEvent,
     NBallSystemEvent, NBallSystemState, OnTableBallState, OnTableMotionConfig, Pocket, PocketJaw,
-    PocketJawGeometry, PocketShapeSpec, PredictedAirborneBallBallCollision, RadiansPerSecondSq,
-    Rail, RailModel, RollingResistanceModel, Scale, Seconds, SlidingFrictionModel, SpinDecayModel,
-    TableSpec, Velocity2, CENTER_SPOT, STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED,
-    TYPICAL_BALL_RADIUS,
+    PocketJawGeometry, PocketShapeSpec, PredictedAirborneBallBallCollision,
+    PredictedAirborneBallRailCrossing, RadiansPerSecondSq, Rail, RailModel, RollingResistanceModel,
+    Scale, Seconds, SlidingFrictionModel, SpinDecayModel, TableSpec, Velocity2, CENTER_SPOT,
+    STANDARD_GRAVITY_INCHES_PER_SECOND_SQUARED, TYPICAL_BALL_RADIUS,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -434,6 +435,105 @@ fn airborne_ball_table_contact_is_scheduled_before_later_on_table_events() {
         settled_state.as_ball_state().vertical_velocity.as_f64(),
         0.0,
     );
+}
+
+fn airborne_state_crossing_top_rail(
+    table: &TableSpec,
+    ball: &BallSetPhysicsSpec,
+    height: Inches,
+) -> BallState {
+    let top_plane = table.diamond_to_inches(Diamond::eight()).as_f64() - ball.radius.as_f64();
+    BallState::airborne(
+        inches2(20.0, top_plane),
+        height,
+        Velocity2::new(Inches::zero(), Inches::from_f64(100.0)),
+        Inches::zero(),
+        AngularVelocity3::zero(),
+    )
+}
+
+#[test]
+fn airborne_rail_crossing_uses_cushion_nose_as_the_off_table_boundary() {
+    let table = TableSpec::three_cushion_carom_10ft();
+    let ball = table.default_ball_set_physics_spec();
+    let nose_height = table.cushion_nose_height.as_f64();
+
+    for (height, expected_off_table) in [
+        (nose_height - 1e-6, false),
+        (nose_height, true),
+        (nose_height + 1e-6, true),
+    ] {
+        let state = airborne_state_crossing_top_rail(&table, &ball, Inches::from_f64(height));
+        let crossing = compute_next_airborne_ball_rail_crossing(&state, &ball, &table)
+            .expect("an outward ball on the cushion plane must cross immediately");
+        match crossing {
+            PredictedAirborneBallRailCrossing::CushionImpact(impact) => {
+                assert!(
+                    !expected_off_table,
+                    "height {height} should clear the cushion"
+                );
+                assert_eq!(impact.rail, Rail::Top);
+                assert_close(impact.time_until_impact.as_f64(), 0.0);
+            }
+            PredictedAirborneBallRailCrossing::OffTable(exit) => {
+                assert!(expected_off_table, "height {height} should hit the cushion");
+                assert_eq!(exit.rail, Rail::Top);
+                assert_close(exit.time_until_exit.as_f64(), 0.0);
+            }
+        }
+    }
+}
+
+#[test]
+fn airborne_ball_below_the_nose_rebounds_while_a_clear_ball_becomes_terminal() {
+    let table = TableSpec::three_cushion_carom_10ft();
+    let ball = table.default_ball_set_physics_spec();
+    let motion = motion_config();
+
+    let below = airborne_state_crossing_top_rail(
+        &table,
+        &ball,
+        Inches::from_f64(table.cushion_nose_height.as_f64() - 1e-6),
+    );
+    let rebound = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &[NBallSystemState::Airborne(below)],
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    )
+    .expect("a low airborne cushion crossing should resolve");
+    assert!(matches!(
+        rebound.event,
+        Some(NBallSystemEvent::AirborneBallRailImpact { ball_index: 0, .. })
+    ));
+    let NBallSystemState::Airborne(rebounded) = &rebound.states[0] else {
+        panic!("a low airborne cushion crossing should remain airborne")
+    };
+    assert!(rebounded.velocity.y().as_f64() < 0.0);
+
+    let clear = airborne_state_crossing_top_rail(&table, &ball, table.cushion_nose_height.clone());
+    let exited = advance_to_next_n_ball_system_event_with_rails_and_pockets_on_table(
+        &[NBallSystemState::Airborne(clear)],
+        &ball,
+        &table,
+        &motion,
+        CollisionModel::Ideal,
+        RailModel::Mirror,
+    )
+    .expect("a cushion-clearing crossing should resolve");
+    assert!(matches!(
+        exited.event,
+        Some(NBallSystemEvent::BallOffTable { ball_index: 0, .. })
+    ));
+    assert!(matches!(
+        exited.states[0],
+        NBallSystemState::OffTable {
+            rail: Rail::Top,
+            ..
+        }
+    ));
 }
 
 #[test]

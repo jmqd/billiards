@@ -1,7 +1,8 @@
 use bigdecimal::ToPrimitive;
-use billiards::dsl::parse_dsl_to_scenario;
+use billiards::dsl::{parse_dsl_to_scenario, ScenarioShotTraceEventKind};
 use billiards::{
-    human_tuned_preview_motion_config, BallSetPhysicsSpec, CollisionModel, RailModel, Seconds,
+    human_tuned_preview_motion_config, BallSetPhysicsSpec, BallType, CollisionModel,
+    NBallSystemState, Rail, RailModel, Seconds,
 };
 use std::fs;
 use std::path::Path;
@@ -131,6 +132,100 @@ shot(cue).heading(165.80576430992357deg).speed(246.20839387485356ips).tip(side: 
 "#,
     ),
 ];
+
+const CUSHION_CLEARING_FOUL_CASE: &str = r#"
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (2.0, 7.5)
+ball yellow at (1.0, 2.0)
+ball red at (3.0, 2.0)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(64)
+trace(max_events: 64)
+shot(cue).heading(0deg).speed(200ips).tip(side: 0R, height: 0R).elevation(30deg).using(default)
+"#;
+
+#[test]
+fn cushion_clearing_cue_ball_emits_a_terminal_foul_at_the_rail_plane() {
+    let mut scenario =
+        parse_dsl_to_scenario(CUSHION_CLEARING_FOUL_CASE).expect("foul scenario should parse");
+    scenario.game_state.resolve_positions();
+    let table = &scenario.game_state.table_spec;
+    let ball_set = table.default_ball_set_physics_spec();
+    let trace = scenario
+        .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+            &ball_set,
+            &human_tuned_preview_motion_config(),
+            CollisionModel::ThrowAware,
+            RailModel::SpinAware,
+        )
+        .expect("foul scenario should simulate")
+        .expect("foul scenario should contain a shot");
+
+    assert!(matches!(
+        trace.event_log.as_slice(),
+        [event]
+            if matches!(
+                event.kind,
+                ScenarioShotTraceEventKind::BallOffTable {
+                    ball: BallType::Cue,
+                    rail: Rail::Top,
+                }
+            )
+    ));
+    let event_lines = trace.event_lines();
+    assert_eq!(event_lines.len(), 1);
+    assert!(event_lines[0].ends_with("cue off table over top rail"));
+
+    let cue_trace = trace
+        .ball_traces
+        .iter()
+        .find(|ball_trace| ball_trace.ball == BallType::Cue)
+        .expect("cue trace should exist");
+    let NBallSystemState::OffTable {
+        rail,
+        state_at_exit,
+    } = &cue_trace.final_state
+    else {
+        panic!("cue ball should finish off table")
+    };
+    assert_eq!(*rail, Rail::Top);
+    let top_plane = table
+        .diamond_to_inches(billiards::Diamond::eight())
+        .as_f64()
+        - ball_set.radius.as_f64();
+    assert!((state_at_exit.position.y().as_f64() - top_plane).abs() <= 1e-9);
+    assert!(
+        state_at_exit.height.as_f64() >= table.cushion_nose_height.as_f64(),
+        "terminal exit must clear the cushion nose"
+    );
+
+    let last_frame = trace
+        .playback_frames(Seconds::new(0.01))
+        .pop()
+        .expect("playback should contain a terminal frame");
+    assert!(
+        last_frame
+            .balls
+            .iter()
+            .all(|ball| ball.ball != BallType::Cue),
+        "off-table cue ball must disappear from terminal playback"
+    );
+    let rendered = trace.rendered_final_layout_with_traces(&scenario, Seconds::new(0.01));
+    assert!(
+        rendered.balls().iter().all(|ball| ball.ty != BallType::Cue),
+        "off-table cue ball must not remain in the final layout"
+    );
+}
 
 #[test]
 fn airborne_carom_trace_timelines_stay_inside_cushion_contact_planes() {

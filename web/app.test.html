@@ -148,6 +148,60 @@
       document.head.append(script);
     });
 
+    const topContactGeometry = (view) => {
+      const ghostShell = view.querySelector('.contact-ball-ghost .contact-ball-shell');
+      const objectShell = view.querySelector('.contact-ball:not(.contact-ball-ghost) .contact-ball-shell');
+      const guidePath = view.querySelector('.contact-shot-guide')?.getAttribute('d');
+      const arrowPath = view.querySelector('.contact-shot-arrow')?.getAttribute('d');
+      assert(
+        ghostShell && objectShell && guidePath && arrowPath,
+        'the top contact view must expose both balls and its travel guide',
+      );
+      const ballGeometry = (shell) => ({
+        x: Number(shell.getAttribute('cx')),
+        y: Number(shell.getAttribute('cy')),
+        radius: Number(shell.getAttribute('r')),
+      });
+      const pathNumbers = (path) => (path.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+      return {
+        ghost: ballGeometry(ghostShell),
+        object: ballGeometry(objectShell),
+        guide: pathNumbers(guidePath),
+        arrow: pathNumbers(arrowPath),
+      };
+    };
+
+    const assertBottomUpContactGeometry = (geometry, context) => {
+      const { ghost, object, guide, arrow } = geometry;
+      assert(
+        ghost.x === 72 && ghost.y === 70 && object.y < ghost.y,
+        `${context}: the ghost ball must stay fixed below the object ball`,
+      );
+      assert(
+        guide.length === 4
+          && guide[0] === ghost.x
+          && guide[2] === ghost.x
+          && guide[1] > guide[3],
+        `${context}: the shot guide must run vertically upward into the ghost ball`,
+      );
+      assert(
+        arrow.length === 6
+          && arrow[0] === ghost.x
+          && arrow[1] < arrow[3]
+          && arrow[1] < arrow[5],
+        `${context}: the shot arrow must point directly up the page`,
+      );
+      for (const ball of [ghost, object]) {
+        assert(
+          ball.x - ball.radius >= 4
+            && ball.x + ball.radius <= 140
+            && ball.y - ball.radius >= 4
+            && ball.y + ball.radius <= 108,
+          `${context}: contact balls must remain inside the guide panel`,
+        );
+      }
+    };
+
     const firstObjectContact = {
       time: 0.369,
       cueBall: ['cue', '#f8f4e8', null, 10, 1.125, 'plain', null, null],
@@ -387,6 +441,20 @@
             && topContactView.querySelector('.contact-ball-ghost'),
           'the bird-eye view must identify and draw the cue ghost ball accessibly',
         );
+        const firstContactGeometry = topContactGeometry(topContactView);
+        assertBottomUpContactGeometry(firstContactGeometry, 'positive lateral contact');
+        assert(
+          Math.abs(
+            firstContactGeometry.object.x
+              - (firstContactGeometry.ghost.x + firstObjectContact.lateralOffsetDiameters * 40)
+          ) < 1e-3
+            && Math.abs(
+              firstContactGeometry.object.y
+                - (firstContactGeometry.ghost.y - firstObjectContact.forwardOffsetDiameters * 40)
+            ) < 1e-3,
+          'the top contact view must rotate the cue-frame contact vector into page coordinates',
+        );
+
         assert(
           contactInfo['First contact'] === 'cue ball → yellow ball at 0.369 s'
             && contactInfo['Hit fullness'] === '49.7%'
@@ -654,6 +722,38 @@
           report: report('applied-candidate'),
           elapsedMs: 1,
         });
+        increaseHeading.click();
+        controlledTimers.flush();
+        await withTimeout(
+          worker.whenMessageCount(8),
+          'changing heading must request another contact visualization',
+        );
+        const oppositeHeadingRender = worker.messages[7];
+        assert(
+          oppositeHeadingRender.source !== appliedCandidateRender.source,
+          'the opposite-cut visualization must be rendered for a different heading',
+        );
+        const oppositeContact = {
+          ...firstObjectContact,
+          lateralOffsetDiameters: -1.05,
+          forwardOffsetDiameters: 1.05,
+        };
+        worker.respond({
+          id: oppositeHeadingRender.id,
+          report: report('opposite-heading-contact', oppositeContact),
+          elapsedMs: 1,
+        });
+        const oppositeTopContactView = preview.querySelector('.contact-top-view');
+        const oppositeContactGeometry = topContactGeometry(oppositeTopContactView);
+        assertBottomUpContactGeometry(oppositeContactGeometry, 'negative lateral contact');
+        assert(
+          oppositeContactGeometry.object.x < oppositeContactGeometry.ghost.x
+            && firstContactGeometry.object.x > firstContactGeometry.ghost.x
+            && oppositeContactGeometry.ghost.x === firstContactGeometry.ghost.x
+            && oppositeContactGeometry.ghost.y === firstContactGeometry.ghost.y,
+          'opposite cuts must move only the object-ball side while the ghost ball stays at the bottom',
+        );
+
 
         dslInput.value = `# Manual edit invalidates candidate actions\n${dslInput.value}`;
         dslInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -685,7 +785,7 @@
           'fatal initialization must hide and disable every interactive shot control',
         );
         assert(
-          preview.querySelector('[data-render-version="applied-candidate"]'),
+          preview.querySelector('[data-render-version="opposite-heading-contact"]'),
           'fatal initialization must retain the last successful preview',
         );
         assert(

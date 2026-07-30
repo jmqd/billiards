@@ -273,10 +273,10 @@ function firstObjectContactPresentation(contact) {
     x: 72 + lateralOffset * 44,
     y: 72 - forwardOffset * 14 - verticalOffset * 44,
   };
-  const topObject = { x: 98, y: 56 };
-  const topCue = {
-    x: topObject.x - forwardOffset * 40,
-    y: topObject.y - lateralOffset * 40,
+  const topCue = { x: 72, y: 70 };
+  const topObject = {
+    x: topCue.x + lateralOffset * 40,
+    y: topCue.y - forwardOffset * 40,
   };
   const elevatedLabel = `${fullnessText} full, ${cutAngleText} cut between ${cueBallName} and ${objectBallName}, viewed down the shot line${airborne ? " with airborne contact" : ""}.`;
   const topLabel = `Top-down ghost-ball view of the first contact between ${cueBallName} and ${objectBallName}.`;
@@ -298,8 +298,8 @@ function firstObjectContactPresentation(contact) {
     <div class="visual-panel contact-visual-panel">
       <svg class="contact-top-view" viewBox="0 0 144 112" role="img" aria-label="${escapeHtml(topLabel)}">
         <rect class="contact-table-plane" x="4" y="4" width="136" height="104" rx="4"/>
-        <path class="contact-shot-guide" d="M8 ${topCue.y} L${topCue.x - 22} ${topCue.y}"/>
-        <path class="contact-shot-arrow" d="M${topCue.x - 15} ${topCue.y} L${topCue.x - 24} ${topCue.y - 5} L${topCue.x - 24} ${topCue.y + 5} Z"/>
+        <path class="contact-shot-guide" d="M${topCue.x} 102 L${topCue.x} ${topCue.y + 22}"/>
+        <path class="contact-shot-arrow" d="M${topCue.x} ${topCue.y + 15} L${topCue.x - 5} ${topCue.y + 24} L${topCue.x + 5} ${topCue.y + 24} Z"/>
         <path class="contact-line-of-centers" d="M${topCue.x} ${topCue.y} L${topObject.x} ${topObject.y}"/>
         ${contactBallSvg(cueBall, topCue.x, topCue.y, 20, { ghost: true })}
         ${contactBallSvg(objectBall, topObject.x, topObject.y, 20)}

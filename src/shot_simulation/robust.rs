@@ -61,7 +61,7 @@ pub const ROBUST_ELEVATION_FEASIBILITY_MARGIN_DEGREES: f64 = 1e-12;
 pub const ROBUST_MAX_PROPOSAL_ATTEMPTS_PER_CANDIDATE: u64 = 4_096;
 
 pub const MIN_ROBUST_SEARCH_EVALUATIONS: u32 = 16;
-pub const MAX_ROBUST_SEARCH_EVALUATIONS: u32 = 10_000;
+pub const MAX_ROBUST_SEARCH_EVALUATIONS: u32 = 128_000;
 pub const DEFAULT_ROBUST_SEARCH_SEED: u64 = 0x524f_4255_5354_0001;
 const MAX_PLAYER_SEARCH_CANDIDATES: usize = 512;
 const PLAYER_SEARCH_FINALISTS: usize = 4;
@@ -2296,6 +2296,7 @@ mod tests {
 
     #[test]
     fn evaluation_budget_is_bounded_and_explicit() {
+        assert_eq!(MAX_ROBUST_SEARCH_EVALUATIONS, 128_000);
         for iterations in [16, 100, 1_000, MAX_ROBUST_SEARCH_EVALUATIONS] {
             let budget = allocate_robust_search_budget(iterations)
                 .unwrap_or_else(|error| panic!("budget {iterations} failed: {error}"));
@@ -2340,8 +2341,8 @@ mod tests {
         let maximum = allocate_robust_search_budget(MAX_ROBUST_SEARCH_EVALUATIONS)
             .unwrap_or_else(|error| panic!("maximum budget failed: {error}"));
         assert_eq!(maximum.candidate_budget, MAX_PLAYER_SEARCH_CANDIDATES);
-        assert_eq!(maximum.screening_replications, 14);
-        assert_eq!(maximum.validation_replications, 707);
+        assert_eq!(maximum.screening_replications, 187);
+        assert_eq!(maximum.validation_replications, 8_063);
         assert_eq!(maximum.nominal_evaluations, 4);
         assert_eq!(maximum.planned_evaluations, MAX_ROBUST_SEARCH_EVALUATIONS);
     }

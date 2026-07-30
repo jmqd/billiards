@@ -443,6 +443,22 @@
         const robustPlayerLevelSelect = document.querySelector('#robust-player-level');
         const robustSearchButton = document.querySelector('#robust-search-button');
         const robustSearchStatus = document.querySelector('#robust-search-status');
+        assert(
+          robustIterationsInput.max === '128000',
+          'robust search must expose the 128,000-evaluation frontend limit',
+        );
+        const originalRobustIterations = robustIterationsInput.value;
+        robustIterationsInput.value = '128000';
+        assert(
+          robustIterationsInput.checkValidity(),
+          'robust search must accept 128,000 frontend evaluations',
+        );
+        robustIterationsInput.value = '128001';
+        assert(
+          !robustIterationsInput.checkValidity(),
+          'robust search must reject 128,001 frontend evaluations',
+        );
+        robustIterationsInput.value = originalRobustIterations;
         robustSearchForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
         await withTimeout(
           worker.whenMessageCount(3),

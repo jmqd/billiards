@@ -126,7 +126,7 @@ at any time during the shot as a miss, so jump-assisted candidates cannot win.
 
 For bounded three-cushion optimization, the Wasm package also exports
 `robust_three_cushion_shot_from_dsl(source, iterations, playerLevel)`. `iterations` must be
-between 16 and 10,000; `playerLevel` is `b`, `a`, `pro`, or `world-class-pro`. The deterministic JSON report contains
+between 16 and 128,000; `playerLevel` is `b`, `a`, `pro`, or `world-class-pro`. The deterministic JSON report contains
 `sourceHasShot`, the mapped shot-inaccuracy sigmas, exact evaluation accounting, nominal-score
 status, Wilson-ranked finalists, and the winning controls. `web/render-worker.js` exposes the same
 operation with

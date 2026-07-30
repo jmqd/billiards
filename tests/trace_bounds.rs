@@ -82,3 +82,123 @@ fn full_rack_break_scenario_trace_points_stay_within_table_diamonds() {
         "examples/scenarios/nine_ball_break_head_rail.billiards",
     ));
 }
+
+const OFF_TABLE_AIRBORNE_TRACE_CASES: [(&str, &str); 2] = [
+    (
+        "first reported carom shot",
+        r#"
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (2.354, 6.309)
+ball yellow at (3.491, 5.838)
+ball red at (2.762, 3.888)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(188)
+trace(max_events: 188)
+shot(cue).heading(104.9752768179163deg).speed(154.54320838415867ips).tip(side: -0.241670018266813R, height: 0.10147386005033804R).elevation(11.048607052617005deg).using(default)
+"#,
+    ),
+    (
+        "second reported carom shot",
+        r#"
+table three_cushion_carom_10ft
+game three_cushion
+ball cue at (2.354, 6.309)
+ball yellow at (3.491, 5.838)
+ball red at (2.762, 3.888)
+cue_strike(default).mass_ratio(1.0).energy_loss(0.08)
+ball_ball(carom).normal_restitution(0.98).tangential_friction(0.05)
+rail_response(lively).normal_restitution(0.82).tangential_friction(0.82)
+rails(carom).default(lively)
+simulation(default)
+  .collision_model(throw_aware)
+  .ball_ball(carom)
+  .rail_model(spin_aware)
+  .rails(carom)
+  .conditions(heated_carom)
+  .max_events(188)
+trace(max_events: 188)
+shot(cue).heading(165.80576430992357deg).speed(246.20839387485356ips).tip(side: -0.251703236609268R, height: 0.12645339511916992R).elevation(9.830566144742164deg).using(default)
+"#,
+    ),
+];
+
+#[test]
+fn airborne_carom_trace_timelines_stay_inside_cushion_contact_planes() {
+    for (case_name, source) in OFF_TABLE_AIRBORNE_TRACE_CASES {
+        let mut scenario = parse_dsl_to_scenario(source).expect("scenario should parse");
+        scenario.game_state.resolve_positions();
+        let table = &scenario.game_state.table_spec;
+        let ball_set = table.default_ball_set_physics_spec();
+        let motion = human_tuned_preview_motion_config();
+        let trace = scenario
+            .simulate_shot_trace_with_preferred_physics_on_table_until_rest(
+                &ball_set,
+                &motion,
+                CollisionModel::ThrowAware,
+                RailModel::SpinAware,
+            )
+            .expect("scenario trace should simulate")
+            .expect("reported scenario should contain a shot");
+        assert!(
+            trace
+                .shot_executions
+                .iter()
+                .flat_map(|execution| &execution.simulation.events)
+                .any(|event| matches!(
+                    event,
+                    billiards::NBallSystemEvent::AirborneBallRailImpact { impact, .. }
+                        if impact.state_at_impact.height.as_f64() > 0.0
+                )),
+            "{case_name} should exercise an above-table airborne cushion impact",
+        );
+
+        let radius = ball_set.radius.as_f64();
+        let min_x = radius;
+        let max_x = table.diamond_to_inches(billiards::Diamond::four()).as_f64() - radius;
+        let min_y = radius;
+        let max_y = table
+            .diamond_to_inches(billiards::Diamond::eight())
+            .as_f64()
+            - radius;
+        let tolerance = 1e-8;
+
+        for ball_trace in &trace.ball_traces {
+            for (segment_index, pair) in ball_trace.timeline_segments.windows(2).enumerate() {
+                let previous = &pair[0].end.position;
+                let next = &pair[1].start.position;
+                assert!(
+                    (previous.x().as_f64() - next.x().as_f64()).abs() <= tolerance
+                        && (previous.y().as_f64() - next.y().as_f64()).abs() <= tolerance,
+                    "{case_name} {:?} timeline jumped after segment {segment_index}: ({}, {}) -> ({}, {})",
+                    ball_trace.ball,
+                    previous.x().as_f64(),
+                    previous.y().as_f64(),
+                    next.x().as_f64(),
+                    next.y().as_f64(),
+                );
+            }
+            for (segment_index, segment) in ball_trace.timeline_segments.iter().enumerate() {
+                for (endpoint, state) in [("start", &segment.start), ("end", &segment.end)] {
+                    let x = state.position.x().as_f64();
+                    let y = state.position.y().as_f64();
+                    assert!(
+                        (min_x - tolerance..=max_x + tolerance).contains(&x)
+                            && (min_y - tolerance..=max_y + tolerance).contains(&y),
+                        "{case_name} {:?} timeline segment {segment_index} {endpoint} left the cushion contact planes at ({x}, {y}); bounds=({min_x}..={max_x}, {min_y}..={max_y})",
+                        ball_trace.ball,
+                    );
+                }
+            }
+        }
+    }
+}
